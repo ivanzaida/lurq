@@ -8,7 +8,7 @@ use super::{
   icons,
   kbd::{Kbd, KeyPlatform},
   names,
-  part_style::{FontFamily, PartStyle},
+  part_style::{FontFamily, Length, PartStyle},
   radio::{RadioPart, RadioState},
   recipe::{Case, Interaction, Name, ROW_STEPS, Recipe, ResolvedPart, ResolvedRecipe, Selector},
   separator::Separator,
@@ -59,6 +59,12 @@ pub enum ListItemPart {
   Meta,
   /// The chevron at the very end of a row that leads somewhere, or that opens what is under it.
   Chevron,
+  /// The bone in the title's place while the title is read: its width and its height.
+  TitleSkeleton,
+  /// The bone in the description's place while the description is read: its width and its height.
+  DescriptionSkeleton,
+  /// The row and what it says under itself, where it says something below it: what holds both.
+  Item,
 }
 
 names!(ListItemPart {
@@ -76,6 +82,9 @@ names!(ListItemPart {
   Value => "value",
   Meta => "meta",
   Chevron => "chevron",
+  TitleSkeleton => "title_skeleton",
+  DescriptionSkeleton => "description_skeleton",
+  Item => "item",
 });
 
 /// The states of a list item a recipe styles, besides what the pointer and the keyboard do to it.
@@ -143,10 +152,16 @@ type Press = Arc<dyn Fn(&MouseEvent) + Send + Sync>;
 /// of Tab and answers no pointer: what it holds (a switch at its end) is pressed on its own. In a row that is
 /// pressed, what the app put at its end ([`trailing`](Self::trailing)) keeps its own presses, which are not the
 /// row's, and is a stop of Tab after the row.
+///
+/// While the app reads its words, a row shows a skeleton's bone in place of its title or its description
+/// ([`title_pending`](Self::title_pending), [`description_pending`](Self::description_pending)). Its id is on the
+/// row, what is pressed; a row that says something [below](Self::below) is held with it in a part `item`, `x-item`.
 #[derive(Clone)]
 pub struct ListItem {
   title: Arc<str>,
+  title_pending: bool,
   description: Option<Arc<str>>,
+  description_pending: bool,
   tags: Vec<Element>,
   info: Option<Arc<str>>,
   details: Vec<Element>,
@@ -178,7 +193,9 @@ impl ListItem {
   pub fn new(title: &str) -> Self {
     Self {
       title: Arc::from(title),
+      title_pending: false,
       description: None,
+      description_pending: false,
       tags: Vec::new(),
       info: None,
       details: Vec::new(),
@@ -208,6 +225,22 @@ impl ListItem {
   /// A second line under the title, in the muted color: who, what, when.
   pub fn description(mut self, description: &str) -> Self {
     self.description = Some(Arc::from(description));
+    self
+  }
+
+  /// Whether the title is still read: a bone stands in place of its words, as wide and as high as the recipe's
+  /// part `title_skeleton` says, on a line of the title's height, so that the words that come move nothing. The row
+  /// is still called by its title (what the app has, or a word that says what it is) and tells tooling it is busy.
+  pub fn title_pending(mut self, pending: bool) -> Self {
+    self.title_pending = pending;
+    self
+  }
+
+  /// Whether the description is still read: a bone stands in its place, as wide and as high as the recipe's part
+  /// `description_skeleton` says, on a line of the description's height, whether the row has a description yet or
+  /// not. The row is drawn as one of two lines, and tells tooling it is busy.
+  pub fn description_pending(mut self, pending: bool) -> Self {
+    self.description_pending = pending;
     self
   }
 
@@ -428,7 +461,10 @@ impl ListItem {
     .state(ListItemState::Selected, self.selected)
     .state(ListItemState::Disabled, self.disabled)
     .state(ListItemState::Pressable, pressable)
-    .state(ListItemState::Description, self.description.is_some())
+    .state(
+      ListItemState::Description,
+      self.description.is_some() || self.description_pending,
+    )
     .state(ListItemState::Icon, matches!(self.lead, Some(Lead::Icon(_))));
     let recipe = theme
       .resolve::<ListItem>(&case, Some(&self.rules))
@@ -464,7 +500,9 @@ impl ListItem {
       .map(|info| super::InfoLabel::mark_declared(info, theme));
     let view = ListItemView {
       title: self.title,
+      title_pending: self.title_pending,
       description: self.description,
+      description_pending: self.description_pending,
       tags: self.tags,
       info,
       details: self.details,
@@ -532,7 +570,11 @@ impl From<ListItem> for Element {
 /// dressed.
 pub struct ListItemView {
   pub title: Arc<str>,
+  /// Whether the title is still read: a bone stands in its place.
+  pub title_pending: bool,
   pub description: Option<Arc<str>>,
+  /// Whether the description is still read: a bone stands in its place.
+  pub description_pending: bool,
   /// The app's elements after the title.
   pub tags: Vec<Element>,
   /// The mark after the title that explains the row, with its tooltip.
@@ -608,6 +650,9 @@ impl ListItemView {
         .describe("a11y_role", "listitem")
         .describe("a11y_name", self.title.clone())
         .part(&part);
+      if self.pending() {
+        row = row.describe("a11y_busy", "true");
+      }
       if self.selected {
         row = row.describe("a11y_selected", "true");
       }
@@ -640,8 +685,11 @@ impl ListItemView {
       .describe("a11y_name", self.title.clone())
       .focus_label(self.title.clone())
       .on_click(move |event: MouseEvent| press(&event));
-    if let Some(description) = &self.description {
+    if let Some(description) = self.description.as_ref().filter(|_| !self.description_pending) {
       row = row.describe("a11y_description", description.clone());
+    }
+    if self.pending() {
+      row = row.describe("a11y_busy", "true");
     }
     match self.toggle {
       Some((_, on)) => row = row.describe("a11y_checked", flag(on)),
@@ -712,13 +760,18 @@ impl ListItemView {
   /// after the title on its line, and the app's details under the description.
   pub fn content(&self) -> Column {
     let fill = Dimension::Pct(100.0);
-    let title = self.part(ListItemPart::Title);
-    // The title's node is the part's, and has its id: `x-title`.
-    let title = title
-      .text(&self.title)
-      .nowrap()
-      .text_overflow(TextOverflow::Elipsis)
-      .part(&title);
+    let part = self.part(ListItemPart::Title);
+    // The title's node is the part's, and has its id: `x-title`; while it is read, the line that holds its bone.
+    let title: Element = if self.title_pending {
+      self.bone(ListItemPart::Title, ListItemPart::TitleSkeleton).into()
+    } else {
+      part
+        .text(&self.title)
+        .nowrap()
+        .text_overflow(TextOverflow::Elipsis)
+        .part(&part)
+        .into()
+    };
     let line: Element = if self.tags.is_empty() && self.info.is_none() {
       Column::new()
         .width(fill)
@@ -733,7 +786,9 @@ impl ListItemView {
       .min_width(Dimension::Px(0.0))
       .part(&self.part(ListItemPart::Content))
       .child(line);
-    if let Some(description) = &self.description {
+    if self.description_pending {
+      content = content.child(self.bone(ListItemPart::Description, ListItemPart::DescriptionSkeleton));
+    } else if let Some(description) = &self.description {
       let part = self.part(ListItemPart::Description);
       content = content.child(
         Column::new()
@@ -754,8 +809,35 @@ impl ListItemView {
     content
   }
 
+  /// Whether the title or the description is still read.
+  fn pending(&self) -> bool {
+    self.title_pending || self.description_pending
+  }
+
+  /// The bone in place of the words of `text` (the title or the description) while they are read: a skeleton's line
+  /// as wide and as high as the recipe's part `bone` says, which gives way where the room is narrower, on a line of
+  /// the text's height, in the part `text`. A space no wider than nothing holds the line's height.
+  pub fn bone(&self, text: ListItemPart, bone: ListItemPart) -> Row {
+    let part = self.part(text);
+    let size = self.part(bone).rest();
+    let skeleton = super::Skeleton::line()
+      .width(size.width.unwrap_or(Length::Fill))
+      .height(size.height.unwrap_or(Length::Px(12.0)))
+      .max_width(Length::Fill)
+      .min_width(0.0)
+      .flex_shrink(1.0)
+      .rules(&self.recipe.lend(bone));
+    Row::new()
+      .width(Dimension::Pct(100.0))
+      .min_width(Dimension::Px(0.0))
+      .align_items(Alignment::Center)
+      .part(&part)
+      .child(part.text("\u{a0}").nowrap().width(Dimension::Px(0.0)))
+      .child(skeleton.build(self.theme()))
+  }
+
   /// The title's line with the tags and the mark that explains the row after the title, which gives way first.
-  fn title_line(&self, title: crate::components::Text) -> Row {
+  fn title_line(&self, title: Element) -> Row {
     let mut line = Row::new()
       .width(Dimension::Pct(100.0))
       .min_width(Dimension::Px(0.0))
@@ -878,6 +960,7 @@ impl ListItemView {
     let mut item = Column::new()
       .width(Dimension::Pct(100.0))
       .align_items(Alignment::Stretch)
+      .part(&self.part(ListItemPart::Item))
       .child(self.root(children))
       .child(below);
     if let Some(key) = key {
@@ -929,7 +1012,8 @@ impl Themed for ListItem {
   /// the density, by a row's step and half of it.
   fn recipe() -> Recipe {
     use ListItemPart::{
-      Below, Chevron, Content, Description, Detail, Icon, Info, Leading, Meta, Root, Tags, Title, Trailing, Value,
+      Below, Chevron, Content, Description, DescriptionSkeleton, Detail, Icon, Info, Leading, Meta, Root, Tags, Title,
+      TitleSkeleton, Trailing, Value,
     };
     use ListItemState::{Contained, Disabled, Pressable, Selected, Setting};
     let (two_lines, with_icon) = (ListItemState::Description, ListItemState::Icon);
@@ -987,6 +1071,9 @@ impl Themed for ListItem {
       .base(Tags, |s| s.padding_start(6.0).gap(6.0))
       .base(Info, |s| s.padding_start(6.0))
       .base(Detail, |s| s.padding_top(2.0))
+      // lurq's: a title's bone 140 by 12, a description's 220 by 10, each giving way in a narrower row.
+      .base(TitleSkeleton, |s| s.width(140.0).height(12.0))
+      .base(DescriptionSkeleton, |s| s.width(220.0).height(10.0))
       .base(Below, |s| s.padding_x(12.0).padding_bottom(8.0).gap(8.0))
       .density(Density::Touch, Below, |s| s.padding_x(16.0))
       .base(Trailing, |s| s.gap(8.0).foreground(MutedForeground))

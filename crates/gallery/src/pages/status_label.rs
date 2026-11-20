@@ -379,7 +379,8 @@ impl Component for StatusLabelPage {
         StatusLabel::new("Running · 03 Implement")
           .icon(icons::SPINNER)
           .spin(true)
-          .size(StatusLabelSize::Sm),
+          .size(StatusLabelSize::Sm)
+          .tooltip_when_cut(true),
       ))
       .child(Separator::new())
       .child(run(
@@ -452,6 +453,18 @@ impl Component for StatusLabelPage {
         "impl Into<Name>",
         "Md",
         "A StatusLabelSize: an icon of 14 and words of 12, 6 apart; or 12 and 11, 4 apart.",
+      ),
+      (
+        "tooltip_when_cut",
+        "bool",
+        "false",
+        "The whole words in a tooltip that shows only while they are cut.",
+      ),
+      (
+        "word_ref",
+        "ElementRef",
+        "",
+        "Refers to the words' text: text_cut() says whether they are cut, for a tooltip of the app's own.",
       ),
       ("spin", "bool", "false", "Whether the icon turns, as a spinner does."),
       (
@@ -567,7 +580,8 @@ impl Component for StatusLabelPage {
         Section::new(
           "In a table of runs",
           "The state of each run in the last column, small. In a column narrower than its words they are cut \
-           with an ellipsis; the icon keeps its size.",
+           with an ellipsis, and with tooltip_when_cut(true) the pointer on them shows them whole; the icon keeps \
+           its size.",
           self.frame.demo(
             4,
             runs,
@@ -580,7 +594,8 @@ impl Component for StatusLabelPage {
               "        StatusLabel::new(\"Running · 03 Implement\")",
               "            .icon(icons::SPINNER)",
               "            .spin(true)",
-              "            .size(StatusLabelSize::Sm),",
+              "            .size(StatusLabelSize::Sm)",
+              "            .tooltip_when_cut(true),",
               "    ))",
             ],
           ),

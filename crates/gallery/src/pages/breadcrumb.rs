@@ -530,7 +530,7 @@ impl Component for BreadcrumbPage {
         "impl Into<Length>",
         "",
         "The most a link is wide: a longer name is cut with an ellipsis and said whole in a tooltip while cut. \
-         Links keep their room; the page gives way.",
+         Links keep their room; the page gives way, its name whole in a tooltip while it is cut.",
       ),
       (
         "menu",
@@ -711,7 +711,7 @@ impl Component for BreadcrumbPage {
           "Long names",
           "Given link_max_width, each link is at most that wide and keeps its room: a longer name is cut with an \
            ellipsis, and the pointer on it shows the name whole. The page one is on gives way first where the row \
-           is short.",
+           is short, and says its whole name in a tooltip while it is cut too, in every breadcrumb.",
           self.frame.demo(
             4,
             cut,

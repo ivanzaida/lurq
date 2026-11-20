@@ -7,12 +7,12 @@ use super::{
   names,
   part_style::Length,
   recipe::{Case, Name, Recipe, ResolvedPart, ResolvedRecipe},
-  shared::one_line,
   theme::{Themed, current_theme},
 };
 use crate::{
   app::theme::{IconSize, PaletteColor, Theme, TypographyStyle},
-  components::Row,
+  components::{Row, TextOverflow},
+  core::ElementRef,
   layout::{Alignment, text_style::FontWeight},
   node::Element,
 };
@@ -110,6 +110,8 @@ pub struct StatusLabel {
   motion: Option<SpinMotion>,
   variant: Name,
   size: Name,
+  tooltip_when_cut: bool,
+  word: Option<ElementRef>,
   states: Vec<Name>,
   rules: Recipe,
   id: Option<Arc<str>>,
@@ -126,6 +128,8 @@ impl StatusLabel {
       motion: None,
       variant: StatusLabelVariant::default().into(),
       size: StatusLabelSize::default().into(),
+      tooltip_when_cut: false,
+      word: None,
       states: Vec::new(),
       rules: Recipe::new(),
       id: None,
@@ -161,6 +165,22 @@ impl StatusLabel {
   /// A [`StatusLabelSize`], or a size the theme's recipe names.
   pub fn size(mut self, size: impl Into<Name>) -> Self {
     self.size = size.into();
+    self
+  }
+
+  /// Whether the whole words are said in a tooltip while they are cut, as
+  /// [`Tooltip::when_cut`](super::Tooltip::when_cut) says: a status with a detail in a narrow row. It shows only while
+  /// the last layout cut them. Off unless told.
+  pub fn tooltip_when_cut(mut self, tooltip: bool) -> Self {
+    self.tooltip_when_cut = tooltip;
+    self
+  }
+
+  /// Refers to the words' text once it is laid out: whether the last layout cut it
+  /// ([`ElementRef::text_cut`]), for a tooltip of the app's own (`Tooltip::when_cut(&words)`, with a hint while they
+  /// are whole). [`tooltip_when_cut`](Self::tooltip_when_cut) reads it too where it is given.
+  pub fn word_ref(mut self, word: ElementRef) -> Self {
+    self.word = Some(word);
     self
   }
 
@@ -215,6 +235,11 @@ impl StatusLabel {
       motion: self.motion.unwrap_or_else(|| theme.spin_motion()),
       variant: self.variant,
       size: self.size,
+      tooltip_when_cut: self.tooltip_when_cut,
+      word: match self.word {
+        Some(word) => Some(word),
+        None => self.tooltip_when_cut.then(ElementRef::new),
+      },
       recipe: theme
         .resolve::<StatusLabel>(&case, Some(&self.rules))
         .owned_by(self.id.as_ref()),
@@ -245,6 +270,10 @@ pub struct StatusLabelView {
   pub motion: SpinMotion,
   pub variant: Name,
   pub size: Name,
+  /// Whether its whole words are said in a tooltip while they are cut.
+  pub tooltip_when_cut: bool,
+  /// What refers to its words' text: the app's, or the tooltip's where it says them while they are cut.
+  word: Option<ElementRef>,
   /// The style of each part of this label.
   pub recipe: ResolvedRecipe,
   id: Option<Arc<str>>,
@@ -291,18 +320,28 @@ impl StatusLabelView {
     Some(Row::new().flex_shrink(0.0).part(&part).child(icon).into())
   }
 
-  /// The words, on one line cut with an ellipsis where the room is short.
+  /// The words, on one line cut with an ellipsis where the room is short, the ref of the label's words on them.
   pub fn words(&self) -> Element {
-    one_line(&self.part(StatusLabelPart::Label), &self.label)
+    let part = self.part(StatusLabelPart::Label);
+    let mut words = part.text(&self.label).nowrap().text_overflow(TextOverflow::Elipsis).part(&part);
+    if let Some(reference) = &self.word {
+      words = words.ref_element(reference.clone());
+    }
+    Row::new().flex_shrink(1.0).min_width(0.0).child(words).into()
   }
 
-  /// How the default renderer builds a label: its icon and its words, side by side.
+  /// How the default renderer builds a label: its icon and its words, side by side; their whole in a tooltip while
+  /// they are cut where it is told to.
   pub fn render(self) -> Element {
     let mut root = self.root();
     if let Some(icon) = self.icon() {
       root = root.child(icon);
     }
-    root.child(self.words()).into()
+    let root = root.child(self.words());
+    match self.word.as_ref().filter(|_| self.tooltip_when_cut) {
+      Some(word) => super::Tooltip::new(&self.label).when_cut(word).declared(root),
+      None => root.into(),
+    }
   }
 }
 

@@ -614,3 +614,107 @@ fn a_checkbox_pressed_as_a_whole_has_its_id_on_the_whole_and_keeps_its_press_fro
   );
   assert_eq!(*rows.lock().unwrap(), 0, "the row is not pressed");
 }
+
+/// What the element of `id` says to tooling by `name`.
+#[cfg(feature = "mcp")]
+fn said(stage: &mut Stage, id: &str, name: &str) -> Option<String> {
+  stage
+    .tree
+    .get_element_by_id_mut(id)
+    .and_then(|element| element.description(name))
+}
+
+#[test]
+fn a_checkbox_s_element_ref_is_on_what_is_pressed_and_follows_the_focus() {
+  use lurq::core::ElementRef;
+  let (boxed, whole) = (ElementRef::new(), ElementRef::new());
+  let (box_ref, whole_ref) = (boxed.clone(), whole.clone());
+  let mut stage = Stage::new(move |_| {
+    Column::new()
+      .padding(8.0)
+      .spacing(8.0)
+      .child(
+        Checkbox::new("Send reports")
+          .id("reports")
+          .element_ref(box_ref.clone())
+          .on_change(|_| {}),
+      )
+      .child(
+        Checkbox::new("Keep me signed in")
+          .whole(true)
+          .id("keep")
+          .element_ref(whole_ref.clone())
+          .on_change(|_| {}),
+      )
+      .into()
+  });
+  assert_eq!((boxed.width(), boxed.height()), (16.0, 16.0), "on the box");
+  let (_, _, whole_width, _) = stage.bounds("keep");
+  assert_eq!(whole.width(), whole_width, "on the whole");
+  assert!(whole.width() > 16.0);
+  stage.key("Tab");
+  assert!(boxed.focused(), "the box has the focus");
+  stage.key("Tab");
+  assert!(whole.focused() && !boxed.focused(), "then the whole");
+}
+
+#[test]
+fn a_checkbox_s_mark_alone_is_its_box_with_no_press_focus_or_label_and_the_row_says_it_is_checked() {
+  use lurq::core::ElementRef;
+  let pressed = Arc::new(Mutex::new(0));
+  let (told, mark) = (pressed.clone(), ElementRef::new());
+  let held = mark.clone();
+  let mut stage = Stage::new(move |_| {
+    let told = told.clone();
+    Column::new()
+      .padding(8.0)
+      .child(
+        lurq::components::Button::empty()
+          .id("option")
+          .spacing(8.0)
+          .describe("a11y_checked", "true")
+          .on_click(move |_| *told.lock().unwrap() += 1)
+          .child(Checkbox::new("Bug").checked(true).mark_only(true).id("mark").element_ref(held.clone()))
+          .child(lurq::components::Text::new("Bug")),
+      )
+      .child(Checkbox::new("Feature").mark_only(true).id("empty"))
+      .into()
+  });
+  let ids = stage.ids();
+  for id in ["mark", "mark-indicator", "empty"] {
+    assert!(ids.contains(&id.to_owned()), "{id} in {ids:?}");
+  }
+  assert!(!ids.iter().any(|id| id.starts_with("mark-label") || id == "mark-box"), "{ids:?}");
+  let (_, _, width, height) = stage.bounds("mark");
+  assert_eq!((width, height), (16.0, 16.0), "the box of the recipe");
+  assert_eq!(mark.width(), 16.0, "its ref on the box");
+  assert_eq!(stage.fill_color("mark"), Some(light(PaletteColor::Primary)), "checked, it is filled");
+  assert_eq!(stage.fill_color("empty"), Some(light(PaletteColor::Background)));
+  #[cfg(feature = "mcp")]
+  {
+    assert_eq!(said(&mut stage, "mark", "a11y_hidden").as_deref(), Some("true"));
+    assert_eq!(said(&mut stage, "mark", "a11y_role"), None, "no checkbox to tooling");
+  }
+  stage.click("mark");
+  assert_eq!(*pressed.lock().unwrap(), 1, "a press of the mark is the row's");
+  stage.key("Tab");
+  assert_eq!(
+    stage
+      .tree
+      .focused_element()
+      .and_then(|element| element.id().map(str::to_owned))
+      .as_deref(),
+    Some("option"),
+    "Tab stops at the row, not at a mark"
+  );
+  stage.key("Tab");
+  assert_ne!(
+    stage
+      .tree
+      .focused_element()
+      .and_then(|element| element.id().map(str::to_owned))
+      .as_deref(),
+    Some("empty"),
+    "and never at a mark alone"
+  );
+}

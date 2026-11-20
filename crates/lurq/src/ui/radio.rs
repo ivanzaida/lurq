@@ -82,12 +82,14 @@ pub type RadioRenderer = Arc<dyn Fn(RadioView) -> Element + Send + Sync>;
 /// already does nothing: a radio is not unselected by a press. A press of its
 /// label is a press of the radio, and a press of either is the radio's alone:
 /// a row around it that is pressed is not. [`Radio::whole`] makes the mark and
-/// its label one control, its id on the whole. Radios that are one choice are
-/// a [`RadioGroup`].
+/// its label one control, its id on the whole. [`Radio::mark_only`] draws the
+/// mark alone, for a row that is pressed as a whole and says it is chosen.
+/// Radios that are one choice are a [`RadioGroup`].
 pub struct Radio {
   label: Arc<str>,
   label_hidden: bool,
   whole: bool,
+  mark_only: bool,
   count: Option<Arc<str>>,
   element: Option<ElementRef>,
   selected: bool,
@@ -108,6 +110,7 @@ impl Radio {
       label: Arc::from(label),
       label_hidden: false,
       whole: false,
+      mark_only: false,
       count: None,
       element: None,
       selected: false,
@@ -135,6 +138,18 @@ impl Radio {
   /// the whole. Not unless told: the mark is what is pressed, and has the id.
   pub fn whole(mut self, whole: bool) -> Self {
     self.whole = whole;
+    self
+  }
+
+  /// Whether the radio is its mark alone: the round mark with its dot while it
+  /// is selected, in the recipe's parts and states, for a row that is pressed
+  /// as a whole (a choice among grouped rows). It takes no press, no focus and
+  /// no stop of Tab, has no label and no count, and is hidden from what reads
+  /// the tree: the row around it is the control, and says that it is chosen.
+  /// Its id and its element ref are on the mark, its dot `x-dot`. Not unless
+  /// told.
+  pub fn mark_only(mut self, mark_only: bool) -> Self {
+    self.mark_only = mark_only;
     self
   }
 
@@ -232,18 +247,24 @@ impl Radio {
     .state(RadioState::Invalid, self.invalid)
     .state(RadioState::Disabled, self.disabled)
     .state(RadioState::Whole, self.whole);
+    // Its mark alone, the id is on the mark, and the dot in it is a part named after it.
+    let recipe = theme.resolve::<Radio>(&case, Some(&self.rules));
+    let recipe = if self.mark_only {
+      recipe.rooted_at(RadioPart::Mark)
+    } else {
+      recipe
+    };
     let view = RadioView {
       label: self.label,
       label_hidden: self.label_hidden,
       whole: self.whole,
+      mark_only: self.mark_only,
       count: self.count,
       element: self.element,
       selected: self.selected,
       invalid: self.invalid,
       disabled: self.disabled,
-      recipe: theme
-        .resolve::<Radio>(&case, Some(&self.rules))
-        .owned_by(self.id.as_ref()),
+      recipe: recipe.owned_by(self.id.as_ref()),
       forced: self.forced,
       on_change: self.on_change,
       id: self.id,
@@ -269,6 +290,8 @@ pub struct RadioView {
   pub label_hidden: bool,
   /// Whether the mark and its label are one control, its id on the whole.
   pub whole: bool,
+  /// Whether the radio is its mark alone, with no press, focus or label.
+  pub mark_only: bool,
   /// The number after the label, where the radio has one.
   pub count: Option<Arc<str>>,
   element: Option<ElementRef>,
@@ -363,10 +386,37 @@ impl RadioView {
     Row::new().part(&self.part(RadioPart::Dot))
   }
 
+  /// The mark alone with its dot while the radio is selected, in the style of
+  /// its part: nothing pressed, focused or read by tooling, its id, its key
+  /// and its element ref on it. What [`render`](Self::render) draws where the
+  /// radio is [`mark_only`](RadioView::mark_only).
+  pub fn mark_alone(&self) -> Row {
+    let mut mark = Row::new()
+      .align_items(Alignment::Center)
+      .justify(Justify::Center)
+      .flex_shrink(0.0)
+      .part(&self.part(RadioPart::Mark))
+      .describe("a11y_hidden", "true")
+      .with_children(self.selected.then(|| self.dot()));
+    if let Some(id) = &self.id {
+      mark = mark.id(id.clone());
+    }
+    if let Some(key) = &self.key {
+      mark = mark.key(key.clone());
+    }
+    if let Some(element) = &self.element {
+      mark = mark.ref_element(element.clone());
+    }
+    mark
+  }
+
   /// How the default renderer builds a radio: the mark, with the dot in it
   /// while the radio is selected, and the label beside it; pressed as a whole,
   /// all of them in what is pressed.
   pub fn render(self) -> Element {
+    if self.mark_only {
+      return self.mark_alone().into();
+    }
     let dot = self.selected.then(|| self.dot());
     if self.whole {
       let mark = Row::new()

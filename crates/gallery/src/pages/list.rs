@@ -528,6 +528,22 @@ impl Component for ListPage {
           ),
       );
 
+    // Settings rows whose words are still read.
+    let reading = List::new()
+      .contained(true)
+      .item(
+        ListItem::new("Default branch")
+          .title_pending(true)
+          .description_pending(true)
+          .value("main"),
+      )
+      .item(
+        ListItem::new("Pull requests")
+          .description_pending(true)
+          .trailing(Switch::new("Pull requests").label_hidden(true).on(true)),
+      )
+      .item(ListItem::new("Merge method").description("Squash, so each run is one commit"));
+
     let rows = [
       (
         "ListItem::new",
@@ -541,7 +557,15 @@ impl Component for ListPage {
         "impl Into<Element> / &str",
         "",
         "Elements after the title, an (i) with its words in a tooltip after them, elements under the description, \
-         and what the row says under itself, under its line, which a press of the row does not reach.",
+         and what the row says under itself, under its line, which a press of the row does not reach. A row with \
+         something below is held with it in the part item (x-item); the row's id stays on the row.",
+      ),
+      (
+        "title_pending / description_pending",
+        "bool",
+        "false",
+        "A bone in place of the title's or the description's words while they are read, on a line of their height, \
+         its size the recipe's title_skeleton and description_skeleton. The row says it is busy.",
       ),
       (
         "on_click",
@@ -714,6 +738,26 @@ impl Component for ListPage {
               "            .below(muted(\"The token expired on 18 November: pull requests are not opened.\", ..))",
               "            .trailing(Button::new(\"Renew\").variant(ButtonVariant::Outline).size(ButtonSize::Sm)),",
               "    )",
+            ],
+          ),
+        ),
+        Section::new(
+          "While its words are read",
+          "A row whose title or description the app is still reading shows a bone in their place, on a line of \
+           their height, so the words that come move nothing; the rest of the row is drawn as it is.",
+          self.frame.demo(
+            6,
+            reading,
+            ".title_pending(true).description_pending(true)",
+            &[
+              "List::new()",
+              "    .contained(true)",
+              "    .item(ListItem::new(\"Default branch\").title_pending(true).description_pending(true).value(\"main\"))",
+              "    .item(ListItem::new(\"Pull requests\").description_pending(true).trailing(Switch::new(..)))",
+              "    .item(ListItem::new(\"Merge method\").description(\"Squash, so each run is one commit\"))",
+              "",
+              "// A bone of the app's width, for one row:",
+              "ListItem::new(\"Default branch\").title_pending(true).style(ListItemPart::TitleSkeleton, |s| s.width(96.0))",
             ],
           ),
         ),

@@ -1,6 +1,7 @@
 //! The page of the radio: its playground, a group bound to a signal, the
 //! states of one radio, a choice that cannot be made, and a choice the app
-//! holds that must be made, and radios pressed as a whole in rows pressed of their own.
+//! holds that must be made, radios pressed as a whole in rows pressed of their own,
+//! and a radio's mark alone in rows pressed as a whole.
 
 use std::sync::Arc;
 
@@ -57,9 +58,43 @@ pub struct RadioPage {
   /// The branch a row of whole radios chose, and how many times a row was pressed beside them.
   branch: Signal<usize>,
   row_presses: Signal<usize>,
+  /// What an export takes, chosen by rows pressed as a whole with a radio's mark alone in them.
+  include: Signal<usize>,
 }
 
 impl RadioPage {
+  /// The options of an export, each a column pressed as a whole that says it is chosen: a radio's mark alone and a
+  /// name, and what it takes under them.
+  fn marks(&self) -> Column {
+    let option = |index: usize, name: &str, hint: &str| {
+      let (chosen, set) = (self.include.get() == index, self.include.clone());
+      Column::new()
+        .width(320.0)
+        .max_width(FILL)
+        .padding_horizontal(12.0)
+        .padding_vertical(8.0)
+        .spacing(4.0)
+        .rounded(RadiusSize::Md)
+        .border(line())
+        .describe("a11y_role", "radio")
+        .describe("a11y_name", name.to_owned())
+        .describe("a11y_checked", if chosen { "true" } else { "false" })
+        .on_click(move |_| set.set(index))
+        .child(
+          Row::new()
+            .spacing(8.0)
+            .align_items(Alignment::Center)
+            .child(Radio::new(name).selected(chosen).mark_only(true))
+            .child(quiet(name, 14.0)),
+        )
+        .child(Row::new().max_width(FILL).padding_left(24.0).child(quiet(hint, 12.0)))
+    };
+    Column::new()
+      .spacing(8.0)
+      .child(option(0, "Messages only", "What was said, without the tools' calls."))
+      .child(option(1, "With tools", "Every call of a tool and what it answered."))
+  }
+
   /// The playground: the group as the panel's props make it.
   fn play(&self, ctx: &mut Ctx) -> Element {
     let selected = self.selected.get().min(DENSITIES.len() - 1);
@@ -210,6 +245,7 @@ impl Component for RadioPage {
       answer: ctx.signal(None),
       branch: ctx.signal(0),
       row_presses: ctx.signal(0),
+      include: ctx.signal(0),
     }
   }
 
@@ -392,8 +428,16 @@ impl Component for RadioPage {
         "The mark and its label one control: pressed, focused and ringed as a whole, its id on the whole and its \
          parts named after it (x-mark, x-dot, x-label). A press of a radio never reaches a row around it.",
       ),
+      (
+        "mark_only",
+        "bool",
+        "false",
+        "The mark alone, for a row pressed as a whole that says it is chosen: no press, no focus, no label, hidden \
+         from tooling; its id on the mark, its dot x-dot.",
+      ),
     ];
     let playground = self.play(ctx);
+    let marks = self.marks();
     self.frame.page(
       ctx,
       Header {
@@ -525,6 +569,25 @@ impl Component for RadioPage {
               "        .orientation(Orientation::Horizontal)",
               "        .whole(true),",
               "    )",
+            ],
+          ),
+        ),
+        Section::new(
+          "Its mark alone, in rows pressed as a whole",
+          "Where a row is the choice and says it is chosen (an option of an export with words under it), the radio is \
+           its mark alone, with mark_only(true): the mark and its dot in the recipe's look, with no press, focus or \
+           label of its own.",
+          self.frame.demo(
+            6,
+            marks,
+            ".mark_only(true)",
+            &[
+              "Column::new()",
+              "    .describe(\"a11y_role\", \"radio\")",
+              "    .describe(\"a11y_checked\", if chosen { \"true\" } else { \"false\" })",
+              "    .on_click(move |_| include.set(0))",
+              "    .child(Row::new().child(Radio::new(\"Messages only\").selected(chosen).mark_only(true)).child(name))",
+              "    .child(hint)",
             ],
           ),
         ),
