@@ -312,10 +312,10 @@ app
 - `pool_size` is how many loads are read at once, on as many threads of the loader's own, or as many blocking tasks
   at a time of the app's runtime where it gave one, and how many HTTP agents the loader keeps. A load of an address
   is lent an agent and gives it back when it ends, with the connections it opened kept open, so the next load of
-  the same host, a picture of the same album, goes over one of them with no new handshake; a reader of an address
-  (`loader.open`, a video) is lent them for each of its requests. Told again, it is for the loads asked for from
-  then on: those on their way end on the threads they were given, and an agent given back beyond the new size is
-  let go.
+  the same host, a picture of the same album, goes over one of them with no new handshake: a load is lent the agent
+  that asked its host last. A reader of an address (`loader.open`, a video) asks over the agent it was lent when
+  it was opened, every time. Told again, it is for the loads asked for from then on: those on their way end on the
+  threads they were given, and an agent given back beyond the new size is let go.
 - **Whose turn it is.** Of the loads that wait for a free thread, the next one read is the one of the highest
   priority, and among those the one asked for last, not the one that came first: in a long list scrolled fast,
   what is on the screen now is read before what went by. `load.set_priority(LoadPriority::High)` (or
@@ -336,28 +336,53 @@ app
 - `loader.open(&source)` gives a `Reader`: `len()`, `content_type()`, `read_at(offset, buf)` and `buffered()`, for
   what reads a part of a source and not all of it. A file, a resource and bytes are read where they are. An address
   is read by ranges as they are asked for, with the rule's and the source's headers and the loader's timeout on each
-  request, the two that follow fetched ahead and the last 16 kept. `open` asks for the first range before it
-  returns, so it blocks (call it off the UI thread): its answer gives the length and the `Content-Type`, and a server
-  that refuses fails it there (`LoadError::Status(403)`, `LoadError::NotFound`). A read that fails later gives an
-  `io::Error` that `LoadError::from` turns into what the server answered. A server that reads no ranges is read from
-  its start for each. What the cache on the disk keeps of the address is read from its file. It needs the feature
-  `http`, and is not built in a browser (`LoadError::Unsupported`).
+  request, the two that follow fetched ahead and the last 16 kept. `open` asks for the first range and returns once
+  its answer has come, so it blocks (call it off the UI thread): the answer gives the length and the
+  `Content-Type`, and a server that refuses fails it there (`LoadError::Status(403)`, `LoadError::NotFound`). A read
+  that fails later gives an `io::Error` that `LoadError::from` turns into what the server answered, and the next
+  read of the same place asks again. A server that reads no ranges is read from its start for each. What the cache
+  on the disk keeps of the address is read from its file. It needs the feature `http`, and is not built in a
+  browser (`LoadError::Unsupported`).
+- **A read has its bytes as they come.** `read_at` gives what has come of a range and does not wait for the range
+  to be whole: a decoder that needs the first 40 KB of a range of 1 MiB has them when they are there, and not a
+  second and a half later on a host that sends 600 KB a second. `buffered()` says how far each range has come.
+- **One request after the other, over one connection.** A reader asks for the range a read waits for, and then,
+  where it reads ahead, for what follows the last read, each request once the one before has ended, on the
+  connection it ended on: no new handshake, and nothing ahead of the decoder while a read waits. A reader that
+  reads ahead asks for its small first ranges in one request, as long as the largest range. A second request is
+  made beside the first only for a read that waits for bytes the first is not bringing (a video sent to another
+  place, an index at the end), and a request nobody waits for then stands still until that read has its bytes.
+  It matters on a host that gives one client so much a second in all, however many connections it has: there the
+  two ranges read ahead beside the one that was waited for shared with it what the host gave, and each paid a
+  handshake of its own.
+- **The start is kept.** When a reader of an address is dropped, the ranges it read whole from its start, 2 MiB of
+  them at most, stay in memory for five minutes, for the last 8 addresses. A reader of one of them starts with
+  that, with no request: a video closed and opened again a moment later (a page of a pager gone and come back)
+  opens at once, and asks the network for what follows. `loader.keep_starts(n)` says of how many addresses, 0 for
+  none, and `loader.forget(&source)` lets go of the start of one.
+- **A connection ahead.** `loader.connect(address)` opens a connection to the host of an address before the first
+  request to it, away from the caller: an app that knows the host of a video a moment before it makes the player
+  spares the player the handshake, a quarter of a second on a host far away. It asks the host for the head of what
+  is at the address (a `HEAD` request with the rule's headers, whose answer has nothing in it) and keeps the
+  connection whatever the answer; an agent lets go of a connection nothing went over for a quarter of a minute. A
+  host asked in the last ten seconds is not asked again, and nothing is sent to an address `allow` refuses.
 - **The ranges grow.** The first two are 256 KiB, each one after them twice the one before up to 1 MiB, and 1 MiB
   from there on: what opens a video reads its start, and on a host that sends 600 KB a second a first megabyte
   kept the first frame waiting two seconds, while what plays reads on, where larger ranges are fewer requests.
   256 KiB is what Media Foundation reads of a file at a time, so a smaller first range is more requests for the
   same bytes and no sooner. `loader.read_blocks(first, most)` says others, for the readers opened from then on.
 - **An index at the end.** An MP4 file not written for the network has its index (`moov`) after its pictures, and a
-  decoder asks for it only after the start, one request after the other. The reader sees it in the first range and
-  asks for the ranges of the index at once, beside those that follow the start.
+  decoder asks for it only after the start, one request after the other. The reader sees it in the first bytes of
+  the first range and asks for the ranges of the index at once, beside the first.
 - **Reading ahead** can be turned off, `reader.read_ahead(false)`: the reader then fetches what is read and no
   more, until it is told to again, when it fetches what follows its last read at once. A media does so until it
   is first told to play ([a video opened ahead](../design-system/#a-video-opened-ahead)).
 - **What it asked for.** With `lurq::resources=debug` in the tracing filter every range request is a line: the
   address, the range, the bytes that came and the milliseconds it took. What a slow start is made of (the
   connection in the first request, the requests one after another) is read there.
-- The loader keeps no bytes in memory. What is decoded from them is kept by who decodes: a picture's pixels are in
-  `lurq::images::decoded_images()`.
+- The loader keeps no bytes of a load in memory once nobody holds it. What is decoded from them is kept by who
+  decodes: a picture's pixels are in `lurq::images::decoded_images()`. Of the addresses its readers read it keeps
+  the start, as above.
 
 What is loaded from an address is kept on the disk where the app gives a folder for it, and is then there for the
 next run of the app:

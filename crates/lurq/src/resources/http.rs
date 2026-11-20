@@ -1,7 +1,7 @@
 //! Reading what is at an address: the part of the loader the feature `http` adds.
 
 use std::{
-  collections::{HashSet, VecDeque},
+  collections::VecDeque,
   io::{self, Read},
   ops::Range,
   sync::{
@@ -38,7 +38,7 @@ pub(super) fn fetch(
   cut: bool,
   mut told: impl FnMut(u64, Option<u64>) -> bool,
 ) -> Result<Vec<u8>, LoadError> {
-  let agent = agents.lend();
+  let agent = agents.lend(address);
   let response = ask(&agent, address, headers, None, timeout, &mut told)?;
   let body = response.into_body();
   let total = body.content_length();
@@ -68,14 +68,18 @@ pub(super) fn fetch(
 }
 
 /// The loader's HTTP agents, made once and lent to its loads and readers: an agent keeps the connections its
-/// requests opened, so the next request to the same host lent it goes over one of them, with no new handshake.
+/// requests opened, and a request is lent the agent that asked its host last, so it goes over one of them, with
+/// no new handshake.
 /// As many are kept as the loader's pool is large ([`Loader::pool_size`](super::Loader::pool_size)); one given
 /// back beyond that is let go, with its connections.
 pub(super) struct Agents {
-  idle: Mutex<Vec<ureq::Agent>>,
+  /// The agents nobody has, each with the host it asked last, the one given back last at the end.
+  idle: Mutex<Vec<(ureq::Agent, Box<str>)>>,
   size: AtomicUsize,
   /// How many were made, for a test that they are made once.
   made: AtomicUsize,
+  /// The hosts a connection was opened to ahead ([`connect`]), and when.
+  connected: Mutex<Vec<(Box<str>, Instant)>>,
 }
 
 impl Agents {
@@ -84,6 +88,7 @@ impl Agents {
       idle: Mutex::new(Vec::new()),
       size: AtomicUsize::new(size),
       made: AtomicUsize::new(0),
+      connected: Mutex::new(Vec::new()),
     })
   }
 
@@ -97,23 +102,44 @@ impl Agents {
     self.made.load(Ordering::Acquire)
   }
 
-  /// An agent for a request, given back when the lent one is dropped: the one given back last, which most likely
-  /// holds a connection to the host asked again, or a new one where none is idle.
-  pub(super) fn lend(&self) -> Lent<'_> {
-    let agent = self.idle.lock().pop().unwrap_or_else(|| {
+  /// An agent for a request to `address`, given back when the lent one is dropped: the one that asked the host
+  /// of the address last, which holds a connection to it, or else the one given back last, or a new one where
+  /// none is idle.
+  pub(super) fn lend(&self, address: &str) -> Lent<'_> {
+    let host = host_of(address);
+    let idle = {
+      let mut idle = self.idle.lock();
+      let at = idle
+        .iter()
+        .rposition(|(_, asked)| **asked == *host)
+        .or_else(|| idle.len().checked_sub(1));
+      at.map(|at| idle.remove(at).0)
+    };
+    let agent = idle.unwrap_or_else(|| {
       self.made.fetch_add(1, Ordering::AcqRel);
       ureq::Agent::config_builder().http_status_as_error(false).build().into()
     });
     Lent {
       agents: self,
       agent: Some(agent),
+      host: host.into(),
     }
   }
+}
+
+/// The host an address is at, with how it is asked: `https://example.com:8443`.
+fn host_of(address: &str) -> &str {
+  let after = address.find("://").map_or(0, |at| at + 3);
+  let end = address[after..]
+    .find(['/', '?', '#'])
+    .map_or(address.len(), |at| after + at);
+  &address[..end]
 }
 
 pub(super) struct Lent<'a> {
   agents: &'a Agents,
   agent: Option<ureq::Agent>,
+  host: Box<str>,
 }
 
 impl std::ops::Deref for Lent<'_> {
@@ -130,9 +156,52 @@ impl Drop for Lent<'_> {
     if idle.len() < self.agents.size.load(Ordering::Acquire)
       && let Some(agent) = self.agent.take()
     {
-      idle.push(agent);
+      idle.push((agent, std::mem::take(&mut self.host)));
     }
   }
+}
+
+/// Opens a connection to the host of `address` ahead of the first request to it, on a thread of its own: it
+/// asks for the head of what is at the address (`HEAD`), which is an answer with nothing in it, and the agent
+/// keeps the connection for the request that follows. A host asked a moment ago is not asked again.
+pub(super) fn connect(agents: &Arc<Agents>, address: String, headers: Vec<(Arc<str>, Arc<str>)>, timeout: Duration) {
+  {
+    let host = host_of(&address);
+    let mut connected = agents.connected.lock();
+    connected.retain(|(_, at)| at.elapsed() < CONNECTED_FOR);
+    if connected.iter().any(|(had, _)| **had == *host) {
+      return;
+    }
+    connected.push((host.into(), Instant::now()));
+  }
+  let agents = agents.clone();
+  let _ = std::thread::Builder::new()
+    .name("lurq-connect".to_owned())
+    .spawn(move || {
+      let asked = Instant::now();
+      let agent = agents.lend(&address);
+      let mut request = agent.head(&address);
+      for (name, value) in &headers {
+        request = request.header(name.as_ref(), value.as_ref());
+      }
+      let answered = request
+        .config()
+        .timeout_global(Some(timeout.min(CONNECT_WITHIN)))
+        .build()
+        .call();
+      let ms = asked.elapsed().as_millis() as u64;
+      match answered {
+        Ok(response) => {
+          let status = response.status().as_u16();
+          // A connection goes back to its agent once its answer is read to its end.
+          let _ = io::copy(&mut response.into_body().into_reader(), &mut io::sink());
+          tracing::debug!(target: "lurq::resources", address = %address, status, ms, "connected ahead");
+        }
+        Err(error) => {
+          tracing::debug!(target: "lurq::resources", address = %address, ms, "no connection ahead: {error}");
+        }
+      }
+    });
 }
 
 /// The answer of the server at `address` to a request with `headers`, and `range` where it asks for a part of
@@ -208,6 +277,83 @@ const HELD_BLOCKS: usize = 16;
 /// How many blocks past the one read are fetched before they are asked for, so that playing does not wait for
 /// each.
 const READ_AHEAD: u64 = 2;
+/// How many requests a reader has on their way at most: one reads on in order, and another is made beside it
+/// only for a read that waits for bytes the first is not bringing.
+const REQUESTS: usize = 3;
+/// How much of the first block is there when a reader is opened: enough to tell where the index of an MP4 is.
+const OPENED_WITH: usize = 1024;
+/// The most one read of a connection takes.
+const CHUNK: usize = 32 * 1024;
+/// How much of the start of an address is kept once its reader is dropped, and for how long.
+const START_KEPT: u64 = 2 << 20;
+const START_KEPT_FOR: Duration = Duration::from_secs(5 * 60);
+/// How long a connection opened ahead is taken to be there, so that its host is not asked again: an agent
+/// lets go of a connection nothing went over for a quarter of a minute.
+const CONNECTED_FOR: Duration = Duration::from_secs(10);
+/// The longest opening a connection ahead may take.
+const CONNECT_WITHIN: Duration = Duration::from_secs(10);
+
+/// The start of the addresses read last, kept once their readers are dropped: a reader of one of them starts
+/// with it, and asks the network for nothing until a read goes past it. A player closed and made again a
+/// moment later (a page of a pager gone and come back) opens at once.
+pub(super) struct Starts {
+  kept: Mutex<VecDeque<Start>>,
+  /// Of how many addresses.
+  most: AtomicUsize,
+}
+
+/// The start of what is at an address: its first blocks, whole and in order, as `cut` cuts them, with how long
+/// all of it is and what it is, and when it was read.
+#[derive(Clone)]
+struct Start {
+  key: u64,
+  cut: Cut,
+  read: Instant,
+  len: Option<u64>,
+  content_type: Option<Arc<str>>,
+  blocks: Vec<Arc<[u8]>>,
+}
+
+impl Starts {
+  pub(super) fn new(most: usize) -> Arc<Self> {
+    Arc::new(Self {
+      kept: Mutex::new(VecDeque::new()),
+      most: AtomicUsize::new(most),
+    })
+  }
+
+  pub(super) fn resize(&self, most: usize) {
+    self.most.store(most, Ordering::Release);
+    let mut kept = self.kept.lock();
+    while kept.len() > most {
+      kept.pop_front();
+    }
+  }
+
+  /// Forgets the start kept under `key`: `true` where there was one.
+  pub(super) fn forget(&self, key: u64) -> bool {
+    let mut kept = self.kept.lock();
+    let before = kept.len();
+    kept.retain(|start| start.key != key);
+    kept.len() != before
+  }
+
+  fn keep(&self, start: Start) {
+    let mut kept = self.kept.lock();
+    kept.retain(|had| had.key != start.key);
+    kept.push_back(start);
+    while kept.len() > self.most.load(Ordering::Acquire) {
+      kept.pop_front();
+    }
+  }
+
+  /// The start kept under `key`, where it was cut as `cut` cuts and is not too old.
+  fn of(&self, key: u64, cut: Cut) -> Option<Start> {
+    let mut kept = self.kept.lock();
+    kept.retain(|start| start.read.elapsed() < START_KEPT_FOR);
+    kept.iter().find(|start| start.key == key && start.cut == cut).cloned()
+  }
+}
 
 /// How what is at an address is cut into the blocks it is asked for in. The first two are `first` long and each
 /// one after them twice the one before, up to `most`; from there on they are all `most`. What opens a file reads
@@ -304,6 +450,14 @@ fn index_at_the_end(start: &[u8]) -> Option<u64> {
 
 /// What is at an address, read by ranges as it is asked for, with its headers on every request: what a decoder
 /// reads as it plays.
+///
+/// A read is given its bytes as they come, and does not wait for the block they are in to be whole. Its
+/// requests go one after the other over one connection, each from where the one before ended: the block a read
+/// waits for first, then, where it reads ahead, what follows the last read, and that only while no read waits.
+/// A second request is made beside the first only for a read that waits for bytes the first is not bringing (a
+/// decoder sent to another place), and the first, where nobody waits for what it brings, stands still until
+/// that read has its bytes: a host that gives one client so much a second in all gives it to what is waited
+/// for.
 pub(super) struct HttpReader(Arc<Ranges>);
 
 struct Ranges {
@@ -311,15 +465,19 @@ struct Ranges {
   headers: Vec<(Arc<str>, Arc<str>)>,
   timeout: Duration,
   cut: Cut,
-  /// The loader's agents: each request goes over a connection one of them kept, where it has one to the host.
-  agents: Arc<Agents>,
+  /// The agent of all its requests: the connection one of them ended on is the one the next goes over.
+  agent: ureq::Agent,
   blocks: Mutex<Blocks>,
-  /// A block that was on its way came, or failed.
+  /// Bytes came, a request ended, or a read began or ended its wait.
   came: Condvar,
   /// Whether what follows a read is fetched before it is asked for ([`Reader::read_ahead`]), and the block
   /// read last.
   eager: AtomicBool,
   last: AtomicU64,
+  /// Where its start is kept once it is dropped, under what, and when that start was read.
+  starts: Arc<Starts>,
+  key: u64,
+  since: Instant,
 }
 
 #[derive(Default)]
@@ -327,55 +485,238 @@ struct Blocks {
   /// How long it is, once an answer said.
   len: Option<u64>,
   content_type: Option<Arc<str>>,
-  /// The blocks there are, by their index, the one read last at the back.
-  held: VecDeque<(u64, Arc<[u8]>)>,
-  /// The blocks on their way.
-  fetching: HashSet<u64>,
+  /// An answer came: its length and its type are what the server said.
+  answered: bool,
+  /// The blocks there are, whole or as far as they have come, the one read last at the back.
+  held: VecDeque<Held>,
+  /// The blocks a request is bringing.
+  coming: Vec<u64>,
+  /// The block each read that waits is waiting for.
+  waited: Vec<u64>,
+  /// The blocks whose request failed, why, and whether it was a request no read had asked for: told to the
+  /// reads that waited for them, and not brought ahead again until a read asks.
+  failed: Vec<(u64, LoadError, bool)>,
+  /// The blocks brought ahead whatever is read: the index of an MP4 that has it at its end.
+  wanted: Vec<u64>,
+  /// How many requests are on their way, and whether one of them brings what no read had asked for.
+  working: usize,
+  ahead: bool,
+  /// A read was made: until then nothing is brought ahead of what opening it asks for.
+  began: bool,
+  /// The reader was dropped: nothing more is asked for.
+  closed: bool,
 }
 
-/// What a block's request gave: its bytes, how long all of it is and what it is, where the answer said.
-struct Fetched {
-  bytes: Vec<u8>,
-  len: Option<u64>,
-  content_type: Option<Arc<str>>,
+/// A block: its index, and its bytes from its start.
+struct Held {
+  index: u64,
+  bytes: Bytes,
+}
+
+enum Bytes {
+  /// As far as they have come.
+  Coming(Vec<u8>),
+  /// All of them.
+  Whole(Arc<[u8]>),
+}
+
+impl Bytes {
+  fn len(&self) -> usize {
+    match self {
+      Self::Coming(bytes) => bytes.len(),
+      Self::Whole(bytes) => bytes.len(),
+    }
+  }
+}
+
+impl Blocks {
+  fn held_at(&self, index: u64) -> Option<usize> {
+    self.held.iter().position(|held| held.index == index)
+  }
+
+  /// Whether all of the block at `index` is there.
+  fn whole(&self, index: u64) -> bool {
+    self
+      .held
+      .iter()
+      .any(|held| held.index == index && matches!(held.bytes, Bytes::Whole(_)))
+  }
+
+  /// How many bytes of the block at `index` are there.
+  fn filled(&self, index: u64) -> u64 {
+    self.held_at(index).map_or(0, |at| self.held[at].bytes.len() as u64)
+  }
+
+  /// Why the request for the block at `index` failed, and whether no read had asked for it.
+  fn failed_of(&self, index: u64) -> Option<(LoadError, bool)> {
+    self
+      .failed
+      .iter()
+      .find(|(failed, ..)| *failed == index)
+      .map(|(_, error, ahead)| (error.clone(), *ahead))
+  }
+
+  /// One read fewer waits for the block at `index`.
+  fn waits_no_more(&mut self, index: u64) {
+    if let Some(at) = self.waited.iter().position(|waited| *waited == index) {
+      self.waited.swap_remove(at);
+    }
+  }
+}
+
+/// What a reader is opened of, and how.
+pub(super) struct Asked {
+  /// What its start is kept under once it is dropped.
+  pub key: u64,
+  pub address: String,
+  pub headers: Vec<(Arc<str>, Arc<str>)>,
+  /// How long each of its requests may take.
+  pub timeout: Duration,
+  pub cut: Cut,
+  /// Whether it reads ahead, where the one that opens it knows: `Some(true)` from its first request on, which
+  /// then asks for what is read ahead with the first block; `Some(false)` not until it is told to. `None` as a
+  /// reader does by itself: its first request asks for the first block, and it reads ahead once it is read.
+  pub read_ahead: Option<bool>,
+}
+
+/// What one request brings: the blocks from `first` to `last`, and whether no read had asked for them.
+struct Run {
+  first: u64,
+  last: u64,
+  ahead: bool,
+}
+
+impl Run {
+  fn holds(&self, index: u64) -> bool {
+    (self.first..=self.last).contains(&index)
+  }
 }
 
 impl HttpReader {
-  /// Asks for the first block of what is at `address`, cut as `cut` says, and gives a reader of it: the
-  /// answer's status, length and type are known when it returns, and a server that refuses it fails here.
+  /// A reader of what `asked` says. It asks for the first block and returns once the answer has come and the
+  /// block has begun to: the status, the length and the type are known then, and a server that refuses it
+  /// fails here. The rest of the block is read on as it comes.
   ///
-  /// Where the first block says the file is an MP4 with its index at its end, the blocks of the index are asked
-  /// for at once, beside the blocks that follow the first: a decoder that opens it finds them there, or on
-  /// their way.
-  pub(super) fn open(
-    agents: Arc<Agents>,
-    address: String,
-    headers: Vec<(Arc<str>, Arc<str>)>,
-    timeout: Duration,
-    cut: Cut,
-  ) -> Result<Self, LoadError> {
+  /// Where `starts` keeps the start of what is under its key, read by a reader dropped a moment ago, that is
+  /// what it starts with, and nothing is asked for until a read goes past it.
+  ///
+  /// Where the first block says the file is an MP4 with its index at its end, the blocks of the index are
+  /// asked for at once, beside the first block: a decoder that opens it finds them there, or on their way.
+  pub(super) fn open(agents: &Agents, starts: Arc<Starts>, asked: Asked) -> Result<Self, LoadError> {
+    let Asked {
+      key,
+      address,
+      headers,
+      timeout,
+      cut,
+      read_ahead,
+    } = asked;
+    let agent = (*agents.lend(&address)).clone();
+    let kept = starts.of(key, cut);
+    let mut blocks = Blocks {
+      began: read_ahead == Some(true),
+      ..Blocks::default()
+    };
+    let since = kept.as_ref().map_or_else(Instant::now, |start| start.read);
+    if let Some(start) = kept {
+      tracing::debug!(target: "lurq::resources", address = %address, blocks = start.blocks.len(), "its start was kept");
+      blocks.len = start.len;
+      blocks.content_type = start.content_type;
+      blocks.answered = true;
+      blocks.held = start
+        .blocks
+        .into_iter()
+        .enumerate()
+        .map(|(index, bytes)| Held {
+          index: index as u64,
+          bytes: Bytes::Whole(bytes),
+        })
+        .collect();
+    }
     let ranges = Arc::new(Ranges {
       address,
       headers,
       timeout,
       cut,
-      agents,
-      blocks: Mutex::new(Blocks::default()),
+      agent,
+      blocks: Mutex::new(blocks),
       came: Condvar::new(),
-      eager: AtomicBool::new(true),
+      eager: AtomicBool::new(read_ahead != Some(false)),
       last: AtomicU64::new(0),
+      starts,
+      key,
+      since,
     });
-    let start = ranges.block(0)?;
+    let reader = Self(ranges.clone());
+    let mut blocks = ranges.blocks.lock();
+    blocks.waited.push(0);
+    let start = loop {
+      let there = blocks.held_at(0).map(|at| &blocks.held[at].bytes);
+      match there {
+        Some(Bytes::Whole(bytes)) => break bytes.to_vec(),
+        Some(Bytes::Coming(bytes)) if blocks.answered && bytes.len() >= OPENED_WITH => break bytes.clone(),
+        _ => {}
+      }
+      if blocks.answered && blocks.len == Some(0) {
+        break Vec::new();
+      }
+      if !blocks.coming.contains(&0) {
+        if let Some((error, _)) = blocks.failed_of(0) {
+          return Err(error);
+        }
+        ranges.rouse(&mut blocks);
+        if !blocks.coming.contains(&0) {
+          return Err(blocks.failed_of(0).map_or(LoadError::Cancelled, |(error, _)| error));
+        }
+      }
+      ranges.came.wait(&mut blocks);
+    };
+    blocks.waits_no_more(0);
     if let Some(index) = index_at_the_end(&start)
-      && ranges.blocks.lock().len.is_some_and(|len| index < len)
+      && blocks.len.is_some_and(|len| index < len)
     {
       tracing::debug!(target: "lurq::resources", address = %ranges.address, at = index, "the index is at the end: read ahead");
       let first = ranges.cut.index_of(index);
-      for ahead in 0..=READ_AHEAD {
-        ranges.ahead(first + ahead);
-      }
+      blocks.wanted = (first..=first + READ_AHEAD).collect();
     }
-    Ok(Self(ranges))
+    ranges.rouse(&mut blocks);
+    drop(blocks);
+    ranges.came.notify_all();
+    Ok(reader)
+  }
+}
+
+impl Drop for HttpReader {
+  /// Its requests end where they are, and its start is kept for the reader that opens the address next.
+  fn drop(&mut self) {
+    let ranges = &self.0;
+    let mut blocks = ranges.blocks.lock();
+    blocks.closed = true;
+    let mut start = Vec::new();
+    let mut bytes = 0;
+    for index in 0.. {
+      let Some(Bytes::Whole(block)) = blocks.held_at(index).map(|at| &blocks.held[at].bytes) else {
+        break;
+      };
+      bytes += block.len() as u64;
+      if bytes > START_KEPT {
+        break;
+      }
+      start.push(block.clone());
+    }
+    let (len, content_type) = (blocks.len, blocks.content_type.clone());
+    drop(blocks);
+    ranges.came.notify_all();
+    if !start.is_empty() {
+      ranges.starts.keep(Start {
+        key: ranges.key,
+        cut: ranges.cut,
+        read: ranges.since,
+        len,
+        content_type,
+        blocks: start,
+      });
+    }
   }
 }
 
@@ -389,22 +730,71 @@ impl Reader for HttpReader {
   }
 
   fn read_at(&self, offset: u64, buf: &mut [u8]) -> io::Result<usize> {
-    if buf.is_empty() || self.0.blocks.lock().len.is_some_and(|len| offset >= len) {
+    if buf.is_empty() {
       return Ok(0);
     }
-    let index = self.0.cut.index_of(offset);
-    let (start, _) = self.0.cut.block(index);
-    let block = self.0.block(index).map_err(io::Error::other)?;
-    self.0.last.store(index, Ordering::Relaxed);
-    if self.0.eager.load(Ordering::Relaxed) {
-      for ahead in 1..=READ_AHEAD {
-        self.0.ahead(index + ahead);
+    let ranges = &self.0;
+    let index = ranges.cut.index_of(offset);
+    let within = (offset - ranges.cut.block(index).0) as usize;
+    let mut blocks = ranges.blocks.lock();
+    blocks.began = true;
+    let mut waited = false;
+    loop {
+      if blocks.len.is_some_and(|len| offset >= len) {
+        return Ok(0);
       }
+      if let Some(at) = blocks.held_at(index) {
+        if blocks.held[at].bytes.len() > within {
+          // The block read last is the last to be let go.
+          let held = blocks.held.remove(at).expect("the block just found");
+          let count = (held.bytes.len() - within).min(buf.len());
+          let whole = match &held.bytes {
+            Bytes::Whole(bytes) => Some(bytes.clone()),
+            Bytes::Coming(bytes) => {
+              buf[..count].copy_from_slice(&bytes[within..within + count]);
+              None
+            }
+          };
+          blocks.held.push_back(held);
+          ranges.last.store(index, Ordering::Relaxed);
+          // What follows it is asked for, where it reads ahead and nothing is on its way.
+          ranges.rouse(&mut blocks);
+          drop(blocks);
+          if let Some(bytes) = whole {
+            buf[..count].copy_from_slice(&bytes[within..within + count]);
+          }
+          return Ok(count);
+        }
+        if matches!(blocks.held[at].bytes, Bytes::Whole(_)) {
+          // A block shorter than it was cut: the end of all of it.
+          return Ok(0);
+        }
+      }
+      if !blocks.coming.contains(&index) {
+        match blocks.failed_of(index) {
+          // The request made for a read that waited for it failed: that is what the read is told.
+          Some((error, false)) if waited => return Err(io::Error::other(error)),
+          // Otherwise the read asks again: one that did not wait for the request that failed, and one that
+          // waited for a request no read had asked for.
+          Some(_) => blocks.failed.retain(|(failed, ..)| *failed != index),
+          None => {}
+        }
+      }
+      blocks.waited.push(index);
+      ranges.rouse(&mut blocks);
+      if !blocks.coming.contains(&index)
+        && let Some((error, _)) = blocks.failed_of(index)
+      {
+        // No thread to ask on.
+        blocks.waits_no_more(index);
+        return Err(io::Error::other(error));
+      }
+      // A request that brings something else hears that a read waits.
+      ranges.came.notify_all();
+      ranges.came.wait(&mut blocks);
+      blocks.waits_no_more(index);
+      waited = true;
     }
-    let rest = block.get((offset - start) as usize..).unwrap_or(&[]);
-    let count = rest.len().min(buf.len());
-    buf[..count].copy_from_slice(&rest[..count]);
-    Ok(count)
   }
 
   fn buffered(&self) -> Vec<Range<u64>> {
@@ -415,9 +805,10 @@ impl Reader for HttpReader {
       .lock()
       .held
       .iter()
-      .map(|(index, bytes)| {
-        let (start, _) = cut.block(*index);
-        start..start + bytes.len() as u64
+      .filter(|held| held.bytes.len() > 0)
+      .map(|held| {
+        let (start, _) = cut.block(held.index);
+        start..start + held.bytes.len() as u64
       })
       .collect();
     held.sort_by_key(|range| range.start);
@@ -436,116 +827,257 @@ impl Reader for HttpReader {
       return;
     }
     // What follows the last read is asked for now: what starts to play does not wait for its second block.
-    let last = self.0.last.load(Ordering::Relaxed);
-    for ahead in 1..=READ_AHEAD {
-      self.0.ahead(last + ahead);
-    }
+    let mut blocks = self.0.blocks.lock();
+    self.0.rouse(&mut blocks);
   }
 }
 
 impl Ranges {
-  /// The block at `index`: held, fetched by another read and waited for, or fetched now.
-  fn block(&self, index: u64) -> Result<Arc<[u8]>, LoadError> {
-    let mut blocks = self.blocks.lock();
-    loop {
-      if let Some(at) = blocks.held.iter().position(|(held, _)| *held == index) {
-        let held = blocks.held.remove(at).expect("the block just found");
-        let bytes = held.1.clone();
-        blocks.held.push_back(held);
-        return Ok(bytes);
+  /// Whether the block at `index` is to be asked for: not all there, not on its way, and not past the end.
+  fn missing(&self, blocks: &Blocks, index: u64) -> bool {
+    !blocks.whole(index)
+      && !blocks.coming.contains(&index)
+      && blocks.len.is_none_or(|len| self.cut.block(index).0 < len)
+  }
+
+  /// What the next request brings, taken: the block a read waits for; where none does, the index of an MP4
+  /// that has it at its end; and where that is there and `in_turn`, the first block after the last read that is
+  /// not there, where it reads ahead. The blocks after it go in the same request while they are within what is
+  /// read ahead and the request asks for no more than the largest block: the small first blocks are one
+  /// request to a reader that reads ahead, and one each to one that does not.
+  fn job(&self, blocks: &mut Blocks, in_turn: bool) -> Option<Run> {
+    if blocks.closed {
+      return None;
+    }
+    let eager = self.eager.load(Ordering::Relaxed);
+    let last = self.last.load(Ordering::Relaxed);
+    // A block whose request failed is asked for again by the next read of it, and not before.
+    let fresh = |index: &u64| self.missing(blocks, *index) && blocks.failed_of(*index).is_none();
+    let waited = blocks.waited.iter().copied().find(fresh);
+    let (first, ahead) = match waited {
+      Some(index) => (index, false),
+      // What nobody waits for is brought once nothing is waited for, one request at a time and in order.
+      None if !blocks.ahead && blocks.waited.iter().all(|index| blocks.whole(*index)) => {
+        let wanted = blocks.wanted.iter().copied().find(fresh);
+        let next = || (1..=READ_AHEAD).map(|ahead| last + ahead).find(fresh);
+        (
+          wanted.or_else(|| (in_turn && eager && blocks.began).then(next).flatten())?,
+          true,
+        )
       }
-      if !blocks.fetching.contains(&index) {
+      None => return None,
+    };
+    let reach = last.max(first) + READ_AHEAD;
+    let (_, most) = self.cut.sizes();
+    let mut run = Run {
+      first,
+      last: first,
+      ahead,
+    };
+    let mut bytes = self.cut.block(first).1;
+    loop {
+      let next = run.last + 1;
+      let size = self.cut.block(next).1;
+      let asked_for = (eager && blocks.began && next <= reach) || blocks.wanted.contains(&next);
+      if !asked_for
+        || bytes + size > most
+        || !self.missing(blocks, next)
+        || blocks.held_at(next).is_some()
+        || blocks.failed_of(next).is_some()
+      {
         break;
       }
-      self.came.wait(&mut blocks);
+      bytes += size;
+      run.last = next;
     }
-    blocks.fetching.insert(index);
-    drop(blocks);
-    let fetched = self.fetch(index);
-    self.keep(index, fetched)
+    blocks.coming.extend(run.first..=run.last);
+    blocks.working += 1;
+    blocks.ahead |= run.ahead;
+    Some(run)
   }
 
-  /// Starts fetching the block at `index` on a thread of its own, where it is not there or on its way.
-  fn ahead(self: &Arc<Self>, index: u64) {
-    {
-      let mut blocks = self.blocks.lock();
-      if blocks.len.is_some_and(|len| self.cut.block(index).0 >= len)
-        || blocks.fetching.contains(&index)
-        || blocks.held.iter().any(|(held, _)| *held == index)
-      {
+  /// Starts the requests there is something for: one, which goes on to what is next by itself, and another
+  /// beside it only for a read that waits for what no request is bringing, and for an index at the end.
+  fn rouse(self: &Arc<Self>, blocks: &mut Blocks) {
+    while blocks.working < REQUESTS {
+      let idle = blocks.working == 0;
+      let Some(run) = self.job(blocks, idle) else {
+        return;
+      };
+      let (ranges, first, last, ahead) = (self.clone(), run.first, run.last, run.ahead);
+      let spawned = std::thread::Builder::new()
+        .name("lurq-read".to_owned())
+        .spawn(move || ranges.work(run));
+      if let Err(error) = spawned {
+        blocks.coming.retain(|index| !(first..=last).contains(index));
+        blocks.working -= 1;
+        blocks.ahead &= !ahead;
+        blocks
+          .failed
+          .extend((first..=last).map(|index| (index, LoadError::Io(error.to_string()), false)));
         return;
       }
-      blocks.fetching.insert(index);
-    }
-    let ranges = self.clone();
-    let spawned = std::thread::Builder::new()
-      .name("lurq-read-ahead".to_owned())
-      .spawn(move || {
-        let fetched = ranges.fetch(index);
-        let _ = ranges.keep(index, fetched);
-      });
-    if spawned.is_err() {
-      self.blocks.lock().fetching.remove(&index);
-      self.came.notify_all();
     }
   }
 
-  /// Keeps what fetching the block at `index` gave, and wakes the reads that wait for it. A block that failed is
-  /// not kept: the next read of it asks again.
-  fn keep(&self, index: u64, fetched: Result<Fetched, LoadError>) -> Result<Arc<[u8]>, LoadError> {
+  /// Brings `run`, and then what is next, one request after the other, until there is nothing to bring.
+  fn work(self: Arc<Self>, mut run: Run) {
+    loop {
+      let brought = self.bring(&run);
+      let mut blocks = self.blocks.lock();
+      blocks.coming.retain(|index| !run.holds(*index));
+      blocks.working -= 1;
+      blocks.ahead &= !run.ahead;
+      let went_well = brought.is_ok();
+      if let Err(error) = brought {
+        tracing::debug!(target: "lurq::resources", address = %self.address, "a range failed: {error}");
+        for index in run.first..=run.last {
+          if !blocks.whole(index) {
+            blocks.failed.push((index, error.clone(), run.ahead));
+          }
+        }
+      }
+      // After a request that failed only what a read waits for is asked for: a server that is down is not asked
+      // again and again for what nobody waits for.
+      let next = self.job(&mut blocks, went_well);
+      drop(blocks);
+      self.came.notify_all();
+      match next {
+        Some(next) => run = next,
+        None => return,
+      }
+    }
+  }
+
+  /// Whether a request reads on. Not once the reader is dropped. One that brings what no read waits for stands
+  /// still while a read waits for what another request brings, for as long as half of its time: the server
+  /// sends it no more, and what it gives this client goes to the bytes that are waited for.
+  fn goes_on(&self, run: &Run, asked: Instant) -> bool {
     let mut blocks = self.blocks.lock();
-    blocks.fetching.remove(&index);
-    let kept = fetched.map(|fetched| {
-      if fetched.len.is_some() {
-        blocks.len = fetched.len;
+    loop {
+      if blocks.closed {
+        return false;
       }
-      if fetched.content_type.is_some() {
-        blocks.content_type = fetched.content_type;
+      let gives_way = !blocks.waited.iter().any(|index| run.holds(*index))
+        && blocks
+          .waited
+          .iter()
+          .any(|index| blocks.coming.contains(index) && !blocks.whole(*index))
+        && asked.elapsed() < self.timeout / 2;
+      if !gives_way {
+        return true;
       }
-      let bytes: Arc<[u8]> = Arc::from(fetched.bytes);
-      blocks.held.push_back((index, bytes.clone()));
-      // The start is kept whatever was read since, as far as the largest block is long (the first megabyte): a
-      // file's start says what it is, and a media that goes on from its start at its end, or is sent there,
-      // starts from it at once.
-      let (_, most) = self.cut.sizes();
-      if blocks.held.len() > HELD_BLOCKS
-        && let Some(oldest) = blocks.held.iter().position(|(held, _)| self.cut.block(*held).0 >= most)
-      {
-        blocks.held.remove(oldest);
+      self.came.wait_for(&mut blocks, Duration::from_millis(20));
+    }
+  }
+
+  /// Keeps `bytes`, which are at `at`, in the blocks they are of, and wakes the reads that wait for them.
+  fn put(&self, mut at: u64, mut bytes: &[u8]) {
+    let mut blocks = self.blocks.lock();
+    while !bytes.is_empty() {
+      let index = self.cut.index_of(at);
+      let (start, size) = self.cut.block(index);
+      let place = match blocks.held_at(index) {
+        Some(place) => place,
+        None => {
+          // The start is kept whatever was read since, as far as the largest block is long (the first
+          // megabyte): a file's start says what it is, and a media that goes on from its start at its end, or
+          // is sent there, starts from it at once. Nor is a block let go that is on its way or waited for.
+          let (_, most) = self.cut.sizes();
+          if blocks.held.len() >= HELD_BLOCKS
+            && let Some(oldest) = blocks.held.iter().position(|held| {
+              self.cut.block(held.index).0 >= most
+                && !blocks.coming.contains(&held.index)
+                && !blocks.waited.contains(&held.index)
+            })
+          {
+            blocks.held.remove(oldest);
+          }
+          blocks.held.push_back(Held {
+            index,
+            bytes: Bytes::Coming(Vec::with_capacity(size as usize)),
+          });
+          blocks.held.len() - 1
+        }
+      };
+      let room = (start + size - at) as usize;
+      let (now, rest) = bytes.split_at(bytes.len().min(room));
+      let len = blocks.len;
+      let held = &mut blocks.held[place];
+      if let Bytes::Coming(there) = &mut held.bytes {
+        // From where it ends, and nothing twice: a block has one request at a time.
+        if start + there.len() as u64 == at {
+          there.extend_from_slice(now);
+        }
+        let end = start + there.len() as u64;
+        if there.len() as u64 >= size || len.is_some_and(|len| end >= len) {
+          held.bytes = Bytes::Whole(Arc::from(std::mem::take(there)));
+        }
       }
-      bytes
-    });
+      at += now.len() as u64;
+      bytes = rest;
+    }
     drop(blocks);
     self.came.notify_all();
-    kept
   }
 
-  /// The bytes of the block at `index`, fewer at the end.
-  fn fetch(&self, index: u64) -> Result<Fetched, LoadError> {
-    let (start, size) = self.cut.block(index);
-    let mut fetched = Fetched {
-      bytes: Vec::with_capacity(size as usize),
-      len: None,
-      content_type: None,
+  /// All of it ends at `at`: an answer ended there, or said there is nothing from there on.
+  fn ends_at(&self, at: u64) {
+    let mut blocks = self.blocks.lock();
+    let len = blocks.len.map_or(at, |len| len.min(at));
+    blocks.len = Some(len);
+    blocks.answered = true;
+    for held in &mut blocks.held {
+      let (start, _) = self.cut.block(held.index);
+      if let Bytes::Coming(there) = &mut held.bytes
+        && start + there.len() as u64 >= len
+      {
+        held.bytes = Bytes::Whole(Arc::from(std::mem::take(there)));
+      }
+    }
+    drop(blocks);
+    self.came.notify_all();
+  }
+
+  /// Asks for the blocks of `run`, from where what is there of them ends, and keeps what comes as it comes.
+  fn bring(&self, run: &Run) -> Result<(), LoadError> {
+    let end = {
+      let (start, size) = self.cut.block(run.last);
+      start + size
     };
-    let filled = |fetched: &Fetched| fetched.bytes.len() as u64;
-    // A server may answer a range with less of it than was asked: the rest is asked for again.
-    while filled(&fetched) < size && fetched.len.is_none_or(|len| start + filled(&fetched) < len) {
-      let from = start + filled(&fetched);
-      let range = format!("bytes={from}-{}", start + size - 1);
+    loop {
+      let from = {
+        let blocks = self.blocks.lock();
+        if blocks.closed {
+          return Ok(());
+        }
+        // The first block of a run may be there in part, from a request that ended on its way.
+        let mut index = run.first;
+        while index < run.last && blocks.whole(index) {
+          index += 1;
+        }
+        let at = self.cut.block(index).0 + blocks.filled(index);
+        if at >= end || blocks.whole(run.last) || blocks.len.is_some_and(|len| at >= len) {
+          return Ok(());
+        }
+        at
+      };
+      let range = format!("bytes={from}-{}", end - 1);
       let asked = Instant::now();
-      let agent = self.agents.lend();
       let response = match ask(
-        &agent,
+        &self.agent,
         &self.address,
         &self.headers,
         Some(&range),
         self.timeout,
-        &mut |_, _| true,
+        &mut |_, _| !self.blocks.lock().closed,
       ) {
         Ok(response) => response,
         // Past the end, where its length was not known yet.
-        Err(LoadError::Status(416)) => break,
+        Err(LoadError::Status(416)) => {
+          self.ends_at(from);
+          return Ok(());
+        }
         Err(error) => return Err(error),
       };
       let ranged = response.status().as_u16() == 206;
@@ -555,41 +1087,59 @@ impl Ranges {
       } else {
         response.body().content_length()
       };
-      fetched.len = said.or(fetched.len);
-      fetched.content_type = header("content-type")
-        .map(|kind| Arc::from(kind.split(';').next().unwrap_or(kind).trim()))
-        .or(fetched.content_type);
-      let mut reader = response.into_body().into_reader();
-      if !ranged {
-        // A server that does not read ranges answers with all of it, from its start: what is before the block
-        // is read past, once for each block.
-        io::copy(&mut (&mut reader).take(from), &mut io::sink()).map_err(read_failed)?;
+      let content_type =
+        header("content-type").map(|kind| Arc::<str>::from(kind.split(';').next().unwrap_or(kind).trim()));
+      {
+        let mut blocks = self.blocks.lock();
+        blocks.len = said.or(blocks.len);
+        blocks.content_type = content_type.or(blocks.content_type.take());
+        blocks.answered = true;
       }
-      let before = fetched.bytes.len();
-      (&mut reader)
-        .take(size - before as u64)
-        .read_to_end(&mut fetched.bytes)
-        .map_err(read_failed)?;
+      self.came.notify_all();
+      let mut body = response.into_body().into_reader();
+      if !ranged {
+        // A server that does not read ranges answers with all of it, from its start: what is before the place
+        // is read past, once for each request.
+        io::copy(&mut (&mut body).take(from), &mut io::sink()).map_err(read_failed)?;
+      }
+      let mut at = from;
+      let mut chunk = vec![0u8; CHUNK];
+      while at < end {
+        if !self.goes_on(run, asked) {
+          return Ok(());
+        }
+        let most = (end - at).min(CHUNK as u64) as usize;
+        let read = body.read(&mut chunk[..most]).map_err(read_failed)?;
+        if read == 0 {
+          break;
+        }
+        self.put(at, &chunk[..read]);
+        at += read as u64;
+      }
       // Each request with what it asked for and how long it took: what a slow start is made of.
       tracing::debug!(
         target: "lurq::resources",
         address = %self.address,
         range = %range,
-        bytes = fetched.bytes.len() - before,
+        bytes = at - from,
         ms = asked.elapsed().as_millis() as u64,
         "range"
       );
-      if !ranged {
-        break;
+      if at >= end {
+        // A connection goes back to its agent once its answer is read to its end, and the part asked for is
+        // the whole answer: what is left is nothing, read to see the end.
+        if ranged {
+          io::copy(&mut body, &mut io::sink()).map_err(read_failed)?;
+        }
+        return Ok(());
       }
-      // A connection goes back to its agent once its answer is read to its end, and the part asked for is the
-      // whole answer: what is left is nothing, read to see the end.
-      io::copy(&mut reader, &mut io::sink()).map_err(read_failed)?;
-      if fetched.bytes.len() == before {
-        break;
+      if !ranged || at == from {
+        // The answer ended before what was asked for: all of it ends there.
+        self.ends_at(at);
+        return Ok(());
       }
+      // A server may answer a range with less of it than was asked: the rest is asked for again.
     }
-    Ok(fetched)
   }
 }
 
@@ -612,7 +1162,7 @@ mod tests {
   use std::{
     io::{Read, Write},
     net::TcpListener,
-    sync::atomic::{AtomicBool, Ordering},
+    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
     thread,
   };
 
@@ -848,6 +1398,98 @@ mod tests {
     (address, asked, refusing)
   }
 
+  /// A host on this machine that gives one client so many bytes a second in all, however many connections the
+  /// client has, takes a pause over each new connection, as a handshake does, and keeps a connection for the
+  /// request after. It serves `body` by the ranges it is asked for.
+  struct Capped {
+    address: String,
+    /// How many connections were opened to it.
+    connections: Arc<AtomicUsize>,
+    /// What it was asked for, in the order the requests came: a range, or `HEAD`.
+    asked: Arc<Mutex<Vec<String>>>,
+  }
+
+  fn serve_capped(body: Vec<u8>, rate: u64, pause: Duration) -> Capped {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = format!("http://{}/clip.mp4", listener.local_addr().unwrap());
+    let host = Capped {
+      address,
+      connections: Arc::default(),
+      asked: Arc::default(),
+    };
+    let (body, connections, asked) = (Arc::new(body), host.connections.clone(), host.asked.clone());
+    // When the bytes sent so far are all through: the next ones go after that, whichever connection sends them.
+    let through = Arc::new(Mutex::new(Instant::now()));
+    thread::spawn(move || {
+      for stream in listener.incoming() {
+        let (Ok(mut stream), body, asked, through) = (stream, body.clone(), asked.clone(), through.clone()) else {
+          return;
+        };
+        connections.fetch_add(1, Ordering::SeqCst);
+        thread::spawn(move || {
+          thread::sleep(pause);
+          loop {
+            let mut request = Vec::new();
+            let mut chunk = [0u8; 1024];
+            while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+              match stream.read(&mut chunk) {
+                Ok(read) if read > 0 => request.extend_from_slice(&chunk[..read]),
+                _ => return,
+              }
+            }
+            let request = String::from_utf8_lossy(&request).to_lowercase();
+            let len = body.len();
+            if request.starts_with("head ") {
+              asked.lock().push("HEAD".to_owned());
+              let head = format!("HTTP/1.1 200 OK\r\nContent-Type: video/mp4\r\nContent-Length: {len}\r\n\r\n");
+              if stream.write_all(head.as_bytes()).is_err() {
+                return;
+              }
+              continue;
+            }
+            let range = request
+              .lines()
+              .find_map(|line| line.strip_prefix("range: bytes="))
+              .unwrap_or("0-")
+              .to_owned();
+            asked.lock().push(range.clone());
+            let (from, to) = range.split_once('-').unwrap();
+            let from: usize = from.parse().unwrap();
+            let to = to.parse::<usize>().map_or(len - 1, |to| to.min(len - 1));
+            if from >= len {
+              let head = format!(
+                "HTTP/1.1 416 Range Not Satisfiable\r\nContent-Range: bytes */{len}\r\nContent-Length: 0\r\n\r\n"
+              );
+              if stream.write_all(head.as_bytes()).is_err() {
+                return;
+              }
+              continue;
+            }
+            let head = format!(
+              "HTTP/1.1 206 Partial Content\r\nContent-Type: video/mp4\r\nContent-Range: bytes {from}-{to}/{len}\r\nContent-Length: {}\r\n\r\n",
+              to + 1 - from
+            );
+            if stream.write_all(head.as_bytes()).is_err() {
+              return;
+            }
+            for piece in body[from..=to].chunks(2048) {
+              let at = {
+                let mut through = through.lock();
+                *through = (*through).max(Instant::now()) + Duration::from_secs_f64(piece.len() as f64 / rate as f64);
+                *through
+              };
+              thread::sleep(at.saturating_duration_since(Instant::now()));
+              if stream.write_all(piece).is_err() {
+                return;
+              }
+            }
+          }
+        });
+      }
+    });
+    host
+  }
+
   fn numbered(len: usize) -> Vec<u8> {
     (0..len).map(|at| (at % 251) as u8).collect()
   }
@@ -855,14 +1497,28 @@ mod tests {
   /// A block small enough that a test reads many.
   const SMALL: u64 = 4096;
 
+  fn asked(address: &str, headers: Vec<(Arc<str>, Arc<str>)>, cut: Cut) -> Asked {
+    Asked {
+      key: 0,
+      address: address.to_owned(),
+      headers,
+      timeout: SECOND,
+      cut,
+      read_ahead: None,
+    }
+  }
+
+  /// A reader of what is at `address`, with agents of its own and no start kept.
+  fn opening(address: &str, headers: Vec<(Arc<str>, Arc<str>)>, cut: Cut) -> Result<HttpReader, LoadError> {
+    HttpReader::open(&Agents::new(4), Starts::new(0), asked(address, headers, cut))
+  }
+
+  fn asked_by_lurq() -> Vec<(Arc<str>, Arc<str>)> {
+    vec![(Arc::from("X-Asked-By"), Arc::from("lurq"))]
+  }
+
   fn asking(address: &str) -> Result<HttpReader, LoadError> {
-    HttpReader::open(
-      Agents::new(4),
-      address.to_owned(),
-      vec![(Arc::from("X-Asked-By"), Arc::from("lurq"))],
-      SECOND,
-      Cut::even(SMALL),
-    )
+    opening(address, asked_by_lurq(), Cut::even(SMALL))
   }
 
   /// Reads `len` bytes from `at`, fewer at the end.
@@ -960,14 +1616,7 @@ mod tests {
     let body = numbered(5000);
     let (address, asked, _) = serve_file(body.clone(), true);
     let cut = Cut { first: 256, most: 1024 };
-    let reader = HttpReader::open(
-      Agents::new(4),
-      address,
-      vec![(Arc::from("X-Asked-By"), Arc::from("lurq"))],
-      SECOND,
-      cut,
-    )
-    .unwrap();
+    let reader = opening(&address, asked_by_lurq(), cut).unwrap();
     assert_eq!(*asked.lock(), ["0-255"], "its start, in the small first block");
     assert_eq!(read(&reader, 0, body.len()).unwrap(), body);
     // Across the blocks of different sizes.
@@ -978,8 +1627,9 @@ mod tests {
         "at {at}"
       );
     }
+    // Read on, the two blocks after the first are one request, as long as the largest block.
     let asked = asked.lock().clone();
-    for range in ["256-511", "512-1023", "1024-2047", "2048-3071"] {
+    for range in ["256-1023", "1024-2047", "2048-3071"] {
       assert!(asked.iter().any(|asked| asked == range), "{range} of {asked:?}");
     }
   }
@@ -1023,14 +1673,7 @@ mod tests {
     body.resize(10_000, 7);
     let (address, asked, _) = serve_file(body, true);
     let cut = Cut { first: 256, most: 1024 };
-    let reader = HttpReader::open(
-      Agents::new(4),
-      address,
-      vec![(Arc::from("X-Asked-By"), Arc::from("lurq"))],
-      SECOND,
-      cut,
-    )
-    .unwrap();
+    let reader = opening(&address, asked_by_lurq(), cut).unwrap();
     // The block of the index is on its way, or there, with nothing read past the start yet.
     let until = Instant::now() + SECOND;
     while !asked.lock().iter().any(|range| range == "8192-9215") {
@@ -1065,18 +1708,22 @@ mod tests {
   #[test]
   fn an_address_opened_without_the_header_it_needs_fails_with_what_the_server_answered() {
     let (address, ..) = serve_file(numbered(1000), true);
-    let refused = HttpReader::open(Agents::new(4), address, Vec::new(), SECOND, Cut::even(SMALL));
+    let refused = opening(&address, Vec::new(), Cut::even(SMALL));
     assert_eq!(refused.err(), Some(LoadError::Status(403)));
   }
 
   #[test]
   fn a_read_the_server_refuses_on_the_way_says_what_it_answered() {
     let body = numbered(40 * SMALL as usize);
-    let (address, _, refusing) = serve_file(body, true);
+    let (address, _, refusing) = serve_file(body.clone(), true);
     let reader = asking(&address).unwrap();
     refusing.store(true, Ordering::SeqCst);
     let error = read(&reader, 30 * SMALL, 8).unwrap_err();
     assert_eq!(LoadError::from(error), LoadError::Status(403));
+    // The next read of it asks again.
+    refusing.store(false, Ordering::SeqCst);
+    let at = 30 * SMALL as usize;
+    assert_eq!(read(&reader, at as u64, 8).unwrap(), &body[at..at + 8]);
   }
 
   #[test]
@@ -1087,5 +1734,355 @@ mod tests {
     let at = 2 * SMALL as usize + 10;
     assert_eq!(read(&reader, at as u64, 6).unwrap(), &body[at..at + 6]);
     assert_eq!(reader.len(), Some(body.len() as u64));
+  }
+
+  /// The bytes a request asked for: from, and to.
+  fn span(range: &str) -> (u64, u64) {
+    let (from, to) = range.split_once('-').unwrap();
+    (from.parse().unwrap(), to.parse().unwrap())
+  }
+
+  #[test]
+  fn a_read_has_its_bytes_as_they_come_and_does_not_wait_for_its_block() {
+    // A block of 256 KiB from a host that gives 256 KiB a second is whole a second after it was asked for.
+    let block = 256 << 10;
+    let body = numbered(300 << 10);
+    let host = serve_capped(body.clone(), block, Duration::ZERO);
+    let started = Instant::now();
+    let reader = opening(&host.address, Vec::new(), Cut::even(block)).unwrap();
+    assert_eq!(reader.len(), Some(body.len() as u64), "opened, it knows how long it is");
+    assert_eq!(read(&reader, 0, 16 << 10).unwrap(), &body[..16 << 10]);
+    let there = reader.buffered();
+    assert!(
+      there.len() == 1 && there[0].start == 0 && there[0].end < block,
+      "the read had its bytes with its block still on its way: {there:?}"
+    );
+    assert!(
+      started.elapsed() < Duration::from_millis(600),
+      "opened and read in {:?}",
+      started.elapsed()
+    );
+    // Further in the block, a read waits for its own bytes and no more.
+    let at = 100 << 10;
+    assert_eq!(read(&reader, at as u64, 8).unwrap(), &body[at..at + 8]);
+    assert!(reader.buffered()[0].end < block);
+    assert_eq!(read(&reader, 0, body.len()).unwrap(), body);
+  }
+
+  #[test]
+  fn a_reader_that_plays_asks_in_order_over_one_connection() {
+    let body = numbered(600 << 10);
+    let host = serve_capped(body.clone(), 1 << 20, Duration::from_millis(50));
+    let cut = Cut {
+      first: 64 << 10,
+      most: 256 << 10,
+    };
+    let reader = HttpReader::open(
+      &Agents::new(4),
+      Starts::new(0),
+      Asked {
+        read_ahead: Some(true),
+        ..asked(&host.address, Vec::new(), cut)
+      },
+    )
+    .unwrap();
+    assert_eq!(read(&reader, 0, body.len()).unwrap(), body);
+    let asked = host.asked.lock().clone();
+    assert_eq!(
+      asked[0], "0-262143",
+      "the small first blocks are one request, as long as the largest block"
+    );
+    let mut at = 0;
+    for range in &asked {
+      let (from, to) = span(range);
+      assert_eq!(
+        from, at,
+        "each request goes on from where the one before ended: {asked:?}"
+      );
+      at = to + 1;
+    }
+    assert_eq!(
+      host.connections.load(Ordering::SeqCst),
+      1,
+      "all of them over the connection the first opened: {asked:?}"
+    );
+  }
+
+  #[test]
+  fn opened_to_be_played_later_it_asks_for_what_is_read_and_no_more() {
+    let body = numbered(600 << 10);
+    let host = serve_capped(body.clone(), 8 << 20, Duration::ZERO);
+    let cut = Cut {
+      first: 64 << 10,
+      most: 256 << 10,
+    };
+    let reader = HttpReader::open(
+      &Agents::new(4),
+      Starts::new(0),
+      Asked {
+        read_ahead: Some(false),
+        ..asked(&host.address, Vec::new(), cut)
+      },
+    )
+    .unwrap();
+    assert_eq!(read(&reader, 100, 8).unwrap(), &body[100..108]);
+    thread::sleep(Duration::from_millis(150));
+    assert_eq!(*host.asked.lock(), ["0-65535"], "its first block, alone");
+    // Opened by what does not say, its first request is the first block too, and it reads ahead once it is read.
+    let reader = opening(&host.address, Vec::new(), cut).unwrap();
+    thread::sleep(Duration::from_millis(150));
+    assert_eq!(*host.asked.lock(), ["0-65535", "0-65535"]);
+    assert_eq!(read(&reader, 100, 8).unwrap(), &body[100..108]);
+    let until = Instant::now() + SECOND;
+    while host.asked.lock().len() < 3 {
+      assert!(
+        Instant::now() < until,
+        "nothing was read ahead: {:?}",
+        host.asked.lock()
+      );
+      thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(host.asked.lock()[2], "65536-262143");
+  }
+
+  #[test]
+  fn a_read_sent_to_another_place_is_asked_for_beside_the_block_on_its_way() {
+    // A block is whole half a second after it was asked for.
+    let block: u64 = 256 << 10;
+    let body = numbered(2 << 20);
+    let host = serve_capped(body.clone(), 2 * block, Duration::ZERO);
+    let reader = opening(&host.address, Vec::new(), Cut::even(block)).unwrap();
+    assert_eq!(read(&reader, 0, 1024).unwrap(), &body[..1024]);
+    let far = 6 * block as usize + 100;
+    let started = Instant::now();
+    assert_eq!(read(&reader, far as u64, 1024).unwrap(), &body[far..far + 1024]);
+    assert!(
+      started.elapsed() < Duration::from_millis(300),
+      "it did not wait for the block on its way: {:?}",
+      started.elapsed()
+    );
+    assert!(reader.buffered()[0].end < block, "which is still on its way");
+    assert_eq!(host.connections.load(Ordering::SeqCst), 2);
+    assert_eq!(host.asked.lock()[1], format!("{}-{}", 6 * block, 7 * block - 1));
+  }
+
+  #[test]
+  fn a_request_nobody_waits_for_stands_still_while_a_read_waits_for_another() {
+    let (address, ..) = serve_file(numbered(100), true);
+    let reader = asking(&address).unwrap();
+    let ranges = reader.0.clone();
+    let ahead = || Run {
+      first: 3,
+      last: 3,
+      ahead: true,
+    };
+    assert!(
+      ranges.goes_on(&ahead(), Instant::now()),
+      "nothing is waited for: it reads on"
+    );
+    // A read waits for a block another request brings.
+    {
+      let mut blocks = ranges.blocks.lock();
+      blocks.waited.push(7);
+      blocks.coming.push(7);
+    }
+    let went = Arc::new(AtomicBool::new(false));
+    let standing = {
+      let (ranges, went) = (ranges.clone(), went.clone());
+      thread::spawn(move || {
+        let on = ranges.goes_on(&ahead(), Instant::now());
+        went.store(true, Ordering::SeqCst);
+        on
+      })
+    };
+    thread::sleep(Duration::from_millis(120));
+    assert!(!went.load(Ordering::SeqCst), "it stands still");
+    let waited_for = Run {
+      first: 7,
+      last: 7,
+      ahead: false,
+    };
+    assert!(
+      ranges.goes_on(&waited_for, Instant::now()),
+      "the request that brings what is waited for reads on"
+    );
+    let long_ago = Instant::now().checked_sub(SECOND * 3 / 5).unwrap();
+    assert!(
+      ranges.goes_on(&ahead(), long_ago),
+      "past half of its time it reads on whatever is waited for"
+    );
+    // The read has its bytes.
+    ranges.blocks.lock().waited.clear();
+    assert!(standing.join().unwrap(), "and it reads on");
+    drop(reader);
+    assert!(
+      !ranges.goes_on(&ahead(), Instant::now()),
+      "the reader is dropped: its requests end"
+    );
+  }
+
+  #[test]
+  fn a_read_that_waited_for_what_was_read_ahead_asks_again_itself_where_that_failed() {
+    let body = numbered(40 * SMALL as usize);
+    let (address, ..) = serve_file(body.clone(), true);
+    let reader = Arc::new(asking(&address).unwrap());
+    // A request the read did not ask for, and then one made for it.
+    for (index, ahead) in [(30_u64, true), (35, false)] {
+      let at = (index * SMALL) as usize;
+      // As far as the reader knows, a request is bringing the block.
+      reader.0.blocks.lock().coming.push(index);
+      let waiting = {
+        let reader = reader.clone();
+        thread::spawn(move || read(&reader, at as u64, 8))
+      };
+      let until = Instant::now() + SECOND;
+      while !reader.0.blocks.lock().waited.contains(&index) {
+        assert!(Instant::now() < until, "the read does not wait");
+        thread::sleep(Duration::from_millis(2));
+      }
+      // It failed.
+      {
+        let mut blocks = reader.0.blocks.lock();
+        blocks.coming.retain(|coming| *coming != index);
+        blocks.failed.push((index, LoadError::TimedOut, ahead));
+      }
+      reader.0.came.notify_all();
+      let read = waiting.join().unwrap();
+      if ahead {
+        assert_eq!(read.unwrap(), &body[at..at + 8], "asked again, by the read");
+      } else {
+        assert_eq!(LoadError::from(read.unwrap_err()), LoadError::TimedOut);
+      }
+    }
+  }
+
+  #[test]
+  fn the_start_of_an_address_is_kept_for_the_reader_that_opens_it_next() {
+    let block = SMALL as usize;
+    let body = numbered(40 * block);
+    let (address, ranges, _) = serve_file(body.clone(), true);
+    let (agents, starts) = (Agents::new(4), Starts::new(2));
+    let open = |key: u64, cut: Cut| {
+      HttpReader::open(
+        &agents,
+        starts.clone(),
+        Asked {
+          key,
+          read_ahead: Some(false),
+          ..asked(&address, asked_by_lurq(), cut)
+        },
+      )
+      .unwrap()
+    };
+    let cut = Cut::even(SMALL);
+    let reader = open(1, cut);
+    assert_eq!(read(&reader, 0, 3 * block).unwrap(), &body[..3 * block]);
+    assert_eq!(read(&reader, 10 * SMALL, 8).unwrap(), &body[10 * block..10 * block + 8]);
+    drop(reader);
+    let before = ranges.lock().len();
+    assert_eq!(before, 4);
+
+    // Opened again: its start is there, with how long it is and what it is, and nothing is asked for.
+    let again = open(1, cut);
+    assert_eq!(again.len(), Some(body.len() as u64));
+    assert_eq!(again.content_type().as_deref(), Some("video/mp4"));
+    assert_eq!(
+      again.buffered(),
+      vec![0..3 * SMALL],
+      "the blocks from its start, and not one further in"
+    );
+    assert_eq!(read(&again, 0, 3 * block).unwrap(), &body[..3 * block]);
+    assert_eq!(ranges.lock().len(), before, "opened and read with no request");
+    // What follows the start is asked for.
+    assert_eq!(read(&again, 3 * SMALL, 8).unwrap(), &body[3 * block..3 * block + 8]);
+    assert_eq!(ranges.lock().last().unwrap(), "12288-16383");
+    drop(again);
+
+    // Another address has no start, and neither has this one cut another way.
+    drop(open(2, cut));
+    assert_eq!(ranges.lock().last().unwrap(), "0-4095");
+    drop(open(1, Cut::even(2 * SMALL)));
+    assert_eq!(ranges.lock().last().unwrap(), "0-8191");
+    // Forgotten, it is asked for again.
+    let asked_so_far = ranges.lock().len();
+    drop(open(2, cut));
+    assert_eq!(ranges.lock().len(), asked_so_far, "kept until it is forgotten");
+    assert!(starts.forget(2));
+    assert!(!starts.forget(2));
+    drop(open(2, cut));
+    assert_eq!(ranges.lock().len(), asked_so_far + 1);
+    // Of no more addresses than it is told: the one kept longest ago is let go.
+    drop(open(3, cut));
+    drop(open(4, cut));
+    let asked_so_far = ranges.lock().len();
+    drop(open(2, cut));
+    assert_eq!(ranges.lock().len(), asked_so_far + 1, "two were kept after it");
+    // And of none, told so.
+    starts.resize(0);
+    let asked_so_far = ranges.lock().len();
+    drop(open(2, cut));
+    drop(open(2, cut));
+    assert_eq!(ranges.lock().len(), asked_so_far + 2);
+  }
+
+  #[test]
+  fn a_request_is_lent_the_agent_that_asked_its_host_last() {
+    assert_eq!(host_of("https://one.example/a/b.mp4?x=1"), "https://one.example");
+    assert_eq!(host_of("http://127.0.0.1:8080"), "http://127.0.0.1:8080");
+    assert_eq!(host_of("https://one.example?x=/y"), "https://one.example");
+    let agents = Agents::new(4);
+    // Two requests at once, to two hosts: an agent each.
+    let (one, two) = (
+      agents.lend("https://one.example/a"),
+      agents.lend("https://two.example/b"),
+    );
+    drop(one);
+    drop(two);
+    assert_eq!(agents.made(), 2);
+    let idle =
+      |agents: &Agents| -> Vec<String> { agents.idle.lock().iter().map(|(_, host)| host.to_string()).collect() };
+    // The agent that asked the host, and not the one given back last.
+    let again = agents.lend("https://one.example/another");
+    assert_eq!(idle(&agents), ["https://two.example"]);
+    drop(again);
+    // A host nobody asked takes the one given back last, and makes no agent.
+    let third = agents.lend("https://three.example/c");
+    assert_eq!(idle(&agents), ["https://two.example"]);
+    drop(third);
+    assert_eq!(idle(&agents), ["https://two.example", "https://three.example"]);
+    assert_eq!(agents.made(), 2);
+  }
+
+  #[test]
+  fn a_connection_opened_ahead_is_the_one_the_first_request_goes_over() {
+    // A host that takes a fifth of a second over a new connection.
+    let body = numbered(100 << 10);
+    let host = serve_capped(body.clone(), 8 << 20, Duration::from_millis(200));
+    let agents = Agents::new(4);
+    connect(&agents, host.address.clone(), Vec::new(), SECOND);
+    // Asked a moment ago, the host is not asked again.
+    connect(&agents, host.address.clone(), Vec::new(), SECOND);
+    let until = Instant::now() + SECOND;
+    while agents.idle.lock().is_empty() {
+      assert!(Instant::now() < until, "no connection was opened ahead");
+      thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(*host.asked.lock(), ["HEAD"]);
+
+    let started = Instant::now();
+    let reader = HttpReader::open(
+      &agents,
+      Starts::new(0),
+      asked(&host.address, Vec::new(), Cut::even(64 << 10)),
+    )
+    .unwrap();
+    assert_eq!(read(&reader, 0, 1024).unwrap(), &body[..1024]);
+    assert!(
+      started.elapsed() < Duration::from_millis(150),
+      "opened with no new connection: {:?}",
+      started.elapsed()
+    );
+    assert_eq!(host.connections.load(Ordering::SeqCst), 1);
+    assert_eq!(*host.asked.lock(), ["HEAD", "0-65535"]);
   }
 }

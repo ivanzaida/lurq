@@ -60,6 +60,16 @@ static MCP: std::sync::OnceLock<lurq::mcp::McpHandle> = std::sync::OnceLock::new
 static CREATED_IN: std::sync::OnceLock<(lurq::app::window::Appearance, lurq::app::window::Appearance)> =
   std::sync::OnceLock::new();
 
+/// The app's loader, for a page that asks it for something by itself: a connection opened ahead.
+#[cfg(not(target_arch = "wasm32"))]
+static LOADER: std::sync::OnceLock<lurq::resources::Loader> = std::sync::OnceLock::new();
+
+/// The app's loader: see [`LOADER`]. `None` where no app runs, as in a test of a page.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn app_loader() -> Option<&'static lurq::resources::Loader> {
+  LOADER.get()
+}
+
 /// The look the gallery's root was created in: see [`CREATED_IN`].
 pub(crate) fn created_in() -> Option<(lurq::app::window::Appearance, lurq::app::window::Appearance)> {
   CREATED_IN.get().copied()
@@ -237,6 +247,8 @@ fn run(mut app: App, route: String, engine: impl Fn() -> Box<dyn RenderEngine> +
   // The system is asked whether it is light or dark before the root is mounted: the root is created in the
   // look its window will have, and not in the light one on a dark system.
   app.read_system_appearance();
+  #[cfg(not(target_arch = "wasm32"))]
+  let _ = LOADER.set(app.loader().clone());
   // The languages lurq has no tokenizer of its own for, by syntect's grammars.
   syntect_code::register(&app);
   let mut tree = Tree::new();

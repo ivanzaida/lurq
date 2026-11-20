@@ -507,7 +507,7 @@ pub(crate) enum Opened {
 /// opened, which the media's state then says.
 fn stream(shared: &Arc<Shared>, loader: &Loader, source: &Source, address: Arc<str>) -> Option<Opened> {
   #[cfg(windows)]
-  match loader.open(source) {
+  match loader.open_to_play(source, shared.eager.load(std::sync::atomic::Ordering::Acquire)) {
     Ok(reader) => {
       // Until it is told to play it reads what its decoder asks for and nothing ahead of that. Kept before
       // that is read: one told to play meanwhile turns the reading ahead on itself.

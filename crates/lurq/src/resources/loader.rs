@@ -46,6 +46,10 @@ const DEFAULT_READ_BLOCK: u64 = 1 << 20;
 /// The threads that read: how many loads are read at a time, on the loader's own threads or on the app's
 /// runtime.
 const LOADER_THREADS: usize = 4;
+
+/// Of how many addresses the start is kept once their readers are dropped, unless told
+/// ([`Loader::keep_starts`]).
+const KEPT_STARTS: usize = 8;
 /// How long a load nobody holds is kept before it is stopped: what holds it is built again by every render, and
 /// lets go of it for a moment each time.
 const IDLE_GRACE: Duration = Duration::from_millis(250);
@@ -429,6 +433,9 @@ struct Shared {
   disk: MediaDiskCache,
   /// The HTTP agents lent to its loads and readers, as many kept as the pool is large.
   agents: AgentPool,
+  /// The start of the addresses its readers read last, kept once they are dropped.
+  #[cfg_attr(not(all(feature = "http", not(target_arch = "wasm32"))), allow(dead_code))]
+  starts: StartPool,
   /// The app's tokio runtime, where it gave one: loads are read on it, and the pool is not made.
   #[cfg(feature = "tokio")]
   runtime: Mutex<Option<tokio::runtime::Handle>>,
@@ -493,6 +500,7 @@ impl Loader {
         waiting: Arc::default(),
         pool: Mutex::new(None),
         agents: agent_pool(LOADER_THREADS),
+        starts: start_pool(KEPT_STARTS),
         disk: MediaDiskCache::new(),
         #[cfg(feature = "tokio")]
         runtime: Mutex::new(None),
@@ -648,6 +656,42 @@ impl Loader {
     settings.block = most.max(1);
     settings.first_block = first.clamp(1, settings.block);
     drop(settings);
+    self
+  }
+
+  /// Of how many addresses the start is kept in memory once their [readers](Self::open) are dropped: 8 unless
+  /// told, and none with 0. The start is the first blocks a reader read whole, 2 MiB of them at most, for five
+  /// minutes: a reader of an address whose start is kept starts with it, with no request, so a video closed and
+  /// opened again a moment later (a page of a pager gone and come back) opens at once and asks the network only
+  /// for what follows. [`forget`](Self::forget) lets go of the start of a source.
+  pub fn keep_starts(&self, addresses: usize) -> &Self {
+    #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+    self.shared.starts.resize(addresses);
+    #[cfg(not(all(feature = "http", not(target_arch = "wasm32"))))]
+    let _ = addresses;
+    self
+  }
+
+  /// Opens a connection to the host of `address` before the first request to it, away from the caller: where
+  /// an app knows the host of a video a moment before it makes its player, the player's first request goes
+  /// over a connection that is there, and does not wait for the handshake. The host is asked for the head of
+  /// what is at the address (a `HEAD` request, with the [rule's](Self::headers) headers), whose answer has
+  /// nothing in it; whatever it answers, the connection is kept for a quarter of a minute. A host asked in the
+  /// last ten seconds is not asked again. Nothing is sent to an address the loader does not
+  /// [allow](Self::allow), in a browser, or in a build without the feature `http`.
+  pub fn connect(&self, address: &str) -> &Self {
+    #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+    if self.allows(address) {
+      let timeout = self.shared.settings.read().timeout;
+      super::http::connect(
+        &self.shared.agents,
+        self.fetched_from(address),
+        self.headers_of(&Source::url(address)),
+        timeout,
+      );
+    }
+    #[cfg(not(all(feature = "http", not(target_arch = "wasm32"))))]
+    let _ = address;
     self
   }
 
@@ -895,26 +939,52 @@ impl Loader {
   /// A reader of `source`, for what reads a part of it and not all: a video, a sound. A file, a resource and
   /// bytes are read where they are.
   ///
-  /// An address is read by ranges of 1 MiB as they are asked for, with the [rule's](Self::headers) and the
-  /// source's headers and the loader's timeout on every request. Its first range is asked for before this
-  /// returns, so it blocks: call it off the UI thread. That answer gives its length and its type
-  /// ([`Reader::content_type`]), and a server that refuses it fails here, with what it answered
-  /// ([`LoadError::Status`], [`LoadError::NotFound`]). A read that fails later gives an [`io::Error`] that
+  /// An address is read by ranges ([`read_blocks`](Self::read_blocks)) as they are asked for, with the
+  /// [rule's](Self::headers) and the source's headers and the loader's timeout on every request. A read is
+  /// given its bytes as they come, and does not wait for the range they are in to be whole. The requests go
+  /// one after the other over one connection: the range a read waits for, then, where it reads ahead
+  /// ([`Reader::read_ahead`]), what follows the last read, and that only while no read waits. A second request
+  /// is made beside the first only for a read that waits for bytes the first is not bringing (a video sent to
+  /// another place), and a request nobody waits for stands still meanwhile, so that a host that gives one
+  /// client so much a second in all gives it to the bytes that are waited for.
+  ///
+  /// Its first range is asked for, and its answer has come, before this returns, so it blocks: call it off the
+  /// UI thread. That answer gives its length and its type ([`Reader::content_type`]), and a server that refuses
+  /// it fails here, with what it answered ([`LoadError::Status`], [`LoadError::NotFound`]). An address whose
+  /// reader was dropped a moment ago is opened with the start that reader read, with no request
+  /// ([`keep_starts`](Self::keep_starts)). A read that fails later gives an [`io::Error`] that
   /// `LoadError::from` turns into the same. What the [cache on the disk](Self::media_disk_cache) keeps of it is
   /// read from its file. An address the loader does not [allow](Self::allow) fails with [`LoadError::Denied`]; in a
   /// build without the feature `http` and in a browser, with [`LoadError::Unsupported`].
   pub fn open(&self, source: &Source) -> Result<Arc<dyn Reader>, LoadError> {
+    self.open_reading(source, None)
+  }
+
+  /// [`open`](Self::open), by what knows whether the reader is to read ahead before it opens it: a media told
+  /// to play, or one opened ahead and left paused. Where it is, the first request to an address asks for what
+  /// is read ahead with the first block, and not for the first block alone.
+  #[cfg_attr(not(all(feature = "media", windows)), allow(dead_code))]
+  pub(crate) fn open_to_play(&self, source: &Source, read_ahead: bool) -> Result<Arc<dyn Reader>, LoadError> {
+    self.open_reading(source, Some(read_ahead))
+  }
+
+  fn open_reading(&self, source: &Source, read_ahead: Option<bool>) -> Result<Arc<dyn Reader>, LoadError> {
     match &source.kind {
       SourceKind::Bytes(bytes) => Ok(Arc::new(BytesReader::new(bytes.clone()))),
       SourceKind::File(path) => Ok(Arc::new(FileReader::open(path)?)),
       SourceKind::Resource(resource) => Ok(Arc::new(FileReader::open(self.resource_path(resource))?)),
       SourceKind::Url(address) if !self.allows(address) => Err(LoadError::Denied),
-      SourceKind::Url(address) => self.open_address(address, source),
+      SourceKind::Url(address) => self.open_address(address, source, read_ahead),
     }
   }
 
   #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
-  fn open_address(&self, address: &str, source: &Source) -> Result<Arc<dyn Reader>, LoadError> {
+  fn open_address(
+    &self,
+    address: &str,
+    source: &Source,
+    read_ahead: Option<bool>,
+  ) -> Result<Arc<dyn Reader>, LoadError> {
     if let Some(path) = self.shared.disk.file(source.cache_key())
       && let Ok(reader) = FileReader::open(path)
     {
@@ -929,16 +999,26 @@ impl Loader {
       (settings.timeout, cut)
     };
     Ok(Arc::new(super::http::HttpReader::open(
-      self.shared.agents.clone(),
-      self.fetched_from(address),
-      self.headers_of(source),
-      timeout,
-      cut,
+      &self.shared.agents,
+      self.shared.starts.clone(),
+      super::http::Asked {
+        key: source.cache_key(),
+        address: self.fetched_from(address),
+        headers: self.headers_of(source),
+        timeout,
+        cut,
+        read_ahead,
+      },
     )?))
   }
 
   #[cfg(not(all(feature = "http", not(target_arch = "wasm32"))))]
-  fn open_address(&self, _address: &str, _source: &Source) -> Result<Arc<dyn Reader>, LoadError> {
+  fn open_address(
+    &self,
+    _address: &str,
+    _source: &Source,
+    _read_ahead: Option<bool>,
+  ) -> Result<Arc<dyn Reader>, LoadError> {
     Err(LoadError::Unsupported(
       "this build reads an address only whole: a reader of one needs the feature `http`, outside a browser",
     ))
@@ -951,6 +1031,8 @@ impl Loader {
   pub fn forget(&self, source: &Source) -> bool {
     let key = source.cache_key();
     let kept = self.shared.disk.forget_key(key);
+    #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+    let kept = self.shared.starts.forget(key) || kept;
     let mut entries = self.shared.entries.lock();
     match entries.get(&key) {
       Some(entry) if !entry.state.lock().is_loading() => {
@@ -1028,6 +1110,20 @@ fn agent_pool(size: usize) -> AgentPool {
 
 #[cfg(not(all(feature = "http", not(target_arch = "wasm32"))))]
 fn agent_pool(_size: usize) -> AgentPool {}
+
+/// The starts a loader keeps of the addresses its readers read: none in a build that reads no address.
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+type StartPool = Arc<super::http::Starts>;
+#[cfg(not(all(feature = "http", not(target_arch = "wasm32"))))]
+type StartPool = ();
+
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+fn start_pool(addresses: usize) -> StartPool {
+  super::http::Starts::new(addresses)
+}
+
+#[cfg(not(all(feature = "http", not(target_arch = "wasm32"))))]
+fn start_pool(_addresses: usize) -> StartPool {}
 
 /// Reads all of what is at `address`, or its first `max_bytes` where `cut`.
 #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
@@ -1516,6 +1612,44 @@ mod tests {
       "one handshake for the five"
     );
     assert_eq!(loader.shared.agents.made(), 1, "and one agent");
+  }
+
+  #[cfg(feature = "http")]
+  #[test]
+  fn an_address_read_a_moment_ago_is_opened_again_with_no_request_until_its_start_is_forgotten() {
+    let (address, asked) = serve_named(Duration::ZERO);
+    let loader = Loader::new();
+    let source = Source::url(&format!("{address}/clip.mp4"));
+    let read = || {
+      let reader = loader.open(&source).unwrap();
+      let mut start = [0_u8; 8];
+      let count = reader.read_at(0, &mut start).unwrap();
+      start[..count].to_vec()
+    };
+    assert_eq!(read(), b"abc");
+    assert_eq!(asked.lock().len(), 1);
+    // Its reader is dropped, and its start kept: the next reader of it asks for nothing.
+    assert_eq!(read(), b"abc");
+    assert_eq!(asked.lock().len(), 1, "opened again with what the first read");
+    assert!(loader.forget(&source), "there was a start to forget");
+    assert_eq!(read(), b"abc");
+    assert_eq!(asked.lock().len(), 2, "forgotten, it is asked for again");
+    // Told to keep the start of none, every reader asks.
+    loader.keep_starts(0);
+    assert_eq!(read(), b"abc");
+    assert_eq!(read(), b"abc");
+    assert_eq!(asked.lock().len(), 4);
+  }
+
+  #[cfg(feature = "http")]
+  #[test]
+  fn no_connection_is_opened_ahead_to_an_address_the_app_does_not_allow() {
+    let (address, asked) = serve_named(Duration::ZERO);
+    let loader = Loader::new();
+    loader.allow(|_| false);
+    loader.connect(&format!("{address}/clip.mp4"));
+    std::thread::sleep(Duration::from_millis(150));
+    assert!(asked.lock().is_empty(), "nothing was sent");
   }
 
   #[cfg(feature = "http")]

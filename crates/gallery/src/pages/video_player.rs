@@ -290,6 +290,184 @@ impl lurq::app::component::DevtoolsInspectable for Scene {
   }
 }
 
+/// A video from the gallery's slow host, with how long it took to open and what the host was asked of it. A
+/// component of its own: what the host was asked is read again a few times a second while it is asked.
+#[cfg(not(target_arch = "wasm32"))]
+struct SlowClip {
+  /// Counted on by "Another address": an address nothing has read.
+  run: Signal<u64>,
+  /// Whether its player is there.
+  open: Signal<bool>,
+  playing: Signal<bool>,
+  muted: Signal<bool>,
+  /// When the player was made, and how many milliseconds after that it opened and its picture began to move.
+  made: Arc<std::sync::Mutex<Option<std::time::Instant>>>,
+  opened: Signal<Option<u64>>,
+  started: Signal<Option<u64>>,
+  /// Counted on by a clock while the host is asked for more.
+  beat: Signal<u64>,
+  _clock: Interval,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl Component for SlowClip {
+  type Props = ();
+
+  fn create(ctx: &mut Ctx) -> Self {
+    let (run, beat) = (ctx.signal(1_u64), ctx.signal(0_u64));
+    let clock = ctx.create_interval(Duration::from_millis(200), {
+      let (run, beat) = (run.clone(), beat.clone());
+      let seen = std::sync::atomic::AtomicUsize::new(usize::MAX);
+      move || {
+        let asked = crate::slow_host::slow_host().map_or(0, |host| host.clip_asked(run.get_untracked()).len());
+        // Only while more was asked of it since the last look.
+        if seen.swap(asked, std::sync::atomic::Ordering::Relaxed) != asked {
+          beat.update(|count| *count += 1);
+        }
+      }
+    });
+    clock.start();
+    Self {
+      run,
+      open: ctx.signal(false),
+      playing: ctx.signal(false),
+      muted: ctx.signal(true),
+      made: Arc::default(),
+      opened: ctx.signal(None),
+      started: ctx.signal(None),
+      beat,
+      _clock: clock,
+    }
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let run = self.run.get();
+    self.beat.get();
+    let Some(host) = crate::slow_host::slow_host() else {
+      return Column::new().child(quiet("this machine gave the gallery's host no port", 12.0));
+    };
+    let address = host.clip(run);
+    let open = self.open.get();
+    let button = |label: &str, id: &str| {
+      Button::new(label)
+        .variant(ButtonVariant::Outline)
+        .size(lurq::ui::ButtonSize::Sm)
+        .id(id)
+    };
+    // How long ago the player was made.
+    fn since(made: &std::sync::Mutex<Option<std::time::Instant>>) -> Option<u64> {
+      let made = made.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+      made.map(|made| made.elapsed().as_millis() as u64)
+    }
+    let toggle = {
+      let (shown, playing, made) = (self.open.clone(), self.playing.clone(), self.made.clone());
+      let (opened, started) = (self.opened.clone(), self.started.clone());
+      button(if open { "Close" } else { "Open" }, "slow-clip-open").on_click(move |_| {
+        let opening = !shown.get_untracked();
+        if opening {
+          *made.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(std::time::Instant::now());
+          opened.set(None);
+          started.set(None);
+        }
+        playing.set(opening);
+        shown.set(opening);
+      })
+    };
+    let another = {
+      let (run, shown, playing) = (self.run.clone(), self.open.clone(), self.playing.clone());
+      let (opened, started) = (self.opened.clone(), self.started.clone());
+      button("Another address", "slow-clip-another").on_click(move |_| {
+        shown.set(false);
+        playing.set(false);
+        opened.set(None);
+        started.set(None);
+        run.update(|run| *run += 1);
+      })
+    };
+    let connect = {
+      let address = address.clone();
+      button("Connect ahead", "slow-clip-connect").on_click(move |_| {
+        if let Some(loader) = crate::app_loader() {
+          loader.connect(&address);
+        }
+      })
+    };
+    let seconds = |after: Option<u64>| after.map(|ms| format!("{:.2} s", ms as f64 / 1000.0));
+    let opened = match (open, seconds(self.opened.get())) {
+      (false, _) => "closed".to_owned(),
+      (true, None) => "not opened yet".to_owned(),
+      (true, Some(after)) => format!("opened {after} after its player was made"),
+    };
+    let started = seconds(self.started.get())
+      .filter(|_| open)
+      .map_or("—".to_owned(), |after| {
+        format!("its picture moved {after} after its player was made")
+      });
+    let asked = host.clip_asked(run);
+    let asked = if asked.is_empty() {
+      "nothing yet".to_owned()
+    } else {
+      asked.join(" · ")
+    };
+    let mut shown = Row::new()
+      .width(FILL)
+      .spacing(24.0)
+      .wrap()
+      .align_items(Alignment::Start);
+    if open {
+      let (opened, made) = (self.opened.clone(), self.made.clone());
+      let (started, began) = (self.started.clone(), self.made.clone());
+      shown = shown.child(
+        VideoPlayer::new()
+          .source(&lurq::resources::Source::url(&address))
+          .playing(self.playing.clone())
+          .muted(self.muted.clone())
+          .width(432.0)
+          .max_width(Length::Fill)
+          .on_load(move |_| opened.set(since(&made)))
+          .on_started(move || {
+            if started.get_untracked().is_none() {
+              started.set(since(&began));
+            }
+          })
+          .id("slow-clip-player")
+          .key(format!("slow-clip-{run}"))
+          .mount(ctx),
+      );
+    }
+    let said = |label: &str, value: &str, id: &str| {
+      Column::new()
+        .width(FILL)
+        .spacing(2.0)
+        .child(quiet(label, 12.0))
+        .child(lurq::components::Text::new(value).id(id))
+    };
+    Column::new()
+      .width(FILL)
+      .spacing(16.0)
+      .child(
+        Row::new()
+          .width(FILL)
+          .spacing(8.0)
+          .wrap()
+          .child(toggle)
+          .child(another)
+          .child(connect),
+      )
+      .child(
+        shown.child(
+          Column::new()
+            .width(320.0)
+            .max_width(FILL)
+            .spacing(10.0)
+            .child(said("The video", &opened, "slow-clip-opened"))
+            .child(said("Its first picture", &started, "slow-clip-started"))
+            .child(said("What the host was asked", &asked, "slow-clip-asked")),
+        ),
+      )
+  }
+}
+
 /// A player of a section, live: it starts in the state its `Scene` names, its values are its own, and a clock of
 /// its own moves it on while it plays, so every control on it answers a press as it would in an app. It is a
 /// component of its own, and what changes in it renders it again and not the page.
@@ -1466,6 +1644,8 @@ impl Component for VideoPlayerPage {
     let own = items().child(item(feed, "your own controls in the overlay"));
     #[cfg(not(target_arch = "wasm32"))]
     let behind = Self::behind(ctx);
+    #[cfg(not(target_arch = "wasm32"))]
+    let slow = ctx.mount::<SlowClip>(());
     let rows = [
       (
         "media",
@@ -1936,6 +2116,37 @@ impl Component for VideoPlayerPage {
                 "    .controls(false)",
                 "    .background(Color::new(0, 0, 0, 0))   // or PaletteColor::Muted",
                 "    .mount(ctx)",
+              ],
+            ),
+          ),
+        );
+        #[cfg(not(target_arch = "wasm32"))]
+        sections.insert(
+          sections.len() - 1,
+          Section::new(
+            "From a slow host",
+            "A host of the gallery's own on this machine gives its client 192 KiB of this clip a second in all, \
+             however many connections the client has, and takes a quarter of a second over each new connection. \
+             Open: the player asks for the clip in order, over one connection, and has its bytes as they come. \
+             Close and Open: the start it read was kept, and it opens with no request. Another address is one \
+             nothing has read. Connect ahead opens the connection before the player is made, so that its first \
+             request does not wait for it. On Windows the app's loader reads the address; elsewhere the system's \
+             player does, and what it asks of the host is its own.",
+            self.frame.demo(
+              7,
+              slow,
+              "app.loader().connect(address)",
+              &[
+                "// The host of the next video is known a moment before its player is made.",
+                "app.loader().connect(\"https://videos.example.com/clips/lake.mp4\");",
+                "",
+                "VideoPlayer::new()",
+                "    .source(&Source::url(\"https://videos.example.com/clips/lake.mp4\"))",
+                "    .playing(playing)",
+                "    .mount(ctx)",
+                "",
+                "// Of how many addresses the start is kept once their players are gone: 8 unless told.",
+                "app.loader().keep_starts(8);",
               ],
             ),
           ),
