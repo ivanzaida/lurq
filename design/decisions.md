@@ -380,7 +380,7 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   as before: a column that grows takes all the room it may in lurq's layout, so the body grows only where the card's
   height is its own (`CardView::has_height`). A card that is a share of a column takes `height(Length::Fill)`.
 - **Why.** The kit's card is a column that clips; a card that could do neither kept the kit on its own.
-- **State.** In work on `claude/k5-b-surfaces`.
+- **State.** Built on `claude/k5-b-surfaces` (2026-11-20).
 
 ### A data list's term at the top of a value that wraps, and its id kept by a theme's renderer
 
@@ -389,11 +389,11 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   And a theme's renderer of a data list could not put the list's id on its root: the view kept it to itself.
 - **Decision (Ivan, 2026-11-20: "так давай роби в луркі").** `DataList::align(Alignment)` says how a term and its
   value stand to each other across: `Center` as before, or `Start`, the term at the top of the value. The view gives a
-  renderer the id and the key (`DataListView::id`, `key`), and `DataListView::root_of(element)` puts them and the
-  list's name on the root a renderer builds.
+  renderer the id and the key (`DataListView::id`, `key`), and a root a renderer builds with no id of its own is given
+  the list's.
 - **Why.** The kit's detail rows move onto `DataList` only with their term where the design draws it, and a list whose
   id a theme drops cannot be found by the tests that read it.
-- **State.** In work on `claude/k5-b-surfaces`.
+- **State.** Built on `claude/k5-b-surfaces` (2026-11-20).
 
 ### An alert at the top of its first line, with a note, without a title, and in the inspector's layout
 
@@ -412,7 +412,7 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   `-actions` lurq's `-action` (the part's name, kept so a theme's rule on it holds), `-icon`, `-text`, `-title` and
   `-note` are the same; the app renames the two it reads.
 - **Why.** The kit's notices are built on `ui::Alert` only where it draws them as the design does.
-- **State.** In work on `claude/k5-b-surfaces`.
+- **State.** Built on `claude/k5-b-surfaces` (2026-11-20).
 
 ### A breadcrumb's links cut at a width, with their whole name in a tooltip while cut
 
@@ -424,7 +424,7 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   (`Tooltip::when_cut`).
 - **Why.** A trail of long names (folders, projects) fits its bar only if each of them gives up room, and a name cut
   must still be readable.
-- **State.** In work on `claude/k5-b-surfaces`.
+- **State.** Built on `claude/k5-b-surfaces` (2026-11-20).
 
 ### A switch and a checkbox pressed as a whole, their id on the whole, and a press kept from a row around them
 
@@ -439,7 +439,7 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   a checkbox, whole or not, its label too, stops there: a row around it is not pressed.
 - **Why.** The kit's toggle is found by its id as a whole and pressed inside rows; with the id on the box alone and a
   press that also pressed the row, it could not move onto lurq.
-- **State.** In work on `claude/k5-b-surfaces`.
+- **State.** Built on `claude/k5-b-surfaces` (2026-11-20).
 
 ## 2026-11-19
 
