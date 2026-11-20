@@ -152,7 +152,12 @@ dropped). When a decision is replaced, the old entry stays and says what replace
 - **Why.** The kit moves its tooltip and its icon button onto lurq's only if they do what its call sites ask of
   them; the cut text is read from the layout that cut it, not from a second, unseen copy laid out to be measured, as
   the kit does now.
-- **State.** In work on `claude/k4-d-tooltip-menu`.
+- **State.** Built on `claude/k4-d-tooltip-menu` (2026-11-20): `Tooltip::max_width`, `note`, `mono`, `when_cut`,
+  `TooltipPart::Note`, `TooltipState::Note` and `Mono`; `ElementRef::text_cut`; `Button::mount` and
+  `Button::tooltip`. A tooltip mounted on a bare text now holds it in a row that gives way, so the text is cut in it.
+  What the kit's `Truncated` also does is not part of it: a tooltip worded for whether the text is cut (`hint`), and
+  a label laid out as a whole control (`framed`); the app reads `text_cut` for the first and lays out its own row for
+  the second.
 
 ### A menu item with a detail, a reason it cannot be chosen and an element before its label; a popover and a menu kept inside an element
 
@@ -172,7 +177,12 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   `Popup`, `Popover` and `Menu` take it too (`within`).
 - **Why.** The kit's menus and popovers move onto `ui::Menu` and `ui::Popover` only if a row can say what the kit's
   rows say, and a panel can stay where the design keeps it.
-- **State.** In work on `claude/k4-d-tooltip-menu`.
+- **State.** Built on `claude/k4-d-tooltip-menu` (2026-11-20): `MenuItem::detail`, `unavailable`, `leading`,
+  `MenuItemPart::Leading`, `Detail`, `Lock`, `MenuItemState::Detail`, `Unavailable`; `Overlay::within`,
+  `Popup::within`, `Popover::within`, `Menu::within`. Not part of it: the kit's detail on the label's line
+  (`inline_detail`), a detail in the warning color, a reason said once in a menu's foot (`reason_below`), a reason
+  without the lock (`without_lock`), the kit's hint at a row's end and its 40-high row: they are styles of the parts
+  a theme gives (`detail`, `lock`, `root`), or the app's.
 
 ## 2026-11-19
 
