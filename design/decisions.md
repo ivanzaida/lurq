@@ -26,7 +26,7 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   the recipe makes 0 wide is not laid out. The default recipe has no gap: what an app sees does not change.
 - **Why.** What Orchester's kit needs: its strip is lurq's, with the design's gap, and a tab that left comes back when
   the window grows.
-- **State.** Decided; in work on `claude/k5-a-tabs-small`.
+- **State.** Built on `claude/k5-a-tabs-small` (2026-11-20): the gaps of `list` and `root` counted, the list mode's strip as wide as its tabs are laid out (the list in a column, so the strip's line takes room from it and does not drop it whole), separators by the tabs on either side whatever is hidden, the one before the add button keeping its room in the list mode.
 
 ### The More button's menu may list every open tab
 
@@ -43,7 +43,7 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   a state of the strip (`menu_open`) a recipe styles, and its chevron points up then.
 - **Why.** What Orchester's kit needs to drop its own list and keep its behaviour; a browser's tab search is the same
   thing, none of it Orchester's alone.
-- **State.** Decided; in work on `claude/k5-a-tabs-small`.
+- **State.** Built on `claude/k5-a-tabs-small` (2026-11-20): `WindowTabsMenu`, `WindowTabs::menu` and `list_shortcut`, the state `MenuOpen`, the parts of the list, four words of the locale; the gallery's "Every open tab in a list".
 
 ### A window tab as wide as what it shows, up to a cap
 
@@ -54,7 +54,7 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   still gives way down to the recipe's least width, and in the list mode it keeps that width and leaves the strip
   whole. The strip is as wide as such tabs are laid out, with no measuring of the app's.
 - **Why.** What Orchester's kit needs to drop `tab_measure` and `tab_fit`.
-- **State.** Decided; in work on `claude/k5-a-tabs-small`.
+- **State.** Built on `claude/k5-a-tabs-small` (2026-11-20). In the scroll mode the strip is reckoned with such a tab at its cap, a label's width being unknown before the layout.
 
 ### A tag's remove handler is given the event
 
@@ -64,7 +64,7 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   `TagRemoveEvent`, the press or the key that took the tag away, which the handler stops (`stop_propagation`) so
   nothing around the tag hears it. `on_remove(|| ..)` stays as it was.
 - **Why.** What Orchester's kit needs; breaking `on_remove` for it would break every app that has one.
-- **State.** Decided; in work on `claude/k5-a-tabs-small`.
+- **State.** Built on `claude/k5-a-tabs-small` (2026-11-20).
 
 ### A badge that cuts its word where it has less room
 
@@ -74,7 +74,7 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   has less room than its word, down to its dot and icon and its padding, and its word ends in an ellipsis; what
   reads the tree is still told the whole word. Off unless told.
 - **Why.** What Orchester's kit needs.
-- **State.** Decided; in work on `claude/k5-a-tabs-small`.
+- **State.** Built on `claude/k5-a-tabs-small` (2026-11-20).
 
 ### A part's foreground wins over the color of its typography role
 
@@ -88,7 +88,7 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   role's color is the text's at rest. A role's color still applies where the part sets no foreground at all.
 - **Why.** A recipe says what a part looks like; its `foreground` is the more particular of the two, and the role's
   color is a default for text that names nothing else.
-- **State.** Decided; in work on `claude/k5-a-tabs-small`.
+- **State.** Built on `claude/k5-a-tabs-small` (2026-11-20), in `ResolvedPart::text`, the text every renderer draws a part's words with. A text a renderer resolves from `TextPatch::resolve` itself (a highlight's runs, a watermark) is as it was.
 
 ### Window tabs that hold Orchester's title-bar tabs
 
