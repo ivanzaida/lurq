@@ -130,6 +130,48 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   card and a pressed one. A length in percent is not a `Length`, so a call site's `Dimension::Pct(100.0)` is
   `Length::Fill`.
 
+### A choice of a segmented control or a radio group has an id, a count, states and an element ref; a tab a reason and a badge
+
+- **Question.** Orchester's segmented controls give each segment an id of its own (its tests and the MCP tree read
+  `<id>-label` and `<id>-count`), a number after the label (*All 24*), a state the design draws (a choice that
+  warns), and an `ElementRef` that a popup the segment opens anchors to; its tabs have a tab that is not built yet,
+  dimmed with a lock and the reason in its tooltip, and a count of what waits for the person in a badge after the
+  label. A `ui::Choice` has a value, a label, an icon and `disabled`; a `ui::Tab` has a count but no badge, and a
+  disabled tab says nothing of why. Can lurq's choices and tabs hold what the kit's do (plan K4, item 5)?
+- **Decision (Ivan, 2026-11-20: "давай роби тоді ці всі пункти").** A `Choice` takes `id(..)` (the segment's or the
+  radio's id, after which its parts are named: `<id>-label`, `<id>-count`), `count(..)` (a number after the label,
+  in a part `count`), `state(name, on)` (a state of the theme's recipe on that choice alone) and
+  `element_ref(ElementRef)` (on what is pressed: the segment, the radio's mark), beside `disabled` it had.
+  `SegmentedControl` and `RadioGroup` draw all of them; a `Radio` takes `count` and `element_ref` too. A `Tab` takes
+  `disabled_reason(&str)`: it is disabled, its reason is its description to tooling, and the tabs put in the tree
+  with `mount` show it as the tab's tooltip; and `badge(..)`: a count in a pill after the label (part `badge`), for
+  what waits for the person, where `count` stays the quiet number of what is there.
+- **Why.** The kit's segments and tabs are found by the ids of their parts, and their counts, warnings, reasons and
+  anchors are what they say and do; without them the kit keeps its own widgets.
+- **State.** Decided; in work on `claude/k4-e-choices-dialog`.
+
+### A dialog has a mark, a note in its footer, and a confirm on Enter; a field an error icon and its control at the end
+
+- **Question.** Orchester's confirmations (`dialog`, plan K4 item 6) have a tile with an icon before the title, a
+  quiet note at the footer's start (why the action cannot be taken, what Esc does), and Enter runs the main action.
+  Its forms show an error with a `circle-alert` before the words, and its settings put the label and the
+  description on the left and the control at the row's end. `ui::Dialog` has a title, a description, a body and a
+  footer of buttons; `ui::Field` has its error as words alone, and beside its label only the form with the label in
+  a column of 110. Can they?
+- **Decision (Ivan, 2026-11-20: "давай роби тоді ці всі пункти").** `Dialog::icon(name)` draws an icon in a well
+  (part `mark`, its glyph `icon`) before the title, and `Dialog::media(element)` puts the app's element in its place,
+  state `mark`; `Dialog::note(&str)` with `note_icon(name)` puts quiet words at the footer's start, the buttons at
+  its end (parts `note`, `note_icon`, state `note`); `Dialog::on_confirm(handler)` runs on Enter while the dialog is
+  open, unless the focus is on something Enter does a thing of its own with (a button, a link, a select, a text
+  input of several lines) or an input method composes. The engine tells it: `KeyboardEvent::focus_takes_enter`.
+  `Field::error_icon(name)` draws an icon before the description while the field is invalid (part `icon`), and
+  `Field::control_end(true)` (state `control_end`) lays the label and the description in a column that takes the
+  row's room (part `text`) and the control at the row's end.
+- **Why.** The kit builds its confirmations and its settings rows on lurq's dialog and field only where they hold what
+  the design draws. A focused button keeps Enter as a press of itself, so a dialog that opens with the focus on
+  Cancel (a question whose answer destroys) is not confirmed by Enter, as the playbook's rule of the focus wants.
+- **State.** Decided; in work on `claude/k4-e-choices-dialog`.
+
 ## 2026-11-19
 
 ### A component's id is the prefix of the ids of its parts
