@@ -11,6 +11,93 @@ dropped). When a decision is replaced, the old entry stays and says what replace
 
 ## 2026-11-20
 
+### Tabs with a note at the end, a dot, a count still read, and a tab a press leaves alone
+
+- **Question.** Orchester's page tabs (`ui/tabs.rs` of its kit) have quiet words at the strip's end (why a tab cannot
+  be opened), a rule between groups of tabs, a dot after a tab's count in the tone of what it counts (a service that
+  crashed), a quiet count apart from the badge of what waits for the person, a count's bone while the count is read,
+  and the tab of the page shown that a press leaves alone (it keeps the panel it shows). `ui::Tabs` has the rule
+  (`Tab::separated`) and the quiet count (`Tab::count`, apart from `Tab::badge`), and none of the rest. Can it host
+  them (K5, package C)?
+- **Decision (Ivan, 2026-11-20: "так давай роби в луркі").** `Tabs::note(&str)` puts quiet words at the end of the
+  list's line (part `note`), and `Tabs::end(element)` an element of the app's there (part `end`); both give way first
+  where the line is short. `Tab::dot(PaletteColor)` draws a dot after the count and the badge in a role of the
+  palette (part `dot`, its size the recipe's). `Tab::count_pending(true)` shows a skeleton in the count's place,
+  as wide as one digit (part `count`, its bone `count_skeleton`), and says the tab is busy to tooling.
+  `Tab::inert(true)` is a tab a press leaves alone: it is drawn as it is, selected or not and not dimmed, but a
+  press, its item in the menu of the overflowing form and the arrow keys neither select nor focus it (state `inert`,
+  no pointer cursor). The rule and the quiet count are already lurq's.
+- **Why.** Each is what a page's tabs show in many apps; with them the kit's page tabs are `ui::Tabs` dressed by the
+  app's recipe.
+- **State.** In work on `claude/k5-c-rows-forms`.
+
+### A list item with tags and an (i) after its title, elements under its words, and parts under the row
+
+- **Question.** Orchester's grouped rows and settings rows (`ui/row_group.rs`, `ui/setting_rows.rs`) have tags after
+  the label (*Default*, *Changed*), an (i) after it with the rest of what the setting does in its tooltip, a link
+  under the hint, and what the row says under itself (a problem, a code to copy) inside the row's box under it.
+  `ui::ListItem` has a title and a description of text. Can it hold them, and which ids does the app read?
+- **Decision (Ivan, 2026-11-20: "так давай роби в луркі").** `ListItem::tag(element)` puts the app's elements after the
+  title, on its line (part `tags`); `ListItem::info(&str)` the mark of an `InfoLabel` after the title and the tags,
+  its words in a tooltip (part `info`) that shows wherever the row is rendered; `ListItem::detail(element)` an element
+  of the app's under the description in the text's column (part `detail`): a link, a path; `ListItem::below(element)`
+  what the row says under itself, across the row under its line, in a part `below` that a press of the row does not
+  reach. The ids stay lurq's part names: `x-title` and `x-description`, not the kit's `x-label` and `x-hint`. The app
+  reads lurq's (its tests and its MCP readers move to `-title` and `-description`); a lurq part is named after what it
+  is in every component, and a second name for one part would be two ids for one node.
+- **Why.** A settings row and a grouped row are list items with a few more things around the title; with them the
+  kit's rows are `ui::ListItem` in a `ui::List`.
+- **State.** In work on `claude/k5-c-rows-forms`.
+
+### A field without a label, and rows under its description
+
+- **Question.** Orchester's form fields (`ui/field/` of its kit) are often a control alone with its hint, named by the
+  control (a search box, a field of a table's row), and its controls add error rows of their own under the field.
+  A `ui::Field` with an empty label draws none, but gives some controls an empty name over their own, and has
+  nothing under its description. Can it?
+- **Decision (Ivan, 2026-11-20: "так давай роби в луркі").** `Field::unlabeled(control)` is a field with no label: the
+  control keeps the name it has of its own (its hidden label, its own `label`), and no control takes an empty name
+  from a field (each control's `in_field` leaves its name alone where the field's label is empty). A field beside
+  its label (`Horizontal`) keeps the label's column, so its control stands in line with the others of the form.
+  `Field::below(element)` adds the app's elements under the description, one under another (part `below`): error
+  rows, a count, a link.
+- **Why.** The kit's fields are lurq's only if a field can be a control alone, and if what the app says under it has a
+  place that is the field's.
+- **State.** In work on `claude/k5-c-rows-forms`.
+
+### Key caps in a dialog's note, and a veil that leaves a band of the app's at the top
+
+- **Question.** Orchester's confirmations say at their footer's start what Enter does and that Esc cancels, each with
+  its key cap (`Keys` in `08e · History · Delete confirmation`), and its scrim stops under its title bar. A
+  `ui::Dialog`'s note is words alone; its veil starts under the title bar a `WindowChrome` says
+  (`WindowHandle::title_bar_inset`), and nothing else. Can a note hold key caps, and can the veil leave more of the
+  top?
+- **Decision (Ivan, 2026-11-20: "так давай роби в луркі").** `Dialog::note_key(keys, words)` adds a key cap (a
+  `ui::Kbd` of `keys`, as `Kbd::shortcut` writes them for the platform; part `note_key`) and its words in the note's
+  type to the note, after its text, in the order given; `Dialog::note_child(element)` adds any element of the app's
+  there. A note of keys alone is a note. `Dialog::inset_top(f32)` leaves that much of the top of what the veil covers
+  to what is under it, which takes the pointer there (a bar the app draws itself, not a `WindowChrome`); the panel is
+  centred in the rest. The title bar of a `WindowChrome` is left without it, as before.
+- **Why.** What a key does is said with its key cap in many apps' footers; and a bar that is not the chrome's is still
+  the app's to keep in reach while a dialog asks.
+- **State.** In work on `claude/k5-c-rows-forms`.
+
+### A button whose label takes its room, whose description wraps, and that tells its focus
+
+- **Question.** Orchester's select-like buttons put their chevron at the button's end with the label taking the room
+  before it; its stacked answers say what a press leads to under the label in several lines; and an answer tells the
+  app when the keyboard focuses it (its supporting copy changes). A `ui::Button` centres its content, cuts its
+  description to one line, and has no focus handler. Can it?
+- **Decision (Ivan, 2026-11-20: "так давай роби в луркі").** `Button::fill_label(true)` (state `fill_label`): the
+  label (with its description) takes the room the button has, its content starts at the button's start, and what is
+  after the label (a trailing icon, an element) stands at the end. `Button::description_wraps(true)` (state
+  `description_wraps`): the description goes on to the next lines in the room the button has, in place of one line
+  cut with an ellipsis. `Button::on_focus(handler)` is called when the button takes the focus, from the keyboard or
+  from the app; a second handler is called after the first.
+- **Why.** A select's trigger, a stacked answer and a focus that changes what is said beside it are buttons in the
+  kit; with these they are `ui::Button`, and the kit's own frame goes.
+- **State.** In work on `claude/k5-c-rows-forms`.
+
 ### Window tabs that hold Orchester's title-bar tabs
 
 - **Question.** Orchester draws the tabs of its title bar itself: a Home tab of an icon alone, tabs capped at a width
