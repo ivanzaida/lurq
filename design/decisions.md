@@ -130,6 +130,100 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   card and a pressed one. A length in percent is not a `Length`, so a call site's `Dimension::Pct(100.0)` is
   `Length::Fill`.
 
+### A status label: an icon and toned words, with no box
+
+- **Question.** Orchester says what a run or a step is doing with a status (`ui/status.rs`, every table row and page
+  header): an icon and a word in one tone, 5 apart, with no fill and no edge, the icon turning while the run works
+  (`Running`, `Working`), cut to its row's room. A `ui::Badge` is a filled pill in every variant, so the kit could not
+  move its status onto lurq (plan K4, item 7). Should lurq have one, and as what?
+- **Decision (Ivan, 2026-11-20: "давай роби тоді ці всі пункти").** A component of its own, `ui::StatusLabel`: an
+  icon of the theme's set and a label in the tone of its variant (neutral, muted, info, success, warning,
+  destructive), no box; `spin(true)` turns the icon as a spinner does, by the theme's `SpinMotion` or its own; two
+  sizes; the label is one line, cut with an ellipsis where its room is short. To tooling it is a `status` called by
+  its label.
+- **Why.** A badge's recipe is a filled box in every variant; a label with no box is another component, not a
+  variant that takes the box away again.
+- **State.** Decided; in work on `claude/k4-f-misc`.
+
+### A radio card holds the app's content, its mark, why it is disabled, and that it waits
+
+- **Question.** Orchester's option card (`ui/option_card.rs`) is a radio card that holds more under its words (a
+  picker, starter steps), shows an app's mark in place of an icon (the maker of an agent's models), says why it cannot
+  be chosen (a lock in place of its dot and the reason under its words), and is held while the work it chose runs
+  (dimmed, its dot kept). `ui::RadioCard` has none of the four (plan K4, item 7).
+- **Decision (Ivan, 2026-11-20: "давай роби тоді ці всі пункти").** A radio card and a checkbox card (they share
+  their props) take `content(element)`, any element under the description, in the part `content`; `mark(element)`,
+  an element of the app's in place of the icon; `disabled_reason(&str)`, which disables the card, says the reason
+  under its words (part `reason`) and to tooling, and shows a lock (part `lock`) in place of its mark or box; and
+  `loading(bool)` (state `loading`), a card that takes no press while what it chose is under way, dimmed, its mark or
+  box kept, and busy to tooling.
+- **Why.** What the kit's card holds is what a settings page's choices hold in many apps; each is a small prop of
+  the card the recipe styles.
+- **State.** Decided; in work on `claude/k4-f-misc`.
+
+### A code block copies another text than it shows, and says when the copy failed
+
+- **Question.** Orchester's code box (`ui/code_box.rs`) copies a value and says Copied, or that it could not copy
+  when the clipboard refused it; some of its boxes show a value and copy another (a command shown short, copied
+  whole). `ui::CodeBlock` asks the window to copy, never hears whether it did, and copies what it shows (plan K4,
+  item 7).
+- **Decision (Ivan, 2026-11-20: "давай роби тоді ці всі пункти").** `CodeBlock::copy_text(&str)` is what its button
+  puts on the clipboard in place of the code it shows (`on_copy` is told it). A mounted block hears whether the
+  clipboard took it: if not, the button shows an alert glyph in the destructive color, named by
+  `copy_failed_text` (the locale's `EditingWords::copy_failed`, "Couldn't copy"), state `copy_failed`, for as long as
+  Copied is shown. The window gets a way to ask for a copy and be told whether it was written.
+- **Why.** A press that says Copied when nothing was copied is a lie the kit does not tell; and the text a person
+  needs on the clipboard is not always the text that fits the box.
+- **State.** Decided; in work on `claude/k4-f-misc`.
+
+### A calendar has a footer
+
+- **Question.** Orchester's date picker draws Today and Clear under its month (`ui/date_picker`). A `ui::Calendar`
+  has nothing under its grid (plan K4, item 7).
+- **Decision (Ivan, 2026-11-20: "давай роби тоді ці всі пункти").** `Calendar::footer(element)`: an element of the
+  app's under the months, across the panel, in the part `footer` (a line over it and room above it, as the kit
+  draws it). What is in it is the app's.
+- **Why.** What goes under a calendar differs from app to app; a slot is all lurq needs to give.
+- **State.** Decided; in work on `claude/k4-f-misc`.
+
+### A tag with a term before its label
+
+- **Question.** Orchester shows pairs as one chip, a term and its value (`branch: main`). A `ui::Tag` has one label
+  (plan K4, item 7).
+- **Decision (Ivan, 2026-11-20: "давай роби тоді ці всі пункти").** `Tag::term(&str)`: a term before the label, in the
+  part `term`, quieter than the label (regular weight, the muted foreground on a neutral tag). The term is shown as
+  the app writes it, its punctuation too (`branch:`), so no word of lurq's stands between them.
+- **Why.** What separates a term from its value differs by language and by app; the app writes it.
+- **State.** Decided; in work on `claude/k4-f-misc`.
+
+### A breadcrumb's step in a state of the app's
+
+- **Question.** Orchester's crumbs are drawn in ways of their own: a key in mono, the page's title in a title's
+  type, a last crumb drawn as an ancestor (a folder whose file the page's title names). A `ui::BreadcrumbStep` is
+  drawn as a link or as the page and nothing else (plan K4, item 7).
+- **Decision (Ivan, 2026-11-20: "давай роби тоді ці всі пункти").** `BreadcrumbStep::state(name, on)` puts one step
+  in a state the theme's recipe names; the parts of that step (its link or page, its icon) are resolved in it, and
+  the other steps are not. A theme says what the state looks like (`.when(Selector::new().state("ancestor"), Page,
+  ..)`), as for any state of a component.
+- **Why.** The ways a step is drawn are the app's design; lurq gives the step a state, as it gives a whole
+  component one.
+- **State.** Decided; in work on `claude/k4-f-misc`.
+
+### SVG icons in the theme's icon set
+
+- **Question.** The theme's icon set draws a glyph of a font for a name. Orchester has marks that are SVG (GitHub's,
+  the makers of agents' models: `ui/github_mark.rs`, `ui/agent_mark.rs`), so they could not be icons of its set
+  (plan K4, item 7).
+- **Decision (Ivan, 2026-11-20: "давай роби тоді ці всі пункти").** `ThemeIcons::set_svg(name, IconSvg)` (and
+  `Theme::set_icon_svg`) gives a name an SVG in place of a glyph: `IconSvg::stroked(svg)` draws its lines in the
+  icon's color (lucide's icons), `IconSvg::filled(svg)` its shapes, and `IconSvg::colored(svg)` keeps its own colors
+  (a brand's mark). An `Icon` of that name draws it at its size, in its color or in the foreground of what it is in,
+  and turns it where it spins. The engine paints an SVG in the foreground its node inherits where its data asks
+  (`SvgData::fill_current_color`, `stroke_current_color`). SVG is drawn with the feature `canvas`; without it such
+  an icon takes its room and draws nothing.
+- **Why.** An app's marks are drawn by name wherever lurq's components draw icons, as its glyphs are.
+- **State.** Decided; in work on `claude/k4-f-misc`.
+
 ## 2026-11-19
 
 ### A component's id is the prefix of the ids of its parts
