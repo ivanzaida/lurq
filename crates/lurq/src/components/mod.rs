@@ -1431,6 +1431,32 @@ macro_rules! impl_into_node {
         self
       }
 
+      /// Whether Tab stops at the element, where it would: `false` passes it by, and it still takes the focus
+      /// that a press, `Ctx::focus` or the arrow keys of a focus group it is in give it. A focused button so
+      /// passed by is still pressed by Enter and Space. What the pointer and shortcuts reach, and Tab does not.
+      pub fn tab_stop(mut self, stops: bool) -> Self {
+        // Read first: writing the default would give the node the box of handlers it has none of.
+        self.update_node(|node| {
+          if node.events.skips_tab == stops {
+            node.events.skips_tab = !stops;
+          }
+        });
+        self
+      }
+
+      /// Whether a press of the element with the pointer focuses it, where it takes the focus: `false` leaves
+      /// the focus where it was, in a field being typed in or nowhere, and runs the press as before. The element
+      /// still takes the focus from Tab, `Ctx::focus` and a focus group's arrow keys. What it `focuses` is
+      /// focused by the press as before.
+      pub fn focus_on_press(mut self, focuses: bool) -> Self {
+        self.update_node(|node| {
+          if node.events.press_keeps_focus == focuses {
+            node.events.press_keeps_focus = !focuses;
+          }
+        });
+        self
+      }
+
       /// Called as a press of the element that repeats (`repeat_press`) is let go, wherever the pointer is then, or
       /// is taken by the OS: the end of the held press, after the last of its clicks.
       pub fn on_press_end(mut self, f: impl Fn() + Send + Sync + 'static) -> Self {

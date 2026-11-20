@@ -10752,7 +10752,8 @@ impl<'t> ElementHandle<'t> {
     }
     let center = self.bounds().map(|bounds| bounds.center()).unwrap_or((0.0, 0.0));
     let Some(node) = self.node() else { return };
-    let focusable = node.is_focusable();
+    // A node that keeps the focus where it was on a press (`focus_on_press(false)`) is not focused by its click.
+    let focusable = node.is_focusable() && !node.events.press_keeps_focus;
     let button_kind = node.button_kind_value();
     let handlers = node.events.on_click.clone();
     self.tree.set_input_modality(focus_visible::InputModality::Pointer);
@@ -13479,6 +13480,10 @@ fn dispatch_builtin_pointer(
     .map(|(node, _)| node.node_id());
 
   for (node, rect) in hits {
+    // Pressed, it leaves the focus where it was (`focus_on_press(false)`): nor does what is around it take it.
+    if node.events.press_keeps_focus && node.is_focusable() {
+      return None;
+    }
     if node.button_kind_value().is_some() {
       return Some(FocusTarget {
         input_id: node.node_id(),

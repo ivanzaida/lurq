@@ -1059,6 +1059,10 @@ pub struct EventHandlers {
   /// A press of the primary button runs the node's `on_click` handlers at once, and again while the button is held
   /// over it; its release clicks nothing more. See `app/runtime/press_repeat.rs`.
   pub press_repeats: bool,
+  /// Tab passes the node by, though it takes the focus otherwise: see `tab_stop` of an element.
+  pub(crate) skips_tab: bool,
+  /// A press of the node with the pointer leaves the focus where it was: see `focus_on_press` of an element.
+  pub(crate) press_keeps_focus: bool,
   /// Run as a press that repeats is let go, wherever the pointer is, or taken by the OS: the end of the gesture.
   pub on_press_end: Vec<VoidCallback>,
 }

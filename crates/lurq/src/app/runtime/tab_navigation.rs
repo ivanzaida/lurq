@@ -400,17 +400,20 @@ fn visit_node<'a>(
     && tab_index >= 0
     && node.is_focusable()
   {
-    walk.stops.push(Stop {
-      target: FocusTarget {
-        input_id: node.node_id(),
-        event_id: focus_event_id.unwrap_or_else(|| node.node_id()),
-      },
-      key: stop_key(tab_index, order),
-      entry: node.is_focus_entry(),
-      autofocus: node.is_autofocus(),
-      owner: walk.owner,
-      apart: walk.apart,
-    });
+    // Passed by (`tab_stop(false)`), it is still where Tab goes on from while it has the focus.
+    if !node.events.skips_tab {
+      walk.stops.push(Stop {
+        target: FocusTarget {
+          input_id: node.node_id(),
+          event_id: focus_event_id.unwrap_or_else(|| node.node_id()),
+        },
+        key: stop_key(tab_index, order),
+        entry: node.is_focus_entry(),
+        autofocus: node.is_autofocus(),
+        owner: walk.owner,
+        apart: walk.apart,
+      });
+    }
     // A button's content is part of the button, not separate stops, unless the button says otherwise.
     if node.button_kind_value().is_some() && !node.has_stops_inside() {
       return;
