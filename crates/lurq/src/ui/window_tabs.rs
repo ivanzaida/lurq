@@ -12,9 +12,10 @@ use parking_lot::Mutex;
 
 use super::{
   icons, names,
+  part_style::PartAnimation,
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
   select::{px, spacing},
-  shared::{fading, glyph, one_line, pressable, tab_stop},
+  shared::{FADE_IN, FADE_OUT, fading, glyph, one_line, pressable, tab_stop},
   theme::{Themed, current_theme},
 };
 use crate::{
@@ -22,18 +23,23 @@ use crate::{
     component::Component,
     ctx::Ctx,
     events::{DragEvent, KeyboardEvent, MouseButton, MouseButtonMask, MouseEvent},
-    theme::{BorderSize, IconSize, OpacityLevel, PaletteColor, RadiusSize, Theme, TypographyStyle},
+    theme::{
+      BorderSize, IconSize, MotionDuration, MotionEasing, OpacityLevel, PaletteColor, RadiusSize, ShadowStyle, Theme,
+      TypographyStyle,
+    },
   },
   components::{self, Column, Row, ScrollBoth, Stack},
   core::{ElementRef, Signal, SignalValue},
   layout::{
     Alignment,
+    text_style::FontWeight,
     layout_kind::{Justify, ScrollState},
     scrollbar::ScrollBarStyle,
   },
   node::{CursorIcon, Element, FocusGroup, color::Color, dimension::Dimension, outline::Outline},
 };
 
+mod all_tabs;
 mod list;
 
 /// How far a press on a tab moves before it is a drag: the distance past which the engine clicks nothing on the
@@ -75,8 +81,30 @@ pub enum WindowTabsPart {
   More,
   /// How many tabs the More button holds.
   MoreLabel,
-  /// The chevron of the More button.
+  /// The chevron of the More button: down, and up while its menu is open.
   MoreIcon,
+  /// Of the list of every tab ([`WindowTabsMenu::All`]): the panel under the More button.
+  Panel,
+  /// The search field at the head of the list, where it holds more than eight tabs.
+  Search,
+  /// The rows of the list, under the search field.
+  Items,
+  /// One row of the list: a tab, which a press selects.
+  Item,
+  /// The icon of a row, before its label.
+  ItemIcon,
+  /// The label of a row.
+  ItemLabel,
+  /// The mark of a row whose tab is not in the strip.
+  ItemHidden,
+  /// The mark of the row of the selected tab.
+  ItemCurrent,
+  /// The close button at a row's end.
+  ItemClose,
+  /// The x of a row's close button.
+  ItemCloseIcon,
+  /// What the list says where no tab matches the search.
+  Empty,
 }
 
 names!(WindowTabsPart {
@@ -96,6 +124,17 @@ names!(WindowTabsPart {
   More => "more",
   MoreLabel => "more_label",
   MoreIcon => "more_icon",
+  Panel => "panel",
+  Search => "search",
+  Items => "items",
+  Item => "item",
+  ItemIcon => "item_icon",
+  ItemLabel => "item_label",
+  ItemHidden => "item_hidden",
+  ItemCurrent => "item_current",
+  ItemClose => "item_close",
+  ItemCloseIcon => "item_close_icon",
+  Empty => "empty",
 });
 
 /// The states of window tabs a recipe styles, besides what the pointer and the keyboard do to them.
@@ -113,6 +152,8 @@ pub enum WindowTabsState {
   IconOnly,
   /// Of the strip: some of its tabs did not fit and are in the menu of its More button.
   Overflowing,
+  /// Of the strip: the menu of its More button is open.
+  MenuOpen,
 }
 
 names!(WindowTabsState {
@@ -122,6 +163,7 @@ names!(WindowTabsState {
   Disabled => "disabled",
   IconOnly => "icon_only",
   Overflowing => "overflowing",
+  MenuOpen => "menu_open",
 });
 
 /// What window tabs do where they have less room than their tabs at their most: what
@@ -134,6 +176,17 @@ pub enum WindowTabsOverflow {
   /// The tabs keep their width, and those that do not fit leave the strip, the last first and never the selected
   /// one, into the menu of a button at the end of the tabs that shows how many left. Choosing one there selects it.
   List,
+}
+
+/// What the More button of the list mode opens: what [`WindowTabs::menu`] takes.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum WindowTabsMenu {
+  /// A menu of the tabs that left the strip, in their order. The default.
+  #[default]
+  Hidden,
+  /// A list of every open tab, in the strip's order: a search field at its head once it holds more than eight, a
+  /// mark on the selected tab and on each tab not in the strip, and a close button on each row.
+  All,
 }
 
 /// Where the dot of a tab with unsaved changes stands: what [`WindowTabs::dirty_mark`] takes.
@@ -445,6 +498,8 @@ pub struct WindowTabs<T = ()> {
   shortcuts: bool,
   disabled: bool,
   overflow: WindowTabsOverflow,
+  menu: WindowTabsMenu,
+  list_shortcut: bool,
   dirty_mark: WindowTabsDirtyMark,
   tab_stop: bool,
   label: Option<Arc<str>>,
@@ -514,6 +569,8 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> WindowTabs<T> {
       shortcuts: true,
       disabled: false,
       overflow: WindowTabsOverflow::Scroll,
+      menu: WindowTabsMenu::Hidden,
+      list_shortcut: false,
       dirty_mark: WindowTabsDirtyMark::InCloseSlot,
       tab_stop: true,
       label: None,
@@ -613,6 +670,24 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> WindowTabs<T> {
   /// learns which left; converted into an element on their own they are cut at the strip's end.
   pub fn overflow(mut self, overflow: WindowTabsOverflow) -> Self {
     self.overflow = overflow;
+    self
+  }
+
+  /// What the More button of the list mode opens: a menu of the tabs that left the strip
+  /// ([`WindowTabsMenu::Hidden`], the default), or the list of every open tab ([`WindowTabsMenu::All`]), with a
+  /// search field once it holds more than eight, a mark on the selected tab and on each tab not in the strip, and a
+  /// close button on each row. Ctrl+W (Cmd+W on macOS) on a row of it closes that row's tab.
+  pub fn menu(mut self, menu: WindowTabsMenu) -> Self {
+    self.menu = menu;
+    self
+  }
+
+  /// Whether Ctrl+Shift+A (Cmd+Shift+A on macOS) opens and closes the More button's menu of the list mode, from
+  /// anywhere in the window, apart from the window's other [`shortcuts`](Self::shortcuts): off unless told. The
+  /// menu of the hidden tabs opens only while a tab is hidden; the list of every tab opens at any time. The More
+  /// button's tooltip says the keys.
+  pub fn list_shortcut(mut self, on: bool) -> Self {
+    self.list_shortcut = on;
     self
   }
 
@@ -790,6 +865,8 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> WindowTabs<T> {
       shortcuts: self.shortcuts,
       disabled: self.disabled,
       overflow: self.overflow,
+      menu: self.menu,
+      list_shortcut: self.list_shortcut,
       dirty_mark: self.dirty_mark,
       tab_stop: self.tab_stop,
       label: self.label,
@@ -911,6 +988,22 @@ struct Kept {
   /// Whether the menu of the More button is open, and the button it hangs from.
   open: Signal<bool>,
   anchor: ElementRef,
+  /// Of the list of every tab: what its search field holds, the field, the rows by the index of their tab, where
+  /// the focus is to go once the list is rendered, and how high the window is.
+  query: Signal<String>,
+  search: ElementRef,
+  item_refs: Arc<Mutex<Vec<ElementRef>>>,
+  /// Where the focus is to go, once the strip holds as many tabs as this says, where it says.
+  menu_focus: Arc<Mutex<Option<(MenuFocus, Option<usize>)>>>,
+  window_height: Arc<Mutex<Option<f32>>>,
+}
+
+/// Where the focus goes in the list of every tab, once it is rendered.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum MenuFocus {
+  Search,
+  /// The row of the tab at this index, kept in view.
+  Item(usize),
 }
 
 impl Kept {
@@ -929,6 +1022,11 @@ impl Kept {
       dropped: Arc::new(Mutex::new(Vec::new())),
       open: Signal::new(false),
       anchor: ElementRef::new(),
+      query: Signal::new(String::new()),
+      search: ElementRef::new(),
+      item_refs: Arc::new(Mutex::new(Vec::new())),
+      menu_focus: Arc::new(Mutex::new(None)),
+      window_height: Arc::new(Mutex::new(None)),
     }
   }
 
@@ -944,6 +1042,27 @@ impl Kept {
       refs.push(ElementRef::new());
     }
     refs[index].clone()
+  }
+
+  /// The ref of the row of the tab at `index` in the list of every tab.
+  fn item_ref(&self, index: usize) -> ElementRef {
+    let mut refs = self.item_refs.lock();
+    while refs.len() <= index {
+      refs.push(ElementRef::new());
+    }
+    refs[index].clone()
+  }
+
+  /// Asks for the focus to go to `to` in the list of every tab, once it is rendered.
+  fn focus_menu(&self, to: MenuFocus) {
+    *self.menu_focus.lock() = Some((to, None));
+    self.moved();
+  }
+
+  /// Asks for the focus to go to `to` once the strip holds `count` tabs: after the app took a closed tab away.
+  fn focus_menu_with(&self, to: MenuFocus, count: usize) {
+    *self.menu_focus.lock() = Some((to, Some(count)));
+    self.moved();
   }
 
   /// Renders mounted tabs again, to draw where a drag is.
@@ -969,6 +1088,8 @@ struct Prepared {
   shortcuts: bool,
   disabled: bool,
   overflow: WindowTabsOverflow,
+  menu: WindowTabsMenu,
+  list_shortcut: bool,
   dirty_mark: WindowTabsDirtyMark,
   tab_stop: bool,
   label: Option<Arc<str>>,
@@ -992,7 +1113,11 @@ impl Prepared {
       states: self.states.clone(),
     }
     .state(WindowTabsState::Disabled, self.disabled)
-    .state(WindowTabsState::Overflowing, hidden.contains(&true));
+    .state(WindowTabsState::Overflowing, hidden.contains(&true))
+    .state(
+      WindowTabsState::MenuOpen,
+      kept.revision.is_some() && self.overflow == WindowTabsOverflow::List && kept.open.get(),
+    );
     let owner = theme
       .resolve::<WindowTabs>(&case, Some(&self.rules))
       .owned_by(self.id.as_ref());
@@ -1001,6 +1126,8 @@ impl Prepared {
       disabled: self.disabled,
       shortcuts: self.shortcuts,
       overflow: self.overflow,
+      menu: self.menu,
+      list_shortcut: self.list_shortcut,
       dirty_mark: self.dirty_mark,
       tab_stop: self.tab_stop,
       hidden,
@@ -1091,7 +1218,30 @@ impl Component for WindowTabsHost {
     } else {
       self.kept.refocus.store(false, Ordering::Relaxed);
     }
-    tabs.build(&current_theme(), self.kept.clone())
+    *self.kept.window_height.lock() = Some(ctx.window().info().logical_height());
+    let count = tabs.tabs.len();
+    let element = tabs.build(&current_theme(), self.kept.clone());
+    let request = {
+      let mut request = self.kept.menu_focus.lock();
+      // A request for after a tab is taken away waits for the strip that no longer holds it; the list closed, none.
+      if !self.kept.open.get_untracked() {
+        *request = None;
+      }
+      match *request {
+        Some((_, Some(awaited))) if awaited != count => None,
+        _ => request.take().map(|(to, _)| to),
+      }
+    };
+    match request {
+      Some(MenuFocus::Search) => ctx.focus(&self.kept.search),
+      Some(MenuFocus::Item(index)) => {
+        let item = self.kept.item_ref(index);
+        ctx.focus(&item);
+        ctx.scroll_into_view(&item);
+      }
+      None => {}
+    }
+    element
   }
 }
 
@@ -1109,6 +1259,10 @@ pub struct WindowTabsView {
   pub disabled: bool,
   pub shortcuts: bool,
   pub overflow: WindowTabsOverflow,
+  /// What the More button of the list mode opens.
+  pub menu: WindowTabsMenu,
+  /// Whether Ctrl+Shift+A (Cmd+Shift+A) opens the More button's menu.
+  pub list_shortcut: bool,
   pub dirty_mark: WindowTabsDirtyMark,
   /// Whether Tab stops in the strip.
   pub tab_stop: bool,
@@ -1658,14 +1812,6 @@ impl WindowTabsView {
     places
   }
 
-  /// Whether `place` is in the strip, and not in the More button's menu.
-  fn in_strip(&self, place: Place) -> bool {
-    match place {
-      Place::Tab(index) => !self.hidden[index],
-      Place::Room => true,
-    }
-  }
-
   /// Whether a separator stands beside `place`: one stands between two tabs that are not the selected one, and
   /// none beside the room of a dragged tab, which is the selected one.
   fn plain(&self, place: Place) -> bool {
@@ -1763,8 +1909,15 @@ impl WindowTabsView {
       })
       .collect();
     let (reorder, refocus) = (self.reorder.clone(), self.kept.refocus.clone());
+    // While the list of every tab is open, the window's keys are its own: Ctrl+W closes the row the keys are on.
+    let open = (self.menu == WindowTabsMenu::All).then(|| self.kept.open.clone());
     move |event: KeyboardEvent| {
-      if event.default_prevented() || event.composing || event.alt || tabs.is_empty() {
+      if event.default_prevented()
+        || event.composing
+        || event.alt
+        || tabs.is_empty()
+        || open.as_ref().is_some_and(|open| open.get_untracked())
+      {
         return;
       }
       let mac = cfg!(target_os = "macos");
@@ -1917,6 +2070,9 @@ impl WindowTabsView {
     if !self.disabled && self.shortcuts {
       root = root.on_key_down(self.shortcut());
     }
+    if let Some(keys) = self.list_keys() {
+      root = root.on_key_down(keys);
+    }
     if let Some(id) = &self.id {
       root = root.id(id.clone());
     }
@@ -1971,14 +2127,23 @@ impl<T: Send + Sync + 'static> Themed for WindowTabs<T> {
   ///   the add button; a disabled tab is dimmed. A tab of its icon alone is 28 wide with no padding; the dot after a
   ///   label and the app's marks are 6 from the label, the marks 4 apart. The More button of the list mode is 28 high,
   ///   padded 8 across, its count 12 and a chevron of 12, 4 apart, in the muted foreground, the foreground and the
-  ///   secondary hover under the pointer.
+  ///   secondary hover under the pointer, and pressed while its menu is open.
+  /// - The list of every tab is a panel 320 wide in the popover's colors, edged by 1 in the border's color, with
+  ///   the large radius and shadow, padded 6, its search field 4 above its rows, which are 2 apart. A row is 28
+  ///   high, round by the small radius, padded 8 at its start and 4 at its end, its parts 8 apart: an icon of 14 and
+  ///   the label 12 in the muted foreground, a mark of 12 for a tab not in the strip, a check of 14 on the selected
+  ///   tab, and a close button of 20 whose x of 12 shows while the row is under the pointer or focused. The selected
+  ///   tab's row has the fill of what is picked out and its label 500 in the foreground; another is muted under the
+  ///   pointer and focused, with the ring inside it then. Where nothing matches, 12 in the muted foreground, padded
+  ///   12 and 8.
   fn recipe() -> Recipe {
     use PaletteColor::{Background, Foreground, Muted, MutedForeground, Ring, SecondaryHover};
     use WindowTabsPart::{
-      Add, AddIcon, Close, CloseIcon, Dot, Icon, Label, List, Marks, More, MoreIcon, MoreLabel, Root, Separator, Tab,
+      Add, AddIcon, Close, CloseIcon, Dot, Empty, Icon, Item, ItemClose, ItemCloseIcon, ItemCurrent, ItemHidden,
+      ItemIcon, ItemLabel, Items, Label, List, Marks, More, MoreIcon, MoreLabel, Panel, Root, Search, Separator, Tab,
       Title,
     };
-    use WindowTabsState::{Dirty, Disabled, IconOnly, Selected};
+    use WindowTabsState::{Dirty, Disabled, IconOnly, MenuOpen, Selected};
     let inside = || Outline::new(BorderSize::Md, Ring).offset(-2.0);
     let clear = Color::new(0, 0, 0, 0);
     let edge = || crate::node::border::Border::inside(BorderSize::Sm, PaletteColor::Border);
@@ -2079,6 +2244,64 @@ impl<T: Send + Sync + 'static> Themed for WindowTabs<T> {
       .state(Disabled, More, |s| s.opacity(OpacityLevel::Disabled))
       .when(Selector::new().state(Disabled).hovered(), More, |s| {
         s.background(clear).foreground(MutedForeground)
+      })
+      .state(MenuOpen, More, |s| {
+        s.background(SecondaryHover)
+          .veil(PaletteColor::StatePressed)
+          .foreground(Foreground)
+      })
+      .base(Panel, |s| {
+        s.width(320.0)
+          .padding_x(6.0)
+          .padding_y(6.0)
+          .radius(RadiusSize::Lg)
+          .background(PaletteColor::Popover)
+          .foreground(PaletteColor::PopoverForeground)
+          .border(crate::node::border::Border::inside(BorderSize::Sm, PaletteColor::Border))
+          .shadow(ShadowStyle::Lg)
+          .enter(PartAnimation::new(FADE_IN, MotionDuration::Base, MotionEasing::Enter))
+          .exit(PartAnimation::new(FADE_OUT, MotionDuration::Fast, MotionEasing::Exit))
+      })
+      .base(Search, |s| s.padding_bottom(4.0))
+      .base(Items, |s| s.gap(2.0))
+      .base(Item, |s| {
+        fading(
+          s.height(28.0)
+            .padding_start(8.0)
+            .padding_end(4.0)
+            .gap(8.0)
+            .radius(RadiusSize::Sm)
+            .foreground(MutedForeground)
+            .cursor(CursorIcon::Default),
+        )
+      })
+      .hovered(Item, |s| s.background(Muted))
+      .focus_visible(Item, |s| s.background(Muted).outline(inside()))
+      .state(Selected, Item, |s| {
+        s.background(PaletteColor::Highlight).foreground(Foreground)
+      })
+      .when(Selector::new().state(Selected).hovered(), Item, |s| {
+        s.background(PaletteColor::Highlight)
+      })
+      .state(Disabled, Item, |s| s.opacity(OpacityLevel::Disabled))
+      .base(ItemIcon, |s| s.square(IconSize::Sm))
+      .base(ItemLabel, |s| s.typography(TypographyStyle::Caption))
+      .state(Selected, ItemLabel, |s| s.weight(FontWeight::Medium))
+      .base(ItemHidden, |s| s.square(IconSize::Xs).foreground(MutedForeground))
+      .base(ItemCurrent, |s| s.square(IconSize::Sm).foreground(Foreground))
+      .base(ItemClose, |s| {
+        fading(s.square(20.0).radius(RadiusSize::Sm).cursor(CursorIcon::Default))
+      })
+      .hovered(ItemClose, |s| s.background(SecondaryHover))
+      .base(ItemCloseIcon, |s| {
+        s.square(IconSize::Xs).foreground(MutedForeground).opacity(0.0)
+      })
+      .within(ItemCloseIcon, |s| s.opacity(1.0))
+      .base(Empty, |s| {
+        s.padding_x(12.0)
+          .padding_y(8.0)
+          .typography(TypographyStyle::Caption)
+          .foreground(MutedForeground)
       })
   }
 }
