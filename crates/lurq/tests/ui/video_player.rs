@@ -1295,7 +1295,7 @@ fn in_fullscreen_it_fills_its_window_and_keeps_its_room_where_it_stood() {
       .into()
   });
   assert_eq!(stage.bounds("v"), (0.0, 0.0, 320.0, 180.0));
-  assert!(!has(&mut stage, "v-captions"), "compact at 320");
+  assert!(!has(&mut stage, "v-settings"), "compact at 320");
   let after = stage.bounds("after");
   stage.click("v-fullscreen");
   stage.pass();
@@ -1306,13 +1306,13 @@ fn in_fullscreen_it_fills_its_window_and_keeps_its_room_where_it_stood() {
     "it is as large as its window"
   );
   assert_eq!(stage.bounds("after"), after, "what stands after it has not moved");
-  assert!(has(&mut stage, "v-captions"), "in the form of the width it has now");
+  assert!(has(&mut stage, "v-settings"), "in the form of the width it has now");
   // Escape leaves, and it is back where it stood, as large as it was.
   stage.key("Escape");
   stage.pass();
   assert!(!full.get(), "Escape asks to leave");
   assert_eq!(stage.bounds("v"), (0.0, 0.0, 320.0, 180.0));
-  assert!(!has(&mut stage, "v-captions"));
+  assert!(!has(&mut stage, "v-settings"));
   assert_eq!(stage.bounds("after"), after);
 
   // An app that lays fullscreen out itself: the player is drawn where it stands, its button saying "exit".
@@ -1726,4 +1726,57 @@ fn in_fullscreen_a_drag_down_leaves_it_and_a_short_one_does_not() {
     told.take().iter().any(|said| said == "fullscreen false"),
     "dragged down, it asks to leave fullscreen"
   );
+}
+
+/// A player of 250 s with no captions, `width` wide, in the touch form where `touch`.
+fn plain(width: f32, touch: bool) -> VideoPlayer {
+  VideoPlayer::new().id("v").width(width).duration(250.0).touch(touch)
+}
+
+/// Whether a text saying `words` is drawn.
+fn says_words(stage: &mut Stage, words: &str) -> bool {
+  stage
+    .tree
+    .find_element(|element| element.text_content() == Some(words))
+    .is_some()
+}
+
+#[test]
+fn a_player_without_captions_has_no_captions_button_nor_their_row_in_any_form() {
+  for (width, touch) in [(640.0, false), (360.0, false), (360.0, true)] {
+    let mut stage = still(move || plain(width, touch).force_menu(Some(VideoPlayerMenu::Settings)));
+    assert!(
+      !has(&mut stage, "v-captions"),
+      "{width} wide, touch {touch}: no captions' button"
+    );
+    assert!(
+      !says_words(&mut stage, "Captions"),
+      "{width} wide, touch {touch}: no captions' row"
+    );
+  }
+  let mut stage = still(|| plain(360.0, false).force_menu(Some(VideoPlayerMenu::More)));
+  assert!(!says_words(&mut stage, "Captions"), "none in the compact form's menu");
+  assert!(says_words(&mut stage, "Speed"), "and its other rows stay");
+}
+
+#[test]
+fn a_player_with_captions_has_their_button_unless_told_not_to() {
+  for touch in [false, true] {
+    let mut stage = still(move || plain(640.0, touch).captions_track("English"));
+    assert!(has(&mut stage, "v-captions"), "touch {touch}: a track has its button");
+    let mut stage = still(move || plain(640.0, touch).captions_track("English").captions_button(false));
+    assert!(!has(&mut stage, "v-captions"), "touch {touch}: left out");
+  }
+}
+
+#[test]
+fn the_settings_button_can_be_left_out_and_the_speed_stays() {
+  for touch in [false, true] {
+    let mut stage = still(move || plain(640.0, touch));
+    assert!(has(&mut stage, "v-settings"), "touch {touch}: settings unless told");
+    let mut stage = still(move || plain(640.0, touch).settings_button(false));
+    assert!(!has(&mut stage, "v-settings"), "touch {touch}: left out");
+  }
+  let mut stage = still(|| plain(640.0, false).settings_button(false));
+  assert!(has(&mut stage, "v-speed"), "the large form keeps its speed's button");
 }

@@ -535,6 +535,8 @@ pub struct VideoPlayer {
   caption_text: Option<Arc<str>>,
   caption_cues: Option<MediaCaptions>,
   captions_track: Option<Arc<str>>,
+  captions_button: bool,
+  settings_button: bool,
   qualities: Vec<Arc<str>>,
   quality: Held<Option<usize>>,
   fullscreen: Held<bool>,
@@ -637,6 +639,8 @@ impl VideoPlayer {
       caption_text: None,
       caption_cues: None,
       captions_track: None,
+      captions_button: true,
+      settings_button: true,
       qualities: Vec::new(),
       quality: Held::new(None),
       fullscreen: Held::new(false),
@@ -922,6 +926,35 @@ impl VideoPlayer {
   pub fn captions_track(mut self, name: &str) -> Self {
     self.captions_track = Some(Arc::from(name));
     self
+  }
+
+  /// Whether the captions' button is drawn, with their row in the menus and the key C, where the player has
+  /// captions: it is unless told. A player without captions has neither, whatever this says: one has them where
+  /// it is given a track ([`caption_cues`](Self::caption_cues), [`captions_track`](Self::captions_track)) or a
+  /// line ([`caption_text`](Self::caption_text)), where the app holds whether they show
+  /// ([`captions`](Self::captions), [`on_captions_change`](Self::on_captions_change)), or where they are on.
+  pub fn captions_button(mut self, shown: bool) -> Self {
+    self.captions_button = shown;
+    self
+  }
+
+  /// Whether the settings' button is drawn, with its menu, in the large form and the touch form: it is unless
+  /// told, where the menu has something in it (the qualities, the speed, the captions). The large form keeps its
+  /// speed's button without it; the compact form has no settings, and its "more" menu stays.
+  pub fn settings_button(mut self, shown: bool) -> Self {
+    self.settings_button = shown;
+    self
+  }
+
+  /// Whether the captions' button, their row in the menus and their key are there: see
+  /// [`captions_button`](Self::captions_button).
+  fn has_captions(&self) -> bool {
+    self.captions_button
+      && (self.caption_cues.is_some()
+        || self.captions_track.is_some()
+        || self.caption_text.is_some()
+        || self.captions.value
+        || !self.captions.handlers.is_empty())
   }
 
   /// The qualities it can play in, best first: "1080p", "720p". The settings offer them after "Auto".
@@ -2654,6 +2687,17 @@ impl Make<'_, '_> {
     })
   }
 
+  /// The captions' row of a menu, where the player has captions.
+  fn captions_row(&self) -> Option<MenuItem> {
+    self.player.has_captions().then(|| self.captions_page())
+  }
+
+  /// Whether the settings' button is drawn: where it is not left out and its menu has something in it.
+  fn has_settings(&self) -> bool {
+    let player = self.player;
+    player.settings_button && (!player.qualities.is_empty() || !player.live || player.has_captions())
+  }
+
   fn captions_page(&self) -> MenuItem {
     let player = self.player;
     let track = player.captions_track.clone().unwrap_or_else(|| player.words.on.clone());
@@ -2677,7 +2721,7 @@ impl Make<'_, '_> {
   /// The large form's settings: quality, speed, captions.
   fn settings_menu(&self) -> Element {
     let player = self.player;
-    let items: Vec<MenuItem> = [self.quality_page(), self.speed_page(), Some(self.captions_page())]
+    let items: Vec<MenuItem> = [self.quality_page(), self.speed_page(), self.captions_row()]
       .into_iter()
       .flatten()
       .collect();
@@ -2722,7 +2766,7 @@ impl Make<'_, '_> {
       .checked(pip)
       .on_select(move || tell(!pip));
     let items: Vec<MenuItem> = [
-      Some(self.captions_page()),
+      self.captions_row(),
       self.speed_page(),
       self.quality_page(),
       Some(picture),
@@ -2795,17 +2839,21 @@ impl Make<'_, '_> {
       }
       words.into()
     });
-    let captions_on = player.captions.value;
-    let press = self.pressed(player.captions.teller(), !captions_on);
-    let captions = self.touch_button(
-      "captions",
-      (Touch, TouchIcon),
-      icons::CAPTIONS,
-      &player.words.captions,
-      captions_on,
-      press,
-    );
-    let settings = {
+    let mut tools = Vec::new();
+    if player.has_captions() {
+      let captions_on = player.captions.value;
+      let press = self.pressed(player.captions.teller(), !captions_on);
+      tools.push(self.touch_button(
+        "captions",
+        (Touch, TouchIcon),
+        icons::CAPTIONS,
+        &player.words.captions,
+        captions_on,
+        press,
+      ));
+    }
+    let mut menus = Vec::new();
+    if self.has_settings() {
       let open = self.live.menu(VideoPlayerMenu::Settings).clone();
       let is_open = player.force_menu == Some(VideoPlayerMenu::Settings) || open.get();
       let poke = poke.clone();
@@ -2815,16 +2863,16 @@ impl Make<'_, '_> {
           poke();
         }
       });
-      self.touch_button(
+      tools.push(self.touch_button(
         "settings",
         (Touch, TouchIcon),
         icons::SETTINGS,
         &player.words.settings,
         is_open,
         press,
-      )
-    };
-    let mut menus = vec![self.settings_menu()];
+      ));
+      menus.push(self.settings_menu());
+    }
     // The middle: none while it waits or failed, where the spinner or the error stands.
     let transport = (player.error.is_none() && !player.waiting).then(|| {
       let seekable = !player.live || player.duration.is_some();
@@ -2908,7 +2956,7 @@ impl Make<'_, '_> {
       landscape,
       lead,
       heading,
-      tools: vec![captions, settings],
+      tools,
       transport,
       time,
       foot,
@@ -3065,28 +3113,33 @@ impl Make<'_, '_> {
       }
       VideoPlayerSize::Lg => {
         let volume = self.volume(narrow);
-        let captions_on = player.captions.value;
-        let press = self.pressed(player.captions.teller(), !captions_on);
-        let captions = self.toggle_control(
-          "captions",
-          icons::CAPTIONS,
-          &player.words.captions,
-          "C",
-          captions_on,
-          press,
-        );
-        let mut end = vec![captions];
-        let mut menus = vec![self.settings_menu()];
+        let mut end = Vec::new();
+        let mut menus = Vec::new();
+        if player.has_captions() {
+          let captions_on = player.captions.value;
+          let press = self.pressed(player.captions.teller(), !captions_on);
+          end.push(self.toggle_control(
+            "captions",
+            icons::CAPTIONS,
+            &player.words.captions,
+            "C",
+            captions_on,
+            press,
+          ));
+        }
         if !player.live {
           end.push(self.menu_button(VideoPlayerMenu::Speed, "speed", None, &player.words.speed));
           menus.push(self.speed_menu());
         }
-        end.push(self.menu_button(
-          VideoPlayerMenu::Settings,
-          "settings",
-          Some(icons::SETTINGS),
-          &player.words.settings,
-        ));
+        if self.has_settings() {
+          end.push(self.menu_button(
+            VideoPlayerMenu::Settings,
+            "settings",
+            Some(icons::SETTINGS),
+            &player.words.settings,
+          ));
+          menus.insert(0, self.settings_menu());
+        }
         let pip = player.picture_in_picture.value;
         let press = self.pressed(player.picture_in_picture.teller(), !pip);
         end.push(self.toggle_control(
@@ -3226,7 +3279,7 @@ impl Make<'_, '_> {
     let seekable = !player.live || duration.is_some();
     let volume = (player.volume.value, player.volume.teller());
     let muted = (player.muted.value, player.muted.teller());
-    let captions = (player.captions.value, player.captions.teller());
+    let captions = (player.captions.value, player.captions.teller(), player.has_captions());
     let fullscreen = self.fullscreen_toggle();
     let full = player.fullscreen.value;
     let buttons = self.live.buttons.clone();
@@ -3289,7 +3342,7 @@ impl Make<'_, '_> {
           (muted.1)(!muted.0);
           true
         }
-        "c" | "C" => {
+        "c" | "C" if captions.2 => {
           (captions.1)(!captions.0);
           true
         }
