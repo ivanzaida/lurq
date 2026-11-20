@@ -435,6 +435,22 @@ impl Component for BreadcrumbPage {
         "disabled",
       ));
 
+    let cut = items().child(item(
+      Row::new().width(420.0).max_width(FILL).child(
+        Breadcrumb::new([
+          "Projects",
+          "The pipeline of the release of the desktop app",
+          "Steps",
+          "Sign and upload the release for every platform",
+        ])
+        .separator(BreadcrumbSeparator::slash())
+        .link_max_width(160.0)
+        .overflow(true)
+        .mount(ctx),
+      ),
+      "links at most 160, the whole name in a tooltip while cut; the page gives way, then links go into the menu",
+    ));
+
     let rows = [
       (
         "step",
@@ -508,6 +524,13 @@ impl Component for BreadcrumbPage {
         "usize",
         "all",
         "The most steps shown. With more: the first, an ellipsis and the last max_shown - 1. Never fewer than 2.",
+      ),
+      (
+        "link_max_width",
+        "impl Into<Length>",
+        "",
+        "The most a link is wide: a longer name is cut with an ellipsis and said whole in a tooltip while cut. \
+         Links keep their room; the page gives way.",
       ),
       (
         "menu",
@@ -681,6 +704,24 @@ impl Component for BreadcrumbPage {
               "way().force(Some(Interaction::FocusVisible)).mount(ctx)",
               "",
               "way().disabled(true).mount(ctx)",
+            ],
+          ),
+        ),
+        Section::new(
+          "Long names",
+          "Given link_max_width, each link is at most that wide and keeps its room: a longer name is cut with an \
+           ellipsis, and the pointer on it shows the name whole. The page one is on gives way first where the row \
+           is short.",
+          self.frame.demo(
+            4,
+            cut,
+            ".link_max_width(160.0)",
+            &[
+              "Breadcrumb::new([\"Projects\", \"The pipeline of the release of the desktop app\", \"Steps\", ..])",
+              "    .separator(BreadcrumbSeparator::slash())",
+              "    .link_max_width(160.0)",
+              "    .overflow(true)",
+              "    .mount(ctx)",
             ],
           ),
         ),

@@ -1,6 +1,6 @@
 //! The page of the checkbox: its playground, the checkbox bound to a signal,
-//! its states, and a box over a list that is indeterminate while some of the
-//! list are picked.
+//! its states, a box over a list that is indeterminate while some of the
+//! list are picked, and a checkbox pressed as a whole in a row pressed of its own.
 
 use std::sync::Arc;
 
@@ -48,11 +48,15 @@ pub struct CheckboxPage {
   indeterminate: Signal<bool>,
   invalid: Signal<bool>,
   label_hidden: Signal<bool>,
+  whole: Signal<bool>,
   disabled: Signal<bool>,
   sync: Signal<bool>,
   reports: Signal<bool>,
   files: [Signal<bool>; 3],
   days: Signal<Vec<&'static str>>,
+  /// The checkbox pressed as a whole in a row of its own, and how many times the row was pressed.
+  agreed: Signal<bool>,
+  row_presses: Signal<usize>,
 }
 
 impl CheckboxPage {
@@ -60,6 +64,7 @@ impl CheckboxPage {
   fn play(&self, ctx: &mut Ctx) -> Element {
     let (label, checked, indeterminate) = (self.label.get(), self.checked.get(), self.indeterminate.get());
     let (invalid, label_hidden, disabled) = (self.invalid.get(), self.label_hidden.get(), self.disabled.get());
+    let whole = self.whole.get();
     let record = self.playground.recorder();
     let (set, unmix) = (self.checked.clone(), self.indeterminate.clone());
     let plain = {
@@ -70,6 +75,7 @@ impl CheckboxPage {
           .indeterminate(indeterminate)
           .invalid(invalid)
           .label_hidden(label_hidden)
+          .whole(whole)
           .disabled(disabled)
       }
     };
@@ -86,6 +92,7 @@ impl CheckboxPage {
       (indeterminate, "    .indeterminate(true)"),
       (invalid, "    .invalid(true)"),
       (label_hidden, "    .label_hidden(true)"),
+      (whole, "    .whole(true)"),
       (disabled, "    .disabled(true)"),
     ] {
       if on {
@@ -139,6 +146,7 @@ impl CheckboxPage {
       self.indeterminate.clone(),
       self.invalid.clone(),
       self.label_hidden.clone(),
+      self.whole.clone(),
       self.disabled.clone(),
     ];
     self.playground.card(
@@ -160,9 +168,10 @@ impl CheckboxPage {
           flag("indeterminate", &self.indeterminate),
           flag("invalid", &self.invalid),
           flag("label_hidden", &self.label_hidden),
+          flag("whole", &self.whole),
           flag("disabled", &self.disabled),
         ],
-        changed: [checked, indeterminate, invalid, label_hidden, disabled]
+        changed: [checked, indeterminate, invalid, label_hidden, whole, disabled]
           .into_iter()
           .filter(|changed| *changed)
           .count(),
@@ -227,11 +236,14 @@ impl Component for CheckboxPage {
       indeterminate: ctx.signal(false),
       invalid: ctx.signal(false),
       label_hidden: ctx.signal(false),
+      whole: ctx.signal(false),
       disabled: ctx.signal(false),
       sync: ctx.signal(true),
       reports: ctx.signal(false),
       files: [ctx.signal(true), ctx.signal(false), ctx.signal(false)],
       days: ctx.signal(vec!["tue"]),
+      agreed: ctx.signal(false),
+      row_presses: ctx.signal(0),
     }
   }
 
@@ -265,6 +277,35 @@ impl Component for CheckboxPage {
       .child(item(
         Checkbox::new("Managed by policy").checked(true).disabled(true),
         "disabled, checked",
+      ));
+    let (agreed, presses) = (self.agreed.clone(), self.row_presses.clone());
+    let whole = Column::new()
+      .width(FILL)
+      .spacing(9.0)
+      .child(
+        Row::new()
+          .width(FILL)
+          .padding_horizontal(16.0)
+          .padding_vertical(12.0)
+          .align_items(Alignment::Center)
+          .rounded(RadiusSize::Md)
+          .background(PaletteColor::Background)
+          .border(line())
+          .on_click(move |_| presses.update(|count| *count += 1))
+          .child(
+            Checkbox::new("I have read what this step changes")
+              .whole(true)
+              .id("read")
+              .checked(agreed.get())
+              .on_change(move |next| agreed.set(next)),
+          ),
+      )
+      .child(quiet(
+        &format!(
+          "the row was pressed {} times; a press of the checkbox is the checkbox's alone",
+          self.row_presses.get()
+        ),
+        12.0,
       ));
     let rows = [
       (
@@ -309,6 +350,13 @@ impl Component for CheckboxPage {
         "bool",
         "false",
         "The box alone, where the text is somewhere else. The label is still what the checkbox is called.",
+      ),
+      (
+        "whole",
+        "bool",
+        "false",
+        "The box and the label are one control: pressed, focused and ringed as a whole, the id on the whole and \
+         the parts named after it (x-box, x-indicator, x-label).",
       ),
       (
         "disabled",
@@ -448,6 +496,27 @@ impl Component for CheckboxPage {
               "// Side by side.",
               "CheckboxGroup::new(days, [(\"mon\", \"Mon\"), (\"tue\", \"Tue\"), (\"wed\", \"Wed\")])",
               "    .orientation(Orientation::Horizontal)",
+            ],
+          ),
+        ),
+        Section::new(
+          "Pressed as a whole, in a row pressed of its own",
+          "With whole(true) the box and the label are one control, one ring around both, and the id is on the \
+           whole. A press of a checkbox, whole or not, is its own: the row around it, which counts its presses, is \
+           not pressed by it.",
+          self.frame.demo(
+            4,
+            whole,
+            ".whole(true)",
+            &[
+              "Row::new()",
+              "    .on_click(move |_| open_step())",
+              "    .child(",
+              "        Checkbox::new(\"I have read what this step changes\")",
+              "            .whole(true)",
+              "            .id(\"read\") // read-box, read-indicator, read-label",
+              "            .bind(agreed),",
+              "    )",
             ],
           ),
         ),

@@ -45,7 +45,7 @@ fn a_component_declares_its_parts_and_states_in_their_order_with_the_rust_that_w
 
   let states = Switch::states();
   let names: Vec<&str> = states.names().map(|name| name.as_str()).collect();
-  assert_eq!(names, ["on", "invalid", "disabled"]);
+  assert_eq!(names, ["on", "invalid", "disabled", "whole"]);
   assert_eq!(states.code(SwitchState::On.into()), "SwitchState::On");
   // A name the enum does not have is written as a string: a state an app adds.
   assert_eq!(states.code(Name::new("pinned")), "\"pinned\"");

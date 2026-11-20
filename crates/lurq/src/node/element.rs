@@ -112,6 +112,11 @@ impl Element {
     self.map_node(|node| decorate(node))
   }
 
+  /// The id of the root node, where it has one.
+  pub(crate) fn root_id(&self) -> Option<&str> {
+    self.node.element_id()
+  }
+
   /// Moves the root node out of its box, for storing it among a parent's
   /// children; the box goes to the next element built on this thread.
   pub(crate) fn into_node(self) -> Node {
