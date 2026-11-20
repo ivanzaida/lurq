@@ -636,7 +636,11 @@ fn a_card_of_a_height_gives_it_to_its_body_and_keeps_its_footer_at_the_bottom() 
   let (_, y, _, height) = stage.bounds("figure");
   let (_, fill_y, _, fill_height) = stage.bounds("fill");
   assert_eq!(height, 118.0);
-  assert_eq!((fill_y - y, fill_height), (10.0, 98.0), "the body fills the card inside its padding");
+  assert_eq!(
+    (fill_y - y, fill_height),
+    (10.0, 98.0),
+    "the body fills the card inside its padding"
+  );
   let (_, y, _, height) = stage.bounds("pressed");
   let (_, save_y, _, save_height) = stage.bounds("save");
   let (_, fill_y, _, fill_height) = stage.bounds("pressed-fill");
@@ -669,10 +673,12 @@ fn a_card_cuts_what_is_in_it_at_its_rounded_corners() {
   let mut stage = Stage::new(|_| {
     Column::new()
       .child(
-        Card::new()
-          .padding(Padding::all(0.0))
-          .id("card")
-          .child(Row::new().size(100.0, 20.0).background(PaletteColor::Primary).id("inside")),
+        Card::new().padding(Padding::all(0.0)).id("card").child(
+          Row::new()
+            .size(100.0, 20.0)
+            .background(PaletteColor::Primary)
+            .id("inside"),
+        ),
       )
       .into()
   });

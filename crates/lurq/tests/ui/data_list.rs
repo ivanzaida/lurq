@@ -9,7 +9,10 @@ use lurq::{
     theme::{PaletteColor, ThemePalette},
   },
   components::{Column, Row},
-  layout::quad::{Quad, QuadContent},
+  layout::{
+    Alignment,
+    quad::{Quad, QuadContent},
+  },
   node::color::Color,
   ui::{Badge, DataList, DataListPart, DataListRenderer, DataListState, DataListView, Orientation, Recipe},
 };
@@ -184,4 +187,64 @@ fn texts_and_items_add_several_at_once() {
       .into()
   });
   assert_eq!(*seen.lock().unwrap(), ["Version", "Renderer", "Status"]);
+}
+
+/// A list 240 wide whose second value wraps onto several lines.
+fn wrapping(align: Option<Alignment>) -> DataList {
+  let list = DataList::new().text("Branch", "main").text(
+    "Prompt",
+    "Read the failing test, find the cause, fix it and run the whole suite again before you hand it back",
+  );
+  match align {
+    Some(align) => list.align(align),
+    None => list,
+  }
+}
+
+#[test]
+fn a_term_is_centered_on_a_value_that_wraps_or_at_its_top_when_told() {
+  let top = |align: Option<Alignment>| {
+    let mut stage = Stage::new(move |_| Column::new().width(240.0).child(wrapping(align)).into());
+    let term = stage.text_quad("Prompt").expect("the term is painted").y;
+    let value = stage
+      .quads()
+      .into_iter()
+      .filter_map(|quad| match &quad.content {
+        QuadContent::Text { text, .. } if text.starts_with("Read") => Some(quad.y),
+        _ => None,
+      })
+      .next()
+      .expect("the value is painted");
+    (term, value)
+  };
+  let (term, value) = top(None);
+  assert!(term > value + 4.0, "centered on the value's lines: {term} {value}");
+  let (term, value) = top(Some(Alignment::Start));
+  assert!((term - value).abs() < 1.0, "at the top of the value: {term} {value}");
+}
+
+#[test]
+fn a_theme_that_renders_the_list_keeps_its_id() {
+  let renderer: DataListRenderer = Arc::new(|view: DataListView| {
+    Column::new()
+      .size(10.0, 10.0)
+      .child(view.part(DataListPart::Root).text("x"))
+      .into()
+  });
+  let app = App::new();
+  app.theme().set_renderer::<DataList>(renderer);
+  let mut stage = Stage::in_app(app, |_| Column::new().child(board().id("about")).into());
+  assert_eq!(stage.bounds("about").2, 10.0, "the theme's root has the list's id");
+
+  let own: DataListRenderer = Arc::new(|view: DataListView| {
+    assert_eq!(view.id.as_deref(), Some("about"), "a renderer is given the id");
+    Row::new().id("its-own").size(12.0, 12.0).into()
+  });
+  let app = App::new();
+  app.theme().set_renderer::<DataList>(own);
+  let stage = Stage::in_app(app, |_| Column::new().child(board().id("about")).into());
+  assert!(
+    stage.ids().contains(&"its-own".to_owned()),
+    "an id the renderer put is kept"
+  );
 }
