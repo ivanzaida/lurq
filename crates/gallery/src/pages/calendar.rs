@@ -1,15 +1,16 @@
 //! The page of the calendar: its playground, a date and the month shown in two signals, a range over two months, the
-//! days that cannot be chosen, week numbers and locales, and what the keys do.
+//! days that cannot be chosen, week numbers and locales, a heading with its buttons at the end and keys read at the
+//! panel while the focus stays in a field, and what the keys do.
 
 use std::sync::Arc;
 
 use lurq::{
   app::{component::Component, ctx::Ctx},
-  components::{Column, Row},
+  components::{Column, Row, TextInput},
   core::{Date, DateLocale, DateRange, DateText, Signal, Weekday, YearMonth},
   layout::Alignment,
   node::Element,
-  ui::{Calendar, DateMemory, Kbd, Picked},
+  ui::{Calendar, CalendarHeading, CalendarKeys, DateMemory, Kbd, Picked},
 };
 
 use crate::{
@@ -224,7 +225,11 @@ pub struct CalendarPage {
   /// The start and the end of a range chosen in two calendars of one date.
   start: Signal<Option<Date>>,
   end: Signal<Option<Date>>,
-  kept: [DateMemory; 9],
+  kept: [DateMemory; 10],
+  /// The calendar whose panel reads the keys: its date, the field the focus stays in, and what on_choose was told.
+  panel_chosen: Signal<Option<Date>>,
+  panel_text: Signal<String>,
+  panel_told: Signal<String>,
 }
 
 impl CalendarPage {
@@ -479,6 +484,9 @@ impl Component for CalendarPage {
       start: ctx.signal(Some(Date::today())),
       end: ctx.signal(Some(Date::today().add_days(6))),
       kept: std::array::from_fn(|_| DateMemory::new()),
+      panel_chosen: ctx.signal(Some(Date::today())),
+      panel_text: ctx.signal(String::new()),
+      panel_told: ctx.signal(String::new()),
     }
   }
 
@@ -568,6 +576,23 @@ impl Component for CalendarPage {
             .child(Column::new().flex(1.0).child(quiet(does, 13.0))),
         )
       });
+    let (chosen_with, told) = (self.panel_chosen.clone(), self.panel_told.clone());
+    let panel_keys = items().child(item(
+      Column::new()
+        .spacing(8.0)
+        .child(TextInput::new(self.panel_text.clone()).placeholder("The focus stays here").width(248.0))
+        .child(
+          Calendar::new(self.panel_chosen.clone())
+            .keys(CalendarKeys::Panel)
+            .heading(CalendarHeading::MonthThenNav)
+            .on_choose(move |date: Date| told.set(format!("chose {date}")))
+            .memory(&self.kept[9]),
+        ),
+      &match self.panel_told.get() {
+        told if told.is_empty() => says(chosen_with.get()),
+        told => told,
+      },
+    ));
     let rows = [
       (
         "value",
@@ -594,6 +619,24 @@ impl Component for CalendarPage {
         "",
         "What the calendar keeps between renders, kept by the app: the month, a range's first press. mount(ctx) \
          keeps one of its own.",
+      ),
+      (
+        "heading",
+        "CalendarHeading",
+        "Centered",
+        "The month between the buttons, or MonthThenNav: the month first and both buttons at the end.",
+      ),
+      (
+        "keys",
+        "CalendarKeys",
+        "Days",
+        "The days take the focus, or Panel: the panel reads the keys wherever the app keeps the focus.",
+      ),
+      (
+        "on_choose",
+        "Fn(Date) / Fn(DateRange)",
+        "",
+        "Told of every choice, of what is chosen already too: what closes a picker. Adds.",
       ),
       (
         "months",
@@ -801,6 +844,26 @@ impl Component for CalendarPage {
               "",
               "Calendar::new(value.clone()).locale(RomanDates)",
               "app.set_date_locale(RomanDates)",
+            ],
+          ),
+        ),
+        Section::new(
+          "Keys read at the panel, the month first",
+          "Click the field and keep the focus in it: the panel reads the keys, a ring marks the day they are on, \
+           the arrows move it, PageUp and PageDown change the month, and Enter chooses it, which a picker answers by \
+           closing. The heading has the month first and both buttons at its end.",
+          self.frame.demo(
+            5,
+            panel_keys,
+            ".keys(CalendarKeys::Panel) .heading(CalendarHeading::MonthThenNav)",
+            &[
+              "TextInput::new(text)",
+              "",
+              "Calendar::new(value.clone())",
+              "    .keys(CalendarKeys::Panel)",
+              "    .heading(CalendarHeading::MonthThenNav)",
+              "    .on_choose(|date| close_the_picker())",
+              "    .memory(&memory)",
             ],
           ),
         ),

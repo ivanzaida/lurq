@@ -1,15 +1,16 @@
 //! The page of the dialog: its playground, a dialog that asks one thing, the
-//! two the board draws as they are, and one whose body scrolls.
+//! two the board draws as they are, one whose body scrolls, and ones whose first focus Enter answers, with key caps in
+//! the app's words and a reason that wraps.
 
 use std::sync::Arc;
 
 use lurq::{
   app::{component::Component, ctx::Ctx, theme::PaletteColor},
-  components::{Column, Row},
+  components::{Column, Row, Text},
   core::Signal,
   layout::{Alignment, text_style::FontWeight},
   node::Element,
-  ui::{Button, ButtonVariant, Dialog, DialogSize, icons},
+  ui::{Button, ButtonVariant, Dialog, DialogFocus, DialogSize, icons},
 };
 
 use crate::{
@@ -108,6 +109,32 @@ fn marked(open: &Signal<bool>) -> Dialog {
     )
 }
 
+/// A dialog Enter answers: its main action takes the focus (`autofocus`), or with `panel` the panel does and Enter
+/// confirms; its caps say the app's words for the keys, and a reason in its note wraps.
+fn enter_answers(open: &Signal<bool>, panel: bool) -> Dialog {
+  let (cancel, save, confirm) = (open.clone(), open.clone(), open.clone());
+  let dialog = Dialog::new(open.clone())
+    .title("Save the pipeline?")
+    .description("The runs that use it pick the change up at their next step.")
+    .note_key_worded("Enter", "saves")
+    .note_key_worded("Esc", "cancels")
+    .note_child(Text::new(
+      "Two runs are going: they finish on the steps they had, and the next ones run the new pipeline.",
+    ))
+    .on_confirm(move || confirm.set(false))
+    .footer(
+      Button::new("Cancel")
+        .variant(ButtonVariant::Outline)
+        .on_click(move |_| cancel.set(false)),
+    )
+    .footer(Button::new("Save").autofocus(!panel).on_click(move |_| save.set(false)));
+  if panel {
+    dialog.initial_focus(DialogFocus::Panel)
+  } else {
+    dialog
+  }
+}
+
 /// The board's dialog whose body scrolls: the terms of use.
 fn terms(open: &Signal<bool>) -> Dialog {
   let (decline, accept) = (open.clone(), open.clone());
@@ -141,6 +168,8 @@ pub struct DialogPage {
   dismiss_on_escape: Signal<bool>,
   delete_open: Signal<bool>,
   terms_open: Signal<bool>,
+  save_open: Signal<bool>,
+  panel_open: Signal<bool>,
 }
 
 impl DialogPage {
@@ -323,6 +352,8 @@ impl Component for DialogPage {
       dismiss_on_escape: ctx.signal(true),
       delete_open: ctx.signal(false),
       terms_open: ctx.signal(false),
+      save_open: ctx.signal(false),
+      panel_open: ctx.signal(false),
     }
   }
 
@@ -342,6 +373,12 @@ impl Component for DialogPage {
         marked(&Signal::new(false)).inline(true),
         "dialog · a mark, a note, Enter confirms",
       ));
+    let answers = Row::new()
+      .spacing(12.0)
+      .child(opener("Save, focus on Save…", &self.save_open))
+      .child(enter_answers(&self.save_open, false))
+      .child(opener("Save, focus on the panel…", &self.panel_open))
+      .child(enter_answers(&self.panel_open, true));
     let scrolls = Row::new()
       .child(opener("Terms of use…", &self.terms_open))
       .child(terms(&self.terms_open));
@@ -424,8 +461,15 @@ impl Component for DialogPage {
         "note_key",
         "(&str, &str)",
         "",
-        "A key cap and the words of what the key does, in the note at the footer's start. note_child puts any \
-         element there.",
+        "A key cap and the words of what the key does, in the note at the footer's start. note_key_worded writes \
+         the cap in the app's own word; note_child puts any element there, which wraps where the note is short.",
+      ),
+      (
+        "initial_focus",
+        "DialogFocus",
+        "FirstControl",
+        "Where the focus goes as it opens: a button marked autofocus, else the first stop; or Panel, so Enter \
+         confirms.",
       ),
       (
         "inset_top",
@@ -515,6 +559,30 @@ impl Component for DialogPage {
               "    .on_confirm(move || delete())",
               "    .footer(..)",
               "    .inline(true)",
+            ],
+          ),
+        ),
+        Section::new(
+          "What Enter answers",
+          "The first opens with the focus on Save, marked autofocus, so Enter saves; the second with the focus on its \
+           panel, so Enter confirms and no button is pressed by it. Their caps say the app's own words for the keys, \
+           and the reason in the note wraps where the note is short.",
+          self.frame.demo(
+            3,
+            answers,
+            ".initial_focus(DialogFocus::Panel) .note_key_worded(..)",
+            &[
+              "Dialog::new(open.clone())",
+              "    .title(\"Save the pipeline?\")",
+              "    .note_key_worded(\"Enter\", \"saves\")",
+              "    .note_key_worded(\"Esc\", \"cancels\")",
+              "    .note_child(Text::new(\"Two runs are going: ..\"))",
+              "    .on_confirm(move || save())",
+              "    .footer(Button::new(\"Cancel\").variant(ButtonVariant::Outline))",
+              "    .footer(Button::new(\"Save\").autofocus(true))",
+              "",
+              "// Or no control: the panel takes the focus, and Enter confirms.",
+              "Dialog::new(open.clone()).initial_focus(DialogFocus::Panel)",
             ],
           ),
         ),
