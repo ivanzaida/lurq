@@ -197,6 +197,7 @@ pub struct Button {
   key: Option<Arc<str>>,
   element_ref: Option<crate::core::ElementRef>,
   focuses: Option<crate::core::ElementRef>,
+  tooltip: Option<Box<super::Tooltip>>,
   #[cfg(feature = "form")]
   submit: bool,
 }
@@ -227,6 +228,7 @@ impl Button {
       key: None,
       element_ref: None,
       focuses: None,
+      tooltip: None,
       #[cfg(feature = "form")]
       submit: false,
     }
@@ -391,6 +393,29 @@ impl Button {
   pub fn key(mut self, key: impl Into<Arc<str>>) -> Self {
     self.key = Some(key.into());
     self
+  }
+
+  /// The tooltip [`mount`](Self::mount) puts on the button, in place of the one an icon alone has of its label:
+  /// its label with the keys of a shortcut, on another side, or a tooltip for a button with words.
+  pub fn tooltip(mut self, tooltip: super::Tooltip) -> Self {
+    self.tooltip = Some(Box::new(tooltip));
+    self
+  }
+
+  /// The button with its tooltip, which a tooltip keeps between renders in `ctx`: the one
+  /// [`tooltip`](Self::tooltip) gave it, or, for a button that is its icon alone, its label, as a
+  /// [`Toolbar`](super::Toolbar) gives the icons in it. A button with neither is built as it is. Inside a toolbar
+  /// the button is given to the toolbar as it is, which puts its tooltip on it.
+  pub fn mount(mut self, ctx: &mut crate::app::ctx::Ctx) -> Element {
+    let tooltip = self
+      .tooltip
+      .take()
+      .map(|tooltip| *tooltip)
+      .or_else(|| (self.icon_only && !self.label.is_empty()).then(|| super::Tooltip::new(&self.label)));
+    match tooltip {
+      Some(tooltip) => tooltip.mount(ctx, self),
+      None => self.into(),
+    }
   }
 
   /// Whether the button is the one that submits the form it is in.

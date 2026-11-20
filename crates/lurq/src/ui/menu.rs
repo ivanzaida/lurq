@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use super::{
   icons, names,
+  part_style::Length,
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe},
   shared::{fading, glyph, pressable},
   theme::{Themed, current_theme},
@@ -143,6 +144,7 @@ pub struct Menu {
   placement: Option<Placement>,
   offset: Option<SpacingValue>,
   collision: Option<CollisionStrategy>,
+  within: Option<ElementRef>,
   inline: bool,
   submenu: bool,
   label: Option<Arc<str>>,
@@ -193,6 +195,7 @@ impl Menu {
       placement: None,
       offset: None,
       collision: None,
+      within: None,
       inline: false,
       submenu: false,
       label: None,
@@ -263,6 +266,14 @@ impl Menu {
 
   /// Called when a person closes the menu other than by choosing: Escape, a press outside it, or Tab. Not
   /// when the app sets its signal. A second handler is called after the first.
+  /// Keeps the menu inside the box of `element` besides the window, a panel it belongs in: where its collision flips
+  /// and clamps it, it does so in that box too ([`Overlay::within`](crate::app::ctx::Overlay::within)). A submenu is
+  /// kept inside what its own menu is given.
+  pub fn within(mut self, element: impl Into<ElementRef>) -> Self {
+    self.within = Some(element.into());
+    self
+  }
+
   pub fn on_dismiss(mut self, handler: impl Fn() + Send + Sync + 'static) -> Self {
     self.on_dismiss.push(Arc::new(handler));
     self
@@ -402,6 +413,7 @@ impl Menu {
       open: self.open,
       offset: self.offset,
       collision: self.collision,
+      within: self.within,
       on_open_change: self.on_open_change,
       on_dismiss: self.on_dismiss,
       dismiss_on_escape: self.dismiss_on_escape,
@@ -445,6 +457,7 @@ pub struct MenuView {
   open: OpenState,
   offset: Option<SpacingValue>,
   collision: Option<CollisionStrategy>,
+  within: Option<ElementRef>,
   on_open_change: Vec<Arc<dyn Fn(bool) + Send + Sync>>,
   on_dismiss: Vec<Handler>,
   dismiss_on_escape: bool,
@@ -675,10 +688,16 @@ impl MenuView {
   /// An item with no id of its own is named after the menu's: `x-item-<key>` where it has a key, `x-item`, `x-item-2`
   /// … where it has none.
   pub fn item(&self, item: MenuItem) -> Element {
-    item
+    let mut item = item
       .named_by(&self.recipe, "item")
-      .in_menu(self.closes(), self.submenus.clone())
-      .build(self.theme())
+      .in_menu(self.closes(), self.submenus.clone());
+    // Its submenu is kept where this menu is, unless it was told otherwise.
+    if let (Some(within), Some(submenu)) = (&self.within, item.submenu.as_mut())
+      && submenu.within.is_none()
+    {
+      submenu.within = Some(within.clone());
+    }
+    item.build(self.theme())
   }
 
   /// How far the panel stands from its anchor: along the axis it opens on, its `offset` or the design's 4, and
@@ -771,6 +790,9 @@ impl MenuView {
     if let Some(collision) = self.collision {
       popup = popup.collision(collision);
     }
+    if let Some(within) = &self.within {
+      popup = popup.within(within.clone());
+    }
     if self.submenu {
       // A press on the menu it hangs from closes the submenu and still reaches the item pressed there; the item
       // it hangs from opens it, and is no trigger of another dropdown.
@@ -858,8 +880,14 @@ pub enum MenuItemPart {
   Root,
   /// An icon before the label.
   Icon,
+  /// An element of the app's before the label, in place of the icon: an avatar, a mark.
+  Leading,
   /// Its text.
   Label,
+  /// The second line under the label that says more of the item, or why it cannot be chosen.
+  Detail,
+  /// The lock at the end of an item that cannot be chosen, for a reason it says.
+  Lock,
   /// The keys that do the same, at the end: "Ctrl+Z".
   Shortcut,
   /// The mark at the end of an item that is on: a check, or a dot for one of several.
@@ -871,7 +899,10 @@ pub enum MenuItemPart {
 names!(MenuItemPart {
   Root => "root",
   Icon => "icon",
+  Leading => "leading",
   Label => "label",
+  Detail => "detail",
+  Lock => "lock",
   Shortcut => "shortcut",
   Check => "check",
   Chevron => "chevron",
@@ -893,6 +924,10 @@ pub enum MenuItemState {
   Disabled,
   /// Its submenu is open.
   Open,
+  /// It has a second line under its label.
+  Detail,
+  /// It cannot be chosen, for a reason it says: it is disabled too.
+  Unavailable,
 }
 
 names!(MenuItemState {
@@ -902,6 +937,8 @@ names!(MenuItemState {
   Destructive => "destructive",
   Disabled => "disabled",
   Open => "open",
+  Detail => "detail",
+  Unavailable => "unavailable",
 });
 
 /// What builds a menu item's nodes: a theme's in place of the default one.
@@ -925,6 +962,9 @@ pub type MenuItemRenderer = Arc<dyn Fn(MenuItemView) -> Element + Send + Sync>;
 pub struct MenuItem {
   label: Arc<str>,
   icon: Option<Name>,
+  leading: Option<Box<Element>>,
+  detail: Option<Arc<str>>,
+  reason: Option<Arc<str>>,
   shortcut: Option<Arc<str>>,
   checked: Option<bool>,
   radio: bool,
@@ -951,6 +991,9 @@ impl MenuItem {
     Self {
       label: Arc::from(label),
       icon: None,
+      leading: None,
+      detail: None,
+      reason: None,
       shortcut: None,
       checked: None,
       radio: false,
@@ -975,6 +1018,28 @@ impl MenuItem {
   /// An icon before the label, by its name in the theme's set ([`icons`]).
   pub fn icon(mut self, name: impl Into<Name>) -> Self {
     self.icon = Some(name.into());
+    self
+  }
+
+  /// An element before the label in place of the icon, where an icon by name is not enough: an avatar of whom the
+  /// item is about, a mark of a service. It is drawn in the part [`MenuItemPart::Leading`].
+  pub fn leading(mut self, element: impl Into<Element>) -> Self {
+    self.leading = Some(Box::new(element.into()));
+    self
+  }
+
+  /// A second line under the label that says more of the item: "gpt-5 · high" under an agent's name. The item is
+  /// as high as its two lines.
+  pub fn detail(mut self, detail: &str) -> Self {
+    self.detail = (!detail.is_empty()).then(|| Arc::from(detail));
+    self
+  }
+
+  /// The item cannot be chosen now, for `reason`: it is disabled, ends in a lock, and says the reason as its
+  /// detail where it has none of its own. Tooling reads the reason as what describes the item. An empty reason
+  /// makes it available again.
+  pub fn unavailable(mut self, reason: &str) -> Self {
+    self.reason = (!reason.is_empty()).then(|| Arc::from(reason));
     self
   }
 
@@ -1135,13 +1200,16 @@ impl MenuItem {
 
   /// Whether the item cannot be chosen.
   pub(crate) fn is_disabled(&self) -> bool {
-    self.disabled
+    self.disabled || self.reason.is_some()
   }
 
   /// Builds the item in `theme`. Converting an item into an element does this
   /// in the theme of what is being rendered.
   pub fn build(self, theme: &Theme) -> Element {
     let open = self.submenu.as_ref().is_some_and(|menu| menu.open.is_open());
+    let disabled = self.disabled || self.reason.is_some();
+    // An item that cannot be chosen says why under its label, where it says nothing else there.
+    let detail = self.detail.clone().or_else(|| self.reason.clone());
     let case = Case {
       variant: None,
       size: None,
@@ -1153,16 +1221,21 @@ impl MenuItem {
     .state(MenuItemState::Selected, self.radio && self.checked == Some(true))
     .state(MenuItemState::Radio, self.radio)
     .state(MenuItemState::Destructive, self.destructive)
-    .state(MenuItemState::Disabled, self.disabled)
-    .state(MenuItemState::Open, open);
+    .state(MenuItemState::Disabled, disabled)
+    .state(MenuItemState::Open, open)
+    .state(MenuItemState::Detail, detail.is_some())
+    .state(MenuItemState::Unavailable, self.reason.is_some());
     let view = MenuItemView {
       label: self.label,
       icon: self.icon,
+      leading: self.leading.map(|leading| *leading),
+      detail,
+      reason: self.reason,
       shortcut: self.shortcut,
       checked: self.checked,
       radio: self.radio,
       destructive: self.destructive,
-      disabled: self.disabled,
+      disabled,
       open,
       recipe: theme
         .resolve::<MenuItem>(&case, Some(&self.rules))
@@ -1198,6 +1271,12 @@ pub struct MenuItemView {
   pub label: Arc<str>,
   /// The name of the icon before the label, if it has one.
   pub icon: Option<Name>,
+  /// The app's element before the label, in place of the icon, if it has one.
+  pub leading: Option<Element>,
+  /// The line under the label: its detail, or why it cannot be chosen.
+  pub detail: Option<Arc<str>>,
+  /// Why it cannot be chosen, if it is unavailable: it is disabled then.
+  pub reason: Option<Arc<str>>,
   /// The keys written at its end, if it has them.
   pub shortcut: Option<Arc<str>>,
   /// Whether it is on (checked, or the selected radio), for an item that is on or off.
@@ -1312,6 +1391,9 @@ impl MenuItemView {
     if let Some(checked) = self.checked {
       root = root.describe("a11y_checked", if checked { "true" } else { "false" });
     }
+    if let Some(reason) = &self.reason {
+      root = root.describe("a11y_description", reason.clone());
+    }
     if let Some(submenu) = &self.submenu {
       root = root
         .ref_element(submenu.anchor.clone())
@@ -1364,6 +1446,41 @@ impl MenuItemView {
   /// The icon before the label, if the item has one.
   pub fn icon(&self) -> Option<Element> {
     self.icon.map(|name| glyph(&self.part(MenuItemPart::Icon), name, false))
+  }
+
+  /// The app's element before the label, in its part, if the item has one. A renderer takes it once.
+  pub fn leading(&mut self) -> Option<Element> {
+    let leading = self.leading.take()?;
+    Some(
+      Row::new()
+        .flex_shrink(0.0)
+        .align_items(Alignment::Center)
+        .part(&self.part(MenuItemPart::Leading))
+        .child(leading)
+        .into(),
+    )
+  }
+
+  /// The line under the label, if the item has one: its detail, or why it cannot be chosen. It wraps in the room
+  /// the menu gives the item.
+  pub fn detail(&self) -> Option<Element> {
+    let detail = self.detail.as_ref()?;
+    let part = self.part(MenuItemPart::Detail);
+    Some(
+      Row::new()
+        .min_width(0.0)
+        .part(&part)
+        .child(part.text(detail).flex_shrink(1.0))
+        .into(),
+    )
+  }
+
+  /// The lock at the end of an item that cannot be chosen, for a reason it says.
+  pub fn lock(&self) -> Option<Element> {
+    self
+      .reason
+      .as_ref()
+      .map(|_| glyph(&self.part(MenuItemPart::Lock), Name::new(icons::LOCK), false))
   }
 
   /// The item's text, on one line: where the menu has no room for it, it gives way with an ellipsis.
@@ -1430,12 +1547,23 @@ impl MenuItemView {
       .min_width(0.0)
       .spacing(gap.clone())
       .align_items(Alignment::Center);
-    if let Some(icon) = self.icon() {
-      start = start.child(icon);
+    // The app's element stands where an icon would, and in its place.
+    if let Some(before) = self.leading().or_else(|| self.icon()) {
+      start = start.child(before);
     }
-    start = start.child(self.label());
+    start = match self.detail() {
+      // The label and the line under it, at the start of their column, which gives way as the label alone would.
+      Some(detail) => start.align_items(Alignment::Start).child(
+        Column::new()
+          .flex_full(0.0, 1.0, None)
+          .min_width(0.0)
+          .child(self.label())
+          .child(detail),
+      ),
+      None => start.child(self.label()),
+    };
     let mut root = self.root().justify(Justify::SpaceBetween).child(start);
-    let end: Vec<Element> = [self.shortcut(), self.check(), self.chevron()]
+    let end: Vec<Element> = [self.shortcut(), self.lock(), self.check(), self.chevron()]
       .into_iter()
       .flatten()
       .collect();
@@ -1490,9 +1618,12 @@ impl Themed for MenuItem {
   /// (or the dot of a radio) and the chevron of a submenu, muted. Under the
   /// pointer, focused from the keyboard or with its submenu open it is filled
   /// with the highlight. A destructive item is in the destructive color, icon
-  /// and all; a disabled one is dimmed.
+  /// and all; a disabled one is dimmed. An item with a detail grows to its two
+  /// lines, 6 above and below them, at least 32 high: the detail is 2 under
+  /// the label, in 12 in the muted foreground, in lines of 1.4. An unavailable
+  /// item is dimmed, and ends in a lock of 16 in the muted foreground.
   fn recipe() -> Recipe {
-    use MenuItemPart::{Check, Chevron, Icon, Label, Root, Shortcut};
+    use MenuItemPart::{Check, Chevron, Detail, Icon, Label, Leading, Lock, Root, Shortcut};
     use PaletteColor::*;
     Recipe::new()
       .base(Root, |s| {
@@ -1512,6 +1643,13 @@ impl Themed for MenuItem {
           .foreground(MutedForeground)
       })
       .base(Check, |s| s.square(IconSize::Md))
+      .base(Lock, |s| s.square(IconSize::Md).foreground(MutedForeground))
+      .base(Detail, |s| {
+        s.typography(TypographyStyle::Caption)
+          .foreground(MutedForeground)
+          .line_height(1.4)
+          .padding_top(2.0)
+      })
       .base(Chevron, |s| s.square(IconSize::Md).foreground(MutedForeground))
       // A row of the density's height: 32 at the default, 24, 40 and 44 at the others.
       .row_density(super::Selector::new(), Root, 32.0)
@@ -1523,5 +1661,11 @@ impl Themed for MenuItem {
       .state(MenuItemState::Disabled, Root, |s| {
         s.opacity(OpacityLevel::Disabled).cursor(CursorIcon::Default)
       })
+      // Two lines: as high as they are, and never lower than a row of one.
+      .state(MenuItemState::Detail, Root, |s| {
+        s.height(Length::Auto).min_height(32.0).padding_y(6.0)
+      })
+      // An element of the app's is as large as it is, centered on the label's line.
+      .base(Leading, |s| s.foreground(MutedForeground))
   }
 }

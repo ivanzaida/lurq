@@ -179,6 +179,59 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   `confirmer`), the engine's `KeyboardEvent::focus_takes_enter`; `Field::error_icon` (part `icon`) and
   `Field::control_end` (part `text`, state `control_end`). The mark's well has one look; a tone (warning, info,
   danger) is the app's rule on the part `mark`.
+### A tooltip that wraps where the app says, has a note, is in mono, and shows only while a text is cut
+
+- **Question.** Orchester's tooltip (`ui/tooltip.rs` of its kit) wraps its words at a width of the app's (400, and
+  220 with a note), says a second line under them (a note, in regular weight), is set in the mono family where it
+  says a path or a command, and, on a label cut to its room with an ellipsis, shows only while the label is cut,
+  saying it whole (`Truncated`). Its icon buttons have no words, and their label is their tooltip wherever they
+  stand. `ui::Tooltip` wraps at the recipe's 200, says one text, has no mono form and shows whenever it is asked;
+  an icon-only `ui::Button` has its label as a tooltip only inside a `Toolbar`. Can lurq's do what the kit's does
+  (plan K4, item 3 of Orchester)?
+- **Decision (Ivan, 2026-11-20: "давай роби тоді ці всі пункти", plan K4 item 3 of Orchester).**
+  `Tooltip::max_width(length)` is the widest its box is before its text wraps, over the recipe's.
+  `Tooltip::note(text)` puts a second line under the text, in the part `note` (state `note`): the text is then its
+  title, in a medium weight. `Tooltip::mono(true)` (state `mono`) sets its text in the theme's mono family.
+  `Tooltip::when_cut(&text_ref)` shows it only while the text whose ref it is is cut: drawn in fewer letters than it
+  has, by an ellipsis or by a limit of lines; what the pointer and the focus do is as before, and a text that fits
+  shows nothing. For it the engine tells an element's ref whether its text is cut: `ElementRef::text_cut()`, read
+  from what the layout drew. `Button::mount(ctx)` builds a button with a tooltip: an icon-only one with a label has
+  its label as its tooltip, and `Button::tooltip(Tooltip)` gives it one of the app's (a shortcut, a placement, or a
+  tooltip for a button with words).
+- **Why.** The kit moves its tooltip and its icon button onto lurq's only if they do what its call sites ask of
+  them; the cut text is read from the layout that cut it, not from a second, unseen copy laid out to be measured, as
+  the kit does now.
+- **State.** Built on `claude/k4-d-tooltip-menu` (2026-11-20): `Tooltip::max_width`, `note`, `mono`, `when_cut`,
+  `TooltipPart::Note`, `TooltipState::Note` and `Mono`; `ElementRef::text_cut`; `Button::mount` and
+  `Button::tooltip`. A tooltip mounted on a bare text now holds it in a row that gives way, so the text is cut in it.
+  What the kit's `Truncated` also does is not part of it: a tooltip worded for whether the text is cut (`hint`), and
+  a label laid out as a whole control (`framed`); the app reads `text_cut` for the first and lays out its own row for
+  the second.
+
+### A menu item with a detail, a reason it cannot be chosen and an element before its label; a popover and a menu kept inside an element
+
+- **Question.** Orchester's menu rows (`ui/menu.rs` of its kit) have a line under the label that says more (an
+  agent's model, a branch's remote), a row that cannot be chosen says why, faded, with a lock at its end, and some
+  have an avatar or a mark before the label in place of an icon. Some of its popovers and menus must stay inside the
+  column they belong to, not only inside the window (`popover_inside`). `ui::MenuItem` has a label and an icon of the
+  theme's set, a disabled item says nothing of why, and an overlay is kept only inside the window. Can lurq's do
+  these (plan K4, item 4 of Orchester)?
+- **Decision (Ivan, 2026-11-20: "давай роби тоді ці всі пункти", plan K4 item 4 of Orchester).**
+  `MenuItem::detail(text)`: a second line under the label (part `detail`, state `detail`), the item as high as its
+  two lines. `MenuItem::unavailable(reason)`: the item cannot be chosen (as `disabled`), it is in the state
+  `unavailable`, ends in a lock (part `lock`) and says the reason as its detail where it has none of its own; tooling
+  reads the reason as the item's description. `MenuItem::leading(element)`: an element before the label in place of
+  the icon (part `leading`). The engine's overlay takes `within(element_ref)`: where its collision strategy flips
+  and clamps it, it does so inside that element's box as it was last laid out, and inside the window as before;
+  `Popup`, `Popover` and `Menu` take it too (`within`).
+- **Why.** The kit's menus and popovers move onto `ui::Menu` and `ui::Popover` only if a row can say what the kit's
+  rows say, and a panel can stay where the design keeps it.
+- **State.** Built on `claude/k4-d-tooltip-menu` (2026-11-20): `MenuItem::detail`, `unavailable`, `leading`,
+  `MenuItemPart::Leading`, `Detail`, `Lock`, `MenuItemState::Detail`, `Unavailable`; `Overlay::within`,
+  `Popup::within`, `Popover::within`, `Menu::within`. Not part of it: the kit's detail on the label's line
+  (`inline_detail`), a detail in the warning color, a reason said once in a menu's foot (`reason_below`), a reason
+  without the lock (`without_lock`), the kit's hint at a row's end and its 40-high row: they are styles of the parts
+  a theme gives (`detail`, `lock`, `root`), or the app's.
 
 ## 2026-11-19
 

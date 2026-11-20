@@ -102,6 +102,7 @@ pub struct Popover {
   placement: Placement,
   offset: SpacingValue,
   collision: CollisionStrategy,
+  within: Option<ElementRef>,
   width: Option<Length>,
   alert: bool,
   inline: bool,
@@ -129,6 +130,7 @@ impl Popover {
       placement: Placement::BottomStart,
       offset: SpacingSize::Xs.into(),
       collision: CollisionStrategy::FlipThenClamp,
+      within: None,
       width: None,
       alert: false,
       inline: false,
@@ -194,6 +196,13 @@ impl Popover {
   /// to the other side, then is moved into the window, by default.
   pub fn collision(mut self, collision: CollisionStrategy) -> Self {
     self.collision = collision;
+    self
+  }
+
+  /// Keeps the popover inside the box of `element` besides the window, a column it belongs in: where its collision
+  /// flips and clamps it, it does so in that box too ([`Overlay::within`](crate::app::ctx::Overlay::within)).
+  pub fn within(mut self, element: impl Into<ElementRef>) -> Self {
+    self.within = Some(element.into());
     self
   }
 
@@ -339,6 +348,9 @@ impl Popover {
       .dismiss_on_escape(self.dismiss_on_escape)
       .dismiss_on_outside_click(self.dismiss_on_outside_press)
       .takes_focus(true);
+    if let Some(within) = self.within {
+      popup = popup.within(within);
+    }
     if !self.on_dismiss.is_empty() {
       let handlers = self.on_dismiss;
       popup = popup.on_dismiss(move || {

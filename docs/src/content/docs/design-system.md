@@ -406,6 +406,7 @@ Button::new("Saving…").loading(saving.get());
 | `force(Some(Interaction::Hovered))` | Drawn hovered, pressed or focused with nothing pointing at it: for a gallery, a screenshot, a test. A component made of items (segments, tabs, rows, titles, links) draws it on one item, the one Tab would stop on, as it can only be |
 | `id(id)`, `key(key)`, `submit(bool)` | Its id and key; with the `form` feature, the button that submits the form it is in |
 | `ref_element(element)`, `focuses(&ElementRef)` | The ref of its element, which an app focuses or measures; and what a press of it gives the focus to, in place of taking it itself: the text a button of an editor's bar works on |
+| `mount(ctx)`, `tooltip(Tooltip)` | The button with its [tooltip](#tooltip), kept in `ctx`: an icon-only button with a label has its label as its tooltip, as a [toolbar](#toolbar) gives the icons in it; `tooltip(..)` gives it one of the app's in place of that (the keys of a shortcut, another side, a tooltip for a button with words). A button with neither is built as it is. In a toolbar the button is given as it is, and the toolbar puts its tooltip on it |
 
 | Size | Height | Padding | Label | Icon |
 | --- | --- | --- | --- | --- |
@@ -1312,6 +1313,7 @@ Popover::new(open.clone(), anchor.clone())
 | `width(..)` | How wide the panel is, over the recipe's 292 |
 | `offset(impl Into<SpacingValue>)` | How far it is from its anchor, along the side it is on: `SpacingSize::Xs` (4) by default |
 | `collision(CollisionStrategy)` | What it does where there is no room on its side: `FlipThenClamp` by default |
+| `within(element)` | Kept inside the box of that element (an `ElementRef`), a column it belongs in, as well as inside the window: where its collision flips and clamps it, it does so in that box too (the engine's `Overlay::within`) |
 | `label(&str)`, `described(&str)`, `alert(bool)` | What tooling calls it (its title by default), what it is described by, and whether it is an `alertdialog` |
 | `on_dismiss(Fn())` | Runs after a person closed it by a press outside or Escape, not when the app sets the signal. Each handler given runs, in order |
 | `dismiss_on_escape(bool)`, `dismiss_on_outside_press(bool)` | Whether Escape, and a press outside it and its anchor, close it: both `true` by default |
@@ -1319,7 +1321,7 @@ Popover::new(open.clone(), anchor.clone())
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the panel |
 
 - A title or a description longer than the panel wraps inside it.
-- It is the engine's `Popup` with the panel dressed by the recipe: it is placed against its anchor in every frame, goes to the other side where there is no room and is kept in the window, and closes on Escape and on a press outside it, which sets the signal to `false`. Declare it always and drive it with the signal: lurq only knows the anchor of a popup it can see.
+- It is the engine's `Popup` with the panel dressed by the recipe: it is placed against its anchor in every frame, goes to the other side where there is no room and is kept in the window (and in the element `within` names, as that element was last laid out: it flips where that box has no room on its side, is moved into it, then into the window, which wins where they differ; one wider than the box keeps its start at the box's start), and closes on Escape and on a press outside it, which sets the signal to `false`. Declare it always and drive it with the signal: lurq only knows the anchor of a popup it can see.
 - With a trigger, the trigger's own node is the anchor: a press of it, or Enter and Space on it, opens and closes the popover, and while another popup or select is open one press of it closes that one and opens this one. It tells what reads the tree `a11y_haspopup` and `a11y_expanded`. Without a trigger the app opens it, and the anchor is any element of its own (`ref_element`); a press of the anchor is not a press outside it.
 - As it opens the focus goes to the first thing in it that takes the focus (`Popup::takes_focus`), and as it closes with the focus inside, back to what had it when it opened: the trigger. Its stops of Tab come right after the trigger's: Tab from its last one goes on to what follows the trigger. It does not keep Tab in it: it is not modal.
 - The anchor is kept from one render to the next (a field of the component, `ctx.element_ref()`): one made anew in each render is not the one the focus goes back to.
@@ -1374,6 +1376,7 @@ Menu::new(open, anchor)
 | `on_dismiss(Fn())` | A person closed it other than by a choice: Escape, a press outside it, Tab. Not the app setting the signal. Each handler is called, in order. Tab in a submenu closes it and the menus it hangs from, and tells each one's `on_dismiss`, the submenu's first |
 | `on_open_change(Fn(bool))` | Told `false` when a person closes it, by a choice too. Each handler is called, in order |
 | `dismiss_on_escape(bool)`, `dismiss_on_outside_press(bool)` | Whether Escape and a press outside close it: both by default |
+| `within(element)` | Kept inside the box of that element besides the window, as a [popover](#popover) is; a submenu given nothing of its own is kept where its menu is |
 | `inline(bool)` | The panel drawn where the menu is in the tree, open or not, and not over the window: for a gallery, a test, a list of commands in a page |
 | `page(Signal<Option<usize>>)`, `back_label(&str)` | Which item's [page](#menu) the menu shows in its place, by the item's place among what the menu holds (items, separators and headings counted), `None` for its own items; and what the row back is called before the page's title ("Back"). A menu whose items have pages is given the signal; a person closing the menu sets it back to `None` |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the panel |
@@ -1381,6 +1384,9 @@ Menu::new(open, anchor)
 | `MenuItem` | |
 | --- | --- |
 | `icon(name)` | An icon before the label, by its name in the theme's set |
+| `leading(element)` | Any element before the label, in place of the icon: an avatar, a mark of a service |
+| `detail(&str)` | A second line under the label that says more of the item: an agent's model under its name. The item is as high as its two lines |
+| `unavailable(&str)` | It cannot be chosen now, for this reason: disabled, in the state `Unavailable`, with a lock at its end and the reason under its label where it has no detail of its own. What reads the tree is told the reason (`a11y_description`). An empty reason makes it available again |
 | `shortcut(&str)` | The keys that do the same, written at the end: "Ctrl+Z". The item only shows them; the app binds the keys |
 | `checked(bool)` | Whether what it turns on is on: a check at its end |
 | `radio(bool)` | One of several of which one is selected: a dot at the end of the selected one |
@@ -1395,12 +1401,13 @@ Menu::new(open, anchor)
 - The pointer and the keyboard are on one item: the pointer coming onto an item moves the focus there, and an arrow key moves the light off the item under a pointer that holds still.
 - Under the pointer or focused from the keyboard an item is highlighted: filled with `Highlight`, the board's `accent`. An item whose submenu is open stays highlighted.
 - A submenu opens beside its item, its first item level with it, under the pointer, on a press of the item, or on Right, Enter or Space while the item is focused, with the focus on its first item; the pointer on another item of the menu closes it, and so do Left and Escape while the focus is in it, giving the focus back to its item. Choosing in it closes it and every menu it hangs from, and gives the focus back to what opened the outermost, as choosing in the menu itself does. A press in the menu while a submenu is open closes the submenu and still reaches what it pressed.
-- Parts of the menu: `MenuPart::Panel`, `Separator` (the room around the line), `SeparatorLine`, `Label`; state `MenuState::Submenu`. Parts of an item: `MenuItemPart::Root` (what is pressed), `Icon`, `Label`, `Shortcut`, `Check` (the check or the dot), `Chevron`. States of an item: `MenuItemState::Checked` (a checked item), `Selected` (the selected radio), `Radio`, `Destructive`, `Disabled`, `Open` (its submenu is open).
+- Parts of the menu: `MenuPart::Panel`, `Separator` (the room around the line), `SeparatorLine`, `Label`; state `MenuState::Submenu`. Parts of an item: `MenuItemPart::Root` (what is pressed), `Icon`, `Leading` (around the app's element), `Label`, `Detail`, `Lock`, `Shortcut`, `Check` (the check or the dot), `Chevron`. States of an item: `MenuItemState::Checked` (a checked item), `Selected` (the selected radio), `Radio`, `Destructive`, `Disabled`, `Open` (its submenu is open), `Detail` (it has a line under its label), `Unavailable` (it cannot be chosen, for a reason; `Disabled` too).
+- An item with a detail grows to its two lines, at least 32 high with 6 above and below them; its icon or element stands at the top, by the label. The detail is 2 under the label, in 12 of `MutedForeground` in lines of 1.4, and wraps where the menu has no room for it. An unavailable item is dimmed as a disabled one is, and ends in a lock of 16 in `MutedForeground`.
 - A menu is as wide as its widest item, and at least as wide as the design says; never as wide as the window. In the design the panel is at least 230 wide (a submenu 160) and, where the design has no longer label, at most 360: a label longer than that gives way with an ellipsis, and the shortcut, the check and the chevron keep their room and the 8 before them. The panel is in `Popover` with `PopoverForeground`, padded 4, with the large radius, an edge of 1 in `Border` and the medium shadow. An item is 32 tall, padded 8, with the small radius and 8 between what it holds: an icon of 16 in `MutedForeground`, the label in the body's type, and at the end the shortcut in the mono type at 11 in `MutedForeground`, the check or the dot of 16, and the chevron of 16 in `MutedForeground`. A separator is a line of 1 in `Border` with 4 above and below; a group's label is 11/600 in `MutedForeground`, 8 in from the side. A destructive item is in `Destructive`, its icon too; a disabled one is dimmed.
 - Its items follow the [density](../theme/#density): 24, 32 (the design's), 40 and 44 high at compact, default, comfortable and touch. A context menu's, a menubar's and a command palette's are menu items, and follow it with them.
 - To what reads the tree the panel is a `menu`; an item a `menuitem`, a `menuitemcheckbox` or a `menuitemradio` (these two with `a11y_checked`) called by its label; an item with a submenu has `a11y_haspopup` `menu` and `a11y_expanded`; a separator is a `separator`.
 - What a menu holds, in order, is a `MenuEntry`: `Item(MenuItem)`, `Separator`, or `Heading(text)`, as `MenuView::entries` has them. A `MenuItem` converts into one with `.into()`, for a list that mixes items with separators and labels, as a [menubar](#menubar)'s `menu(title, entries)` takes.
-- A renderer for `Menu` gets a `MenuView`: `view.panel()` is the panel with its style and its focus group, `view.item(item)`, `view.separator()` and `view.heading(text)` build what it holds, and `view.render()` hangs it from the anchor. A renderer for `MenuItem` starts from `view.root()`, the behavior with the root's style, and puts in it `view.icon()`, `view.label()`, `view.shortcut()`, `view.check()`, `view.chevron()` or what it likes; `view.submenu()` is the submenu to put after it. Choosing it still closes its menu.
+- A renderer for `Menu` gets a `MenuView`: `view.panel()` is the panel with its style and its focus group, `view.item(item)`, `view.separator()` and `view.heading(text)` build what it holds, and `view.render()` hangs it from the anchor. A renderer for `MenuItem` starts from `view.root()`, the behavior with the root's style, and puts in it `view.icon()` or `view.leading()`, `view.label()`, `view.detail()`, `view.shortcut()`, `view.lock()`, `view.check()`, `view.chevron()` or what it likes; `view.submenu()` is the submenu to put after it. Choosing it still closes its menu.
 - A page is the menu's other list in the same panel, where a submenu is a panel beside it: Right on an item with a page opens it, Left in the page and the row at its top go back, and the focus stays on the row the keyboard was on (the row back and the item that opened the page are one element to the engine). Parts `MenuPart::PageTitle` (13/600) and `PageIcon` (the chevron, in `Foreground`) style the row back, as the board's `Media/Settings Menu/Page` has it.
 
 ## Dialog
@@ -1482,6 +1489,10 @@ let export = Tooltip::new("Nothing to export yet").mount(ctx, export);
 | --- | --- |
 | `mount(ctx, element)` | Puts the tooltip on the element it describes and returns that element |
 | `shortcut(&str)` | The keys of a shortcut, after the text in a chip of their own |
+| `note(&str)` | A second line under the text that says more of it; the text is then its title, in a medium weight |
+| `mono(bool)` | Its text is a path, a command or code: in the theme's mono family |
+| `max_width(..)` | The widest the box is before its text wraps, in place of the recipe's 200 |
+| `when_cut(&ElementRef)` | It shows only while the text whose ref this is is cut: a label that says itself whole in its tooltip only where it is not whole already |
 | `placement(Placement)` | The side of the element it is on and the edge it lines up with: `Top`, centered, by default |
 | `offset(..)`, `collision(CollisionStrategy)` | How far it stands from the element in place of the theme's 6, and what it does where there is no room on its side: `FlipThenClamp` by default |
 | `arrow(bool)` | A triangle from the box to the element |
@@ -1490,7 +1501,16 @@ let export = Tooltip::new("Nothing to export yet").mount(ctx, export);
 | `disabled(bool)` | It never shows, and the element is as it would be without it |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the id of what shows |
 
-- A text too long to have its shortcut beside it wraps across the box, no wider than 200, and the shortcut goes under it.
+- A text too long to have its shortcut beside it wraps across the box, no wider than 200 (or its `max_width`), and the shortcut goes under it. A note wraps in the same box, under its title.
+- A tooltip `when_cut(&label)` reads `ElementRef::text_cut()`, what the last layout drew of the label: cut where it was ended by an ellipsis (`TextOverflow::Elipsis`) or by a limit of lines. While the label is whole the pointer and the focus show nothing, and the label is not described by the tooltip to what reads the tree, as it says the same itself. A label cut with an ellipsis, mounted as it is, is cut in the row the tooltip holds it in, which gives way as the label would:
+
+```rust
+use lurq::{components::{Text, TextOverflow}, ui::Tooltip};
+
+// label: ElementRef, kept in a field of the component.
+let words = Text::new(path).nowrap().text_overflow(TextOverflow::Elipsis).ref_element(label.clone());
+let words = Tooltip::new(path).mono(true).max_width(400.0).when_cut(&label).mount(ctx, words);
+```
 - It shows after the pointer has rested on the element for its open delay, and at once within `TOOLTIP_SKIP_DELAY` (300 ms) of the pointer leaving another: along a toolbar each button's shows at once, and the one before goes, so one tooltip of the pointer shows at a time.
 - Focus from the keyboard shows it at once: the focus of the element or of anything in it (a row with a button in it), read by `ElementRef::focus_visible_within()`.
 - The pointer can be moved onto the tooltip to read it: it goes its close delay, 100 ms, after the pointer has left both the element and the tooltip. It also goes when the focus leaves, when the element is pressed, and on Escape; after a press or Escape it stays away until the pointer comes again, or until both the pointer and the focus have left.
@@ -1499,10 +1519,10 @@ let export = Tooltip::new("Nothing to export yet").mount(ctx, export);
 - It is kept in the window: where there is no room on its side it is on the other one, its arrow turned with it, and where the window pushes it along, its arrow still points at the middle of the element. It takes no focus.
 - To what reads the tree (`lurq_snapshot` of the MCP server) the element is described by the text (`a11y_description`), and called by it (`a11y_name`) when nothing else names it: a text in the element names it (a button by its label), and an icon-only button is named by its label already; an icon alone, a glyph, names nothing. What shows is a `tooltip`. An element with an element ref of its own keeps it, and the tooltip is anchored to it.
 - It is a mounted component, not a builder that goes where an element goes: it keeps timers for its delay and its grace, an anchor that stays the same from one render to the next, and whether the pointer has shown it, and a builder has no `Ctx` to keep them in. Converted into an element on its own, a `Tooltip` is its box as it shows, anchored to nothing: for a gallery, a test or a host of an app's own.
-- Parts: `TooltipPart::Root` (the box and its arrow, and the room between them and the element), `Panel` (the box), `Label`, `Shortcut`, `Arrow`. The side it is on is the recipe's variant (`TooltipSide`: the side of its placement, or the other where there was no room), and the states are `TooltipState::Arrow`, `Shortcut` and `Multiline` (the text wraps, known once it is laid out).
-- In the design the box is in `Primary` with a radius of `Md`, its text in `PrimaryForeground` in the caption's 12, 10 from its sides and 6 from its top and bottom, and no wider than 200; a text that wraps has 8 above and below it, in lines of 1.4. A shortcut is 8 after the text in a chip 16 high, 4 from its sides, with a radius of 3, in a white of 15%, its keys in the mono family in 10. The arrow is 12 along the box and 6 out from it, in the box's color. The tooltip stands 6 from the element: the root's padding on the side's axis.
+- Parts: `TooltipPart::Root` (the box and its arrow, and the room between them and the element), `Panel` (the box), `Label`, `Note`, `Shortcut`, `Arrow`. The side it is on is the recipe's variant (`TooltipSide`: the side of its placement, or the other where there was no room), and the states are `TooltipState::Arrow`, `Shortcut`, `Multiline` (the text wraps, known once it is laid out), `Note` and `Mono`.
+- In the design the box is in `Primary` with a radius of `Md`, its text in `PrimaryForeground` in the caption's 12, 10 from its sides and 6 from its top and bottom, and no wider than 200; a text that wraps has 8 above and below it, in lines of 1.4. A note is 2 under the text in 12 of the regular weight in lines of 1.4, the text over it in a medium weight, and the box has 6 above and below them. A mono tooltip's text is in the mono family. A shortcut is 8 after the text in a chip 16 high, 4 from its sides, with a radius of 3, in a white of 15%, its keys in the mono family in 10. The arrow is 12 along the box and 6 out from it, in the box's color. The tooltip stands 6 from the element: the root's padding on the side's axis.
 - The arrow is a square in the box's color turned by 45°, its middle on the edge of the `Arrow` part that meets the box; the part clips it to the half that points away (`TooltipView::arrow()`), moved along the box by `TooltipView::aim`.
-- A renderer builds what shows, not when: it is given a `TooltipView` with the text, the shortcut, the side the tooltip is on, whether it has an arrow and its aim; `view.panel()` is the default box and `view.arrow()` the default arrow.
+- A renderer builds what shows, not when: it is given a `TooltipView` with the text, the note, the shortcut, the side the tooltip is on, whether it has an arrow and its aim; `view.panel()` is the default box and `view.arrow()` the default arrow.
 - It has no `label`: its text is its name and what describes the element. It has no `on_dismiss` and no `dismiss_on_escape`: the app does not open it, and Escape always puts it away, as content that shows on hover must be dismissible.
 
 ## Toast

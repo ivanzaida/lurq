@@ -5467,6 +5467,17 @@ impl Node {
     &self.node_kind
   }
 
+  /// Whether this is a text the last layout drew in fewer letters than it has: by an ellipsis, or cut to a limit of
+  /// lines.
+  pub(crate) fn text_is_cut(&self) -> bool {
+    match &self.node_kind {
+      NodeKind::Text { state, .. } => state
+        .display_text()
+        .is_some_and(|shown| Some(&*shown) != self.text_content()),
+      _ => false,
+    }
+  }
+
   pub fn with_scroll_state(mut self, existing: crate::layout::layout_kind::ScrollState) -> Self {
     if let LayoutKind::ScrollModifier { state, .. } = &mut self.layout_kind {
       *state = existing;
