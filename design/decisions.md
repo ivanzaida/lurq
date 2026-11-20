@@ -11,6 +11,31 @@ dropped). When a decision is replaced, the old entry stays and says what replace
 
 ## 2026-11-20
 
+### The engine's window controls: the lights at the start on macOS, and a close that asks
+
+- **Question.** Orchester draws macOS traffic lights of its own beside the engine's `components::ChromeTitleBar`,
+  because the engine's `components::WindowControls` could not be used: `ChromeTitleBar` put its controls after
+  `trailing` on every platform, so on macOS the lights stood at the bar's right end, and the close control (both
+  styles) called `on_close` and then `WindowHandle::close()`, which no close flow can hold (unsaved work, running
+  tasks). Should lurq's own controls do what an app needs there?
+- **Decision (Ivan, 2026-11-20: "нам треба компонент від лурка використати замість самописної хуйні").** Yes.
+  With the macOS style (`WindowControlStyle::Macos`, or `Platform` on macOS) `ChromeTitleBar` puts its controls at
+  the start of the bar, before `leading`, in the room they had (8 in from the bar's start, three slots 20 wide with a
+  light 12 across in each: their middles 18, 38 and 58 in, as `ui::WindowChrome`'s lights are; the shell moves the
+  system's own lights to those middles). The Windows style stays at the end. The close control of both styles calls
+  `on_close` and then asks the window to close (`WindowHandle::request_close()`), the path of the system's own
+  close, which `on_close_requested` can hold; with no handler the window closes as before. This is the default, not
+  an option: nothing in lurq relied on the outright close, an app that wants it registers no handler, and the
+  system's lights over the app's on macOS already ask. Where the system draws its own lights over the app's
+  (`WindowInfo::native_controls`) the engine's are not painted and keep their room and marks; in full screen on
+  macOS, where the system's lights are in its own bar, the macOS style draws none and takes no room, as
+  `ui::WindowChrome` does. Minimize, and zoom (macOS) or maximize/restore (Windows), are as they were.
+- **Why.** An app that must ask before closing could not use lurq's controls, and drew lights of its own beside
+  them: the same thing written twice, and the app's lacked the system's tilings menu that the shell gives controls
+  marked as the window's. The close of a window is the system's request everywhere else in lurq (`ui::WindowChrome`,
+  the Mac's menu, MCP's `request_close`).
+- **State.** In work on `claude/macos-lights`.
+
 ### Every new component is shown in the gallery
 
 - **Question.** `ui::StatusLabel` came with plan K4's item 7 with no gallery page. Is a component done without its page?
