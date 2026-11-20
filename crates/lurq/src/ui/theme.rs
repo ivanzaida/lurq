@@ -85,6 +85,23 @@ pub trait Styled: Sized {
   fn style(self, part: impl Into<Name>, style: impl FnOnce(PartStyle) -> PartStyle) -> Self {
     Styled::rules(self, &Recipe::new().base(part, style))
   }
+
+  /// Says `value` of this instance's root under `name` to tooling that reads the tree, the DevTools and the MCP
+  /// tree, as an element's own `describe` does: the state an app's tests and an agent read of it.
+  ///
+  /// ```
+  /// use lurq::ui::{Callout, Progress, Styled};
+  ///
+  /// let quota = Callout::new("The plan's quota is near.").describe("tone", "warning");
+  /// let upload = Progress::new(0.4).describe("share", "40");
+  /// ```
+  ///
+  /// It is said on the node of the root part, laid as [`rules`](Styled::rules) ([`Recipe::describe`]), before what
+  /// the component says of itself there: a reader that takes the first value of a name takes the app's. It says
+  /// nothing unless a tooling feature (`devtools`, `mcp`) is on.
+  fn describe(self, name: impl Into<Arc<str>>, value: impl Into<Arc<str>>) -> Self {
+    Styled::rules(self, &Recipe::new().describe(name, value))
+  }
 }
 
 /// What a component declares of itself for a recipe, its parts or its states: each as a name, and as the Rust
@@ -363,7 +380,7 @@ impl Theme {
     let lent = instance.and_then(|rules| rules.lent()).cloned();
     if let Some(instance) = instance.filter(|rules| !rules.is_empty()) {
       recipes.push(instance);
-      return ResolvedRecipe::new(self, Arc::new(resolve_styles(&recipes, case)), C::ROOT, lent);
+      return ResolvedRecipe::new(self, Arc::new(resolve_styles(&recipes, case)), C::ROOT, lent).described(&recipes);
     }
     let key = (Name::new(C::NAME), case.clone());
     let version = self.version();
@@ -377,7 +394,9 @@ impl Theme {
       .entry(key)
       .or_insert_with(|| Arc::new(resolve_styles(&recipes, case)))
       .clone();
-    ResolvedRecipe::new(self, styles, C::ROOT, lent)
+    // An instance with no rules may still describe its root.
+    recipes.extend(instance);
+    ResolvedRecipe::new(self, styles, C::ROOT, lent).described(&recipes)
   }
 
   /// The renderer the theme gives a component in place of its default one.
