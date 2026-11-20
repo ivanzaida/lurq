@@ -98,10 +98,20 @@ impl Component for Saving {
   }
 }
 
+thread_local! {
+  /// The color the bar's title is given, where the test gives one: as an app gives the theme's again when the
+  /// system's appearance changes.
+  static BAR_TITLE: lurq::core::Signal<Option<lurq::node::color::Color>> = lurq::core::Signal::new(None);
+}
+
 /// A bar of the platform's glass: the design's is solid, and what a person's settings do to a bar that lets the
 /// screen show through is asked of one that does.
 fn glass() -> NavigationBar {
-  NavigationBar::new().background(lurq::node::color::Color::new(249, 249, 249, 224))
+  let bar = NavigationBar::new().background(lurq::node::color::Color::new(249, 249, 249, 224));
+  match BAR_TITLE.with(|title| title.get()) {
+    Some(color) => bar.title(color),
+    None => bar,
+  }
 }
 
 struct Root {
@@ -823,4 +833,28 @@ fn a_large_title_goes_to_the_way_back_as_one_title() {
     assert_eq!(drawn.len(), 1, "at {}: one title, wholly seen: {drawn:?}", 40 * step);
     assert!(drawn[0].4 > 0.99, "at {}: not faded: {drawn:?}", 40 * step);
   }
+}
+
+/// The color the large title is drawn in.
+fn large_title_color(tree: &mut Tree) -> Option<lurq::node::color::Color> {
+  tree.painted_quads().into_iter().find_map(|quad| match &quad.content {
+    lurq::layout::quad::QuadContent::Text { text, style, .. } if &**text == "Gamma" && quad.height > 30.0 => {
+      Some(style.color)
+    }
+    _ => None,
+  })
+}
+
+#[test]
+fn a_large_title_takes_the_color_of_the_bar_given_after_its_screen_was_built() {
+  let (mut tree, router) = setup();
+  router.push("/big");
+  settle(&mut tree);
+  let before = large_title_color(&mut tree).expect("the large title");
+  // The app gives the bar the theme's colors again, as when the system's appearance changed.
+  let white = lurq::node::color::Color::new(255, 255, 255, 255);
+  assert_ne!(before, white);
+  BAR_TITLE.with(|title| title.set(Some(white)));
+  settle(&mut tree);
+  assert_eq!(large_title_color(&mut tree), Some(white));
 }

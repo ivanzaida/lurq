@@ -2483,7 +2483,9 @@ struct StackLayerProps {
 
 impl PartialEq for StackLayerProps {
   fn eq(&self, other: &Self) -> bool {
-    self.id == other.id && self.path == other.path && self.depth == other.depth
+    // A bar given again in other colors (the system turned dark) reaches the screen's large title, which is
+    // drawn in the screen's render.
+    self.id == other.id && self.path == other.path && self.depth == other.depth && self.slot.style == other.slot.style
   }
 }
 
