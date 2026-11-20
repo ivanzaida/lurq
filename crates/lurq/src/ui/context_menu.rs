@@ -439,12 +439,7 @@ impl ContextMenuView {
       menu = menu.collision(collision);
     }
     for entry in std::mem::take(&mut self.entries) {
-      menu = match entry {
-        MenuEntry::Item(item) => menu.item(item),
-        MenuEntry::Separator => menu.separator(),
-        MenuEntry::Heading(heading) => menu.heading(&heading),
-        MenuEntry::Element(element) => menu.child(element),
-      };
+      menu = menu.entry(entry);
     }
     if let Some(id) = &self.id {
       menu = menu.id(id.clone());
@@ -489,7 +484,8 @@ impl ContextMenuView {
       },
       dismissed: Arc::new(dismissed.clone()),
     };
-    for entry in std::mem::take(&mut self.entries) {
+    // A bar has no room to scroll: what a section that scrolls holds stands in it as the rest does.
+    for entry in bar_entries(std::mem::take(&mut self.entries)) {
       panel = match entry {
         MenuEntry::Item(item) => panel.child(
           item
@@ -503,7 +499,7 @@ impl ContextMenuView {
             .rules(&self.recipe.lend("separator"))
             .build(self.theme()),
         ),
-        MenuEntry::Heading(_) => panel,
+        MenuEntry::Heading(_) | MenuEntry::Scroll { .. } => panel,
         MenuEntry::Element(element) => panel.child(element),
       };
     }
@@ -656,4 +652,15 @@ impl Themed for ContextMenu {
       .base(BarItem, |s| s.height(28.0).padding_x(10.0))
       .base(BarLabel, |s| s.font_size(13.0))
   }
+}
+
+/// `entries` with what each section that scrolls holds in its place, for a bar.
+fn bar_entries(entries: Vec<MenuEntry>) -> Vec<MenuEntry> {
+  entries
+    .into_iter()
+    .flat_map(|entry| match entry {
+      MenuEntry::Scroll { entries, .. } => bar_entries(entries),
+      entry => vec![entry],
+    })
+    .collect()
 }

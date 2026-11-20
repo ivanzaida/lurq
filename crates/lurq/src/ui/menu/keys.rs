@@ -11,6 +11,7 @@ use parking_lot::Mutex;
 use crate::{
   app::events::{KeyboardEvent, MouseEvent},
   core::{ElementRef, Signal},
+  layout::layout_kind::ScrollState,
   ui::{shared::command_held_key, toolbar::keyboard_click},
 };
 
@@ -41,6 +42,12 @@ struct Held {
   rows: Vec<Row>,
   /// Closes the menu as a person dismissing it does.
   dismiss: Option<Action>,
+  /// The section that scrolls each item is in, by its place among the items, as the menu was last built.
+  in_section: Vec<Option<usize>>,
+  /// What holds each item in a section that scrolls, kept from one build to the next.
+  holders: Vec<ElementRef>,
+  /// Where each section that scrolls is scrolled to, and its box, kept from one build to the next.
+  sections: Vec<(ScrollState, ElementRef)>,
 }
 
 /// What a menu that leaves the focus in the app's field keeps from one render to the next, kept by the app (made once,
@@ -141,6 +148,9 @@ impl MenuKeys {
       })
       .find(|index| held.choosable[*index]);
     held.active = next;
+    if let Some(next) = next {
+      held.reveal(next);
+    }
     drop(held);
     self.redraw();
     true
@@ -216,6 +226,7 @@ impl MenuKeys {
     self.tick.get();
     let mut held = self.held.lock();
     held.rows = vec![Row::default(); items.len()];
+    held.in_section = vec![None; items.len()];
     held.dismiss = Some(dismiss);
     if !open {
       (held.open, held.seen, held.active) = (false, None, None);
@@ -230,9 +241,39 @@ impl MenuKeys {
     let kept = held
       .active
       .filter(|at| held.open && held.seen == Some(seen) && held.choosable.get(*at).copied().unwrap_or(false));
+    // Opened, or holding other items: its sections go back to their tops, where the first item is.
+    if kept.is_none() {
+      for (scroll, _) in &held.sections {
+        if scroll.scroll_y() != 0.0 {
+          scroll.set_scroll_pending(scroll.scroll_x(), 0.0);
+        }
+      }
+    }
     held.active = kept.or(first);
     (held.open, held.seen) = (true, Some(seen));
     held.active
+  }
+
+  /// Where the section that scrolls at `section`, among the menu's in order, is scrolled to, and the ref of its box.
+  pub(crate) fn section(&self, section: usize) -> (ScrollState, ElementRef) {
+    let mut held = self.held.lock();
+    while held.sections.len() <= section {
+      held.sections.push((ScrollState::new(), ElementRef::new()));
+    }
+    held.sections[section].clone()
+  }
+
+  /// Says that the item at `index` is in the section that scrolls at `section`: gives the ref of what holds it, which
+  /// the keys scroll into view there.
+  pub(crate) fn in_section(&self, index: usize, section: usize) -> ElementRef {
+    let mut held = self.held.lock();
+    if let Some(at) = held.in_section.get_mut(index) {
+      *at = Some(section);
+    }
+    while held.holders.len() <= index {
+      held.holders.push(ElementRef::new());
+    }
+    held.holders[index].clone()
   }
 
   /// What choosing the item at `index`, and asking for it aside, do: the item tells them as it is built.
@@ -240,6 +281,30 @@ impl MenuKeys {
     if let Some(row) = self.held.lock().rows.get_mut(index) {
       *row = Row { choose, aside };
     }
+  }
+}
+
+impl Held {
+  /// Scrolls the section the item at `index` is in by the least that shows it whole, as it was last laid out.
+  fn reveal(&self, index: usize) {
+    let Some(Some(section)) = self.in_section.get(index) else {
+      return;
+    };
+    let (Some((scroll, view)), Some(row)) = (self.sections.get(*section), self.holders.get(index)) else {
+      return;
+    };
+    let (view, row) = (view.bounds(), row.bounds());
+    if view.height <= 0.0 || row.height <= 0.0 {
+      return;
+    }
+    let by = if row.y < view.y {
+      row.y - view.y
+    } else if row.y + row.height > view.y + view.height {
+      row.y + row.height - view.y - view.height
+    } else {
+      return;
+    };
+    scroll.set_scroll_pending(scroll.scroll_x(), (scroll.scroll_y() + by).max(0.0));
   }
 }
 
