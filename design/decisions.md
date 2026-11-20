@@ -11,6 +11,68 @@ dropped). When a decision is replaced, the old entry stays and says what replace
 
 ## 2026-11-20
 
+### A menu that leaves the focus in the app's field
+
+- **Question.** Orchester's slash commands, @mentions and filter fields open a menu under a text field while the
+  person goes on typing in it: the arrow keys move a highlighted row, Enter chooses it, Escape closes the menu, and the
+  focus never leaves the field (a combobox's `aria-activedescendant`). `ui::Menu` takes the focus as it opens, and its
+  rows are reached by moving the focus. Can a menu leave the focus where it is?
+- **Decision (Ivan, 2026-11-20: "роби", after the K6 list was put to him).** `Menu::keeps_focus(&MenuKeys)`: the panel
+  opens without taking the focus, its items take none (a press of one leaves it in the field), and one item is the
+  active one (state `active`, `a11y_selected`), the first that can be chosen, again whenever what the menu holds
+  changes. `MenuKeys::new(field)` is made once by the app, as a `DateMemory` is, with the element the focus stays in:
+  while that element has the focus the panel reads the keys, Up and Down move the active item round the list, Enter
+  chooses it, Ctrl+Enter (Cmd+Enter on macOS) asks for it aside, Escape closes the menu, and the rest go on to the
+  field. A field whose own keys come first (Enter sends) forwards the key with `MenuKeys::key_down(&event)`, which says
+  whether it took it; the panel then leaves that key alone. The pointer on an item makes it the active one.
+- **Why.** What Orchester's kit needs to put its slash and mention menus on `ui::Menu`; every app with a search field
+  over a list of choices needs the same.
+- **State.** Decided; in work on `claude/k6-b-menus-calendar`.
+
+### A menu item asked for aside
+
+- **Question.** `Button`, `ListItem`, `Tab` and the sidebar's items have `on_open_aside`, the middle button and a press
+  with Ctrl (Cmd) that opens what they stand for beside what is open. Orchester's menu items open places by the same
+  rules. `ui::MenuItem` has only `on_select`.
+- **Decision (Ivan, 2026-11-20: "роби", after the K6 list was put to him).** `MenuItem::on_open_aside(handler)`, as
+  `Button`'s: the middle button, a press with Ctrl (Cmd on macOS), and Ctrl+Enter (Cmd+Enter) on the focused item, or
+  on the active item of a menu that keeps the focus elsewhere. Such a press is the handler's alone (`on_select` is not
+  called) and the menu closes, as after a choice. An item that opens a submenu or a page has none.
+- **Why.** What Orchester's kit needs (its `MenuItem::opens`); the same press means the same thing on every control.
+- **State.** Decided; in work on `claude/k6-b-menus-calendar`.
+
+### A calendar's heading with its buttons at the end, and its keys read without the focus
+
+- **Question.** Orchester's date picker puts the month first and both buttons after it at the heading's end, and reads
+  the calendar's keys at its panel while the focus stays where the app keeps it (the panel, a field): a ring marks the
+  day the keys are on, Enter picks it and the picker closes. `ui::Calendar` has the month between its buttons, and its
+  keys move the focus from day to day.
+- **Decision (Ivan, 2026-11-20: "роби", after the K6 list was put to him).** `Calendar::heading(CalendarHeading::MonthThenNav)`
+  lays a heading out as the month, then the button before and the button after at its end; `CalendarHeading::Centered`,
+  the month between them, stays the default. `Calendar::keys(CalendarKeys::Panel)`: the days take no focus, a day is
+  the one the keys are on (state `cursor`, the chosen one or today to begin with), and the panel reads the keys
+  wherever the focus is while the calendar is shown: the arrows, PageUp and PageDown (a year with Shift) move that day,
+  showing its month, and Enter chooses it, which tells `Calendar::on_choose` (now the app's too, told of every choice,
+  of what is chosen already as well) so that a picker closes. A key a handler before it took (`prevent_default`) is
+  left alone, and so is Enter where the focus is on what takes Enter itself (a button of the footer). `CalendarKeys::Days`
+  stays the default. The day the keys are on is kept in a `DateMemory` or by a mounted calendar.
+- **Why.** What Orchester's kit needs to put its picker's grid on `ui::Calendar`.
+- **State.** Decided; in work on `claude/k6-b-menus-calendar`.
+
+### Page tabs that keep their places, an icon after a label, and tabs at the line's end
+
+- **Question.** Orchester's page tabs keep the room of the selected label's heavier weight in every tab, so that
+  switching moves no tab (as a browser's tab bar does); a tab not built yet ends in a lock after its words; and a
+  page's Settings tab stands at the far end of the line after its lists. `ui::Tabs` widens a tab as it is selected, has
+  an icon only before the label, and puts only the app's element (`Tabs::end`) at the end.
+- **Decision (Ivan, 2026-11-20: "роби", after the K6 list was put to him).** `Tabs::reserve_selected_width(true)`: each
+  label holds the room it takes in the selected tab's style, so a switch moves nothing; off unless told, so what an app
+  sees does not change. `Tab::trailing_icon(name)`: an icon after the label and its count, badge and dot (part
+  `trailing_icon`). `Tab::at_end(true)`: the tab stands at the end of the line, after the note and the app's element,
+  with the tabs so placed; it is still a tab of the list, reached by its arrow keys and in the More menu in its order.
+- **Why.** What Orchester's kit needs to put its page tabs on `ui::Tabs`.
+- **State.** Decided; in work on `claude/k6-b-menus-calendar`.
+
 ### Window tabs that keep a gap between them, and fit by it
 
 - **Question.** Orchester's design puts 2 between its title-bar tabs and before the add button and the More button.
