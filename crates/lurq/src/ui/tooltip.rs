@@ -35,6 +35,7 @@ use crate::{
   layout::{
     Alignment,
     layout_kind::{Justify, LayoutKind},
+    text_style::FontWeight,
   },
   node::{
     Element, HitTestBehavior, Node, NodeUpdate, SpacingValue, color::Color, dimension::Dimension,
@@ -102,8 +103,10 @@ pub enum TooltipPart {
   Root,
   /// The box: its text and its shortcut, on the primary color.
   Panel,
-  /// Its text.
+  /// Its text: the title of a tooltip with a note.
   Label,
+  /// The second line under the text, where it has one.
+  Note,
   /// The keys of a shortcut after the text, in a chip of their own.
   Shortcut,
   /// What the arrow is drawn in: the triangle between the box and what it
@@ -115,6 +118,7 @@ names!(TooltipPart {
   Root => "root",
   Panel => "panel",
   Label => "label",
+  Note => "note",
   Shortcut => "shortcut",
   Arrow => "arrow",
 });
@@ -167,12 +171,18 @@ pub enum TooltipState {
   /// is laid out, so a tooltip shown on an element; one anchored to nothing
   /// is never in it.
   Multiline,
+  /// It has a second line under its text.
+  Note,
+  /// Its text is a path, a command or code: in the theme's mono family.
+  Mono,
 }
 
 names!(TooltipState {
   Arrow => "arrow",
   Shortcut => "shortcut",
   Multiline => "multiline",
+  Note => "note",
+  Mono => "mono",
 });
 
 /// What builds a tooltip's nodes: a theme's in place of the default one. It
@@ -213,8 +223,31 @@ pub type TooltipRenderer = Arc<dyn Fn(TooltipView) -> Element + Send + Sync>;
 ///
 /// Converted into an element on its own, a tooltip is its box as it shows,
 /// anchored to nothing: for a gallery, a test, or a host of an app's own.
+///
+/// A label cut to its room with an ellipsis says itself whole in a tooltip
+/// that shows only while it is cut:
+///
+/// ```no_run
+/// use lurq::{
+///   app::ctx::Ctx,
+///   components::{Text, TextOverflow},
+///   core::ElementRef,
+///   node::Element,
+///   ui::Tooltip,
+/// };
+///
+/// fn path(ctx: &mut Ctx, label: &ElementRef, path: &str) -> Element {
+///   let text = Text::new(path).nowrap().text_overflow(TextOverflow::Elipsis).ref_element(label.clone());
+///   Tooltip::new(path).mono(true).max_width(400.0).when_cut(label).mount(ctx, text)
+/// }
+/// ```
+#[derive(Clone)]
 pub struct Tooltip {
   text: Arc<str>,
+  note: Option<Arc<str>>,
+  mono: bool,
+  max_width: Option<Length>,
+  when_cut: Option<ElementRef>,
   shortcut: Option<Arc<str>>,
   placement: Placement,
   offset: Option<SpacingValue>,
@@ -236,6 +269,10 @@ impl Tooltip {
   pub fn new(text: &str) -> Self {
     Self {
       text: Arc::from(text),
+      note: None,
+      mono: false,
+      max_width: None,
+      when_cut: None,
       shortcut: None,
       placement: Placement::Top,
       offset: None,
@@ -257,6 +294,42 @@ impl Tooltip {
   pub fn shortcut(mut self, keys: &str) -> Self {
     self.shortcut = (!keys.is_empty()).then(|| Arc::from(keys));
     self
+  }
+
+  /// A second line under the text, which says more: "Signed in as ada@example.com" under "Switch account". The
+  /// text is then its title, in a medium weight; both wrap at the box's greatest width.
+  pub fn note(mut self, note: &str) -> Self {
+    self.note = (!note.is_empty()).then(|| Arc::from(note));
+    self
+  }
+
+  /// Whether its text is a path, a command or code, set in the theme's mono family.
+  pub fn mono(mut self, mono: bool) -> Self {
+    self.mono = mono;
+    self
+  }
+
+  /// The widest the box is before its text wraps, in place of the recipe's (200 in the design's): a path says
+  /// itself on one line where the tooltip is given room for it.
+  pub fn max_width(mut self, width: impl Into<Length>) -> Self {
+    self.max_width = Some(width.into());
+    self
+  }
+
+  /// Shows the tooltip only while the text whose ref `text` is is cut, as the last layout drew it: ended by an
+  /// ellipsis where its room ran out, or cut to a limit of lines ([`ElementRef::text_cut`]). A label that says
+  /// itself whole in its tooltip has one only where it is not whole already. The pointer and the focus show it
+  /// as they would; a text that fits shows nothing, and is not described by it to what reads the tree, since it
+  /// says the same itself. `text` is the label's own ref, in the element the tooltip is mounted on or anywhere
+  /// else.
+  pub fn when_cut(mut self, text: &ElementRef) -> Self {
+    self.when_cut = Some(text.clone());
+    self
+  }
+
+  /// Whether the tooltip shows only while a text is cut, and that text is whole.
+  fn waits_for_cut(&self) -> bool {
+    self.when_cut.as_ref().is_some_and(|text| !text.text_cut())
   }
 
   /// Which side of what it describes the tooltip is on, where there is room,
@@ -373,10 +446,15 @@ impl Tooltip {
     }
     .state(TooltipState::Arrow, self.arrow)
     .state(TooltipState::Shortcut, self.shortcut.is_some())
-    .state(TooltipState::Multiline, multiline);
+    .state(TooltipState::Multiline, multiline)
+    .state(TooltipState::Note, self.note.is_some())
+    .state(TooltipState::Mono, self.mono);
     // An offset given here is under what `style` and `rules` say of the root: the room on both sides of the
     // tooltip, so that it stays centered.
     let mut rules = Recipe::new();
+    if let Some(width) = self.max_width {
+      rules = rules.base(TooltipPart::Panel, |s| s.max_width(width));
+    }
     if let Some(offset) = self.offset {
       rules = rules.base(TooltipPart::Root, |s| {
         if side.vertical() {
@@ -389,6 +467,7 @@ impl Tooltip {
     let rules = rules.extend(&self.rules);
     TooltipView {
       text: self.text.clone(),
+      note: self.note.clone(),
       shortcut: self.shortcut.clone(),
       side,
       arrow: self.arrow,
@@ -426,6 +505,8 @@ impl From<Tooltip> for Element {
 /// style of its parts.
 pub struct TooltipView {
   pub text: Arc<str>,
+  /// The second line under the text, if it has one.
+  pub note: Option<Arc<str>>,
   pub shortcut: Option<Arc<str>>,
   /// The side it is on: the side its placement gives, or the other where there was no room.
   pub side: TooltipSide,
@@ -452,7 +533,7 @@ impl TooltipView {
     self.recipe.theme()
   }
 
-  /// The box: the text, and the shortcut after it.
+  /// The box: the text, its note under it, and the shortcut after them.
   pub fn panel(&self) -> Row {
     let label = self.part(TooltipPart::Label);
     let mut panel = Row::new()
@@ -463,7 +544,11 @@ impl TooltipView {
     if let Some(label_ref) = &self.label_ref {
       words = words.ref_element(label_ref.clone());
     }
-    panel = panel.child(words);
+    panel = match self.note() {
+      // The title and its note in a column that gives way as the text alone would, both wrapping in it.
+      Some(note) => panel.child(Column::new().flex_shrink(1.0).min_width(0.0).child(words).child(note)),
+      None => panel.child(words),
+    };
     if let Some(keys) = &self.shortcut {
       // A text too long to have the shortcut beside it wraps across the box, and the shortcut goes under it:
       // beside it the text would be squeezed into what the shortcut leaves.
@@ -478,6 +563,19 @@ impl TooltipView {
       );
     }
     panel
+  }
+
+  /// The second line under the text, in the style of its part, if the tooltip has one.
+  pub fn note(&self) -> Option<Element> {
+    let note = self.note.as_ref()?;
+    let part = self.part(TooltipPart::Note);
+    Some(
+      Row::new()
+        .min_width(0.0)
+        .part(&part)
+        .child(part.text(note).flex_shrink(1.0))
+        .into(),
+    )
   }
 
   /// The arrow: a square in the color of the box, turned a quarter of a
@@ -618,9 +716,13 @@ impl Themed for Tooltip {
   /// radius of 3, in a white of 15%, its keys in the mono family in 10. The
   /// arrow is 12 along the box and 6 out from it. It stands 6 from what it
   /// describes. A text that wraps has 8 above and below it, in lines of 1.4.
+  /// A note is under the text, 2 below it, in 12 of the regular weight in
+  /// lines of 1.4, the text over it in a medium weight; a tooltip with a note
+  /// has 6 above and below its lines. A mono tooltip's text is in the mono
+  /// family.
   fn recipe() -> Recipe {
     use PaletteColor::{Primary, PrimaryForeground};
-    use TooltipPart::{Arrow, Label, Panel, Root, Shortcut};
+    use TooltipPart::{Arrow, Label, Note, Panel, Root, Shortcut};
     use TooltipSide::{Bottom, Left, Right, Top};
     Recipe::new()
       .base(Panel, |s| {
@@ -645,6 +747,15 @@ impl Themed for Tooltip {
       // A text that wraps: 8 above and below it, in lines of 1.4.
       .state(TooltipState::Multiline, Panel, |s| s.padding_y(8.0))
       .state(TooltipState::Multiline, Label, |s| s.line_height(1.4))
+      .base(Note, |s| {
+        s.typography(TypographyStyle::Caption)
+          .weight(FontWeight::Normal)
+          .line_height(1.4)
+          .padding_top(2.0)
+      })
+      .state(TooltipState::Note, Panel, |s| s.padding_y(6.0))
+      .state(TooltipState::Note, Label, |s| s.weight(FontWeight::Medium))
+      .state(TooltipState::Mono, Label, |s| s.font_family(FontFamily::Mono))
       // The room between the tooltip and what it describes, on both sides of it so that it stays centered.
       .variant(Top, Root, |s| s.padding_y(6.0))
       .variant(Bottom, Root, |s| s.padding_y(6.0))
@@ -865,7 +976,8 @@ impl Component for TooltipHost {
         .resolve(view.theme())
         .font_size;
     }
-    let shows = !tooltip.text.is_empty() && tooltip.force_open.unwrap_or(asked);
+    // One that waits for its text to be cut shows nothing while it is whole.
+    let shows = !tooltip.text.is_empty() && tooltip.force_open.unwrap_or(asked && !tooltip.waits_for_cut());
     // A tooltip that went from under the pointer is told of no leave: the pointer is on it no longer.
     if !shows || (tooltip.force_open.is_none() && !allowed.get()) {
       self.pointer.lock().on_tooltip = false;
@@ -948,13 +1060,17 @@ impl Component for TooltipHost {
         self.grace.clone(),
         self.pointer.clone(),
       );
+      let tooltip = tooltip.clone();
       move || {
         pointer.lock().on_element = false;
         delay.cancel();
         if !hovered.get_untracked() {
           return;
         }
-        if allowed.get_untracked() {
+        if tooltip.waits_for_cut() {
+          // Nothing showed: nothing to move onto, and the next tooltip along waits for its delay.
+          hovered.set(false);
+        } else if allowed.get_untracked() {
           // It stays for its grace, and the next tooltip along shows at once.
           grace.restart();
           went();
@@ -984,6 +1100,8 @@ impl Component for TooltipHost {
     };
 
     let text = tooltip.text.clone();
+    // A text that says itself whole in its tooltip is not described by it again.
+    let described = tooltip.when_cut.is_none();
     let describe = move |node: Node| {
       // Named by what it says of itself, or by a text in it: a button by its label. What tooling is told is kept
       // only where there is tooling to tell.
@@ -998,7 +1116,9 @@ impl Component for TooltipHost {
         .on_mouse_enter(enter.clone())
         .on_mouse_leave(leave.clone())
         .on_mouse_down(press.clone());
-      NodeUpdate::describe(&mut node, Arc::from("a11y_description"), text.clone());
+      if described {
+        NodeUpdate::describe(&mut node, Arc::from("a11y_description"), text.clone());
+      }
       if !named {
         NodeUpdate::describe(&mut node, Arc::from("a11y_name"), text.clone());
       }
@@ -1023,10 +1143,12 @@ fn says_something(node: &Node) -> bool {
 
 /// `element`, in a row of its own where its root lays out no children (a
 /// text, a wrapper of one child): what declares the overlay must be a
-/// container, or the overlay is never laid out.
+/// container, or the overlay is never laid out. The row gives way where what
+/// holds it has no room, as the element would: a label cut with an ellipsis is
+/// cut in it.
 fn holds_children(element: Element) -> Element {
   match element.node.layout_kind() {
     LayoutKind::Row { .. } | LayoutKind::Column { .. } | LayoutKind::Stack { .. } | LayoutKind::Grid(_) => element,
-    _ => Row::new().child(element).into(),
+    _ => Row::new().flex_shrink(1.0).min_width(0.0).child(element).into(),
   }
 }
