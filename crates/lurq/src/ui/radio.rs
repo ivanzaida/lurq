@@ -686,7 +686,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> RadioGroup<T> {
           radio = radio.element_ref(element.clone());
         }
         for state in &choice.states {
-          radio = radio.state(state.clone(), true);
+          radio = radio.state(*state, true);
         }
         if Some(index) == entry {
           radio = radio.force(self.forced);

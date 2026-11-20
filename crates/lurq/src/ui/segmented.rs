@@ -267,7 +267,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SegmentedControl<T> {
     let resolve = |selected: bool, states: &[Name]| -> ResolvedRecipe {
       let case = states
         .iter()
-        .fold(case.clone(), |case, state| case.state(state.clone(), true))
+        .fold(case.clone(), |case, state| case.state(*state, true))
         .state(SegmentedControlState::Selected, selected);
       theme.resolve::<SegmentedControl>(&case, Some(&self.rules))
     };
