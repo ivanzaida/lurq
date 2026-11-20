@@ -1,10 +1,14 @@
 //! The list of every open tab that the More button of the list mode opens ([`WindowTabsMenu::All`]): a search field
 //! at its head once it holds more than eight tabs, then a row of each tab that matches, in the strip's order, with a
-//! mark on the selected tab and on each tab not in the strip and a close button at its end.
+//! mark on the selected tab and on each tab not in the strip and a close button at its end. While it has the focus its
+//! keys are its own (`keys_first`).
 
-use std::sync::{Arc, atomic::Ordering};
+use std::sync::{
+  Arc,
+  atomic::{AtomicBool, Ordering},
+};
 
-use super::{MenuFocus, WindowTabsPart, WindowTabsView};
+use super::{LIST_INSET, MenuFocus, WindowTabEntry, WindowTabsPart, WindowTabsView};
 use crate::{
   app::{
     ctx::Placement,
@@ -24,17 +28,40 @@ use crate::{
 /// A list of more than this many tabs leads with its search field.
 const SEARCH_ABOVE: usize = 8;
 
-/// What the list leaves of the window's height under its rows: the title bar it hangs from, its padding and its
-/// search field.
-const WINDOW_ROOM: f32 = 112.0;
+/// How far under what it stands by the list is.
+const LIST_OFFSET: f32 = 4.0;
 
-/// The least height of the list's rows, in a window too low for more.
-const LEAST_ROWS: f32 = 120.0;
+/// The least height of the list, in a window too low for more.
+const LEAST_HEIGHT: f32 = 120.0;
 
-/// Whether a tab called `label` matches the search `query`: it holds it, in any case.
-fn matches(query: &str, label: &str) -> bool {
+/// Whether a list of `count` tabs leads with its search field: it holds more than eight.
+pub(super) fn searched(count: usize) -> bool {
+  count > SEARCH_ABOVE
+}
+
+/// Whether `tab` matches the search `query`: its label, what its row says in place of it, or the quiet text after
+/// it holds the query, in any case.
+fn matches(query: &str, tab: &WindowTabEntry) -> bool {
   let query = query.trim().to_lowercase();
-  query.is_empty() || label.to_lowercase().contains(&query)
+  let holds = |text: &str| text.to_lowercase().contains(&query);
+  query.is_empty()
+    || holds(&tab.label)
+    || tab.list_label.as_deref().is_some_and(holds)
+    || tab.list_detail.as_deref().is_some_and(holds)
+}
+
+/// The row the list keeps in view while it is open with `query` in its search field: that of the selected tab where
+/// it matches, else the first that does.
+pub(super) fn kept_in_view(tabs: &[WindowTabEntry], query: &str) -> Option<usize> {
+  let mut listed = tabs.iter().enumerate().filter(|(_, tab)| matches(query, tab));
+  let first = listed.clone().next().map(|(index, _)| index);
+  listed.find(|(_, tab)| tab.selected).map(|(index, _)| index).or(first)
+}
+
+/// Whether the list takes `event` from the rest of the window while it has the focus: Ctrl+W (Cmd+W), and every key
+/// pressed without Ctrl, Alt or Cmd.
+fn the_lists(event: &KeyboardEvent) -> bool {
+  closes(event) || !(event.ctrl || event.alt || event.meta)
 }
 
 /// Whether `event` is the window's close shortcut: Cmd+W on macOS, Ctrl+W elsewhere.
@@ -50,7 +77,7 @@ fn closes(event: &KeyboardEvent) -> bool {
 impl WindowTabsView {
   /// Whether the list leads with its search field: it holds more than eight tabs.
   fn searched(&self) -> bool {
-    self.tabs.len() > SEARCH_ABOVE
+    searched(self.tabs.len())
   }
 
   /// Where the focus goes as the list of every tab opens: its search field where it has one, else the row of the
@@ -76,13 +103,14 @@ impl WindowTabsView {
   /// The tabs the list shows, by index: those whose label matches what the search field holds.
   fn listed(&self, query: &str) -> Vec<usize> {
     (0..self.tabs.len())
-      .filter(|index| matches(query, &self.tabs[*index].label))
+      .filter(|index| matches(query, &self.tabs[*index]))
       .collect()
   }
 
-  /// The list of every open tab, under the More button while it is open. The focus goes into it as it opens and
-  /// back to the button as it closes; Escape empties the search field, and closes the list where it is empty; a
-  /// press outside closes it.
+  /// The list of every open tab, under the More button, or under what the app told it to stand clear of, while it is
+  /// open. The focus goes into it as it opens and back to the button as it closes; Escape empties the search field,
+  /// and closes the list where it is empty; a press outside closes it. While it has the focus it hears keys before
+  /// the rest of the window, which does not hear those it takes.
   pub(super) fn all_tabs(&self) -> Element {
     let query = self.kept.query.get();
     let listed: Arc<[usize]> = self.listed(&query).into();
@@ -110,12 +138,58 @@ impl WindowTabsView {
     } else {
       panel.child(self.items(&listed))
     };
-    Popup::new(self.kept.anchor.clone(), panel)
+    if let Some(height) = self.list_height() {
+      panel = panel.max_height(Dimension::Px(height));
+    }
+    // The list's keys are heard first, and those it takes go no further: after what is in it heard them, while the
+    // focus is in it.
+    let within = Arc::new(AtomicBool::new(false));
+    let learned = within.clone();
+    let content = Column::new()
+      .keys_first(true)
+      .on_key_down(move |event: KeyboardEvent| learned.store(event.focus_within, Ordering::Relaxed))
+      .child(panel)
+      .child(Row::new().on_key_down(move |event: KeyboardEvent| {
+        if within.load(Ordering::Relaxed) && !event.composing && the_lists(&event) {
+          event.stop_propagation();
+        }
+      }));
+    let inset = self.list_inset();
+    let told = self.open_told();
+    let mut popup = Popup::new(self.kept.anchor.clone(), content)
       .open(self.kept.open.clone())
       .placement(Placement::BottomStart)
-      .offset(0.0, 4.0)
+      .offset(0.0, LIST_OFFSET)
+      .keep_clear(inset, inset, inset, inset)
       .takes_focus(true)
-      .into()
+      .on_dismiss(move || told(false));
+    if let Some(frame) = &self.list.clear_of {
+      popup = popup.clear_of(frame.clone());
+    }
+    popup.into()
+  }
+
+  /// How far the list stays inside the window's edges.
+  fn list_inset(&self) -> f32 {
+    self.list.inset.unwrap_or(LIST_INSET)
+  }
+
+  /// The most the list is high: from its top, under what it stands by, to the window's bottom less its inset. None
+  /// before the window's height is known.
+  fn list_height(&self) -> Option<f32> {
+    let window = (*self.kept.window_height.lock())?;
+    let frame = self
+      .list
+      .clear_of
+      .as_ref()
+      .filter(|frame| frame.is_attached())
+      .unwrap_or(&self.kept.anchor);
+    let top = if frame.is_attached() {
+      frame.y() + frame.height() + LIST_OFFSET
+    } else {
+      0.0
+    };
+    Some((window - top - self.list_inset()).max(LEAST_HEIGHT))
   }
 
   /// The search field at the head of the list: it says how many tabs it searches, Enter chooses the first that
@@ -184,25 +258,26 @@ impl WindowTabsView {
     for (at, index) in listed.iter().enumerate() {
       rows = rows.child(self.item(*index, at, listed));
     }
-    let room = self.kept.window_height.lock().map_or(f32::INFINITY, |height| {
-      (height - WINDOW_ROOM).max(LEAST_ROWS)
-    });
-    ScrollVertical::new(rows).max_height(Dimension::Px(room)).into()
+    // As high as the rows, and giving way to the list's most height, past which they scroll.
+    ScrollVertical::new(rows).flex_shrink(1.0).min_height(0.0).into()
   }
 
   /// What selects the tab at `index` from the list, and closes the list: the tab comes back into the strip, and
   /// takes the focus where the strip is a stop of Tab.
   fn chooser(&self, index: usize) -> impl Fn() + Send + Sync + 'static {
     let (select, kept, follows) = (self.tabs[index].select.clone(), self.kept.clone(), self.tab_stop);
+    let told = self.open_told();
     move || {
       kept.refocus.store(follows, Ordering::Relaxed);
       kept.open.set(false);
+      told(false);
       select();
     }
   }
 
-  /// The row of the tab at `index`, the `at`th of `listed`: its icon, its label, a mark where it is not in the strip
-  /// and one where it is the selected tab, and its close button. A press, Enter and Space choose it; the middle
+  /// The row of the tab at `index`, the `at`th of `listed`: its icon, its label (or what the row says in place of it)
+  /// and the quiet text after it, a mark where it is not in the strip, the app's elements, a mark where it is the
+  /// selected tab, and its close button. A press, Enter and Space choose it; the middle
   /// button and Ctrl+W (Cmd+W on macOS) close its tab, and the keys go on to the next row; Up on the first row goes
   /// back to the search field.
   fn item(&self, index: usize, at: usize, listed: &Arc<[usize]>) -> Element {
@@ -210,6 +285,7 @@ impl WindowTabsView {
     let part = |part: WindowTabsPart| self.item_part(index, part);
     let disabled = self.disabled || entry.disabled;
     let choose = self.chooser(index);
+    let label = entry.list_label.as_ref().unwrap_or(&entry.label);
     let mut row = pressable(&part(WindowTabsPart::Item), disabled)
       .justify(Justify::Start)
       .align_items(Alignment::Center)
@@ -217,7 +293,7 @@ impl WindowTabsView {
       .focus_entry(entry.selected)
       .ref_element(self.kept.item_ref(index))
       .describe("a11y_role", "option")
-      .describe("a11y_name", entry.label.clone())
+      .describe("a11y_name", label.clone())
       .describe("a11y_selected", if entry.selected { "true" } else { "false" })
       .on_click(move |_| choose());
     if self.hidden[index] {
@@ -239,12 +315,26 @@ impl WindowTabsView {
     if let Some(icon) = entry.icon {
       row = row.child(glyph(&part(WindowTabsPart::ItemIcon), icon, false));
     }
+    // With a quiet text after it, the label is as wide as it is and gives way first; the text takes what it leaves.
+    let (grow, basis) = if entry.list_detail.is_some() {
+      (0.0, None)
+    } else {
+      (1.0, Some(0.0))
+    };
     row = row.child(
       Row::new()
-        .flex_full(1.0, 1.0, Some(0.0))
+        .flex_full(grow, 1.0, basis)
         .min_width(0.0)
-        .child(one_line(&part(WindowTabsPart::ItemLabel), &entry.label)),
+        .child(one_line(&part(WindowTabsPart::ItemLabel), label)),
     );
+    if let Some(detail) = &entry.list_detail {
+      row = row.child(
+        Row::new()
+          .flex_full(1.0, 1.0, Some(0.0))
+          .min_width(0.0)
+          .child(one_line(&part(WindowTabsPart::ItemDetail), detail)),
+      );
+    }
     let mark = |what: WindowTabsPart, name: &str, suffix: &str| {
       let mut mark = Row::new().child(glyph(&part(what), Name::new(name), false));
       if let Some(id) = &entry.id {
@@ -254,6 +344,15 @@ impl WindowTabsView {
     };
     if self.hidden[index] {
       row = row.child(mark(WindowTabsPart::ItemHidden, icons::EYE_OFF, "hidden"));
+    }
+    if !entry.list_trailing.is_empty() {
+      row = row.child(
+        Row::new()
+          .part(&part(WindowTabsPart::ItemMarks))
+          .align_items(Alignment::Center)
+          .flex_shrink(0.0)
+          .with_children(entry.list_trailing.iter().cloned()),
+      );
     }
     if entry.selected {
       row = row.child(mark(WindowTabsPart::ItemCurrent, icons::CHECK, "current"));

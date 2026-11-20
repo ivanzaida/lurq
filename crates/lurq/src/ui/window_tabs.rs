@@ -95,6 +95,10 @@ pub enum WindowTabsPart {
   ItemIcon,
   /// The label of a row.
   ItemLabel,
+  /// The quiet text after a row's label ([`WindowTab::list_detail`]), which takes the room the label leaves.
+  ItemDetail,
+  /// The app's elements in a row ([`WindowTab::list_trailing`]), after the mark of a tab not in the strip.
+  ItemMarks,
   /// The mark of a row whose tab is not in the strip.
   ItemHidden,
   /// The mark of the row of the selected tab.
@@ -130,6 +134,8 @@ names!(WindowTabsPart {
   Item => "item",
   ItemIcon => "item_icon",
   ItemLabel => "item_label",
+  ItemDetail => "item_detail",
+  ItemMarks => "item_marks",
   ItemHidden => "item_hidden",
   ItemCurrent => "item_current",
   ItemClose => "item_close",
@@ -154,6 +160,8 @@ pub enum WindowTabsState {
   Overflowing,
   /// Of the strip: the menu of its More button is open.
   MenuOpen,
+  /// Of the strip: its list of every tab leads with its search field, holding more than eight tabs.
+  Searchable,
 }
 
 names!(WindowTabsState {
@@ -164,6 +172,7 @@ names!(WindowTabsState {
   IconOnly => "icon_only",
   Overflowing => "overflowing",
   MenuOpen => "menu_open",
+  Searchable => "searchable",
 });
 
 /// What window tabs do where they have less room than their tabs at their most: what
@@ -214,6 +223,26 @@ type Moved = Arc<dyn Fn(usize, usize) + Send + Sync>;
 /// What sets the signal of bound tabs to a value, and says whether it was another.
 type Write<T> = Arc<dyn Fn(&T) -> bool + Send + Sync>;
 
+/// What is told the More button's menu opened or closed.
+type OpenChange = Arc<dyn Fn(bool) + Send + Sync>;
+
+/// What says the More button's tooltip for how many tabs are hidden.
+type CountText = Arc<dyn Fn(usize) -> String + Send + Sync>;
+
+/// How far the list of every tab stays inside the window's edges unless told otherwise.
+const LIST_INSET: f32 = 8.0;
+
+/// The list's settings of the app's: whether it is open, who hears it open, by what it stands, and the More
+/// button's tooltip.
+#[derive(Clone, Default)]
+struct ListSettings {
+  open: Option<Signal<bool>>,
+  on_open_change: Vec<OpenChange>,
+  clear_of: Option<ElementRef>,
+  inset: Option<f32>,
+  more_tooltip: Option<CountText>,
+}
+
 /// One tab of a window: its value, what it shows, and whether it can be closed.
 ///
 /// ```
@@ -239,6 +268,9 @@ pub struct WindowTab<T> {
   max_width: Option<f32>,
   fit_content: Option<f32>,
   trailing: Vec<Element>,
+  list_label: Option<Arc<str>>,
+  list_detail: Option<Arc<str>>,
+  list_trailing: Vec<Element>,
   descriptions: Vec<Description>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
@@ -264,6 +296,9 @@ impl<T> WindowTab<T> {
       max_width: None,
       fit_content: None,
       trailing: Vec::new(),
+      list_label: None,
+      list_detail: None,
+      list_trailing: Vec::new(),
       descriptions: Vec::new(),
       id: None,
       key: None,
@@ -351,6 +386,30 @@ impl<T> WindowTab<T> {
     self
   }
 
+  /// What the tab's row in the list of every tab ([`WindowTabsMenu::All`]) says in place of its label, and is called
+  /// by to what reads the tree: the page, where the tab says its project and its page. A search matches it as it
+  /// matches the label.
+  pub fn list_label(mut self, label: &str) -> Self {
+    self.list_label = Some(Arc::from(label));
+    self
+  }
+
+  /// A quiet text after the label of the tab's row in the list of every tab, in its `item_detail` part, which takes
+  /// the room the label leaves and ends in an ellipsis where it is not enough: the project of a page. A search
+  /// matches it too.
+  pub fn list_detail(mut self, detail: &str) -> Self {
+    self.list_detail = Some(Arc::from(detail));
+    self
+  }
+
+  /// An element of the app's in the tab's row in the list of every tab, after the mark of a tab not in the strip and
+  /// before the check of the selected one, in the row's `item_marks` part; a second one after the first. It is an
+  /// element of its own, apart from the tab's [`trailing`](Self::trailing), and its id should be another.
+  pub fn list_trailing(mut self, element: impl Into<Element>) -> Self {
+    self.list_trailing.push(element.into());
+    self
+  }
+
   /// Says `value` of the tab under `name` to tooling that reads the tree, the DevTools and the MCP tree, as
   /// [`Styled::describe`](super::Styled::describe) does of a component: the state and the route an app's tests and
   /// an agent read of it. It is said on the tab's node before what the strip says of the tab, so a reader that
@@ -392,6 +451,9 @@ impl<T> WindowTab<T> {
       max_width: self.max_width,
       fit_content: self.fit_content,
       trailing: self.trailing,
+      list_label: self.list_label,
+      list_detail: self.list_detail,
+      list_trailing: self.list_trailing,
       descriptions: self.descriptions,
       id: self.id,
       key: self.key,
@@ -430,6 +492,11 @@ pub struct WindowTabEntry {
   pub fit_content: Option<f32>,
   /// The app's elements after the label.
   pub trailing: Vec<Element>,
+  /// What the tab's row in the list of every tab says in place of its label, the quiet text after it, and the app's
+  /// elements in it.
+  pub list_label: Option<Arc<str>>,
+  pub list_detail: Option<Arc<str>>,
+  pub list_trailing: Vec<Element>,
   /// What the app says of the tab to tooling, said before what the strip says.
   pub descriptions: Vec<(Arc<str>, Arc<str>)>,
   pub selected: bool,
@@ -500,6 +567,7 @@ pub struct WindowTabs<T = ()> {
   overflow: WindowTabsOverflow,
   menu: WindowTabsMenu,
   list_shortcut: bool,
+  list: ListSettings,
   dirty_mark: WindowTabsDirtyMark,
   tab_stop: bool,
   label: Option<Arc<str>>,
@@ -571,6 +639,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> WindowTabs<T> {
       overflow: WindowTabsOverflow::Scroll,
       menu: WindowTabsMenu::Hidden,
       list_shortcut: false,
+      list: ListSettings::default(),
       dirty_mark: WindowTabsDirtyMark::InCloseSlot,
       tab_stop: true,
       label: None,
@@ -688,6 +757,45 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> WindowTabs<T> {
   /// button's tooltip says the keys.
   pub fn list_shortcut(mut self, on: bool) -> Self {
     self.list_shortcut = on;
+    self
+  }
+
+  /// Whether the More button's menu of the list mode is open: the app's signal, in place of one the strip keeps. The
+  /// strip sets it as the menu opens and closes, and the app may set it to open or close the menu. The list of every
+  /// tab takes its keys while it has the focus (`keys_first`): Ctrl+W (Cmd+W), Enter, Escape, the arrows and every key
+  /// without Ctrl, Alt or Cmd are not also heard by the page under it.
+  pub fn menu_open(mut self, open: Signal<bool>) -> Self {
+    self.list.open = Some(open);
+    self
+  }
+
+  /// Called when a person opens or closes the More button's menu, with whether it is open now: the button, the list
+  /// shortcut, a choice in it, Escape or a press outside. Not when the app sets [`menu_open`](Self::menu_open), nor
+  /// when the menu closes as the last hidden tab comes back into the strip. A second handler is called after the
+  /// first.
+  pub fn on_menu_open_change(mut self, handler: impl Fn(bool) + Send + Sync + 'static) -> Self {
+    self.list.on_open_change.push(Arc::new(handler));
+    self
+  }
+
+  /// Makes the list of every tab stand clear of the box of `element` (the title bar the strip is in) on the side it
+  /// opens on, in place of the More button's: 4 under its bottom edge, lined up with the button along it.
+  pub fn list_clear_of(mut self, element: impl Into<ElementRef>) -> Self {
+    self.list.clear_of = Some(element.into());
+    self
+  }
+
+  /// How far the list of every tab stays inside the window's edges: 8 unless told otherwise. It is moved in from the
+  /// end of a window too narrow for it, and is never lower than that above the window's bottom, its rows scrolling.
+  pub fn list_inset(mut self, inset: f32) -> Self {
+    self.list.inset = Some(inset);
+    self
+  }
+
+  /// What the More button's tooltip says for how many tabs left the strip, and what the button says of itself to what
+  /// reads the tree: "3 hidden tabs" in the locale's words unless told otherwise.
+  pub fn more_tooltip(mut self, text: impl Fn(usize) -> String + Send + Sync + 'static) -> Self {
+    self.list.more_tooltip = Some(Arc::new(text));
     self
   }
 
@@ -832,6 +940,9 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> WindowTabs<T> {
           max_width: tab.max_width,
           fit_content: tab.fit_content,
           trailing: tab.trailing,
+          list_label: tab.list_label,
+          list_detail: tab.list_detail,
+          list_trailing: tab.list_trailing,
           descriptions: tab.descriptions,
           selected: chosen,
           select,
@@ -867,6 +978,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> WindowTabs<T> {
       overflow: self.overflow,
       menu: self.menu,
       list_shortcut: self.list_shortcut,
+      list: self.list,
       dirty_mark: self.dirty_mark,
       tab_stop: self.tab_stop,
       label: self.label,
@@ -995,6 +1107,8 @@ struct Kept {
   item_refs: Arc<Mutex<Vec<ElementRef>>>,
   menu_focus: Arc<Mutex<Option<FocusRequest>>>,
   window_height: Arc<Mutex<Option<f32>>>,
+  /// The search and the row the open list last scrolled into view for it.
+  in_view: Arc<Mutex<Option<(String, usize)>>>,
 }
 
 /// Where the focus is to go in the list of every tab, once the strip holds as many tabs as the second says, where
@@ -1030,6 +1144,7 @@ impl Kept {
       item_refs: Arc::new(Mutex::new(Vec::new())),
       menu_focus: Arc::new(Mutex::new(None)),
       window_height: Arc::new(Mutex::new(None)),
+      in_view: Arc::new(Mutex::new(None)),
     }
   }
 
@@ -1093,6 +1208,7 @@ struct Prepared {
   overflow: WindowTabsOverflow,
   menu: WindowTabsMenu,
   list_shortcut: bool,
+  list: ListSettings,
   dirty_mark: WindowTabsDirtyMark,
   tab_stop: bool,
   label: Option<Arc<str>>,
@@ -1106,7 +1222,10 @@ struct Prepared {
 
 impl Prepared {
   /// The tabs in `theme`, with what `kept` keeps.
-  fn build(self, theme: &Theme, kept: Kept) -> Element {
+  fn build(self, theme: &Theme, mut kept: Kept) -> Element {
+    if let Some(open) = &self.list.open {
+      kept.open = open.clone();
+    }
     let hidden = self.hidden(&kept);
     let case = Case {
       variant: None,
@@ -1120,7 +1239,8 @@ impl Prepared {
     .state(
       WindowTabsState::MenuOpen,
       kept.revision.is_some() && self.overflow == WindowTabsOverflow::List && kept.open.get(),
-    );
+    )
+    .state(WindowTabsState::Searchable, self.searchable());
     let owner = theme
       .resolve::<WindowTabs>(&case, Some(&self.rules))
       .owned_by(self.id.as_ref());
@@ -1131,6 +1251,7 @@ impl Prepared {
       overflow: self.overflow,
       menu: self.menu,
       list_shortcut: self.list_shortcut,
+      list: self.list,
       dirty_mark: self.dirty_mark,
       tab_stop: self.tab_stop,
       hidden,
@@ -1153,6 +1274,11 @@ impl Prepared {
       Some(renderer) => renderer(view),
       None => view.render(),
     }
+  }
+
+  /// Whether the list of every tab leads with its search field.
+  fn searchable(&self) -> bool {
+    self.overflow == WindowTabsOverflow::List && self.menu == WindowTabsMenu::All && all_tabs::searched(self.tabs.len())
   }
 
   /// Which tabs are out of the strip, by index: of mounted tabs that leave it where they do not fit, those the last
@@ -1223,11 +1349,29 @@ impl Component for WindowTabsHost {
     }
     *self.kept.window_height.lock() = Some(ctx.window().info().logical_height());
     let count = tabs.tabs.len();
+    let open = tabs.list.open.clone().unwrap_or_else(|| self.kept.open.clone());
+    let in_view = (tabs.menu == WindowTabsMenu::All && open.get_untracked())
+      .then(|| {
+        let query = self.kept.query.get_untracked();
+        all_tabs::kept_in_view(&tabs.tabs, &query).map(|index| (query, index))
+      })
+      .flatten();
     let element = tabs.build(&current_theme(), self.kept.clone());
+    {
+      // The open list keeps the selected tab's row, or the first that matches, in view: as it opens and as its search
+      // changes, and not again, so that rows scrolled by the wheel stay where they are.
+      let mut shown = self.kept.in_view.lock();
+      if *shown != in_view {
+        if let Some((_, index)) = &in_view {
+          ctx.scroll_into_view(&self.kept.item_ref(*index));
+        }
+        *shown = in_view;
+      }
+    }
     let request = {
       let mut request = self.kept.menu_focus.lock();
       // A request for after a tab is taken away waits for the strip that no longer holds it; the list closed, none.
-      if !self.kept.open.get_untracked() {
+      if !open.get_untracked() {
         *request = None;
       }
       match *request {
@@ -1266,6 +1410,7 @@ pub struct WindowTabsView {
   pub menu: WindowTabsMenu,
   /// Whether Ctrl+Shift+A (Cmd+Shift+A) opens the More button's menu.
   pub list_shortcut: bool,
+  list: ListSettings,
   pub dirty_mark: WindowTabsDirtyMark,
   /// Whether Tab stops in the strip.
   pub tab_stop: bool,
@@ -2138,15 +2283,16 @@ impl<T: Send + Sync + 'static> Themed for WindowTabs<T> {
   ///   tab, and a close button of 20 whose x of 12 shows while the row is under the pointer or focused. The selected
   ///   tab's row has the fill of what is picked out and its label 500 in the foreground; another is muted under the
   ///   pointer and focused, with the ring inside it then. Where nothing matches, 12 in the muted foreground, padded
-  ///   12 and 8.
+  ///   12 and 8. Under the search field (`searchable`) the rows abut. A row's quiet text after its label is 12 in the
+  ///   muted foreground; the app's elements in it are 4 apart.
   fn recipe() -> Recipe {
     use PaletteColor::{Background, Foreground, Muted, MutedForeground, Ring, SecondaryHover};
     use WindowTabsPart::{
-      Add, AddIcon, Close, CloseIcon, Dot, Empty, Icon, Item, ItemClose, ItemCloseIcon, ItemCurrent, ItemHidden,
-      ItemIcon, ItemLabel, Items, Label, List, Marks, More, MoreIcon, MoreLabel, Panel, Root, Search, Separator, Tab,
-      Title,
+      Add, AddIcon, Close, CloseIcon, Dot, Empty, Icon, Item, ItemClose, ItemCloseIcon, ItemCurrent, ItemDetail,
+      ItemHidden, ItemIcon, ItemLabel, ItemMarks, Items, Label, List, Marks, More, MoreIcon, MoreLabel, Panel, Root,
+      Search, Separator, Tab, Title,
     };
-    use WindowTabsState::{Dirty, Disabled, IconOnly, MenuOpen, Selected};
+    use WindowTabsState::{Dirty, Disabled, IconOnly, MenuOpen, Searchable, Selected};
     let inside = || Outline::new(BorderSize::Md, Ring).offset(-2.0);
     let clear = Color::new(0, 0, 0, 0);
     let edge = || crate::node::border::Border::inside(BorderSize::Sm, PaletteColor::Border);
@@ -2267,6 +2413,7 @@ impl<T: Send + Sync + 'static> Themed for WindowTabs<T> {
       })
       .base(Search, |s| s.padding_bottom(4.0))
       .base(Items, |s| s.gap(2.0))
+      .state(Searchable, Items, |s| s.gap(0.0))
       .base(Item, |s| {
         fading(
           s.height(28.0)
@@ -2290,6 +2437,10 @@ impl<T: Send + Sync + 'static> Themed for WindowTabs<T> {
       .base(ItemIcon, |s| s.square(IconSize::Sm))
       .base(ItemLabel, |s| s.typography(TypographyStyle::Caption))
       .state(Selected, ItemLabel, |s| s.weight(FontWeight::Medium))
+      .base(ItemDetail, |s| {
+        s.typography(TypographyStyle::Caption).foreground(MutedForeground)
+      })
+      .base(ItemMarks, |s| s.gap(4.0))
       .base(ItemHidden, |s| s.square(IconSize::Xs).foreground(MutedForeground))
       .base(ItemCurrent, |s| s.square(IconSize::Sm).foreground(Foreground))
       .base(ItemClose, |s| {
