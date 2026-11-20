@@ -40,6 +40,9 @@ pub enum BreadcrumbPart {
   Link,
   /// The last step: the page one is on, which is text and not a link.
   Page,
+  /// A step that is neither a link nor the page one is on: a place on the way that cannot be gone to
+  /// ([`BreadcrumbStep::link(false)`](BreadcrumbStep::link)).
+  Text,
   /// The icon of a step, before its text.
   Icon,
   /// What stands between two steps: an icon, or a text such as a slash.
@@ -56,6 +59,7 @@ names!(BreadcrumbPart {
   Root => "root",
   Link => "link",
   Page => "page",
+  Text => "text",
   Icon => "icon",
   Separator => "separator",
   SeparatorIcon => "separator_icon",
@@ -147,6 +151,7 @@ pub struct BreadcrumbStep {
   value: Arc<str>,
   icon: Option<Name>,
   disabled: bool,
+  link: Option<bool>,
   states: Vec<Name>,
   on_select: Vec<Handler>,
   on_open_aside: Vec<EventHandler<crate::app::events::MouseEvent>>,
@@ -163,6 +168,7 @@ impl BreadcrumbStep {
       label,
       icon: None,
       disabled: false,
+      link: None,
       states: Vec::new(),
       on_select: Vec::new(),
       on_open_aside: Vec::new(),
@@ -192,6 +198,30 @@ impl BreadcrumbStep {
     self
   }
 
+  /// Whether the step is a link, over what its place makes it: every step but the last is one unless told otherwise,
+  /// and the last is the page one is on. `link(true)` on the last step makes it a link like the others, and the trail
+  /// then has no current page: an editor's form whose trail ends with the record it edits. `link(false)` on a step
+  /// before it makes it plain text ([`BreadcrumbPart::Text`]): a place on the way that cannot be gone to, which is no
+  /// stop of Tab, is not followed, and is disabled in the menu of the hidden steps. `link(false)` on the last step
+  /// leaves it the page one is on.
+  ///
+  /// ```
+  /// use lurq::ui::{Breadcrumb, BreadcrumbStep};
+  ///
+  /// // Back to the task from its edit form: the trail ends with a link.
+  /// let edit = Breadcrumb::new([BreadcrumbStep::new("Tasks"), BreadcrumbStep::new("KON-12").link(true)]);
+  /// // A local folder that is no page of the app, before the pages that are.
+  /// let sharing = Breadcrumb::new([
+  ///   BreadcrumbStep::new("~/projects/kon").link(false),
+  ///   BreadcrumbStep::new("Settings"),
+  ///   BreadcrumbStep::new("Upload"),
+  /// ]);
+  /// ```
+  pub fn link(mut self, link: bool) -> Self {
+    self.link = Some(link);
+    self
+  }
+
   /// Puts this step alone in a state the theme's recipe names, or takes it out: the parts of the step (its link or
   /// its page, its icon) are styled in it, and the other steps and the separators are not. A key in the family of
   /// code, the page's title in a title's type, a last step drawn as the steps before it:
@@ -211,8 +241,8 @@ impl BreadcrumbStep {
   }
 
   /// Called when the step is followed: a click of it, Enter or Space while it
-  /// is focused, or choosing it in the menu of the hidden steps. The last step
-  /// is the page one is on, and is not followed.
+  /// is focused, or choosing it in the menu of the hidden steps. The page one is
+  /// on, and a step that is no [link](Self::link), are not followed.
   pub fn on_select(mut self, handler: impl Fn() + Send + Sync + 'static) -> Self {
     self.on_select.push(Arc::new(handler));
     self
@@ -398,6 +428,7 @@ pub struct Breadcrumb {
   steps: Vec<BreadcrumbStep>,
   variant: Name,
   overflow: bool,
+  current: bool,
   /// What a mounted breadcrumb keeps of the steps its row dropped.
   fold: Option<Fold>,
   max_shown: Option<usize>,
@@ -433,6 +464,7 @@ impl Breadcrumb {
       steps: steps.into_iter().map(Into::into).collect(),
       variant: BreadcrumbVariant::default().into(),
       overflow: false,
+      current: true,
       fold: None,
       max_shown: None,
       separator: BreadcrumbSeparator::default(),
@@ -476,6 +508,15 @@ impl Breadcrumb {
   /// nothing: built on its own a breadcrumb is its still form, which cuts its last step and folds none.
   pub fn overflow(mut self, overflow: bool) -> Self {
     self.overflow = overflow;
+    self
+  }
+
+  /// Whether the last step is the page one is on: it is unless told otherwise. `false` is a trail that ends with a
+  /// link, as every step before it is (unless that step is told [`link(false)`](BreadcrumbStep::link)): the way to a
+  /// page that is not in the trail itself. The same as [`BreadcrumbStep::link(true)`](BreadcrumbStep::link) on the
+  /// last step.
+  pub fn current(mut self, current: bool) -> Self {
+    self.current = current;
     self
   }
 
@@ -682,6 +723,7 @@ impl Breadcrumb {
       fold,
       separator: self.separator,
       disabled: self.disabled,
+      current: self.current,
       tab_stop: self.tab_stop,
       cut_links: self.cut_links,
       name_refs: self.name_refs,
@@ -810,6 +852,8 @@ pub struct BreadcrumbView {
   fold: Option<Fold>,
   pub separator: BreadcrumbSeparator,
   pub disabled: bool,
+  /// Whether the last step is the page one is on, unless it is told to be a link ([`Breadcrumb::current`]).
+  current: bool,
   /// Whether Tab stops at the links and the ellipsis.
   tab_stop: bool,
   /// Whether a link's name is cut at its most width, with a tooltip of it whole while it is cut
@@ -852,8 +896,10 @@ impl BreadcrumbView {
     let step = &self.steps[index];
     let root = if self.is_current(index) {
       BreadcrumbPart::Page
-    } else {
+    } else if self.is_link(index) {
       BreadcrumbPart::Link
+    } else {
+      BreadcrumbPart::Text
     };
     let recipe = match &step.id {
       Some(id) => recipe.item(Some(id), root),
@@ -867,8 +913,8 @@ impl BreadcrumbView {
     self.disabled || self.steps.get(index).is_some_and(|step| step.disabled)
   }
 
-  /// The step whose link Tab stops on first: the first shown, unless it is the page one is on or disabled. None
-  /// while the breadcrumb is disabled.
+  /// The step whose link Tab stops on first: the first shown, unless it is no link (the page one is on, or plain
+  /// text) or disabled. None while the breadcrumb is disabled.
   pub fn entry(&self) -> Option<usize> {
     if self.disabled {
       return None;
@@ -877,15 +923,28 @@ impl BreadcrumbView {
       .shown()
       .first()
       .copied()
-      .filter(|&index| !self.is_current(index) && !self.is_disabled(index))
+      .filter(|&index| self.is_link(index) && !self.is_disabled(index))
   }
 
   pub fn theme(&self) -> &Theme {
     self.recipe.theme()
   }
 
-  /// Whether the step at `index` is the page one is on: the last.
+  /// Whether the step at `index` is the page one is on: the last, unless the breadcrumb ends with a link
+  /// ([`Breadcrumb::current`], [`BreadcrumbStep::link`]).
   pub fn is_current(&self, index: usize) -> bool {
+    index + 1 == self.steps.len() && self.current && self.steps[index].link != Some(true)
+  }
+
+  /// Whether the step at `index` is a link that a press follows: it is not the page one is on, and not told
+  /// [`link(false)`](BreadcrumbStep::link).
+  pub fn is_link(&self, index: usize) -> bool {
+    index < self.steps.len() && !self.is_current(index) && self.steps[index].link != Some(false)
+  }
+
+  /// Whether the step at `index` is the last: the one a breadcrumb that overflows never drops, and the one that gives
+  /// way where the row is short.
+  fn is_last(&self, index: usize) -> bool {
     index + 1 == self.steps.len()
   }
 
@@ -903,11 +962,11 @@ impl BreadcrumbView {
   }
 
   /// What following the step at `index` does: its own handlers, then the
-  /// breadcrumb's with its value. `None` for the page, and while the step or the
+  /// breadcrumb's with its value. `None` for the page and a step that is no link, and while the step or the
   /// whole is disabled.
   pub fn follow(&self, index: usize) -> Option<impl Fn() + Send + Sync + Clone + 'static> {
     let step = self.steps.get(index)?;
-    if self.is_disabled(index) || self.is_current(index) {
+    if self.is_disabled(index) || !self.is_link(index) {
       return None;
     }
     let (own, told, value) = (step.on_select.clone(), self.on_select.clone(), step.value.clone());
@@ -947,12 +1006,15 @@ impl BreadcrumbView {
     Some(glyph(&self.step_part(index, BreadcrumbPart::Icon), name, false))
   }
 
-  /// The step at `index`: a link that a press follows, or the page one is on
-  /// for the last, in the style of its part, with its icon and its text. The
-  /// page's name, and a link's cut at its most width, say themselves whole in
+  /// The step at `index`: a link that a press follows, the page one is on
+  /// for the last, or plain text for a step that is no link, in the style of its part, with its icon and its text.
+  /// The page's name, a link's cut at its most width, and the last step's, say themselves whole in
   /// a tooltip while they are cut.
   pub fn step(&self, index: usize) -> Element {
     let step = &self.steps[index];
+    if !self.is_current(index) && !self.is_link(index) {
+      return self.plain(index);
+    }
     if self.is_current(index) {
       let part = self.step_part(index, BreadcrumbPart::Page);
       let mut page = Row::new()
@@ -1009,12 +1071,23 @@ impl BreadcrumbView {
     if let Some(key) = &step.key {
       link = link.key(key.clone());
     }
-    if !self.cut_links {
+    let last = self.is_last(index);
+    if !self.cut_links && !last {
       return link.child(part.text(&step.label).nowrap()).into();
     }
-    // Cut at the link's most width, which it keeps: the page gives way first. The name is said whole while it is cut.
+    // Cut at the link's most width, which it keeps: the page gives way first. A link that ends the trail gives way
+    // as the page would. The name is said whole while it is cut.
     let text = self.name_refs.get(index).cloned().unwrap_or_default();
-    let link = link.flex_shrink(0.0).child(
+    let link = if last {
+      link
+        .flex_shrink(1.0)
+        .min_width(0.0)
+        .shrink_order(self.steps.len() as i32)
+        .shrink_limit(ShrinkLimit::Content)
+    } else {
+      link.flex_shrink(0.0)
+    };
+    let link = link.child(
       Row::new().flex_shrink(1.0).min_width(0.0).child(
         part
           .text(&step.label)
@@ -1024,6 +1097,28 @@ impl BreadcrumbView {
       ),
     );
     super::Tooltip::new(&step.label).when_cut(&text).declared(link)
+  }
+
+  /// A step that is no link and not the page one is on: its icon and its text in the part [`BreadcrumbPart::Text`],
+  /// called by its label to what reads the tree, and nothing a press or Tab reaches.
+  fn plain(&self, index: usize) -> Element {
+    let step = &self.steps[index];
+    let part = self.step_part(index, BreadcrumbPart::Text);
+    let mut plain = Row::new()
+      .align_items(Alignment::Center)
+      .part(&part)
+      .describe("a11y_name", step.label.clone());
+    if let Some(icon) = self.icon(index) {
+      plain = plain.child(icon);
+    }
+    plain = plain.child(part.text(&step.label).nowrap());
+    if let Some(id) = &step.id {
+      plain = plain.id(id.clone());
+    }
+    if let Some(key) = &step.key {
+      plain = plain.key(key.clone());
+    }
+    plain.into()
   }
 
   /// What stands between two steps. A theme's renderer for
@@ -1053,7 +1148,8 @@ impl BreadcrumbView {
       .rules(&self.recipe.lend("menu"));
     for index in self.hidden.clone().unwrap_or(0..0) {
       let step = &self.steps[index];
-      let mut item = MenuItem::new(&step.label).disabled(self.is_disabled(index));
+      // A step that is no link goes nowhere from the menu either.
+      let mut item = MenuItem::new(&step.label).disabled(self.is_disabled(index) || !self.is_link(index));
       if let Some(icon) = &step.icon {
         item = item.icon(icon.clone());
       }
@@ -1173,7 +1269,7 @@ impl BreadcrumbView {
     let shown = self.shown();
     for (place, index) in shown.iter().enumerate() {
       match &self.fold {
-        Some(fold) if place > 0 && !self.is_current(*index) => root = root.child(self.droppable(fold, *index)),
+        Some(fold) if place > 0 && !self.is_last(*index) => root = root.child(self.droppable(fold, *index)),
         _ => {
           if place > 0 {
             root = root.child(self.separator());
@@ -1227,7 +1323,8 @@ impl Themed for Breadcrumb {
   /// 14 in the muted foreground between each two. The ellipsis is a square of
   /// 24 filled with the highlight (the board's `$accent`), with the small
   /// radius and an icon of 16 in it. Under the pointer a link is in the
-  /// foreground.
+  /// foreground. Where the board is silent: a step that is no link is drawn as
+  /// a link at rest, and is the same under the pointer.
   ///
   /// As a path control (Path Control) it is a bar 28 high on the muted fill
   /// with the medium radius, 4 in from its sides, its segments touching: each
@@ -1260,6 +1357,11 @@ impl Themed for Breadcrumb {
           .foreground(Foreground)
           .typography(TypographyStyle::Body)
           .weight(FontWeight::Medium)
+      })
+      .base(Text, |s| {
+        s.gap(4.0)
+          .foreground(MutedForeground)
+          .typography(TypographyStyle::Body)
       })
       .base(Icon, |s| s.square(IconSize::Sm))
       .base(Separator, |s| {
@@ -1306,6 +1408,13 @@ impl Themed for Breadcrumb {
           .background(Background)
           .border(edge(PaletteColor::Border))
       })
+      .variant(Path, Text, |s| {
+        s.height(22.0)
+          .padding_x(6.0)
+          .gap(5.0)
+          .font_size(12.0)
+          .foreground(Foreground)
+      })
       .variant(Path, Icon, |s| s.square(13.0).foreground(MutedForeground))
       .variant(Path, Separator, |s| s.font_size(12.0))
       .variant(Path, SeparatorIcon, |s| s.square(12.0))
@@ -1320,6 +1429,7 @@ impl Themed for Breadcrumb {
         s.opacity(OpacityLevel::Disabled).cursor(CursorIcon::Default)
       })
       .state(BreadcrumbState::Disabled, Page, |s| s.opacity(OpacityLevel::Disabled))
+      .state(BreadcrumbState::Disabled, Text, |s| s.opacity(OpacityLevel::Disabled))
       .state(BreadcrumbState::Disabled, Separator, |s| s.opacity(OpacityLevel::Disabled))
       .state(BreadcrumbState::Disabled, Ellipsis, |s| {
         s.opacity(OpacityLevel::Disabled).cursor(CursorIcon::Default)
