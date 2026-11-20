@@ -400,6 +400,7 @@ pub struct AudioPlayerPage {
   muted: Signal<bool>,
   rate: Signal<f32>,
   shuffle: Signal<bool>,
+  looped: Signal<bool>,
   repeat: Signal<AudioRepeat>,
   waveform: Signal<bool>,
   loading: Signal<bool>,
@@ -487,6 +488,7 @@ impl AudioPlayerPage {
       .rate(self.rate.clone())
       .shuffle(self.shuffle.clone())
       .repeat(self.repeat.clone())
+      .looped(self.looped.get())
       .on_change({
         let record = record.clone();
         move |to| record(format!("on_change({to:.1})"))
@@ -625,6 +627,7 @@ impl AudioPlayerPage {
       code.push("    .repeat(repeat)".to_owned());
     }
     for (name, on) in [
+      ("looped", self.looped.get()),
       ("loading", loading),
       ("unheard", unheard && variant == AudioPlayerVariant::Voice),
       ("disabled", disabled),
@@ -783,6 +786,7 @@ impl AudioPlayerPage {
     if variant == AudioPlayerVariant::Voice {
       controls.push(flag("unheard", &self.unheard));
     }
+    controls.push(flag("looped", &self.looped));
     controls.push(flag("loading", &self.loading));
     controls.push(flag("error", &self.error));
     controls.push(flag("disabled", &self.disabled));
@@ -798,6 +802,7 @@ impl AudioPlayerPage {
           self.muted.get(),
           self.shuffle.get(),
           self.repeat.get() != AudioRepeat::Off,
+          self.looped.get(),
           waveform,
           loading,
           error,
@@ -833,6 +838,7 @@ impl AudioPlayerPage {
         self.disabled.clone(),
       );
       let (source, address, path) = (self.source.clone(), self.address.clone(), self.path.clone());
+      let looped = self.looped.clone();
       move || {
         source.set(0);
         address.set(ADDRESS.to_owned());
@@ -849,6 +855,7 @@ impl AudioPlayerPage {
         rate.set(1.0);
         shuffle.set(false);
         repeat.set(AudioRepeat::Off);
+        looped.set(false);
         waveform.set(false);
         loading.set(false);
         error.set(false);
@@ -971,6 +978,7 @@ impl Component for AudioPlayerPage {
       muted: ctx.signal(false),
       rate,
       shuffle: ctx.signal(false),
+      looped: ctx.signal(false),
       repeat,
       waveform: ctx.signal(false),
       loading: ctx.signal(false),
