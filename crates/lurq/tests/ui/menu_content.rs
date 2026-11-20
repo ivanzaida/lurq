@@ -17,11 +17,14 @@ fn light(role: PaletteColor) -> Color {
   ThemePalette::light().get(role)
 }
 
-/// What was chosen, in order, and a handler for each item that says so.
-fn log() -> (
-  Arc<Mutex<Vec<&'static str>>>,
-  impl Fn(&'static str) -> Box<dyn Fn() + Send + Sync>,
-) {
+/// What was chosen, in order.
+type Chosen = Arc<Mutex<Vec<&'static str>>>;
+
+/// A handler of an item's.
+type Handler = Arc<dyn Fn() + Send + Sync>;
+
+/// What was chosen, and a handler for each item that says so.
+fn log() -> (Chosen, impl Fn(&'static str) -> Box<dyn Fn() + Send + Sync>) {
   let chosen = Arc::new(Mutex::new(Vec::new()));
   let told = chosen.clone();
   (chosen, move |name| {
