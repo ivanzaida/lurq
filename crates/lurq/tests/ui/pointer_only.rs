@@ -386,3 +386,66 @@ fn a_pressable_off_tab_keeps_its_role_and_name() {
   assert_eq!(said("rust-remove", "a11y_role").as_deref(), Some("button"));
   assert_eq!(said("rust-remove", "a11y_name").as_deref(), Some("Remove rust"));
 }
+
+/// Enter with the platform's shortcut key (Ctrl, Cmd on Apple's platforms) on the focused element.
+fn command_enter(stage: &mut Stage) {
+  let mac = cfg!(any(target_os = "macos", target_os = "ios"));
+  let key = || ("Enter".to_owned(), "Enter".to_owned());
+  let (k, c) = key();
+  stage.tree.key_down_with_meta(k, c, false, !mac, false, mac);
+  let (k, c) = key();
+  stage.tree.key_up(k, c, false, !mac, false);
+  stage.pass();
+}
+
+#[test]
+fn enter_asked_for_aside_on_a_focused_button_calls_its_handler_alone() {
+  let (presses, press) = counter();
+  let (asides, aside) = counter();
+  let mut stage = with_field(move || {
+    let (press, aside) = (press.clone(), aside.clone());
+    Row::new()
+      .child(
+        Button::new("Open")
+          .id("open")
+          .on_click(move |_| press())
+          .on_open_aside(move |_| aside()),
+      )
+      .into()
+  });
+  stage.tree.get_element_by_id_mut("open").unwrap().focus();
+  stage.pass();
+
+  command_enter(&mut stage);
+  assert_eq!(
+    (count(&presses), count(&asides)),
+    (0, 1),
+    "the key's press is the handler's alone, as the pointer's is: the press stopped at once calls no other"
+  );
+  stage.key("Enter");
+  assert_eq!((count(&presses), count(&asides)), (1, 1), "a plain Enter presses it");
+}
+
+#[cfg(feature = "form")]
+#[test]
+fn enter_asked_for_aside_on_a_submit_button_submits_nothing() {
+  use lurq::components::{Form, FormHandle, FormOptions, FormProps};
+  let (submits, submit) = counter();
+  let (asides, aside) = counter();
+  let mut stage = Stage::new(move |_| {
+    let (submit, aside) = (submit.clone(), aside.clone());
+    Form::element(
+      FormProps::new(FormHandle::new(FormOptions::new()).on_submit(move |_| submit())),
+      Column::new()
+        .size(400.0, 300.0)
+        .child(Button::new("Send").id("send").submit(true).on_open_aside(move |_| aside())),
+    )
+  });
+  stage.tree.get_element_by_id_mut("send").unwrap().focus();
+  stage.pass();
+
+  command_enter(&mut stage);
+  assert_eq!((count(&submits), count(&asides)), (0, 1), "a press aside sends no form");
+  stage.key("Enter");
+  assert_eq!(count(&submits), 1, "a plain Enter sends it");
+}

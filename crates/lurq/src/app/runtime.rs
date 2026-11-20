@@ -5193,8 +5193,12 @@ impl Tree {
     };
 
     let event = modifiers.keyboard_click(focused);
+    // As a click of the pointer does: a handler that stops the event at once is the last one called.
     for handler in click {
       handler.call(&event);
+      if event.immediate_propagation_stopped() {
+        break;
+      }
     }
     // A button that names another element (`focuses`) gives the focus on when the keyboard presses it, as a click does.
     if let Some(target) = focuses
@@ -5203,8 +5207,9 @@ impl Tree {
       ctx.focus(&target);
     }
 
+    // A handler that took the press for itself (`prevent_default`, as a press asked for aside does) submits nothing.
     #[cfg(feature = "form")]
-    if _kind == ButtonKind::Submit {
+    if _kind == ButtonKind::Submit && !event.default_prevented() {
       self.submit_nearest_form_for_node_id(focused);
     }
     true
