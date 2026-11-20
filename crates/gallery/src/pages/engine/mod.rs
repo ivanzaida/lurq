@@ -18,6 +18,7 @@ pub mod grid;
 pub mod kit;
 pub mod layout;
 pub mod overlays;
+pub mod pager;
 pub mod persistent_storage;
 pub mod phone_stack;
 pub mod position;

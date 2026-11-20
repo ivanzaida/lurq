@@ -21,6 +21,7 @@ mod markdown;
 mod outlet;
 mod popup;
 mod rect;
+pub(crate) mod pager;
 pub(crate) mod refresh;
 #[cfg(feature = "router")]
 mod router_component;
@@ -83,6 +84,7 @@ pub use link::Link;
 pub use markdown::{Markdown, MarkdownLink, MarkdownLinkPresentation, MarkdownList, MarkdownProps, MarkdownRun};
 #[cfg(feature = "router")]
 pub use outlet::Outlet;
+pub use pager::Pager;
 pub use popup::{Popover, Popup};
 pub use rect::Rect;
 #[allow(deprecated)]
