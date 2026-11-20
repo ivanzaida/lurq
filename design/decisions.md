@@ -38,7 +38,7 @@ dropped). When a decision is replaced, the old entry stays and says what replace
      40, and an app's recipe makes it 36.
 - **Why.** Orchester's title bar is to be lurq's component, not a copy of it in the app; each of these is what a
   browser's or an editor's tabs do, and none is Orchester's alone.
-- **State.** In work on `claude/window-tabs` (2026-11-20).
+- **State.** Built on `claude/window-tabs` (2026-11-20).
 
 ### Every new component is shown in the gallery
 
