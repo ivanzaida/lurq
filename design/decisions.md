@@ -11,6 +11,85 @@ dropped). When a decision is replaced, the old entry stays and says what replace
 
 ## 2026-11-20
 
+### Window tabs that keep a gap between them, and fit by it
+
+- **Question.** Orchester's design puts 2 between its title-bar tabs and before the add button and the More button.
+  `ui::WindowTabs` counted the strip's width from its tabs, its separators and its add button, never a gap, and in
+  the list mode it counted the separator of a tab only while the tab was in the strip: a tab that left for the More
+  button's menu needed less room to come back than it took once back, and with a gap it never came back at all.
+  Should the strip keep a gap, and how does it fit?
+- **Decision (Ivan, 2026-11-20: "так давай роби в луркі").** The gap of the `list` part is the room between two tabs
+  and before the More button, the gap of the `root` part the room before the add button; both are counted wherever
+  the strip reckons its width, and a tab leaves the strip with its gap and its separator, so it comes back as soon as
+  the room it took is there again. A separator stands by the tabs on either side of it whether they are in the strip
+  or not, and the separator before the add button keeps its room in the list mode whether it shows or not. A separator
+  the recipe makes 0 wide is not laid out. The default recipe has no gap: what an app sees does not change.
+- **Why.** What Orchester's kit needs: its strip is lurq's, with the design's gap, and a tab that left comes back when
+  the window grows.
+- **State.** Decided; in work on `claude/k5-a-tabs-small`.
+
+### The More button's menu may list every open tab
+
+- **Question.** Orchester's tab list (its old `chrome/tab_list`) is the list of all open tabs, not only the hidden
+  ones: a search field once there are more than eight, a close button on each row (and Ctrl/Cmd+W on the row the keys
+  are on), marks for the current tab and for the tabs not in the strip, Ctrl+Shift+A (Cmd+Shift+A) to open it, a
+  tooltip on its button with the count of hidden tabs, and its button pressed with an up-chevron while it is open.
+  `WindowTabs`' list mode lists only the hidden tabs in a plain menu. Should lurq's list do Orchester's?
+- **Decision (Ivan, 2026-11-20: "так давай роби в луркі").** Yes, as an option of the list mode:
+  `WindowTabs::menu(WindowTabsMenu::All)` makes the More button's menu a panel of every tab in the strip's order,
+  with all of the above; `WindowTabsMenu::Hidden`, the menu of the hidden tabs, stays the default.
+  `WindowTabs::list_shortcut(bool)` is the optional Ctrl+Shift+A (Cmd+Shift+A on macOS) that opens and closes it,
+  apart from the window's other shortcuts. Every word is in the locale; the More button says while it is open with
+  a state of the strip (`menu_open`) a recipe styles, and its chevron points up then.
+- **Why.** What Orchester's kit needs to drop its own list and keep its behaviour; a browser's tab search is the same
+  thing, none of it Orchester's alone.
+- **State.** Decided; in work on `claude/k5-a-tabs-small`.
+
+### A window tab as wide as what it shows, up to a cap
+
+- **Question.** Orchester measures each tab's label after a layout (`tab_measure`, `tab_fit`) to give a tab the
+  width of what it shows, capped. Can lurq size a tab to its content?
+- **Decision (Ivan, 2026-11-20: "так давай роби в луркі").** `WindowTab::fit_content(max)`: the tab is as wide as
+  its icon, label, marks and close slot, up to `max`, where its label ends in an ellipsis; in the scroll mode it
+  still gives way down to the recipe's least width, and in the list mode it keeps that width and leaves the strip
+  whole. The strip is as wide as such tabs are laid out, with no measuring of the app's.
+- **Why.** What Orchester's kit needs to drop `tab_measure` and `tab_fit`.
+- **State.** Decided; in work on `claude/k5-a-tabs-small`.
+
+### A tag's remove handler is given the event
+
+- **Question.** Orchester's chips sit in rows a press opens; the press on a chip's remove button must not reach the
+  row. `Tag::on_remove` is given nothing. Should it be given the event?
+- **Decision (Ivan, 2026-11-20: "так давай роби в луркі").** Additively: `Tag::on_remove_event(|event| ..)` is given a
+  `TagRemoveEvent`, the press or the key that took the tag away, which the handler stops (`stop_propagation`) so
+  nothing around the tag hears it. `on_remove(|| ..)` stays as it was.
+- **Why.** What Orchester's kit needs; breaking `on_remove` for it would break every app that has one.
+- **State.** Decided; in work on `claude/k5-a-tabs-small`.
+
+### A badge that cuts its word where it has less room
+
+- **Question.** Orchester's badges stand in rows that narrow, and cut their word with an ellipsis there. A
+  `ui::Badge` keeps its width. Should it give way?
+- **Decision (Ivan, 2026-11-20: "так давай роби в луркі").** `Badge::truncate(true)`: the badge gives way where it
+  has less room than its word, down to its dot and icon and its padding, and its word ends in an ellipsis; what
+  reads the tree is still told the whole word. Off unless told.
+- **Why.** What Orchester's kit needs.
+- **State.** Decided; in work on `claude/k5-a-tabs-small`.
+
+### A part's foreground wins over the color of its typography role
+
+- **Question.** lurq colored a part's text by the part's `foreground` only when the text's style had the default
+  color, so an app whose typography roles carry colors (Orchester's) saw a recipe's `foreground` ignored: a primary
+  button's label in the role's color and not on the accent. Orchester works around it with a twin of each role in no
+  color. Which wins?
+- **Decision (Ivan, 2026-11-20: "так давай роби в луркі").** A part style that sets a `foreground`, at rest or in any
+  of its states, colors its own text even where its typography role names a color: the role's color is dropped from
+  the text of that part, which takes the part's foreground. Where the part sets a foreground only in a state, the
+  role's color is the text's at rest. A role's color still applies where the part sets no foreground at all.
+- **Why.** A recipe says what a part looks like; its `foreground` is the more particular of the two, and the role's
+  color is a default for text that names nothing else.
+- **State.** Decided; in work on `claude/k5-a-tabs-small`.
+
 ### Window tabs that hold Orchester's title-bar tabs
 
 - **Question.** Orchester draws the tabs of its title bar itself: a Home tab of an icon alone, tabs capped at a width
