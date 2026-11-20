@@ -9,6 +9,53 @@ them says so. Decisions about phones and tablets are in [mobile-decisions.md](mo
 Each entry: **the question**, **the decision**, **why**, and its **state** (decided, in work on a branch, built,
 dropped). When a decision is replaced, the old entry stays and says what replaced it.
 
+## 2026-11-20
+
+### Any component of `lurq::ui` says what the app gives it to tooling, on its root
+
+- **Question.** Orchester's UI kit says the state of its elements to tooling that reads the tree (DevTools, an
+  agent through MCP, its tests) with `describe`: a callout its `tone`, a meter its `share`, a tag its `tag`. A
+  component of `lurq::ui` has no `describe`: what the kit moves onto `Callout`, `Badge` or `Progress` would lose what
+  the MCP tree reads of it. Should every component take a `describe`, and where?
+- **Decision (Ivan, 2026-11-20: "давай роби тоді ці всі пункти", plan K4 item 9 of Orchester).** Every builder of
+  `lurq::ui` takes `describe(name, value)` through `Styled`, the trait every builder already implements, as it takes
+  `style`: what is described is carried by the instance's `Recipe` (`Recipe::describe`) and said on the node of the
+  component's root part when its renderer gives that node the part's style, so no component writes it by itself and
+  a renderer of a theme's says it too. What the app says comes before what the component says of itself, and
+  tooling that reads one value of a name reads the app's.
+- **Why.** The kit's elements keep the state their tests and an agent read when they become `lurq::ui` components,
+  without a method on each of nearly two hundred builders.
+- **State.** In work on `claude/k4-b-describe-avatar-spinner`.
+
+### An avatar takes the letters it shows from the app
+
+- **Question.** `Avatar::new(name)` shows the initials it takes from the name (the first letter of its first word
+  and of its last). Orchester shows the first letters of the first two words (`Ada Lovelace` → `AL`, and a name of
+  three words differs), and a project's single letter. Giving lurq the letters as the name made what tooling calls
+  the avatar "A L". Can the app give the letters, and keep the name?
+- **Decision (Ivan, 2026-11-20: "давай роби тоді ці всі пункти", plan K4 item 10 of Orchester).**
+  `Avatar::initials(letters)` puts the app's letters on the face in place of those taken from the name; the name
+  stays what tooling calls the avatar. Empty letters show the icon of a person, as a name with no letters does.
+- **Why.** How a name becomes letters is the app's (its languages, its design); who the avatar is, is the name.
+- **State.** In work on `claude/k4-b-describe-avatar-spinner`.
+
+### A spinner may turn in steps, and stand still where motion is reduced
+
+- **Question.** A spinning icon and `Spinner` (its ring, its dots, its bars) move smoothly: the window draws every
+  frame while one is shown, and they move under reduced motion too (lurq's choice: a spinner that stood still would
+  say nothing). Orchester's loader turns in 24 poses a second, so the window draws 24 frames a second and none
+  between, and its typing dots stand still where the system asks for reduced motion. Can lurq's do both?
+- **Decision (Ivan, 2026-11-20: "давай роби тоді ці всі пункти", plan K4 item 12 of Orchester).** A `SpinMotion`
+  says how they move: `SpinMotion::SMOOTH` (the default, as before), or `SpinMotion::stepped(per_second)`, a pose held
+  until the next and none drawn between, the dots' and the bars' offsets put on the same steps so that every one of
+  them changes at the same moment; and `.still_when_reduced(true)`, which leaves them in their pose at rest where
+  motion is reduced. An `Icon` takes it with `spin_motion`, a `Spinner` with `motion`, and a theme gives the one every
+  spinner without its own takes (`Theme::set_spin_motion`), the ring of a loading button too. A spinner still moves
+  under reduced motion unless it is told otherwise.
+- **Why.** A window with a loader shown draws as few frames as its poses need, and an app whose design holds its
+  loaders still for reduced motion can say so once, for lurq's spinners and its own.
+- **State.** In work on `claude/k4-b-describe-avatar-spinner`.
+
 ## 2026-11-19
 
 ### A component's id is the prefix of the ids of its parts
