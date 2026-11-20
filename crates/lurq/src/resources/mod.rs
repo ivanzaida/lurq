@@ -48,7 +48,9 @@ pub use link_fetcher::{
   reset_link_fetcher, set_link_fetcher, wait_link_fetches,
 };
 pub use link_meta::LinkMeta;
-pub use loader::{DEFAULT_LOAD_TIMEOUT, DEFAULT_MAX_LOAD_BYTES, Load, LoadError, LoadState, LoadWaker, Loader};
+pub use loader::{
+  DEFAULT_LOAD_TIMEOUT, DEFAULT_MAX_LOAD_BYTES, Load, LoadError, LoadPriority, LoadState, LoadWaker, Loader,
+};
 pub use reader::{BytesReader, FileReader, Reader, read_all};
 #[cfg(feature = "http")]
 pub use resource_loader::ResourceLoader;
