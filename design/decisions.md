@@ -39,7 +39,7 @@ dropped). When a decision is replaced, the old entry stays and says what replace
 - **Why.** The kit's menus keep their rows, which are its design, and get lurq's menu: the roving focus, the typing,
   Escape, a press outside, Tab, the focus given back, flipping and clamping, `within`. A popover by the status bar no
   longer reckons its offset from where two elements were last laid out.
-- **State.** In work on `claude/k5-d-overlays` (2026-11-20).
+- **State.** Built on `claude/k5-d-overlays` (2026-11-20).
 
 ### A hover card the pointer passes through
 
@@ -53,7 +53,7 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   default.
 - **Why.** A card of words over a bar the pointer moves along must not hide the next item from the pointer, nor
   linger over it.
-- **State.** In work on `claude/k5-d-overlays` (2026-11-20).
+- **State.** Built on `claude/k5-d-overlays` (2026-11-20).
 
 ### Tooltips placed by a frame, held by the app, and worded for a cut text
 
@@ -73,7 +73,7 @@ dropped). When a decision is replaced, the old entry stays and says what replace
      nothing; while the text is cut it says its own text, as before.
 - **Why.** Each is how the kit's tooltips behave today, and none is Orchester's alone: a tooltip over a field's box, a
   toolbar that shows its tooltips itself, a tab's title.
-- **State.** In work on `claude/k5-d-overlays` (2026-11-20).
+- **State.** Built on `claude/k5-d-overlays` (2026-11-20).
 
 ### Window tabs that hold Orchester's title-bar tabs
 
