@@ -26,6 +26,8 @@ use crate::support::{pointer_click, render_pass, run_pass};
 const SHEET: Color = Color::new(18, 52, 86, 255);
 /// The page's, behind the sheet.
 const PAGE: Color = Color::new(86, 52, 18, 255);
+/// The bar's at the bottom of a sheet whose content fills it.
+const BAR: Color = Color::new(200, 30, 120, 255);
 
 #[derive(Clone)]
 struct Setup {
@@ -33,6 +35,8 @@ struct Setup {
   detent: Signal<usize>,
   detents: Vec<SheetDetent>,
   dismissable: bool,
+  /// Whether the content fills the sheet, with a bar at its bottom, or is as high as it is.
+  filled: bool,
   /// How many times a person put the sheet away.
   dismissed: Arc<AtomicUsize>,
 }
@@ -59,6 +63,18 @@ impl Component for Page {
   fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
     let setup = ctx.props::<Setup>().clone();
     let dismissed = setup.dismissed.clone();
+    let content = if setup.filled {
+      // A header, what takes the room between, and a bar at the bottom: as a list with its field under it.
+      Column::new()
+        .size(Dimension::Pct(100.0), Dimension::Pct(100.0))
+        .child(Text::new("in the sheet"))
+        .child(Spacer::new().flex(1.0))
+        .child(Column::new().width(Dimension::Pct(100.0)).height(40.0).background(BAR))
+    } else {
+      Column::new()
+        .child(Text::new("in the sheet"))
+        .child(Spacer::new().width(100.0).height(180.0))
+    };
     let sheet = Sheet::mount(
       ctx,
       SheetProps::new(setup.open)
@@ -69,9 +85,7 @@ impl Component for Page {
           dismissed.fetch_add(1, Ordering::SeqCst);
         })
         .style(SheetStyle::new().background(SHEET)),
-      Column::new()
-        .child(Text::new("in the sheet"))
-        .child(Spacer::new().width(100.0).height(180.0)),
+      content,
     );
     Column::new()
       .size(Dimension::Pct(100.0), Dimension::Pct(100.0))
@@ -107,6 +121,15 @@ struct Stage {
 
 impl Stage {
   fn new(detents: &[SheetDetent], dismissable: bool) -> Self {
+    Self::with(detents, dismissable, false)
+  }
+
+  /// A sheet whose content fills it, with a bar at its bottom.
+  fn filled(detents: &[SheetDetent]) -> Self {
+    Self::with(detents, true, true)
+  }
+
+  fn with(detents: &[SheetDetent], dismissable: bool, filled: bool) -> Self {
     let (open, detent, dismissed) = (Signal::new(false), Signal::new(0), Arc::new(AtomicUsize::new(0)));
     let mut app = App::new();
     let mut tree = Tree::new();
@@ -118,6 +141,7 @@ impl Stage {
         detent: detent.clone(),
         detents: detents.to_vec(),
         dismissable,
+        filled,
         dismissed: dismissed.clone(),
       },
     );
@@ -174,6 +198,16 @@ impl Stage {
 
   fn top(&mut self) -> f32 {
     self.drawn().expect("the sheet")
+  }
+
+  /// Where the bottom of the bar at the content's bottom is drawn.
+  fn bar_bottom(&mut self) -> f32 {
+    render_pass(&mut self.tree)
+      .rects
+      .iter()
+      .find(|rect| rect.color == BAR)
+      .map(|rect| rect.y + rect.height)
+      .expect("the bar")
   }
 
   /// A finger down on the sheet that goes `by` down, rests and lifts: it throws the sheet nowhere.
@@ -421,6 +455,7 @@ fn inside_a_sheet_that_makes_its_content_there_is_nothing_of_the_window_to_keep_
       detent: Signal::new(0),
       detents: vec![SheetDetent::Medium],
       dismissable: true,
+      filled: false,
       dismissed: Arc::new(AtomicUsize::new(0)),
     },
   );
@@ -472,4 +507,113 @@ fn a_person_putting_the_sheet_away_is_told_and_the_app_closing_it_is_not() {
   stage.open.set(false);
   stage.settle();
   assert_eq!(told(&stage), 3);
+}
+
+#[test]
+fn what_stands_at_the_bottom_of_a_sheet_stays_at_the_windows_bottom_while_the_sheet_moves() {
+  // Seven tenths of the room a sheet has in a window of 800, which is all but the margin of 10 at its top; and
+  // all of that room.
+  let mut stage = Stage::filled(&[SheetDetent::Fraction(0.7), SheetDetent::Large]);
+  stage.open.set(true);
+  stage.settle();
+  assert!((stage.top() - 247.0).abs() < 1.0, "{}", stage.top());
+  assert!(
+    (stage.bar_bottom() - 800.0).abs() < 1.0,
+    "at rest: {}",
+    stage.bar_bottom()
+  );
+
+  // A finger takes the sheet up, most of the way to its full height, and holds it there.
+  // The clock of what is animated goes on from where the stage last left it, a little at a time.
+  let base = Instant::now() + Duration::from_secs(stage.ahead + 1);
+  stage.tree.set_animation_clock(Some(base));
+  stage.tree.touch_event(1, TouchPhase::Start, 200.0, 260.0, None);
+  for step in 1..=10 {
+    stage
+      .tree
+      .touch_event(1, TouchPhase::Move, 200.0, 260.0 - 18.0 * step as f32, None);
+    run_pass(&mut stage.tree);
+  }
+  run_pass(&mut stage.tree);
+  let top = stage.top();
+  assert!(top > 70.0 && top < 100.0, "up with the finger: {top}");
+  assert!(
+    (stage.bar_bottom() - 800.0).abs() < 1.0,
+    "the content is as high as what of the sheet is in the window: the bar is drawn down to {}",
+    stage.bar_bottom()
+  );
+
+  // Let go there, at rest: nearer its full height, it goes on up. All the way the bar is at the window's bottom.
+  std::thread::sleep(Duration::from_millis(250));
+  stage.tree.touch_event(1, TouchPhase::Move, 200.0, 80.0, None);
+  stage.tree.touch_event(1, TouchPhase::End, 200.0, 80.0, None);
+  run_pass(&mut stage.tree);
+  assert_eq!(stage.detent.get_untracked(), 1);
+  let mut tops = Vec::new();
+  for step in 1..=12 {
+    stage
+      .tree
+      .set_animation_clock(Some(base + Duration::from_millis(30 * step)));
+    run_pass(&mut stage.tree);
+    let (top, bottom) = (stage.top(), stage.bar_bottom());
+    assert!(
+      (bottom - 800.0).abs() < 1.5,
+      "{} ms into the move the sheet's top is at {top} and the bar is drawn down to {bottom}",
+      30 * step
+    );
+    tops.push(top);
+  }
+  assert!(
+    tops.first().copied().unwrap_or(0.0) > 20.0,
+    "it is on its way, and not there yet: {tops:?}"
+  );
+  stage.settle();
+  assert!((stage.top() - 10.0).abs() < 1.0, "all the room: {}", stage.top());
+  assert!((stage.bar_bottom() - 800.0).abs() < 1.0);
+
+  // Sent to the lower height by its signal: the bar is at the window's bottom on the way down too.
+  let base = Instant::now() + Duration::from_secs(stage.ahead + 1);
+  stage.tree.set_animation_clock(Some(base));
+  run_pass(&mut stage.tree);
+  stage.detent.set(0);
+  run_pass(&mut stage.tree);
+  for step in 1..=12 {
+    stage
+      .tree
+      .set_animation_clock(Some(base + Duration::from_millis(30 * step)));
+    run_pass(&mut stage.tree);
+    let (top, bottom) = (stage.top(), stage.bar_bottom());
+    assert!(
+      (bottom - 800.0).abs() < 1.5,
+      "{} ms into the way down the sheet's top is at {top} and the bar is drawn down to {bottom}",
+      30 * step
+    );
+  }
+  stage.settle();
+  assert!((stage.top() - 247.0).abs() < 1.0);
+
+  // Pulled up from there past its highest place, the sheet gives way a little and its content is no higher:
+  // the bar goes up with it.
+  stage.tree.touch_event(1, TouchPhase::Start, 200.0, 700.0, None);
+  for step in 1..=10 {
+    stage
+      .tree
+      .touch_event(1, TouchPhase::Move, 200.0, 700.0 - 40.0 * step as f32, None);
+    run_pass(&mut stage.tree);
+  }
+  run_pass(&mut stage.tree);
+  let (top, bottom) = (stage.top(), stage.bar_bottom());
+  assert!(top < 10.0, "past its highest place: {top}");
+  assert!(
+    (bottom - (top + 790.0)).abs() < 1.0,
+    "as high as at its highest: {top} to {bottom}"
+  );
+  stage.tree.touch_event(1, TouchPhase::End, 200.0, 300.0, None);
+  stage.settle();
+  assert!(
+    (stage.top() - 10.0).abs() < 1.0,
+    "it comes to its highest place: {}",
+    stage.top()
+  );
+  assert!((stage.bar_bottom() - 800.0).abs() < 1.0);
 }

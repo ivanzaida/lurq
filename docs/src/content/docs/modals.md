@@ -110,6 +110,12 @@ let sheet = Sheet::mount(
   `Large` (the whole window under the status bar), `Fraction(share)` and `Height(pixels)`. It comes up at the
   first, a finger moves it between them, and it goes to the nearest to where the finger threw it.
   `SheetProps::detent(signal)` says which it is at, by its place in the list, and sends it to another.
+- **Its content is as high as what of the sheet is in the window**, at a detent and between two: a content that
+  fills the sheet (`Column::new().size(FILL, FILL)` with a list that takes the room and a bar under it) has its
+  bar at the window's bottom while a finger moves the sheet and on the way to the height it goes to. Pulled past
+  its highest place the content is no higher, and the bar goes up with the sheet for as long as it is held;
+  under its lowest the sheet is on its way out, and the content goes with it. A sheet as high as its content
+  (`Content`) is as high as that.
 - **Content that scrolls** is named with `SheetProps::scroll(state)`, the `ScrollState` of its list: a finger
   going up moves the sheet to its highest before the list scrolls, and one going down takes the sheet only when
   the list is at its top.

@@ -739,7 +739,18 @@ impl Component for Sheet {
     content = if fits_content {
       content.max_height(large.max(0.0))
     } else {
-      content.height(height)
+      // Between two of its heights the content is as high as what of the sheet is in the window, so that what
+      // stands at its bottom stays at the window's bottom: under a finger at once, and on the way to a height
+      // as the sheet's top goes there, by the same curve. Never higher than its highest place, past which a
+      // finger only pulls the sheet a little, nor lower than its lowest, under which it is on its way out.
+      let shown = if dragged && !away {
+        (room - top).clamp(lowest, highest)
+      } else {
+        height
+      };
+      content
+        .height(shown)
+        .transition(Transition::height().duration(pace).easing(curve))
     };
     if let Some(build) = &props.content {
       content = content.child(build(ctx));
