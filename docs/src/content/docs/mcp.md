@@ -174,6 +174,8 @@ Masked text inputs expose the displayed mask and `masked=true` in tree reads, lo
 
 The MCP surface speaks exactly one coordinate space: **pixels of the last screenshot** (physical pixels). `read_tree` bounds, `interact` coordinates, `screenshot` regions, and `resize` dimensions all use it; the server converts internally, so an agent can click what it sees without thinking about scale factors.
 
+An element's bounds are where it is drawn: its box in the layout with its own transform and those of what it is in, as hit testing has it (a box that is turned is the upright box around it). A page of a strip that an app moves with `Transform2D::translate` is found, pressed and captured where it shows. Until 0.64 the bounds were the layout's, before any transform: a `lurq_screenshot` of such an element by `ref` said it had no visible area, and a press on its `ref` landed where it was not.
+
 For a task such as “click Save”, use the semantic tools first:
 
 ```text

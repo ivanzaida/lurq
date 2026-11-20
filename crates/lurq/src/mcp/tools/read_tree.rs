@@ -38,12 +38,18 @@ pub(super) fn snapshot_node(
   node: &Node,
   layout: Option<&LayoutResult>,
   abs: (f32, f32),
+  inherited: crate::node::transform::Transform2D,
   depth: usize,
 ) -> Vec<String> {
   // What says it is nothing to tooling is left out with all it holds, but where everything is asked for.
   if !ctx.all && hidden_from_tooling(node) {
     return Vec::new();
   }
+  // Where it is drawn: its box in the layout, with its transform and those of what it is in.
+  let drawn = match layout {
+    Some(layout) => super::resolve::drawn_transform(node, layout, abs, inherited),
+    None => inherited,
+  };
   let mut child_lines = canvas_items::snapshot_item_lines(ctx, node, depth);
   if ctx.max_depth == 0 || depth < ctx.max_depth {
     let children = node.children();
@@ -58,6 +64,7 @@ pub(super) fn snapshot_node(
         child,
         child_layout.map(|child_layout| child_layout.result.as_ref()),
         child_abs,
+        drawn,
         depth + 1,
       ));
     }
@@ -76,11 +83,13 @@ pub(super) fn snapshot_node(
   }
 
   let bounds = layout.map(|layout| {
+    let [x, y, width, height] =
+      super::resolve::transformed_box(drawn, [abs.0, abs.1, layout.size.width, layout.size.height]);
     [
-      (abs.0 * ctx.scale).round(),
-      (abs.1 * ctx.scale).round(),
-      (layout.size.width * ctx.scale).round(),
-      (layout.size.height * ctx.scale).round(),
+      (x * ctx.scale).round(),
+      (y * ctx.scale).round(),
+      (width * ctx.scale).round(),
+      (height * ctx.scale).round(),
     ]
   });
 
@@ -182,7 +191,14 @@ pub(super) fn read_tree_tool(tree: &mut Tree, state: &McpState, args: &serde_jso
       records: &mut records,
       mint: &mut mint,
     };
-    snapshot_node(&mut ctx, root.node, target.last_layout(), (0.0, 0.0), 0)
+    snapshot_node(
+      &mut ctx,
+      root.node,
+      target.last_layout(),
+      (0.0, 0.0),
+      crate::node::transform::Transform2D::IDENTITY,
+      0,
+    )
   };
   state.shared.refs.lock().unwrap().replace_window(&window, records);
 

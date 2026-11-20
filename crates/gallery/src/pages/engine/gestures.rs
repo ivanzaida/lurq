@@ -352,6 +352,7 @@ impl Component for HeldLine {
       line = line.child(
         Row::new().width(FILL).height(12.0).child(
           Row::new()
+            .id("held-line-thumb")
             .size(12.0, 12.0)
             .rounded(RadiusSize::Full)
             .background(PaletteColor::Primary)
