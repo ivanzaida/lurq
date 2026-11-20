@@ -558,6 +558,8 @@ ctx.children();
 
 `children()` returns an empty slice when no slot children were provided. Clone elements from this slice when forwarding them into a container, for example `Column::new().with_children(ctx.children().iter().cloned())`.
 
+The children are the output of the components the parent mounted for this one. A child that renders again by itself (its own signal changed) is on the screen at once, and a holder that renders again by itself after that, with no render of the parent between, has its children as they are then: `children()` is never a child as it was at the parent's last render.
+
 ## Element Refs
 
 ```rust

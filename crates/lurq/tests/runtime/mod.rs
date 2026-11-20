@@ -77,6 +77,7 @@ mod scroll_rest;
 mod scroll_state;
 mod scrollbar_hits;
 mod scrollbar_on_hover;
+mod slot_children_fresh;
 mod smooth_wheel_scroll;
 mod stack_depth;
 mod system_appearance;
