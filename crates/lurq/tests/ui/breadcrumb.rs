@@ -1047,7 +1047,14 @@ fn the_separators_are_named_by_the_part_ids_rule_from_the_second() {
       .into()
   });
   let ids = stage.ids();
-  for id in ["trail-separator", "trail-separator-2", "trail-separator-3"] {
+  for id in [
+    "trail-separator",
+    "trail-separator-2",
+    "trail-separator-3",
+    "trail-link-Home",
+    "trail-link-lurq",
+    "trail-page-Run 12",
+  ] {
     assert!(ids.iter().any(|held| held == id), "{id} in {ids:?}");
   }
   assert!(!ids.iter().any(|held| held == "trail-separator-1"), "no -separator-1: {ids:?}");

@@ -426,9 +426,10 @@ impl Component for BadgePage {
           Badge::new("Waiting for a review")
             .variant(BadgeVariant::Warning)
             .dot(true)
-            .truncate(true),
+            .truncate(true)
+            .tooltip_when_cut(true),
         ),
-        "truncate · 96",
+        "truncate · 96, whole in a tooltip",
       ))
       .child(item(
         Row::new().width(96.0).child(Badge::new("Merged").variant(BadgeVariant::Success).truncate(true)),
@@ -490,6 +491,18 @@ impl Component for BadgePage {
         "bool",
         "false",
         "Gives way where it has less room, its word cut with an ellipsis; still called by the whole word.",
+      ),
+      (
+        "tooltip_when_cut",
+        "bool",
+        "false",
+        "The whole word in a tooltip that shows only while it is cut.",
+      ),
+      (
+        "word_ref",
+        "ElementRef",
+        "",
+        "Refers to the word's text: text_cut() says whether it is cut, for a tooltip of the app's own.",
       ),
       (
         "on",
@@ -634,7 +647,8 @@ impl Component for BadgePage {
         Section::new(
           "Where it has less room",
           "A badge keeps its width unless told to truncate: then it gives way down to its dot, its icon and its \
-           padding, and its word ends in an ellipsis. Tooling is still told the whole word.",
+           padding, and its word ends in an ellipsis. Tooling is still told the whole word, and with \
+           tooltip_when_cut(true) the pointer on it shows the word whole while it is cut.",
           self.frame.demo(
             6,
             narrow,
@@ -644,7 +658,8 @@ impl Component for BadgePage {
               "  Badge::new(\"Waiting for a review\")",
               "    .variant(BadgeVariant::Warning)",
               "    .dot(true)",
-              "    .truncate(true),",
+              "    .truncate(true)",
+              "    .tooltip_when_cut(true),",
               ")",
             ],
           ),

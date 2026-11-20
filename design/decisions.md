@@ -26,7 +26,7 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   on the box or the mark, its check `x-indicator`, its dot `x-dot`; its element ref, where it has one, on the box.
 - **Why.** What Orchester's kit needs to drop its own toggle; a mark of the same recipe keeps one look for the
   checkbox and the row that only shows one, which a new component would have had to copy.
-- **State.** In work on `claude/k6-c-controls`.
+- **State.** Built on `claude/k6-c-controls` (2026-11-20): `Checkbox::element_ref`, `Switch::element_ref`, `Checkbox::mark_only`, `Radio::mark_only`, `CheckboxView::mark_alone()`, `RadioView::mark_alone()`; the gallery's "Its mark alone" on the Checkbox and Radio pages.
 
 ### The page a breadcrumb is on says its whole name while it is cut, and the ids of its separators
 
@@ -41,7 +41,7 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   written in the breadcrumb's page.
 - **Why.** What Orchester's kit needs; one rule for the ids of repeated parts is what lets a test or an agent guess
   them, and a breadcrumb that numbered from 1 would be the only one.
-- **State.** In work on `claude/k6-c-controls`.
+- **State.** Built on `claude/k6-c-controls` (2026-11-20): the page's tooltip in `BreadcrumbView::step`, the refs kept by a mounted breadcrumb for every step; the ids written in `Breadcrumb::id` and the breadcrumb's page, held by a test.
 
 ### A list item whose title and description are still read, and the ids of a row that says something under it
 
@@ -60,7 +60,7 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   be two names for it.
 - **Why.** What Orchester's kit needs to move its settings rows onto `ui::ListItem`; a row of a list that loads its
   words is common.
-- **State.** In work on `claude/k6-c-controls`.
+- **State.** Built on `claude/k6-c-controls` (2026-11-20): `ListItem::title_pending`, `description_pending`, `ListItemView::bone`; parts `title_skeleton`, `description_skeleton` and `item`. A description still read draws the row as one of two lines.
 
 ### A badge's and a status label's word say themselves whole while they are cut
 
@@ -71,7 +71,7 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   `word_ref(ElementRef)` refers to the word's text, so that an app can put a tooltip of its own on it
   (`Tooltip::when_cut(&word)`, with a hint), or read whether it is cut. Off unless told.
 - **Why.** What Orchester's kit needs; the built-in one is what most apps want, and the ref what the rest need.
-- **State.** In work on `claude/k6-c-controls`.
+- **State.** Built on `claude/k6-c-controls` (2026-11-20): `Badge::tooltip_when_cut`, `Badge::word_ref`, `StatusLabel::tooltip_when_cut`, `StatusLabel::word_ref`. A badge on an element (`on`) has no such tooltip.
 
 ### How far a skeleton's pulse dims
 
@@ -82,7 +82,7 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   between 0 and 1; a theme gives it with the rest of the motion (`Theme::set_skeleton_motion`), a skeleton its own
   with `Skeleton::motion`. Skeletons that dim alike still pulse in one phase.
 - **Why.** What Orchester's kit needs; how far a placeholder dims is part of its motion, which a theme already says.
-- **State.** In work on `claude/k6-c-controls`.
+- **State.** Built on `claude/k6-c-controls` (2026-11-20): `SkeletonMotion::dim_to`, `dimmed`; a pulse's keyframes for each hundredth, lurq's ids `0xFF9B` to `0xFFFF` (`SKELETON_PULSE` stays the one of half).
 
 ### Window tabs that keep a gap between them, and fit by it
 
