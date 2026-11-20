@@ -1057,12 +1057,16 @@ impl VideoPlayerPage {
     // and a drag of the line sends the video there.
     let layer = move |playback: &VideoPlayback| {
       let to = playback.clone();
-      let line = SeekBar::controlled(playback.position, playback.duration.unwrap_or(0.0), move |at| {
+      let mut line = SeekBar::controlled(playback.position, playback.duration.unwrap_or(0.0), move |at| {
         to.seek(at)
       })
       .on_media(true)
       .size(SeekBarSize::Md)
       .id("feed-seek");
+      // How far the video is fetched, where the player knows: all of a file, the ranges that came of an address.
+      if let Some(loaded) = playback.buffered {
+        line = line.buffered(loaded);
+      }
       let time = Row::new().width(FILL).padding_horizontal(12.0).child(
         MediaTime::new(playback.position, playback.duration)
           .on_media(true)
@@ -1505,7 +1509,12 @@ impl Component for VideoPlayerPage {
         "",
         "How long it is. Until said, the time reads -:-- / -:--.",
       ),
-      ("buffered", "f64", "", "How far it is loaded, drawn in the seek bar."),
+      (
+        "buffered",
+        "f64",
+        "",
+        "How far it is loaded, drawn in the seek bar. With a source the player knows it unless told: all of a file, of an address what its ranges fetched from where it plays, and nothing where it is not known.",
+      ),
       (
         "preview",
         "Fn(f64) -> Element",
@@ -1873,7 +1882,7 @@ impl Component for VideoPlayerPage {
             "With no controls of its own, the player holds the app's over its picture: here made of the system's \
            parts, the overlay play button, round buttons on dark discs, a seek line and a time. The layer is \
            built from what the player is doing (child_with), so the line and the time are the video's own with a \
-           source too, and a drag of the line sends the video there. Its poster stays until the first frame is \
+           source too, and a drag of the line sends the video there. The line shows how far it is fetched (playback.buffered): all of this file. Its poster stays until the first frame is \
            there, and it goes on from its start at its end.",
             self.frame.demo(
               3,
@@ -1897,6 +1906,7 @@ impl Component for VideoPlayerPage {
                 "                SeekBar::controlled(playback.position, playback.duration.unwrap_or(0.0), move |at| {",
                 "                    to.seek(at)",
                 "                })",
+                "                .buffered(playback.buffered.unwrap_or(0.0))   // how far it is fetched",
                 "                .on_media(true),",
                 "            )",
                 "    })",

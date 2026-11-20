@@ -2166,9 +2166,10 @@ fn playing(mut player: AudioPlayer, played: &Played, ctx: &mut Ctx) -> AudioPlay
   player.muted.value = state.muted;
   if let Some(duration) = state.duration {
     player.duration = duration;
-    // All of a sound is there to play once it opened: its bar is loaded to its end, unless the app says how far.
-    player.buffered = player.buffered.or(Some(duration));
   }
+  // How far the sound says it is fetched, unless the app says how far: all of one loaded whole or kept, the
+  // ranges held of one read as it plays, and nothing drawn as loaded where it is not known.
+  player.buffered = player.buffered.or(state.buffered);
   player.loading = player.loading || state.waiting;
   player.said_opening = state.duration.is_none() && state.error.is_none();
   player.said_ended = state.ended;

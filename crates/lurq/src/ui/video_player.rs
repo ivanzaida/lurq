@@ -2011,9 +2011,10 @@ fn playing(mut player: VideoPlayer, live: &Live, ctx: &mut Ctx) -> VideoPlayer {
   player.muted.value = state.muted;
   if state.duration.is_some() {
     player.duration = state.duration;
-    // All of a file is there to play: its bar is loaded to its end, unless the app says how far.
-    player.buffered = player.buffered.or(state.duration);
   }
+  // How far the media says it is fetched, unless the app says how far: all of a file, the ranges held of an
+  // address, and nothing drawn as loaded where it is not known.
+  player.buffered = player.buffered.or(state.buffered);
   player.waiting = player.waiting || state.waiting;
   player.ended = player.ended || state.ended;
   if let (None, Some(why)) = (&player.error, &state.error) {

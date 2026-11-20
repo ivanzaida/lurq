@@ -133,6 +133,12 @@ fn a_looped_clip_goes_on_from_its_start_at_its_end_and_does_not_stop() {
 
 #[cfg(all(windows, feature = "http"))]
 #[test]
+fn a_media_says_how_far_it_is_fetched_and_not_its_whole_length() {
+  video::a_media_says_how_far_it_is_fetched_and_not_its_whole_length();
+}
+
+#[cfg(all(windows, feature = "http"))]
+#[test]
 fn a_looped_clip_at_an_address_asks_the_server_for_nothing_again() {
   video::a_looped_clip_at_an_address_asks_the_server_for_nothing_again();
 }

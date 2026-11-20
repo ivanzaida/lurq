@@ -500,3 +500,44 @@ pub fn a_looped_clip_at_an_address_asks_the_server_for_nothing_again() {
     "a second time around reads what is held"
   );
 }
+
+/// On Windows, where the app's loader reads what a media plays.
+pub fn a_media_says_how_far_it_is_fetched_and_not_its_whole_length() {
+  // All of a file is there.
+  let file = quiet(&Source::file(clip()));
+  let state = until(&file, "opened", |state| !state.waiting);
+  assert_eq!(state.buffered, state.duration, "a file is all there");
+
+  // An address is fetched as far as its ranges came: in small blocks from a host that takes its time, its start.
+  let pages = serve_to_its_pages(std::fs::read(clip()).expect("the clip"));
+  pages.slow.store(30, Ordering::SeqCst);
+  let loader = Loader::new();
+  loader.read_block(16 * 1024);
+  let media = quiet_with(&loader, &Source::url(&pages.address).header("Referer", PAGES));
+  assert_eq!(media.state().buffered, None, "not known before it opened");
+  let state = until(&media, "opened", |state| !state.waiting && state.error.is_none());
+  let at_first = state.buffered.expect("known of what the loader reads");
+  assert!(
+    at_first < 10.0,
+    "opened and standing, its start is fetched and not all 15 s: {at_first}"
+  );
+
+  // Sent to a part that is not fetched, it is fetched no further back than there.
+  media.seek(10.0);
+  until(&media, "at 10", |state| state.position == 10.0 && !state.waiting);
+  let sent = media.state().buffered.expect("known");
+  assert!((10.0..=15.0).contains(&sent), "{sent}");
+
+  // Played from its start, it is fetched further as ranges come.
+  media.seek(0.0);
+  media.play();
+  until(&media, "playing", |state| state.playing && state.position > 1.0);
+  let playing = media.state();
+  let now = playing.buffered.expect("known");
+  assert!(
+    now >= playing.position - 0.5,
+    "at least to where it plays: {now} at {}",
+    playing.position
+  );
+  assert!(now > at_first, "further than when it opened: {at_first} then {now}");
+}

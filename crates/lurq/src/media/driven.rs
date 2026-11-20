@@ -102,6 +102,13 @@ impl MediaDriver {
     self.0.presented();
   }
 
+  /// It is fetched this far from where it is, in seconds ([`MediaState::buffered`](super::MediaState::buffered)),
+  /// or it is not known how far.
+  pub fn fetch(&self, to: Option<f64>) {
+    self.0.inner().fetched = to;
+    self.0.wake();
+  }
+
   /// It played to its end: it ended, or where it is looped and plays, it goes on from its start.
   pub fn end(&self) {
     {
