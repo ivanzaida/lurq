@@ -1394,7 +1394,7 @@ impl TabsView {
       .flex_shrink(0.0)
       .align_items(Alignment::Center)
       .overflow_visible()
-      .spacing(gap.clone());
+      .spacing(gap);
     for (at, index) in end.iter().enumerate() {
       if at > 0 && self.tabs[*index].separated {
         group = group.child(self.separator());

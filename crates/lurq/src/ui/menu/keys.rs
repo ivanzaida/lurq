@@ -18,7 +18,7 @@ use crate::{
 type Action = Arc<dyn Fn() + Send + Sync>;
 
 /// What an item asked for aside does with the press that asked.
-type Aside = Arc<dyn Fn(&MouseEvent) + Send + Sync>;
+pub(crate) type Aside = Arc<dyn Fn(&MouseEvent) + Send + Sync>;
 
 /// What the keys can do with one item of the menu: choose it, and ask for it aside.
 #[derive(Clone, Default)]

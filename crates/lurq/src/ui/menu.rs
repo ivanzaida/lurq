@@ -5,7 +5,7 @@ mod keys;
 use std::sync::Arc;
 
 pub use keys::MenuKeys;
-use keys::ItemKeys;
+use keys::{Aside, ItemKeys};
 
 use super::{
   icons, names,
@@ -1553,7 +1553,7 @@ impl MenuItemView {
 
   /// What asking for the item aside does: its menu closes, and the menus it is in, then its `on_open_aside` handlers
   /// are called with the press. None for an item that has none, is disabled, or opens a submenu or a page.
-  fn aside(&self) -> Option<Arc<dyn Fn(&MouseEvent) + Send + Sync>> {
+  fn aside(&self) -> Option<Aside> {
     if self.disabled || self.aside.is_empty() || self.submenu.is_some() || self.stays.is_some() {
       return None;
     }

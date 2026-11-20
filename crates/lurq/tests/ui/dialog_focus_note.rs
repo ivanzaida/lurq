@@ -69,7 +69,7 @@ fn delete_dialog(
         Dialog::new(held.clone())
           .title("Delete run?")
           .initial_focus(focus)
-          .on_confirm(move || confirm())
+          .on_confirm(confirm)
           .footer(Button::new("Cancel").id("cancel").on_click(move |_| cancel()))
           .footer(
             Button::new("Delete")
