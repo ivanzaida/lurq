@@ -866,3 +866,37 @@ fn a_path_is_a_navigation_called_path_to_tooling() {
   assert_eq!(said(&mut stage, "a11y_role").as_deref(), Some("navigation"));
   assert_eq!(said(&mut stage, "a11y_name").as_deref(), Some("Path"));
 }
+
+#[test]
+fn a_step_in_a_state_of_its_own_is_styled_by_it_and_the_others_are_not() {
+  let app = App::new();
+  app.theme().patch_recipe::<Breadcrumb>(|rules| {
+    rules
+      .when(lurq::ui::Selector::new().state("ancestor"), BreadcrumbPart::Page, |s| {
+        s.foreground(PaletteColor::MutedForeground)
+      })
+      .when(lurq::ui::Selector::new().state("mono"), BreadcrumbPart::Link, |s| {
+        s.foreground(PaletteColor::Primary)
+      })
+  });
+  let mut stage = Stage::in_app(app, |_| {
+    page(
+      Breadcrumb::default()
+        .id("way")
+        .step(BreadcrumbStep::new("Projects").value("/projects").id("projects"))
+        .step(BreadcrumbStep::new("KON-12").value("/kon-12").state("mono", true).id("key"))
+        .step(BreadcrumbStep::new("src").state("ancestor", true).id("folder")),
+    )
+  });
+  assert_eq!(stage.text("Projects").0, light(PaletteColor::MutedForeground), "a link in no state");
+  assert_eq!(stage.text("KON-12").0, light(PaletteColor::Primary), "a link in its own state");
+  assert_eq!(
+    stage.text("src").0,
+    light(PaletteColor::MutedForeground),
+    "the page drawn as the steps before it"
+  );
+  assert_eq!(
+    BreadcrumbStep::new("x").state("mono", true).state("mono", false).states(),
+    &[] as &[lurq::ui::Name]
+  );
+}
