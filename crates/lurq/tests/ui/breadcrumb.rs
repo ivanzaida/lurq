@@ -990,3 +990,65 @@ fn links_keep_their_room_and_the_page_gives_way() {
   let (page_x, _, page_width, _) = stage.bounds("page");
   assert!(page_x + page_width <= 200.5, "the page gives way inside the row");
 }
+
+const LONG_PAGE: &str = "The run of the release of the desktop app, its last attempt";
+
+/// A trail whose page is longer than the room it is in, mounted or built.
+fn cut_page(ctx: &mut lurq::app::ctx::Ctx, mounted: bool) -> Element {
+  let trail = Breadcrumb::new([
+    BreadcrumbStep::new("Runs").id("runs"),
+    BreadcrumbStep::new(LONG_PAGE).id("page"),
+  ]);
+  let trail = if mounted { trail.mount(ctx) } else { trail.into() };
+  Column::new().size(400.0, 300.0).padding(40.0).child(Row::new().width(200.0).child(trail)).into()
+}
+
+#[test]
+fn the_page_cut_where_the_row_is_short_says_itself_whole_in_a_tooltip() {
+  for mounted in [true, false] {
+    let mut stage = Stage::new(move |ctx| cut_page(ctx, mounted));
+    assert!(stage.cut_text_quad(LONG_PAGE).is_some(), "the page's name is cut (mounted: {mounted})");
+    assert!(!stage.paints(LONG_PAGE), "nothing says it whole at rest (mounted: {mounted})");
+    stage.own_timers();
+    stage.hover("page");
+    stage.tick_timers(Duration::from_secs(2));
+    stage.pass();
+    assert!(stage.paints(LONG_PAGE), "its tooltip says it whole (mounted: {mounted})");
+  }
+}
+
+#[test]
+fn a_page_that_fits_shows_no_tooltip() {
+  let mut stage = Stage::new(|ctx| {
+    Column::new()
+      .size(400.0, 300.0)
+      .padding(40.0)
+      .child(Breadcrumb::new([BreadcrumbStep::new("Runs"), BreadcrumbStep::new("Run 12").id("page")]).mount(ctx))
+      .into()
+  });
+  stage.own_timers();
+  stage.hover("page");
+  stage.tick_timers(Duration::from_secs(2));
+  stage.pass();
+  let said = stage
+    .quads()
+    .into_iter()
+    .filter(|quad| matches!(&quad.content, QuadContent::Text { text, .. } if text == "Run 12"))
+    .count();
+  assert_eq!(said, 1, "no tooltip over a page that fits");
+}
+
+#[test]
+fn the_separators_are_named_by_the_part_ids_rule_from_the_second() {
+  let stage = Stage::new(|_| {
+    Column::new()
+      .size(600.0, 200.0)
+      .child(Breadcrumb::new(["Home", "Projects", "lurq", "Run 12"]).id("trail"))
+      .into()
+  });
+  let ids = stage.ids();
+  for id in ["trail-separator", "trail-separator-2", "trail-separator-3"] {
+    assert!(ids.iter().any(|held| held == id), "{id} in {ids:?}");
+  }
+  assert!(!ids.iter().any(|held| held == "trail-separator-1"), "no -separator-1: {ids:?}");
+}

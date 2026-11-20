@@ -408,7 +408,7 @@ pub struct Breadcrumb {
   disabled: bool,
   tab_stop: bool,
   cut_links: bool,
-  /// The refs of the links' names a mounted breadcrumb keeps, by the step's index: what a tooltip reads whether the
+  /// The refs of the steps' names a mounted breadcrumb keeps, by the step's index: what a tooltip reads whether the
   /// name is cut from.
   name_refs: Vec<ElementRef>,
   states: Vec<Name>,
@@ -591,7 +591,11 @@ impl Breadcrumb {
     self
   }
 
-  /// The id of the root. The ellipsis has it with `-ellipsis` after it.
+  /// The id of the root, and the prefix of the ids of its parts by the
+  /// part-ids rule: the ellipsis `x-ellipsis`, the separators `x-separator`,
+  /// `x-separator-2`, `x-separator-3` in their order (a repeated part with no
+  /// key of its own is numbered from its second node, as in every component,
+  /// so there is no `x-separator-1`). A step's own id is on the step.
   pub fn id(mut self, id: impl Into<Arc<str>>) -> Self {
     self.id = Some(id.into());
     self
@@ -739,7 +743,7 @@ struct BreadcrumbHost {
   open: Signal<bool>,
   dropped: Signal<Vec<bool>>,
   refs: Mutex<Vec<ElementRef>>,
-  /// The refs of the links' names, kept from render to render so that a tooltip reads what the last layout cut.
+  /// The refs of the steps' names, kept from render to render so that a tooltip reads what the last layout cut.
   name_refs: Mutex<Vec<ElementRef>>,
 }
 
@@ -761,9 +765,8 @@ impl Component for BreadcrumbHost {
     if breadcrumb.menu.is_none() {
       breadcrumb.menu = Some((self.anchor.clone(), self.open.clone()));
     }
-    if breadcrumb.cut_links {
-      breadcrumb.name_refs = kept(&self.name_refs, breadcrumb.steps.len());
-    }
+    // The page's name is cut where the row is short, and the links' at their most width.
+    breadcrumb.name_refs = kept(&self.name_refs, breadcrumb.steps.len());
     if breadcrumb.overflow {
       let count = breadcrumb.steps.len();
       let refs = kept(&self.refs, count);
@@ -945,7 +948,9 @@ impl BreadcrumbView {
   }
 
   /// The step at `index`: a link that a press follows, or the page one is on
-  /// for the last, in the style of its part, with its icon and its text.
+  /// for the last, in the style of its part, with its icon and its text. The
+  /// page's name, and a link's cut at its most width, say themselves whole in
+  /// a tooltip while they are cut.
   pub fn step(&self, index: usize) -> Element {
     let step = &self.steps[index];
     if self.is_current(index) {
@@ -959,22 +964,26 @@ impl BreadcrumbView {
         page = page.child(icon);
       }
       // The page gives way last, after every step that can go into the menu, and is cut then: what is before it
-      // keeps its room.
+      // keeps its room. Its name is said whole in a tooltip while it is cut, as a cut link's is.
+      let text = self.name_refs.get(index).cloned().unwrap_or_default();
       page = page
         .flex_shrink(1.0)
         .min_width(0.0)
         .shrink_order(self.steps.len() as i32)
         .shrink_limit(ShrinkLimit::Content)
         .child(
-          Row::new()
-            .flex_shrink(1.0)
-            .min_width(0.0)
-            .child(part.text(&step.label).nowrap().text_overflow(TextOverflow::Elipsis)),
+          Row::new().flex_shrink(1.0).min_width(0.0).child(
+            part
+              .text(&step.label)
+              .nowrap()
+              .text_overflow(TextOverflow::Elipsis)
+              .ref_element(text.clone()),
+          ),
         );
       if let Some(id) = &step.id {
         page = page.id(id.clone());
       }
-      return page.into();
+      return super::Tooltip::new(&step.label).when_cut(&text).declared(page);
     }
     let part = self.step_part(index, BreadcrumbPart::Link);
     let pressed = tab_stop(pressable(&part, self.is_disabled(index)), self.tab_stop);
