@@ -4,7 +4,10 @@ use std::{
   collections::{HashSet, VecDeque},
   io::{self, Read},
   ops::Range,
-  sync::Arc,
+  sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+  },
   time::{Duration, Instant},
 };
 
@@ -27,6 +30,7 @@ const BUSY_PAUSE: Duration = Duration::from_secs(2);
 /// there with them. A server that says it is busy is asked again, twice at most and within `timeout`. `told`
 /// hears how far it has come after each read and stops it by answering `false`.
 pub(super) fn fetch(
+  agents: &Agents,
   address: &str,
   headers: &[(Arc<str>, Arc<str>)],
   timeout: Duration,
@@ -34,7 +38,8 @@ pub(super) fn fetch(
   cut: bool,
   mut told: impl FnMut(u64, Option<u64>) -> bool,
 ) -> Result<Vec<u8>, LoadError> {
-  let response = ask(&agent(), address, headers, None, timeout, &mut told)?;
+  let agent = agents.lend();
+  let response = ask(&agent, address, headers, None, timeout, &mut told)?;
   let body = response.into_body();
   let total = body.content_length();
   if !cut && total.is_some_and(|total| total > max_bytes) {
@@ -62,8 +67,72 @@ pub(super) fn fetch(
   }
 }
 
-fn agent() -> ureq::Agent {
-  ureq::Agent::config_builder().http_status_as_error(false).build().into()
+/// The loader's HTTP agents, made once and lent to its loads and readers: an agent keeps the connections its
+/// requests opened, so the next request to the same host lent it goes over one of them, with no new handshake.
+/// As many are kept as the loader's pool is large ([`Loader::pool_size`](super::Loader::pool_size)); one given
+/// back beyond that is let go, with its connections.
+pub(super) struct Agents {
+  idle: Mutex<Vec<ureq::Agent>>,
+  size: AtomicUsize,
+  /// How many were made, for a test that they are made once.
+  made: AtomicUsize,
+}
+
+impl Agents {
+  pub(super) fn new(size: usize) -> Arc<Self> {
+    Arc::new(Self {
+      idle: Mutex::new(Vec::new()),
+      size: AtomicUsize::new(size),
+      made: AtomicUsize::new(0),
+    })
+  }
+
+  pub(super) fn resize(&self, size: usize) {
+    self.size.store(size, Ordering::Release);
+    self.idle.lock().truncate(size);
+  }
+
+  /// How many agents were made since the loader was.
+  pub(super) fn made(&self) -> usize {
+    self.made.load(Ordering::Acquire)
+  }
+
+  /// An agent for a request, given back when the lent one is dropped: the one given back last, which most likely
+  /// holds a connection to the host asked again, or a new one where none is idle.
+  pub(super) fn lend(&self) -> Lent<'_> {
+    let agent = self.idle.lock().pop().unwrap_or_else(|| {
+      self.made.fetch_add(1, Ordering::AcqRel);
+      ureq::Agent::config_builder().http_status_as_error(false).build().into()
+    });
+    Lent {
+      agents: self,
+      agent: Some(agent),
+    }
+  }
+}
+
+pub(super) struct Lent<'a> {
+  agents: &'a Agents,
+  agent: Option<ureq::Agent>,
+}
+
+impl std::ops::Deref for Lent<'_> {
+  type Target = ureq::Agent;
+
+  fn deref(&self) -> &ureq::Agent {
+    self.agent.as_ref().expect("an agent until it is given back")
+  }
+}
+
+impl Drop for Lent<'_> {
+  fn drop(&mut self) {
+    let mut idle = self.agents.idle.lock();
+    if idle.len() < self.agents.size.load(Ordering::Acquire)
+      && let Some(agent) = self.agent.take()
+    {
+      idle.push(agent);
+    }
+  }
 }
 
 /// The answer of the server at `address` to a request with `headers`, and `range` where it asks for a part of
@@ -149,8 +218,8 @@ struct Ranges {
   headers: Vec<(Arc<str>, Arc<str>)>,
   timeout: Duration,
   block: u64,
-  /// One agent for every request, so that each goes over the connection the one before left open.
-  agent: ureq::Agent,
+  /// The loader's agents: each request goes over a connection one of them kept, where it has one to the host.
+  agents: Arc<Agents>,
   blocks: Mutex<Blocks>,
   /// A block that was on its way came, or failed.
   came: Condvar,
@@ -178,6 +247,7 @@ impl HttpReader {
   /// Asks for the first block of what is at `address`, `block` bytes, and gives a reader of it: the answer's
   /// status, length and type are known when it returns, and a server that refuses it fails here.
   pub(super) fn open(
+    agents: Arc<Agents>,
     address: String,
     headers: Vec<(Arc<str>, Arc<str>)>,
     timeout: Duration,
@@ -188,7 +258,7 @@ impl HttpReader {
       headers,
       timeout,
       block: block.max(1),
-      agent: agent(),
+      agents,
       blocks: Mutex::new(Blocks::default()),
       came: Condvar::new(),
     });
@@ -328,8 +398,9 @@ impl Ranges {
     while filled(&fetched) < self.block && fetched.len.is_none_or(|len| start + filled(&fetched) < len) {
       let from = start + filled(&fetched);
       let range = format!("bytes={from}-{}", start + self.block - 1);
+      let agent = self.agents.lend();
       let response = match ask(
-        &self.agent,
+        &agent,
         &self.address,
         &self.headers,
         Some(&range),
@@ -363,7 +434,13 @@ impl Ranges {
         .take(self.block - before as u64)
         .read_to_end(&mut fetched.bytes)
         .map_err(read_failed)?;
-      if fetched.bytes.len() == before || !ranged {
+      if !ranged {
+        break;
+      }
+      // A connection goes back to its agent once its answer is read to its end, and the part asked for is the
+      // whole answer: what is left is nothing, read to see the end.
+      io::copy(&mut reader, &mut io::sink()).map_err(read_failed)?;
+      if fetched.bytes.len() == before {
         break;
       }
     }
@@ -451,10 +528,18 @@ mod tests {
     let (address, served) = serve_once(ok(&body));
     let headers = [(Arc::from("X-Asked-By"), Arc::from("lurq"))];
     let mut steps = Vec::new();
-    let bytes = fetch(&address, &headers, SECOND, 1 << 20, false, |loaded, total| {
-      steps.push((loaded, total));
-      true
-    })
+    let bytes = fetch(
+      &Agents::new(1),
+      &address,
+      &headers,
+      SECOND,
+      1 << 20,
+      false,
+      |loaded, total| {
+        steps.push((loaded, total));
+        true
+      },
+    )
     .unwrap();
     assert_eq!(bytes, body);
     assert_eq!(steps.last(), Some(&(200_000, Some(200_000))));
@@ -466,14 +551,14 @@ mod tests {
     let (address, served) =
       serve_once(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec());
     assert_eq!(
-      fetch(&address, &[], SECOND, 1 << 20, false, |_, _| true),
+      fetch(&Agents::new(1), &address, &[], SECOND, 1 << 20, false, |_, _| true),
       Err(LoadError::NotFound)
     );
     served.join().unwrap();
     let (address, served) =
       serve_once(b"HTTP/1.1 500 Broken\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec());
     assert_eq!(
-      fetch(&address, &[], SECOND, 1 << 20, false, |_, _| true),
+      fetch(&Agents::new(1), &address, &[], SECOND, 1 << 20, false, |_, _| true),
       Err(LoadError::Status(500))
     );
     served.join().unwrap();
@@ -489,7 +574,7 @@ mod tests {
     ]);
     let started = std::time::Instant::now();
     assert_eq!(
-      fetch(&address, &[], SECOND, 1 << 20, false, |_, _| true),
+      fetch(&Agents::new(1), &address, &[], SECOND, 1 << 20, false, |_, _| true),
       Ok(b"the picture".to_vec())
     );
     assert_eq!(served.join().unwrap().len(), 3);
@@ -508,7 +593,7 @@ mod tests {
       busy("503 Busy", "0"),
     ]);
     assert_eq!(
-      fetch(&address, &[], SECOND, 1 << 20, false, |_, _| true),
+      fetch(&Agents::new(1), &address, &[], SECOND, 1 << 20, false, |_, _| true),
       Err(LoadError::Status(503))
     );
     assert_eq!(served.join().unwrap().len(), 3, "asked three times in all");
@@ -518,7 +603,7 @@ mod tests {
   fn more_than_the_limit_is_not_read() {
     let (address, served) = serve_once(ok(&[1u8; 4096]));
     assert_eq!(
-      fetch(&address, &[], SECOND, 1024, false, |_, _| true),
+      fetch(&Agents::new(1), &address, &[], SECOND, 1024, false, |_, _| true),
       Err(LoadError::TooLarge { limit: 1024 })
     );
     served.join().unwrap();
@@ -529,13 +614,13 @@ mod tests {
     let body: Vec<u8> = (0..4096u32).map(|n| n as u8).collect();
     let (address, served) = serve_once(ok(&body));
     assert_eq!(
-      fetch(&address, &[], SECOND, 1000, true, |_, _| true),
+      fetch(&Agents::new(1), &address, &[], SECOND, 1000, true, |_, _| true),
       Ok(body[..1000].to_vec())
     );
     served.join().unwrap();
     let (address, served) = serve_once(ok(&body[..10]));
     assert_eq!(
-      fetch(&address, &[], SECOND, 1000, true, |_, _| true),
+      fetch(&Agents::new(1), &address, &[], SECOND, 1000, true, |_, _| true),
       Ok(body[..10].to_vec())
     );
     served.join().unwrap();
@@ -545,7 +630,7 @@ mod tests {
   fn a_load_that_is_stopped_ends() {
     let (address, served) = serve_once(ok(&[1u8; 300_000]));
     assert_eq!(
-      fetch(&address, &[], SECOND, 1 << 20, false, |_, _| false),
+      fetch(&Agents::new(1), &address, &[], SECOND, 1 << 20, false, |_, _| false),
       Err(LoadError::Cancelled)
     );
     served.join().unwrap();
@@ -627,6 +712,7 @@ mod tests {
 
   fn asking(address: &str) -> Result<HttpReader, LoadError> {
     HttpReader::open(
+      Agents::new(4),
       address.to_owned(),
       vec![(Arc::from("X-Asked-By"), Arc::from("lurq"))],
       SECOND,
@@ -687,7 +773,7 @@ mod tests {
   #[test]
   fn an_address_opened_without_the_header_it_needs_fails_with_what_the_server_answered() {
     let (address, ..) = serve_file(numbered(1000), true);
-    let refused = HttpReader::open(address, Vec::new(), SECOND, SMALL);
+    let refused = HttpReader::open(Agents::new(4), address, Vec::new(), SECOND, SMALL);
     assert_eq!(refused.err(), Some(LoadError::Status(403)));
   }
 

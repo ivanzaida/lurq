@@ -304,9 +304,17 @@ app
   .root("assets")                         // what `Source::resource` is a path under
   .timeout(Duration::from_secs(10))       // of a load of an address; 30 seconds unless told
   .max_bytes(16 << 20)                    // the most `load` reads of one source; 64 MiB unless told
+  .pool_size(6)                           // loads read at once, and HTTP agents kept; 4 unless told
   .allow(|address| address.starts_with("https://cdn.example.com/"));
 ```
 
+- `pool_size` is how many loads are read at once, on as many threads of the loader's own, or as many blocking tasks
+  at a time of the app's runtime where it gave one, and how many HTTP agents the loader keeps. A load of an address
+  is lent an agent and gives it back when it ends, with the connections it opened kept open, so the next load of
+  the same host, a picture of the same album, goes over one of them with no new handshake; a reader of an address
+  (`loader.open`, a video) is lent them for each of its requests. Told again, it is for the loads asked for from
+  then on: those on their way end on the threads they were given, and an agent given back beyond the new size is
+  let go. Loads wait their turn in the order they were asked for.
 - `allow` says which addresses may be loaded: every one the app asks for, unless told. One it refuses fails with
   `LoadError::Denied` and nothing is sent. It is what keeps a text from a stranger, shown by the app, from fetching
   what the stranger chose.
@@ -350,7 +358,7 @@ kept.clear();
 - A sound at an address plays from its file ([playing a sound](../design-system/#playing-a-sound)).
 
 With the feature `tokio`, an app that gives its runtime (`App::with_tokio_handle(handle)`) has its loader read on
-that: a load is a blocking task of the runtime, four at a time, and the loader starts no threads of its own. A
+that: a load is a blocking task of the runtime, as many at a time as `pool_size`, and the loader starts no threads of its own. A
 loader made by itself is told with `loader.tokio_handle(handle)`. The runtime is to run for as long as the app
 loads: a load given to one that has stopped fails with `LoadError::Cancelled`, and `App::clear_tokio_handle()`
 gives the loader its own threads back.
