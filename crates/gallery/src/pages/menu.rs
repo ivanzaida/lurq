@@ -1,12 +1,12 @@
 //! The page of the menu: its playground, a dropdown from a button, the board's
 //! menu with checked, disabled and grouped items, the split button's menu, and
-//! items with a detail, a reason and an avatar.
+//! items with a detail, a reason and an avatar, and a menu of the app's own rows.
 
 use std::sync::Arc;
 
 use lurq::{
   app::{component::Component, ctx::Ctx},
-  components::{Column, Placement, Rect, Row},
+  components::{Column, Placement, Rect, Row, Text},
   core::{ElementRef, Signal},
   layout::Alignment,
   node::Element,
@@ -534,6 +534,31 @@ impl Component for MenuPage {
       );
     let described = items().child(item(agents, "a detail, a reason, an avatar"));
 
+    // Rows the app draws itself, a detail on the label's line, that are still the menu's items; and a foot of its own.
+    let row = |label: &str, detail: &str| {
+      Row::new()
+        .spacing(8.0)
+        .align_items(Alignment::Center)
+        .child(Text::new(label))
+        .child(quiet(detail, 12.0))
+    };
+    let models = Menu::controlled(true, ElementRef::new(), |_| {})
+      .inline(true)
+      .item(MenuItem::new("Opus").content(row("Opus", "the deepest")).checked(true))
+      .item(
+        MenuItem::new("Sonnet")
+          .content(row("Sonnet", "balanced"))
+          .unavailable("Not on this plan"),
+      )
+      .item(MenuItem::new("Haiku").content(row("Haiku", "the fastest")))
+      .separator()
+      .child(
+        Row::new()
+          .padding(8.0)
+          .child(quiet("Sonnet is not on this plan.", 12.0)),
+      );
+    let own = items().child(item(models, "content(row) on each item, a child foot"));
+
     let rows = [
       (
         "Menu::new(open, anchor)",
@@ -611,6 +636,30 @@ impl Component for MenuPage {
         "false",
         "The panel drawn where the menu is in the tree, open or not.",
       ),
+      (
+        "child",
+        "impl Into<Element>",
+        "",
+        "An element of the app's among the entries: a foot, a section, a field. No item; children takes several.",
+      ),
+      (
+        "within",
+        "ElementRef",
+        "",
+        "Kept inside that element's box besides the window.",
+      ),
+      (
+        "placed_by",
+        "ElementRef",
+        "",
+        "Placed by that element's box in place of its anchor's; the anchor still opens it.",
+      ),
+      (
+        "at",
+        "Option<(f32, f32)>",
+        "None",
+        "A point of the window it stands at in place of its anchor.",
+      ),
       ("MenuItem::new(label)", "&str", "", "A command, called by its label."),
       ("icon", "impl Into<Name>", "", "An icon of 16 before the label, muted."),
       (
@@ -667,6 +716,12 @@ impl Component for MenuPage {
         "impl Into<Element>",
         "",
         "Any element before the label, in place of the icon: an avatar, a mark.",
+      ),
+      (
+        "content",
+        "impl Into<Element>",
+        "",
+        "All the item shows, the app's own row; it is still the menu's item.",
       ),
       (
         "on_select",
@@ -802,6 +857,25 @@ impl Component for MenuPage {
             &[
               "MenuItem::new(\"Builder\").leading(avatar).detail(\"gpt-5 · high effort\").checked(true)",
               "MenuItem::new(\"Publish the release\").icon(icons::UPLOAD).unavailable(\"The run has not finished\")",
+            ],
+          ),
+        ),
+        Section::new(
+          "The app's own rows",
+          "An item given content shows the app's element and nothing of its own, and is still the menu's item: the \
+           arrows reach it and typing its label, it is checked or unavailable to what reads the tree, and choosing \
+           it closes the menu. A child is an element of the app's among the entries, a foot here, that is no item.",
+          self.frame.demo(
+            4,
+            own,
+            ".content(row) .child(foot)",
+            &[
+              "Menu::new(open, anchor)",
+              "    .item(MenuItem::new(\"Opus\").content(row(\"Opus\", \"the deepest\")).checked(true))",
+              "    .item(MenuItem::new(\"Sonnet\").content(row(\"Sonnet\", \"balanced\")).unavailable(\"Not on this plan\"))",
+              "    .item(MenuItem::new(\"Haiku\").content(row(\"Haiku\", \"the fastest\")))",
+              "    .separator()",
+              "    .child(foot(\"Sonnet is not on this plan.\"))",
             ],
           ),
         ),

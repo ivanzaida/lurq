@@ -547,3 +547,61 @@ fn a_collision_that_only_clamps_keeps_it_on_its_own_side() {
   );
   assert!(shown.y + shown.height <= 300.0 + 0.5, "kept in the window");
 }
+
+#[test]
+fn a_card_the_pointer_passes_through_goes_as_the_pointer_leaves_and_what_it_covers_is_pressed() {
+  let pressed = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+  let told = pressed.clone();
+  let mut stage = Stage::new(move |ctx: &mut Ctx| -> Element {
+    let told = told.clone();
+    Column::new()
+      .size(400.0, 300.0)
+      .padding_top(40.0)
+      .align_items(Alignment::Center)
+      .child(
+        card()
+          .open_delay(Duration::ZERO)
+          .pass_through(true)
+          .mount(ctx, author()),
+      )
+      .child(
+        Button::new("Next")
+          .variant(ButtonVariant::Outline)
+          .id("next")
+          .on_click(move |_| {
+            told.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+          }),
+      )
+      .into()
+  });
+  stage.hover("author");
+  assert!(stage.paints(NAME));
+  let shown = panel(&stage).unwrap();
+  let (nx, ny) = stage.center("next");
+  assert!(
+    shown.y <= ny && ny <= shown.y + shown.height && shown.x <= nx && nx <= shown.x + shown.width,
+    "the card covers the button under the author"
+  );
+
+  // Through the card, onto the button under it: the card goes at once, and the press is the button's.
+  stage.click("next");
+  assert!(
+    !stage.paints(NAME),
+    "it went as the pointer left the author, with no delay"
+  );
+  assert_eq!(pressed.load(std::sync::atomic::Ordering::SeqCst), 1);
+}
+
+#[test]
+fn a_card_the_pointer_passes_through_takes_no_pointer_while_it_shows() {
+  let mut stage = stage(|| card().open_delay(Duration::ZERO).pass_through(true));
+  stage.hover("author");
+  let shown = panel(&stage).unwrap();
+  // The pointer over the card: the card is not under it, the window is.
+  stage
+    .tree
+    .mouse_move(shown.x + shown.width / 2.0, shown.y + shown.height - 4.0);
+  stage.pass();
+  after(&mut stage, Duration::from_millis(500));
+  assert!(!stage.paints(NAME), "the card is not hovered: it went with the pointer");
+}

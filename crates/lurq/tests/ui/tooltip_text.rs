@@ -5,8 +5,8 @@
 use std::time::{Duration, Instant};
 
 use lurq::{
-  components::{Column, Row, Text, TextOverflow},
-  core::ElementRef,
+  components::{Column, Placement, Row, Text, TextOverflow},
+  core::{ElementRef, Signal},
   layout::quad::{Quad, QuadContent},
   ui::{Button, ButtonVariant, Tooltip, icons},
 };
@@ -231,4 +231,144 @@ fn an_icon_only_button_mounted_has_its_label_as_its_tooltip() {
     1,
     "only its own label"
   );
+}
+
+/// A label 12 of type in a row `width` wide, cut where it does not fit, whose tooltip says `HINT` while it fits.
+fn hinted_stage(width: f32, label: &'static str) -> Stage {
+  Stage::new(move |ctx| {
+    let held = ElementRef::new();
+    let words = Text::new(label)
+      .id("label")
+      .nowrap()
+      .text_overflow(TextOverflow::Elipsis)
+      .ref_element(held.clone());
+    Column::new()
+      .size(400.0, 300.0)
+      .padding(40.0)
+      .child(
+        Row::new().width(width).child(
+          Tooltip::new(LONG)
+            .when_cut(&held)
+            .hint(HINT)
+            .open_delay(Duration::ZERO)
+            .max_width(600.0)
+            .mount(ctx, words),
+        ),
+      )
+      .into()
+  })
+}
+
+const HINT: &str = "Open the release";
+
+#[test]
+fn a_hint_is_what_a_tooltip_when_cut_says_while_its_label_fits() {
+  let mut stage = hinted_stage(300.0, "Release");
+  stage.hover("label");
+  stage.pass();
+  assert!(stage.paints(HINT), "the hint while the label is whole");
+  assert!(!stage.paints(LONG));
+}
+
+#[test]
+fn a_hinted_tooltip_says_its_text_while_its_label_is_cut() {
+  let mut stage = hinted_stage(120.0, LONG);
+  stage.hover("label");
+  stage.pass();
+  assert!(stage.paints(LONG), "the text while the label is cut");
+  assert!(!stage.paints(HINT));
+}
+
+#[test]
+fn a_hung_tooltip_shows_while_the_app_says_and_lets_the_pointer_through() {
+  let open = Signal::new(false);
+  let held = open.clone();
+  let presses = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+  let told = presses.clone();
+  let mut stage = Stage::new(move |_| {
+    let anchor = ElementRef::new();
+    let told = told.clone();
+    Column::new()
+      .size(400.0, 300.0)
+      .padding(100.0)
+      .child(
+        Button::new("Copy")
+          .variant(ButtonVariant::Outline)
+          .id("copy")
+          .ref_element(anchor.clone()),
+      )
+      .child(
+        Button::new("Under")
+          .variant(ButtonVariant::Outline)
+          .id("under")
+          .on_click(move |_| {
+            told.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+          }),
+      )
+      .child(
+        Tooltip::new("Copied to the clipboard")
+          .placement(Placement::BottomStart)
+          .id("hung")
+          .hang(&anchor, held.clone()),
+      )
+      .into()
+  });
+  assert!(!stage.paints("Copied to the clipboard"), "closed while the app says so");
+  stage.hover("copy");
+  after(&mut stage, Duration::from_millis(600));
+  assert!(!stage.paints("Copied to the clipboard"), "the pointer does not show it");
+
+  open.set(true);
+  stage.pass();
+  assert!(stage.paints("Copied to the clipboard"), "the app shows it");
+  let (_, cy, _, ch) = stage.bounds("copy");
+  let (_, ty, ..) = stage.bounds("hung");
+  assert!(ty >= cy + ch, "under the button it hangs from");
+
+  // A press and Escape do not put it away, and what it covers is pressed through it.
+  stage.key("Escape");
+  stage.click("under");
+  assert!(stage.paints("Copied to the clipboard"));
+  assert_eq!(presses.load(std::sync::atomic::Ordering::SeqCst), 1);
+
+  open.set(false);
+  stage.pass();
+  assert!(!stage.paints("Copied to the clipboard"), "the app puts it away");
+}
+
+#[test]
+fn a_tooltip_over_a_frame_keeps_clear_of_the_frames_top_and_lines_up_with_its_element() {
+  let frame = ElementRef::new();
+  let held = frame.clone();
+  let mut stage = Stage::new(move |ctx| {
+    Column::new()
+      .size(400.0, 300.0)
+      .padding(120.0)
+      .child(
+        Row::new()
+          .id("frame")
+          .ref_element(held.clone())
+          .padding(30.0)
+          .child(Row::new().width(60.0))
+          .child(
+            Tooltip::new("Reaches the agent")
+              .placement(Placement::TopStart)
+              .over(&held)
+              .force_open(Some(true))
+              .id("tip")
+              .mount(ctx, Button::new("Skill").variant(ButtonVariant::Outline).id("chip")),
+          ),
+      )
+      .into()
+  });
+  stage.pass();
+  let (_, fy, ..) = stage.bounds("frame");
+  let (cx, ..) = stage.bounds("chip");
+  let (tx, ty, _, th) = stage.bounds("tip");
+  assert!(
+    (ty + th - fy).abs() < 0.5,
+    "its root ends at the frame's top, its room toward it included: {} against {fy}",
+    ty + th
+  );
+  assert!((tx - cx).abs() < 0.5, "at its element's start: {tx} against {cx}");
 }

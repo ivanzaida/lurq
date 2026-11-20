@@ -124,6 +124,10 @@ pub type HoverCardRenderer = Arc<dyn Fn(HoverCardView) -> Element + Send + Sync>
 /// pointer shows at a time. Where there is no room on its side it goes to the
 /// other, its arrow turned with it, and it is kept in the window.
 ///
+/// A card of words over what the pointer moves along (the items of a status
+/// bar) lets the pointer through to what is under it and goes as the pointer
+/// leaves the element: [`HoverCard::pass_through`].
+///
 /// To tooling the card is a dialog where it holds a control and a tooltip
 /// where it does not, called by its label or else its title; the element is
 /// described by its title and description.
@@ -146,6 +150,7 @@ pub struct HoverCard {
   close_delay: TransitionDuration,
   force_open: Option<bool>,
   disabled: bool,
+  pass_through: bool,
   width: Option<Length>,
   states: Vec<Name>,
   rules: Recipe,
@@ -178,6 +183,7 @@ impl HoverCard {
       close_delay: TransitionDuration::Role(MotionDuration::Slow),
       force_open: None,
       disabled: false,
+      pass_through: false,
       width: None,
       states: Vec::new(),
       rules: Recipe::new(),
@@ -296,6 +302,16 @@ impl HoverCard {
   /// Whether the card never opens: the element is as it would be without it.
   pub fn disabled(mut self, disabled: bool) -> Self {
     self.disabled = disabled;
+    self
+  }
+
+  /// Whether the pointer passes through the card to what is under it: the card takes no pointer, so what it covers is
+  /// hovered and pressed as if it were not there, and it goes as soon as the pointer leaves the element it is about,
+  /// with no close delay. A card of words over a bar the pointer moves along: a status bar's item. The keyboard's
+  /// focus and Escape show and put it away as they do any card. Off by default: the card stays while the pointer is
+  /// on it, and what it holds can be pressed.
+  pub fn pass_through(mut self, pass_through: bool) -> Self {
+    self.pass_through = pass_through;
     self
   }
 
@@ -817,19 +833,27 @@ impl Component for HoverCardHost {
           }
         }
       };
+      let pass_through = card.pass_through;
       let shown = HoverCard::render_view(view).map_node(|node| {
-        node
-          .ref_element(self.shown.clone())
-          .on_mouse_enter(card_enter)
-          .on_mouse_leave(card_leave)
+        let node = node.ref_element(self.shown.clone());
+        if pass_through {
+          node
+        } else {
+          node.on_mouse_enter(card_enter).on_mouse_leave(card_leave)
+        }
       });
       let overlay = Overlay::new(shown)
         .anchor(anchor.clone())
         .placement(card.placement)
         .collision(card.collision)
         // The pointer can be moved onto the card, its root and the room in it toward the element included (with
-        // `ContentOnly` the root, which holds the handlers, would not be hit). It stands beside the element.
-        .hit_test(HitTestBehavior::Auto)
+        // `ContentOnly` the root, which holds the handlers, would not be hit). It stands beside the element. One the
+        // pointer passes through is hit by nothing.
+        .hit_test(if pass_through {
+          HitTestBehavior::None
+        } else {
+          HitTestBehavior::Auto
+        })
         // Tab goes from the element into the card's controls and on, and the focus is not moved as it opens.
         .tab_after_anchor(true);
       match card.force_open {
@@ -878,13 +902,18 @@ impl Component for HoverCardHost {
         self.closing.clone(),
         self.pointer.clone(),
       );
+      let pass_through = card.pass_through;
       move || {
         pointer.lock().on_element = false;
         opening.cancel();
         if !hovered.get_untracked() {
           return;
         }
-        if allowed.get_untracked() {
+        if pass_through {
+          // Nothing to move onto: it goes with the pointer.
+          closing.cancel();
+          hovered.set(false);
+        } else if allowed.get_untracked() {
           // It stays for its close delay: time to move onto it.
           closing.restart();
         } else {
