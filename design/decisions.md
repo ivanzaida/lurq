@@ -23,7 +23,8 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   details stay under the description, so a row has both.
 - **Why.** What Orchester's kit needs to build its `SettingRow` on `ui::ListItem` (its `detail` and its `link`). A
   place of its own, not a switch of where every detail goes, since the row has one of each.
-- **State.** Decided; in work on `claude/k7-c-rows`.
+- **State.** Built on `claude/k7-c-rows` (2026-11-21): `ListItem::subtitle`, the part `ListItemPart::Subtitle`,
+  `ListItemView::subtitles`; the gallery's List page says a program's path in "Saying more".
 
 ### A checkbox's, a radio's and a switch's label over several lines
 
@@ -37,7 +38,9 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   that have one now.
 - **Why.** What Orchester's kit needs to drop its own wrapping checkbox (`Toggle::wrap_label`). The three controls
   draw their label the same way, so they gain it together.
-- **State.** Decided; in work on `claude/k7-c-rows`.
+- **State.** Built on `claude/k7-c-rows` (2026-11-21): `Checkbox::label_wraps`, `Radio::label_wraps`,
+  `Switch::label_wraps`, and the field `label_wraps` of their views; a mark taller than the first line (the switch's
+  track) has the line in its middle. The gallery's Checkbox, Radio and Switch pages show "A label over several lines".
 
 ## 2026-11-20
 
