@@ -42,6 +42,7 @@ use crate::{
   },
   core::{
     ElementRect, ElementRef as OwnedElementRef, ElementRefMut as OwnedElementRefMut, IdGenerator, NodeId, Signal,
+    visibility::Area,
   },
   layout::{
     Constraints, Size,
@@ -8254,10 +8255,13 @@ impl Tree {
         #[cfg(feature = "perf_profile")]
         self.profiling.canvas_recording(profile_elapsed!(_canvas_start));
       }
+      // An element nothing scrolls is measured against the window.
+      let window = self.viewport_logical();
+      let window = Area::new(0.0, 0.0, window.width, window.height);
       if let Some(root) = self.root.as_mut() {
         {
           crate::app::profile_support::frame_section!("ul:element_refs_walk");
-          update_element_refs_recursive(root, &layout, 0.0, 0.0, 0.0, 0.0);
+          update_element_refs_recursive(root, &layout, 0.0, 0.0, 0.0, 0.0, window);
         }
         {
           crate::app::profile_support::frame_section!("ul:verify_scroll_walk");
@@ -13440,6 +13444,9 @@ fn bind_canvas_layout_recursive(
   }
 }
 
+/// Tells every element ref of a subtree where its element was laid out, and what watches how much of an
+/// element shows ([`ElementRef::observe_visibility`]) how much of it is inside `shown`: what the scroll
+/// containers around the node, and the window, show.
 fn update_element_refs_recursive(
   node: &mut Node,
   layout: &LayoutResult,
@@ -13447,6 +13454,7 @@ fn update_element_refs_recursive(
   abs_y: f32,
   parent_x: f32,
   parent_y: f32,
+  shown: Area,
 ) {
   if layout.dropped {
     collapse_dropped_element_refs(node, abs_x, abs_y, parent_x, parent_y);
@@ -13462,11 +13470,21 @@ fn update_element_refs_recursive(
       layout.size.width,
       layout.size.height,
     );
+    if element_ref.watches_visibility() {
+      let placed = Area::new(abs_x, abs_y, layout.size.width, layout.size.height);
+      element_ref.tell_visibility(Some((placed, shown)));
+    }
   }
   // Same space as the element refs above, so after-layout hooks can compare
   // a scroll viewport with the rows inside it.
+  let mut shown = shown;
   if let LayoutKind::ScrollModifier { state, .. } = node.layout_kind() {
     state.set_layout_viewport_y(abs_y);
+    // What is in a scroll container shows where its viewport does: the room it has less a bar's lane.
+    let within = |viewport: f32, room: f32| if viewport > 0.0 { viewport.min(room) } else { room };
+    let width = within(state.viewport_width(), layout.size.width);
+    let height = within(state.viewport_height(), layout.size.height);
+    shown = Area::new(abs_x, abs_y, width, height).within(shown);
   }
 
   for (child_layout, child_node) in layout.children.iter().zip(node.children.iter_mut()) {
@@ -13482,6 +13500,7 @@ fn update_element_refs_recursive(
       abs_y + child_layout.offset.y,
       abs_x,
       abs_y,
+      shown,
     );
   }
 }
@@ -13493,6 +13512,10 @@ fn collapse_dropped_element_refs(node: &Node, abs_x: f32, abs_y: f32, parent_x: 
   if let Some(element_ref) = &node.element_ref {
     element_ref.set_text_cut(false);
     element_ref.update(abs_x, abs_y, abs_x - parent_x, abs_y - parent_y, 0.0, 0.0);
+    // Nothing of what is not laid out shows.
+    if element_ref.watches_visibility() {
+      element_ref.tell_visibility(None);
+    }
   }
   for child in node.children() {
     collapse_dropped_element_refs(child, abs_x, abs_y, abs_x, abs_y);

@@ -1565,6 +1565,14 @@ pub const PAGES: &[Page] = &[
     mount: |ctx| ctx.mount::<engine::scroll::ScrollPage>(()),
   },
   Page {
+    path: "/engine/visibility",
+    name: "Visibility",
+    icon: Some("eye"),
+    about: "engine primitive visibility intersection observer IntersectionObserver visible ratio share threshold thresholds margin rootMargin root viewport feed current page lazy load thumbnails near sentinel mark end load more infinite list observe_visibility ElementRef Visibility VisibilityOptions VisibilityObserver",
+    group: Group::Engine,
+    mount: |ctx| ctx.mount::<engine::visibility::VisibilityPage>(()),
+  },
+  Page {
     path: "/engine/virtualized-list",
     name: "Virtualized List",
     icon: Some("list"),

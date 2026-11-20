@@ -3,6 +3,7 @@ use std::sync::{
   atomic::{AtomicU64, Ordering},
 };
 
+use super::visibility::{self, Area, Visibility, VisibilityCallback, VisibilityOptions, Watch};
 use crate::node::dimension::Dimension;
 
 static OVERRIDE_CLEAR_GENERATION: AtomicU64 = AtomicU64::new(1);
@@ -75,6 +76,9 @@ struct ElementRefInner {
   added_observers: Vec<(u64, RectCallback, bool)>,
   /// The number of the next added observer.
   next_observer: u64,
+  /// The observers of how much of the element shows ([`ElementRef::observe_visibility`]), each removed when its
+  /// [`VisibilityObserver`] is dropped.
+  visibility: Vec<Watch>,
 }
 
 type RectCallback = Arc<dyn Fn(ElementRect) + Send + Sync>;
@@ -101,6 +105,31 @@ impl Drop for RectObserver {
 impl std::fmt::Debug for RectObserver {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     f.debug_struct("RectObserver").field("id", &self.id).finish()
+  }
+}
+
+/// An observer of how much of an element shows, added with [`ElementRef::observe_visibility`]: it is called for
+/// as long as this is kept, and removed from the ref when this is dropped. A component keeps it beside the ref
+/// (in its own fields, from `create`), or keeps the ones of its last render and drops those of the render
+/// before.
+#[must_use = "the observer is removed when this is dropped"]
+pub struct VisibilityObserver {
+  inner: std::sync::Weak<RwLock<ElementRefInner>>,
+  id: u64,
+}
+
+impl Drop for VisibilityObserver {
+  fn drop(&mut self) {
+    if let Some(inner) = self.inner.upgrade() {
+      let mut inner = inner.write().unwrap_or_else(|poisoned| poisoned.into_inner());
+      inner.visibility.retain(|watch| watch.id != self.id);
+    }
+  }
+}
+
+impl std::fmt::Debug for VisibilityObserver {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.debug_struct("VisibilityObserver").field("id", &self.id).finish()
   }
 }
 
@@ -381,6 +410,113 @@ impl ElementRef {
     self.add_observer(Arc::new(observer), true)
   }
 
+  /// Tells `observer` how much of the element shows: lurq's `IntersectionObserver`. It is called with the
+  /// first layout after this, and then each time the share that shows crosses one of the options' thresholds,
+  /// either way; with no threshold given, when the element comes into view and when it leaves. It is called
+  /// after layout, as [`observe_rect`](Self::observe_rect)'s observer is, while the [`VisibilityObserver`]
+  /// this gives is kept, and removed when that is dropped.
+  ///
+  /// The share is reckoned from the layout at every pass, so it is right whatever moved the content: a finger,
+  /// its momentum, a snap to a page, a wheel, the keys or the app's own `set_scroll`. The element is measured
+  /// against the scroll container nearest around it, as much of it as shows in the window; against the window,
+  /// where nothing around it scrolls; or against [`VisibilityOptions::root`]. The root is grown by
+  /// [`VisibilityOptions::margin`] first, which is how what is near the viewport is told from what is far.
+  ///
+  /// ```
+  /// use lurq::core::{ElementRef, Signal, VisibilityOptions};
+  ///
+  /// let (page, current) = (ElementRef::new(), Signal::new(false));
+  /// // Kept for as long as the page is watched.
+  /// let watching = page.observe_visibility(VisibilityOptions::new().thresholds([0.99]), {
+  ///   let current = current.clone();
+  ///   move |visibility| current.set(visibility.ratio >= 0.99)
+  /// });
+  /// # drop(watching);
+  /// ```
+  ///
+  /// The boxes are the layout's: a transform does not move them, and an element clipped by something that
+  /// does not scroll counts as showing. An element taken out of the tree is told of no more; one its row or
+  /// column dropped for want of room is told that none of it shows.
+  pub fn observe_visibility(
+    &self,
+    options: VisibilityOptions,
+    observer: impl Fn(Visibility) + Send + Sync + 'static,
+  ) -> VisibilityObserver {
+    let mut inner = self.inner.write().unwrap();
+    let id = inner.next_observer;
+    inner.next_observer += 1;
+    inner.visibility.push(Watch {
+      id,
+      options,
+      observer: Arc::new(observer),
+      level: None,
+    });
+    // The next pass tells it what shows now, whether or not anything else asks for one.
+    inner.layout_dirty = true;
+    inner.layout_subscribers.mark();
+    VisibilityObserver {
+      inner: Arc::downgrade(&self.inner),
+      id,
+    }
+  }
+
+  /// Whether anything observes how much of the element shows.
+  pub(crate) fn watches_visibility(&self) -> bool {
+    !self.inner.read().unwrap().visibility.is_empty()
+  }
+
+  /// The element is laid out at `element`, inside a scroll container of which `root` shows (or the window):
+  /// each observer whose share crossed one of its thresholds is told. `None` for an element that is not laid
+  /// out, of which nothing shows.
+  pub(crate) fn tell_visibility(&self, placed: Option<(Area, Area)>) {
+    // What each observer measures against is read before the ref is locked: its root may be this element.
+    let watched: Vec<(u64, VisibilityOptions)> = {
+      let inner = self.inner.read().unwrap();
+      inner
+        .visibility
+        .iter()
+        .map(|watch| (watch.id, watch.options.clone()))
+        .collect()
+    };
+    let seen: Vec<(u64, Visibility, usize)> = watched
+      .into_iter()
+      .map(|(id, options)| {
+        let seen = match placed {
+          Some((element, root)) => {
+            let root = match options.explicit_root() {
+              Some(root) => {
+                let (x, y, width, height) = root.rect();
+                Area::new(x, y, width, height)
+              }
+              None => root,
+            };
+            visibility::measure(element, options.grown(root))
+          }
+          None => visibility::hidden(),
+        };
+        (id, seen, options.level(&seen))
+      })
+      .collect();
+    let told: Vec<(VisibilityCallback, Visibility)> = {
+      let mut inner = self.inner.write().unwrap();
+      seen
+        .into_iter()
+        .filter_map(|(id, seen, level)| {
+          let watch = inner.visibility.iter_mut().find(|watch| watch.id == id)?;
+          if watch.level == Some(level) {
+            return None;
+          }
+          watch.level = Some(level);
+          Some((watch.observer.clone(), seen))
+        })
+        .collect()
+    };
+    // Outside the lock: an observer may read this ref, write signals, or add and remove observers.
+    for (observer, seen) in told {
+      observer(seen);
+    }
+  }
+
   fn add_observer(&self, observer: RectCallback, before_paint: bool) -> RectObserver {
     let mut inner = self.inner.write().unwrap();
     let id = inner.next_observer;
@@ -532,6 +668,15 @@ impl ElementRefMut {
   /// See [`ElementRef::add_rect_observer_before_paint`].
   pub fn add_rect_observer_before_paint(&self, observer: impl Fn(ElementRect) + Send + Sync + 'static) -> RectObserver {
     self.as_ref().add_rect_observer_before_paint(observer)
+  }
+
+  /// See [`ElementRef::observe_visibility`].
+  pub fn observe_visibility(
+    &self,
+    options: VisibilityOptions,
+    observer: impl Fn(Visibility) + Send + Sync + 'static,
+  ) -> VisibilityObserver {
+    self.as_ref().observe_visibility(options, observer)
   }
 
   pub fn set_bounds(&self, rect: ElementRect) {

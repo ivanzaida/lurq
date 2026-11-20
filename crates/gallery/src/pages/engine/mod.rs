@@ -35,6 +35,7 @@ pub mod text_input;
 pub mod theme;
 pub mod transform;
 pub mod virtualized_list;
+pub mod visibility;
 pub mod visual;
 pub mod zoom_scroll;
 
