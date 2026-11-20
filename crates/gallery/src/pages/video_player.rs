@@ -201,7 +201,7 @@ fn items() -> Row {
 
 /// The gallery's own clip: fifteen seconds of a test picture, 640 by 360, in the gallery's binary.
 #[cfg(not(target_arch = "wasm32"))]
-fn clip() -> lurq::resources::Source {
+pub(crate) fn clip() -> lurq::resources::Source {
   static CLIP: OnceLock<lurq::resources::Source> = OnceLock::new();
   CLIP
     .get_or_init(|| lurq::resources::Source::bytes(include_bytes!("../../assets/media/sample.mp4").to_vec()))

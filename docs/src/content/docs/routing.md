@@ -654,3 +654,41 @@ too while the bar is there. A screen pads by that and not by `ctx.window().safe_
   one ends over it.
 
 For a screen that hides the bar, and while the keyboard is up, the bottom is the window's alone.
+
+## The screen in front
+
+A `StackOutlet` keeps the screens under the top one, and a `TabOutlet` the tabs that are not shown: they stay as
+they were, and what plays in them (a video, a sound) would play on, heard, under a screen pushed over it or in a
+tab nobody sees. `ctx.is_in_front()` says whether the screen a component is in is the one in front. Read in
+`render`, by the screen or by anything mounted inside it at any depth, it renders the component again when it
+changes:
+
+```rust
+fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+  let playing = self.playing.clone();
+  // Plays while the person wants it to and its screen is in front, and is where it was when it is again.
+  let plays = playing.get() && ctx.is_in_front();
+  VideoPlayer::new()
+    .source(&self.source)
+    .playing_controlled(plays, move |to| playing.set(to))
+    .mount(ctx)
+}
+```
+
+- **In front** is the top screen of its stack: the one at the end of the stack's history. Where the stack is in a
+  set of tabs, it is in front only while its tab is the one shown; a stack in a stack, only while the screen that
+  holds it is. A component in neither a stack nor a set of tabs is in front.
+- **A screen pushed** is in front from the moment it is pushed, and the one under it is not, though both are seen
+  while the new one comes in. **Going back**, the screen under is in front from the moment the stack goes back, and
+  the one that leaves is not.
+- **While a finger from the edge drags the top screen aside**, the top screen is still the one in front, and the
+  one seen under it is not. It is from the moment the finger lets go far enough for the stack to go back; let go
+  short of that, nothing changes and nobody is told.
+- **A screen that leaves the stage is told.** A component that is not shown is not rendered ([offstage
+  components](../ctx/#mounting-with-slot-children)): a tab that is no longer shown, a screen two under the top. One that
+  leaves as what it reads changes is rendered once more first, so a screen hears that it is no longer in front,
+  and the player in it is told to pause, in the pass that takes it away.
+- A sheet, a dialog or another window over a screen does not change it: `ctx.window().info().is_focused` says whether
+  the window is the one a person works in.
+- **lurq's players do not stop by themselves** where their screen is not in front: a music app plays on in another
+  tab. The app says, as above.

@@ -62,6 +62,10 @@ mod tabs {
   mod outlet;
 }
 
+mod front {
+  mod screens;
+}
+
 mod stack {
   mod custom_bar;
   mod history;

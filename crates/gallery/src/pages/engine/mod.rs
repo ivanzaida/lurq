@@ -26,6 +26,7 @@ pub mod presence;
 pub mod reactivity;
 pub mod rich_text;
 pub mod router;
+pub mod router_front;
 pub mod scroll;
 pub mod sizing;
 pub mod sticky;

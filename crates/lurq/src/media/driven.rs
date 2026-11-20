@@ -137,6 +137,11 @@ impl MediaDriver {
   pub fn pending(&self) -> usize {
     self.0.take_driven(false).len()
   }
+
+  /// Whether it plays, as it did what it was last told.
+  pub fn playing(&self) -> bool {
+    self.0.inner().playing
+  }
 }
 
 impl Media {
