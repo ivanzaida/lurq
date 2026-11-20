@@ -168,6 +168,8 @@ let swipes = lurq::ui::touch_form();
 
 Colors, radii, spacings and shadows are roles of the theme or concrete values, as everywhere in lurq.
 
+A part's `foreground` is the color of its text over what its typography role says: where a theme's role names a color (its `TextStyle::color` is not the default), a part that sets a `foreground`, at rest or in any of its states, still draws its text in that foreground, and a part that sets one only in a state draws its text in the role's color at rest. Where the part sets no foreground, the role's color stands, and a role that names none takes the foreground of what the text is in.
+
 A part's text is in one of the theme's two families or in one by name:
 
 ```rust

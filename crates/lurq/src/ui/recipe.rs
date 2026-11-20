@@ -755,10 +755,43 @@ impl ResolvedPart {
     self.recipe.theme()
   }
 
-  /// A text in the part's typography. It names no color: it takes the
-  /// foreground of the part it is in.
+  /// A text in the part's typography, in the color of the part it is in.
+  ///
+  /// A part that sets a `foreground`, at rest or in any of its states, colors
+  /// its own text: the color of its typography role is dropped, so the text
+  /// takes the foreground. Where the part sets one only in a state, the role's
+  /// color is the text's at rest. A part that sets none leaves the text in its
+  /// role's color, or, where the role names none, in the foreground of what it
+  /// is in.
   pub fn text(&self, content: &str) -> Text {
-    Text::styled(content, self.rest().text.resolve(self.theme()))
+    let rest = self.rest();
+    let mut style = rest.text.resolve(self.theme());
+    if !self.sets_foreground(&rest) {
+      return Text::styled(content, style);
+    }
+    let role = std::mem::replace(&mut style.color, crate::layout::text_style::DEFAULT_TEXT_COLOR);
+    let text = Text::styled(content, style);
+    if rest.foreground.is_none() && role != crate::layout::text_style::DEFAULT_TEXT_COLOR {
+      text.foreground(role)
+    } else {
+      text
+    }
+  }
+
+  /// Whether the part sets a foreground, at rest (`rest`, as [`rest`](Self::rest) gives it) or in a state.
+  fn sets_foreground(&self, rest: &PartStyle) -> bool {
+    let styles = self.styles();
+    rest.foreground.is_some()
+      || [
+        &styles.hovered,
+        &styles.pressed,
+        &styles.focus_visible,
+        &styles.within,
+        &styles.within_hovered,
+        &styles.within_pressed,
+      ]
+      .iter()
+      .any(|style| style.foreground.is_some())
   }
 
   /// Gives a node the part's style: what it shows at rest, and what it shows

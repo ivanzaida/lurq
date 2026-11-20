@@ -115,6 +115,7 @@ mod notification_center;
 mod number_input;
 mod outcome;
 mod pagination;
+mod part_foreground;
 mod part_ids;
 mod path_field;
 mod persona;
