@@ -467,6 +467,13 @@ impl Component for TabsPage {
          form themselves while their list is wider than its room.",
       ),
       (
+        "tab_stop",
+        "bool",
+        "true",
+        "false: Tab passes the tabs by, and a press selects one and leaves the focus where it was. A tab's \
+         on_open_aside is called for the middle button or a press with Ctrl (Cmd on macOS), in place of selecting it.",
+      ),
+      (
         "more_label",
         "&str",
         "\"More\"",

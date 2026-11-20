@@ -34,7 +34,7 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   rule of many desktop apps, and can be said once in lurq rather than worked around with `focusable(false)`, which
   also kept the focus a shortcut or a test gives. The event and not a bare call because the app's rule for where a
   page opens reads Shift.
-- **State.** In work on `claude/k4-a-pointer-only`.
+- **State.** Built on `claude/k4-a-pointer-only` (2026-11-20).
 
 ### A tag's remove button that Tab passes by
 
@@ -44,7 +44,7 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   entry above: its remove button is passed by Tab and a press leaves the focus where it was; focused by the app, a
   click, Enter, Space, Backspace and Delete still take the tag away.
 - **Why.** The same rule as Orchester's other pressables, on the one pressable a tag has.
-- **State.** In work on `claude/k4-a-pointer-only`.
+- **State.** Built on `claude/k4-a-pointer-only` (2026-11-20).
 
 ## 2026-11-19
 

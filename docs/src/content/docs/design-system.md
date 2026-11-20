@@ -375,6 +375,8 @@ Button::new("Saving…").loading(saving.get());
 | `disabled(bool)` | It takes no input: no press, hover or focus, and Tab passes it by. It is dimmed to the theme's `OpacityLevel::Disabled` |
 | `full_width(bool)` | As wide as what it is in |
 | `on_click(handler)` | A click, and Enter and Space while it is focused |
+| `on_open_aside(handler)` | Called, given the press, when a person asks for what the button opens beside what is open, in place of pressing it: the middle button, or a press with Ctrl held (Cmd on macOS), and Enter with it while it is focused. An app with tabs opens the place in a new one, and one the person switches to where the press's `shift` is held. Such a press is the handler's alone: no `on_click`, no focus, no submit, and nothing around the button hears it. See [pointer-only pressables](#pointer-only-pressables) |
+| `tab_stop(bool)` | `false`: Tab passes the button by and a press leaves the focus where it was; focused by the app it is pressed by Enter and Space as before. See [pointer-only pressables](#pointer-only-pressables) |
 | `state(name, on)` | A state the theme's recipe names |
 | `style(part, \|s\| ...)`, `rules(&recipe)` | One instance over the theme; the rules of the place it is in |
 | `force(Some(Interaction::Hovered))` | Drawn hovered, pressed or focused with nothing pointing at it: for a gallery, a screenshot, a test. A component made of items (segments, tabs, rows, titles, links) draws it on one item, the one Tab would stop on, as it can only be |
@@ -407,6 +409,35 @@ States a recipe styles: `ButtonState::Disabled`, `FullWidth`, `Loading`, `IconOn
 - A button that is an icon alone is still called by its label: tooling that reads the tree (DevTools, the MCP tools) names it so.
 - The design's close button, menu button and compound button are this button: `Button::new("Close").variant(ButtonVariant::Ghost).size(ButtonSize::Xs).icon(icons::CLOSE).icon_only(true)`, `Button::new("Export").variant(ButtonVariant::Outline).trailing_icon(icons::CHEVRON_DOWN)`, and a button with a `description`.
 - In a [toolbar](#toolbar) a button is a ghost one of the bar's size (unless its item is `as_given`), and an icon alone has a tooltip of its label. Where the bar is too narrow for it, it goes into the bar's menu as an item of its label, its icon, its id with `-item` after it, disabled where the button is disabled or loading; choosing the item calls the button's `on_click` handlers with the click Enter would make (`from_keyboard`, at 0, 0).
+
+### Pointer-only pressables
+
+Many desktop apps reach their buttons, rows, tabs and links with the pointer and with their own shortcuts, and keep Tab for the fields of a form: a press of a toolbar's button leaves the focus in the text being typed. A pressable of the design system is a stop of Tab unless it is told `tab_stop(false)`, which a `Button`, a `ListItem`, a `Tag` (its remove button) and, once for all their items, `Tabs`, a `SegmentedControl` and a `Breadcrumb` take:
+
+```rust
+use lurq::ui::{Breadcrumb, Button, ButtonVariant, Tab, Tabs, icons};
+
+Button::new("Bold").variant(ButtonVariant::Ghost).icon(icons::BOLD).icon_only(true).tab_stop(false);
+Tabs::new(view, [Tab::new("board", "Board"), Tab::new("list", "List")]).tab_stop(false);
+Breadcrumb::new(["Projects", "Orchester", "KON-12"]).tab_stop(false);
+```
+
+- **Tab passes it by**, forward and back; Tab from it, where it has the focus, goes on to the next stop as from anything else.
+- **A press with the pointer leaves the focus where it was**: in the field being typed in, or nowhere. The press does what it does.
+- **It still takes the focus it is given**: `Ctx::focus`, an element ref, an agent through MCP. Focused, Enter and Space press it, a tag's Backspace and Delete take the tag away, and the arrow keys of the tabs or the segments it is one of move along them as before.
+- **It is the same to what reads the tree**: its role, its name and its states do not change.
+
+The engine's elements have the two halves apart, for an app's own control: `tab_stop(false)` passes an element by while a press still focuses it, as a browser's `tabindex="-1"` does, and `focus_on_press(false)` keeps a press from moving the focus.
+
+A press can also ask for a place **beside what is open**, as a link in a browser does: `on_open_aside(handler)` on a `Button`, a `ListItem`, a `Tab`, a `BreadcrumbStep` and a `SidebarItem`. The middle button, or the primary one with Ctrl held (Cmd on macOS), and Enter with the key while it is focused, call the handler in place of the press: the button's `on_click` is not called, the tab is not selected, the step is not followed, the row's path is not gone to, nothing takes the focus, no form is submitted, and what is around the control (a row that opens its own page) does not hear the press. A middle press starts no scroll that follows the pointer. The handler is given the press, so an app tells a tab that is switched to (Shift held) from one that opens behind (`SidebarItem`'s is given nothing). A control with no such handler takes these presses as it did.
+
+```rust
+use lurq::{app::events::MouseEvent, ui::ListItem};
+
+ListItem::new("KON-12 Tasks list")
+  .on_click(move |_| open(route.clone(), Where::Here))
+  .on_open_aside(move |press: MouseEvent| open(route.clone(), if press.shift { Where::NewTab } else { Where::Behind }));
+```
 
 ## Toggle
 
@@ -524,6 +555,7 @@ SegmentedControl::controlled(theme.preferred_appearance(), [(None, "System"), (S
 | `invalid(bool)` | The track has a line in the destructive color; a field's judgment sets it |
 | `size(size)` | A `SegmentedControlSize` (a `ButtonSize`): the track is as high as a button of that size |
 | `full_width(bool)` | As wide as what it is in, its segments sharing the width |
+| `tab_stop(bool)` | `false`: Tab passes its segments by and a press chooses one and leaves the focus where it was; the arrows move along them once the app focuses one. See [pointer-only pressables](#pointer-only-pressables) |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a button has them. `force` draws the segment Tab stops on: the chosen one, else the first that is not disabled |
 
 - The control is one choice: Tab stops in it once, at the chosen segment; Left and Right move the focus to the next segment and choose it, Home and End the first and the last, and a click chooses one.
@@ -1536,10 +1568,11 @@ Tabs::new(canvas, [(0, "Canvas"), (1, "Layout"), (2, "Text")])
 | `manual(bool)` | The arrow keys move the focus alone, and Enter or Space selects: for panels slow to build. Otherwise the selection follows the focus |
 | `label(&str)` | What the list is called to what reads the tree |
 | `overflow(bool)` | The overflowing form: the list scrolls between two scroll buttons, and More at its end opens a menu of every tab |
+| `tab_stop(bool)` | `false`: Tab passes the tabs and the More button by, and a press selects a tab and leaves the focus where it was; the arrows move along them once the app focuses one. The panel is a stop as before. See [pointer-only pressables](#pointer-only-pressables) |
 | `mount(ctx)` | Puts the tabs in the tree of the app's component, where the overflowing form keeps where its list is scrolled and whether its menu is open. Converted into an element on their own (`build(theme)`, `Element::from`), the tabs are the still form: scrolled to the start, a menu that does not open |
 | `more_label(&str)`, `scroll_back_label(&str)`, `scroll_on_label(&str)` | The words of the overflowing form: what the More button says and is called (it says "More" and is called "More tabs" unless told otherwise), and the names of the scroll buttons, "Scroll back" and "Scroll on" |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `disabled` makes every tab disabled. `force` draws the tab Tab stops on, the selected one, and not the panel. `id` is the root's; in the overflowing form the scroll buttons are `<id>-back` and `<id>-on` and the More button `<id>-more` |
-| `Tab::new(value, label)` | A tab. `icon(name)` before the label, `count(n)` after it, `disabled(bool)`, `separated(bool)` a separator before it, `panel(Fn() -> Element)` what it shows while selected, `id` (its item in the More menu is `<id>-item`), `key` |
+| `Tab::new(value, label)` | A tab. `icon(name)` before the label, `count(n)` after it, `disabled(bool)`, `separated(bool)` a separator before it, `panel(Fn() -> Element)` what it shows while selected, `on_open_aside(handler)` called for the middle button or a press with Ctrl (Cmd) in place of selecting it (see [pointer-only pressables](#pointer-only-pressables); its item in the More menu is chosen as before), `id` (its item in the More menu is `<id>-item`), `key` |
 
 - Exactly one tab is selected, and the app holds which. A press of a tab selects it; a press of the selected one or of a disabled one asks for nothing, and tells nothing.
 - The list is one stop of Tab, at the selected tab. The arrow keys of the orientation (Left and Right, or Up and Down) select the tab after and the one before, Home and End the first and the last, and a disabled tab is passed by; with `manual(true)` they move the focus and Space or Enter selects. Tab from the list goes to the panel, and on to what is in it.
@@ -1698,13 +1731,14 @@ Breadcrumb::new([
 | `variant(..)` | `BreadcrumbVariant::Plain` (the default: links in a line of text) or `Path` (segments in a bar, the last in a box of its own), or a variant the theme's recipe names |
 | `overflow(bool)` | Mounted, the steps it has no room for go into the menu of the ellipsis, the ones nearest the first first, the first and the last never, and come back as it is given room. With `max_shown` too, no more than that many are shown where there is room for more. It does nothing to a breadcrumb that is not mounted: that one is its still form (see below) |
 | `on_select(Fn(&str))` | Called with the value of the step followed, after the step's own handlers |
+| `tab_stop(bool)` | `false`: Tab passes the links and the ellipsis by, and a press follows a link and leaves the focus where it was. See [pointer-only pressables](#pointer-only-pressables) |
 | `max_shown(usize)` | The most steps shown. With more, the first, an ellipsis and the last `max_shown - 1`; never fewer than two. All of them without it |
 | `mount(ctx)` | Puts it where it goes, keeping whether the menu of the hidden steps is open and what it hangs from, and which steps one that overflows has no room for. Built on its own (`build`, `.into()`), its ellipsis opens nothing unless it is given `menu`, and it drops no step |
 | `menu(Signal<bool>, ElementRef)` | Whether the menu of the hidden steps is open, and what it hangs from, where the app keeps them, as for a [menu](#menu). A press of the ellipsis turns it; choosing a step, a press outside and Escape close it |
 | `label(&str)`, `more_label(&str)` | What the whole and the ellipsis are called to what reads the tree: "Breadcrumb" and "Show the hidden steps" unless told otherwise |
 | `separator(BreadcrumbSeparator)` | What stands between two steps: `BreadcrumbSeparator::chevron()` (the default), `slash()`, `Icon(name)` or `Text(..)` |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the first link, the one Tab stops on first, in the state. The ellipsis's id is the root's with `-ellipsis` after it |
-| `BreadcrumbStep::new(label)` | A step. `value(&str)` is what `on_select` is told (its label until then), `icon(name)` an icon before its text, `on_select(Fn())` called when it is followed, `disabled(bool)` dimmed and not followed (Tab passes it, and its item in the menu is disabled), `id` the id of its link, of the page, or of its item in the menu while it is hidden, `key` the key of its link |
+| `BreadcrumbStep::new(label)` | A step. `value(&str)` is what `on_select` is told (its label until then), `icon(name)` an icon before its text, `on_select(Fn())` called when it is followed, `on_open_aside(handler)` called for the middle button or a press with Ctrl (Cmd) on its link in place of following it (see [pointer-only pressables](#pointer-only-pressables)), `disabled(bool)` dimmed and not followed (Tab passes it, and its item in the menu is disabled), `id` the id of its link, of the page, or of its item in the menu while it is hidden, `key` the key of its link |
 
 - A link is followed by a click, and by Enter or Space while it is focused. The links and the ellipsis are stops of Tab in their order; the page is not. Choosing a hidden step in the menu follows it as a press of its link would.
 - Parts: `BreadcrumbPart::Root` (the row), `Link` (a step that is a link: what is pressed, with its icon and text), `Page` (the last step), `Icon` (a step's icon), `Separator` and `SeparatorIcon`, `Ellipsis` (what is pressed to open the menu) and `EllipsisIcon`. States: `BreadcrumbState::Collapsed` (some steps are hidden), `Disabled` (of the whole, and of a step alone: it dims the link, the page, the separators and the ellipsis, so that a step can be dimmed by itself).
@@ -1944,6 +1978,7 @@ Tag::new("React").shape(TagShape::Pill).on_remove(move || remove("React"));
 | `shape(TagShape)` | `Default`, or `Pill`: round at both ends, with no line around it |
 | `remove_label(&str)` | What the remove button is called to what reads the tree: "Remove" and the tag's text by default |
 | `disabled(bool)` | Dimmed; its remove button is not pressed and Tab passes it by |
+| `tab_stop(bool)` | `false`: Tab passes the remove button by, and a press of it takes the tag away and leaves the focus where it was; focused by the app, Enter, Space, Backspace and Delete press it. See [pointer-only pressables](#pointer-only-pressables) |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the root's; `force` draws the remove button |
 
 - A tag does not keep whether it is there: the app holds its list, and `on_remove` tells it which one a person took away. A tag with no handler is read only: it has no button and is no stop of Tab.
@@ -6941,6 +6976,7 @@ List::new().contained(true).title("Recent").item(ListItem::new("theme.md").chevr
 | `value(&str)`, `meta(&str)` | A value at the end in the muted color ("Home"), or a note in the mono type ("2m") |
 | `trailing(element)`, `shortcut(keys)`, `chevron(bool)` | What the app puts at the end (a switch, a badge), the keys that do what the row does, and a chevron for a row that leads somewhere |
 | `on_click(handler)`, `href(path)` | What a press does, given the press (`Fn(MouseEvent)`), or where it goes in the app's router: the row is pressed. A second handler is called after the first |
+| `on_open_aside(handler)`, `tab_stop(bool)` | Called, given the press, for the middle button or a press with Ctrl held (Cmd on macOS) in place of `on_click` and the path; and `false`, a pressed row Tab passes by and a press does not focus. See [pointer-only pressables](#pointer-only-pressables) |
 | `selected(bool)`, `disabled(bool)`, `density(Density)` | The selected row is highlighted; a disabled one is dimmed and takes nothing; how high it is, whatever the theme is at |
 | `List::new()`, `item(row)`, `items(rows)` | The rows, one under the other |
 | `separators(bool)`, `inset(f32)` | A line between each two rows, and how far from the start it starts |

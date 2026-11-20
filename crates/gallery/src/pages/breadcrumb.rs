@@ -469,6 +469,13 @@ impl Component for BreadcrumbPage {
         "Called with the value of the step followed, after the step's own handlers.",
       ),
       (
+        "tab_stop",
+        "bool",
+        "true",
+        "false: Tab passes the links by, and a press follows one and leaves the focus where it was. A step's \
+         on_open_aside is called for the middle button or a press with Ctrl (Cmd on macOS), in place of following it.",
+      ),
+      (
         "Breadcrumb::path",
         "&str",
         "",

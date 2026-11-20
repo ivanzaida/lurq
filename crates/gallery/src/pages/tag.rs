@@ -489,6 +489,12 @@ impl Component for TagPage {
         "Gives it the button that takes it away. A press, Enter, Space, Backspace and Delete press it.",
       ),
       (
+        "tab_stop",
+        "bool",
+        "true",
+        "false: Tab passes the remove button by, and a press of it leaves the focus where it was.",
+      ),
+      (
         "shape",
         "TagShape",
         "Default",

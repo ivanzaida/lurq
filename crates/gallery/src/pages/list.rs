@@ -513,6 +513,18 @@ impl Component for ListPage {
          it answers no pointer.",
       ),
       (
+        "on_open_aside",
+        "impl Fn(MouseEvent)",
+        "",
+        "Called in place of on_click for the middle button, or a press with Ctrl (Cmd on macOS): open it in a new tab.",
+      ),
+      (
+        "tab_stop",
+        "bool",
+        "true",
+        "false: Tab passes a pressed row by, and a press leaves the focus where it was.",
+      ),
+      (
         "href",
         "&str",
         "",

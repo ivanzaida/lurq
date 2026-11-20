@@ -144,6 +144,7 @@ struct Props {
   loading: bool,
   disabled: bool,
   full_width: bool,
+  tab_stop: bool,
 }
 
 impl Props {
@@ -158,6 +159,7 @@ impl Props {
       self.loading,
       self.disabled,
       self.full_width,
+      !self.tab_stop,
     ]
     .into_iter()
     .filter(|changed| *changed)
@@ -177,7 +179,8 @@ impl Props {
       .icon_only(self.icon_only)
       .loading(self.loading)
       .disabled(self.disabled)
-      .full_width(self.full_width);
+      .full_width(self.full_width)
+      .tab_stop(self.tab_stop);
     if let Some(name) = ICONS[self.icon].1 {
       button = button.icon(name);
     }
@@ -207,7 +210,11 @@ impl Props {
         lines.push(format!("    .{call}(true)"));
       }
     }
+    if !self.tab_stop {
+      lines.push("    .tab_stop(false)".to_owned());
+    }
     lines.push("    .on_click(|_| save())".to_owned());
+    lines.push("    .on_open_aside(|_| save_in_a_new_tab())".to_owned());
     lines
   }
 
@@ -235,6 +242,7 @@ pub struct ButtonPage {
   loading: Signal<bool>,
   disabled: Signal<bool>,
   full_width: Signal<bool>,
+  tab_stop: Signal<bool>,
   playground: Playground,
   matrix_size: Signal<usize>,
 }
@@ -251,17 +259,19 @@ impl ButtonPage {
       loading: self.loading.get(),
       disabled: self.disabled.get(),
       full_width: self.full_width.get(),
+      tab_stop: self.tab_stop.get(),
     }
   }
 
   /// Puts every prop back to what the playground starts with.
   fn reset(&self) -> impl Fn() + Send + Sync + 'static {
-    let (variant, size, pill, label, icon) = (
+    let (variant, size, pill, label, icon, tab_stop) = (
       self.variant.clone(),
       self.size.clone(),
       self.pill.clone(),
       self.label.clone(),
       self.icon.clone(),
+      self.tab_stop.clone(),
     );
     let switches = [
       self.icon_only.clone(),
@@ -275,6 +285,7 @@ impl ButtonPage {
       pill.set(false);
       label.set(LABEL.to_owned());
       icon.set(PLUS);
+      tab_stop.set(true);
       for switch in &switches {
         switch.set(false);
       }
@@ -312,11 +323,12 @@ impl ButtonPage {
   fn playground(&self, ctx: &mut Ctx) -> Element {
     let props = self.props();
     let theme = ctx.theme().clone();
-    let record = self.playground.recorder();
+    let (record, aside) = (self.playground.recorder(), self.playground.recorder());
     let shown = props
       .button()
       .force(self.playground.forced())
-      .on_click(move |_| record("on_click".to_owned()));
+      .on_click(move |_| record("on_click".to_owned()))
+      .on_open_aside(move |_| aside("on_open_aside".to_owned()));
     let radius = match theme
       .resolve::<Button>(&props.case(), None)
       .part(ButtonPart::Root)
@@ -384,6 +396,7 @@ impl ButtonPage {
       flag("loading", &self.loading),
       flag("disabled", &self.disabled),
       flag("full_width", &self.full_width),
+      flag("tab_stop", &self.tab_stop),
     ];
     self.playground.card(
       ctx,
@@ -744,7 +757,7 @@ impl ButtonPage {
   }
 
   fn table(&self) -> Element {
-    let rows: [(&str, &str, &str, &str); 13] = [
+    let rows: [(&str, &str, &str, &str); 15] = [
       (
         "label",
         "&str",
@@ -813,6 +826,18 @@ impl ButtonPage {
         "Called on a click, and on Enter and Space while the button is focused.",
       ),
       (
+        "on_open_aside",
+        "impl Fn(MouseEvent)",
+        "",
+        "Called in place of on_click for the middle button, or a press with Ctrl (Cmd on macOS): open it in a new tab.",
+      ),
+      (
+        "tab_stop",
+        "bool",
+        "true",
+        "false: Tab passes it by and a press leaves the focus where it was; Enter and Space press it once focused.",
+      ),
+      (
         "style, rules, force",
         "",
         "",
@@ -842,6 +867,7 @@ impl Component for ButtonPage {
       loading: ctx.signal(false),
       disabled: ctx.signal(false),
       full_width: ctx.signal(false),
+      tab_stop: ctx.signal(true),
       playground: Playground::new(ctx, 2),
       matrix_size: ctx.signal(MD),
     }

@@ -783,6 +783,12 @@ impl Component for SegmentedControlPage {
         "As wide as what it is in, its segments sharing the width.",
       ),
       ("disabled", "bool", "false", "Half the opacity; no segment is pressed."),
+      (
+        "tab_stop",
+        "bool",
+        "true",
+        "false: Tab passes the segments by, and a press chooses one and leaves the focus where it was.",
+      ),
     ];
     let playground = self.play.card(ctx);
     self.frame.page(

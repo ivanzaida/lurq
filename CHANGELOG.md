@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+Added:
+
+- **Pressables Tab passes by.** A `ui::Button`, `ui::ListItem` and `ui::Tag` (its remove button), and `ui::Tabs`, `ui::SegmentedControl` and `ui::Breadcrumb` for all their tabs, segments, links and buttons at once, take `tab_stop(false)`: Tab passes them by and a press of one leaves the focus where it was, in the field being typed in or nowhere, as many desktop apps keep Tab for their forms and reach their buttons, rows and tabs with the pointer and their own shortcuts. Such a control still takes the focus the app gives it (`Ctx::focus`, an agent over MCP), Enter and Space press it then, the arrows of tabs and segments move along them, and it is the same to what reads the tree. An element of the engine has the two halves apart: `tab_stop(false)` takes it out of Tab's order and keeps it focusable, and its focus group's arrows still reach it, which `tab_index(-1)` does not allow; `focus_on_press(false)` keeps a press from moving the focus. See [pointer-only pressables](docs/src/content/docs/design-system.md#pointer-only-pressables).
+- **A press that opens beside what is open.** `on_open_aside(handler)` on a `ui::Button`, `ui::ListItem`, `ui::Tab` and `ui::BreadcrumbStep`, as a `ui::SidebarItem` has it: the middle button, or a press with Ctrl held (Cmd on macOS), and Enter with it while the control is focused, call the handler in place of the press, which does nothing else: no `on_click`, no tab selected, no step followed, no path gone to, no focus, no form submitted, and nothing around the control hears it. The handler is given the press, so an app opens a tab it switches to where Shift is held and one behind it where it is not. A middle press on such a control starts no scroll that follows the pointer.
+
 ## 0.63.1 — 2026-11-20
 
 Breaking:
