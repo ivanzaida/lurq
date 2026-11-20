@@ -290,6 +290,121 @@ impl GesturesPage {
   }
 }
 
+/// A seek line that is built in another shape while a finger holds it: a thumb before its track and a time
+/// after it, and something before the line itself. None of it has an id or a key, so the line a pan began on
+/// is another node once it is held. The pan goes on to its end all the same.
+struct HeldLine {
+  held: Signal<bool>,
+  /// How far along it is, from 0 to 1.
+  at: Signal<f32>,
+  /// How many steps of the pan it heard since its start, and whether it heard the end.
+  steps: Signal<u32>,
+  ended: Signal<bool>,
+}
+
+/// How wide the line is.
+const LINE: f32 = 240.0;
+
+impl Component for HeldLine {
+  type Props = ();
+
+  fn create(ctx: &mut Ctx) -> Self {
+    Self {
+      held: ctx.signal(false),
+      at: ctx.signal(0.3),
+      steps: ctx.signal(0),
+      ended: ctx.signal(true),
+    }
+  }
+
+  fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
+    let (held, at, steps, ended) = (self.held.get(), self.at.get(), self.steps.get(), self.ended.get());
+    let (hold, move_to, count, end) = (
+      self.held.clone(),
+      self.at.clone(),
+      self.steps.clone(),
+      self.ended.clone(),
+    );
+    let mut line = Column::new()
+      .width(FILL)
+      .height(44.0)
+      .justify(Justify::Center)
+      .spacing(4.0)
+      .on_pan(move |event: PanEvent| match event.phase {
+        GesturePhase::Start => {
+          // The line takes the pan: nothing around it scrolls with the finger.
+          event.prevent_default();
+          event.stop_propagation();
+          hold.set(true);
+          count.set(0);
+          end.set(false);
+        }
+        GesturePhase::Change => {
+          move_to.update(|at| *at = (*at + event.delta_x / LINE).clamp(0.0, 1.0));
+          count.update(|steps| *steps += 1);
+        }
+        _ => {
+          hold.set(false);
+          end.set(true);
+        }
+      });
+    if held {
+      line = line.child(
+        Row::new().width(FILL).height(12.0).child(
+          Row::new()
+            .size(12.0, 12.0)
+            .rounded(RadiusSize::Full)
+            .background(PaletteColor::Primary)
+            .transform(Transform2D::translate(at * (LINE - 12.0), 0.0)),
+        ),
+      );
+    }
+    line = line.child(
+      Row::new()
+        .width(FILL)
+        .height(4.0)
+        .rounded(RadiusSize::Full)
+        .background(PaletteColor::Muted)
+        .child(
+          Row::new()
+            .width(at * LINE)
+            .height(4.0)
+            .rounded(RadiusSize::Full)
+            .background(PaletteColor::Primary),
+        ),
+    );
+    if held {
+      line = line.child(mono(&format!("{:.0}%", at * 100.0), 11.0));
+    }
+    let mut stage = Column::new().id("held-line").width(LINE).max_width(FILL);
+    if held {
+      stage = stage.child(Row::new().width(FILL).height(0.0));
+    }
+    let heard = match (steps, ended, held) {
+      (0, true, _) => "—".to_owned(),
+      (steps, false, _) => format!("Start · Change ×{steps}"),
+      (steps, true, _) => format!("Start · Change ×{steps} · End"),
+    };
+    Column::new()
+      .width(FILL)
+      .spacing(12.0)
+      .child(stage.child(line))
+      .child(
+        Row::new()
+          .spacing(8.0)
+          .child(quiet("the line", 12.0))
+          .child(mono(if held { "held" } else { "at rest" }, 12.0).id("held-line-state")),
+      )
+      .child(
+        Row::new()
+          .spacing(8.0)
+          .wrap()
+          .child(quiet("its pan told", 12.0))
+          .child(mono(&heard, 12.0).id("held-line-heard")),
+      )
+  }
+}
+
 impl Component for GesturesPage {
   type Props = ();
 
@@ -346,6 +461,7 @@ impl Component for GesturesPage {
       .spacing(16.0)
       .child(self.pad())
       .child(self.told());
+    let held_line = ctx.mount::<HeldLine>(());
     self.frame.page(
       ctx,
       Header {
@@ -382,6 +498,29 @@ impl Component for GesturesPage {
               "        *x += event.delta_x;",
               "        *y += event.delta_y;",
               "    }))",
+            ],
+          ),
+        ),
+        Section::new(
+          "A gesture goes on to its end",
+          "A seek line that is built in another shape while a finger holds it: a thumb and a time come, and            something stands before the line. Nothing of it has an id, so the element the pan began on is            another node once it is held; the pan is still told to its end, to the element that stands where            that one stood. Drag it with a finger (run the gallery with --device phone, and the mouse is one).",
+          self.frame.demo(
+            1,
+            held_line,
+            ".on_pan(|event| ..)",
+            &[
+              "let mut line = Column::new().on_pan(move |event: PanEvent| match event.phase {",
+              "    GesturePhase::Start => {",
+              "        event.prevent_default();",
+              "        held.set(true); // the line is rendered again, in another shape",
+              "    }",
+              "    GesturePhase::Change => at.update(|at| *at += event.delta_x / width),",
+              "    _ => held.set(false), // the end comes, whatever was built anew meanwhile",
+              "});",
+              "if held {",
+              "    line = line.child(thumb);",
+              "}",
+              "line = line.child(track);",
             ],
           ),
         ),

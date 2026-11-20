@@ -130,6 +130,15 @@ editing commands and their menu, and a pen's hover hovers: [every gesture](../st
 the table, with how each is made on a phone, in the emulator on a desktop and through MCP. In text, iOS draws its
 own caret, loupe and handles; elsewhere lurq draws them.
 
+**A gesture that began goes on to its end.** A finger's events and its gestures are told to the elements it
+landed on. A handler that changes what is under the finger (a seek line that gets its thumb and a time when it is
+held) has those elements built anew, and an element with no id and no key, built in another shape and at another
+place among its siblings, is another node. The touch and the gesture go on for the element that stands where the
+one they began on stood, and for what is around it: `on_pan`'s `Change` and `End`, `on_touch_move` and
+`on_touch_end` come as they would have. What only moved (a row scrolled away under the finger) is still the same
+element, and keeps its gesture. An element given an `id` or a `key` is the same one whatever shape it is built
+in, and is the surest.
+
 A finger from the left edge goes back by itself: the router mounted in the window takes the command, after anything
 on the way that handles `on_history_back` (a sheet that closes on it).
 

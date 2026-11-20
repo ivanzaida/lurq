@@ -182,6 +182,49 @@ macro_rules! bubble {
   }};
 }
 
+/// What stands now where a finger landed on `old`, once a render replaced some of those elements: an element
+/// built anew in another shape and at another place among its siblings is another node, and the one it was is
+/// gone. The innermost of `old` that is still under the point `at` is taken as what the render left standing:
+/// the elements under the point inside it now are in the place of the ones that were, and it and what is
+/// around it are as they were. `None` while all of `old` are in the tree.
+///
+/// A gesture that began goes on to its end this way, for the element that stands where the one it began on
+/// stood and for what is around it. What only moved (a list scrolled under the finger) is still in the tree,
+/// and is not looked for again.
+fn followed(
+  root: &Node,
+  layout: &crate::layout::layout_result::LayoutResult,
+  radii: &crate::app::theme::ThemeRadii,
+  old: &[NodeId],
+  at: (f32, f32),
+) -> Option<Vec<NodeId>> {
+  let there = |target: &NodeId| find_node_by_id(root, *target).is_some();
+  if old.iter().all(there) {
+    return None;
+  }
+  let mut hits = Vec::new();
+  hit_test_tree(root, layout, 0.0, 0.0, at.0, at.1, radii, &mut hits);
+  super::take_disabled_hit(&mut hits);
+  let fresh: Vec<NodeId> = hits.iter().map(|(node, _)| node.node_id()).collect();
+  let joined = old.iter().enumerate().find_map(|(outward, target)| {
+    fresh
+      .iter()
+      .position(|hit| hit == target)
+      .map(|inward| (outward, inward))
+  });
+  let followed: Vec<NodeId> = match joined {
+    Some((outward, inward)) => fresh[..inward]
+      .iter()
+      .chain(old[outward..].iter().filter(|target| there(target)))
+      .copied()
+      .collect(),
+    // None of them is under the point any more: what is left of them, or with none left what is there now.
+    None if old.iter().any(there) => old.iter().copied().filter(there).collect(),
+    None => fresh,
+  };
+  Some(followed)
+}
+
 /// Whose a finger is, as [`Tree::touch_event`] tells the shell.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TouchRoute {
@@ -199,7 +242,8 @@ pub(super) struct ActiveTouch {
   id: u64,
   /// What it landed on, from the innermost element out.
   targets: Vec<NodeId>,
-  /// Where it is, in logical pixels.
+  /// Where it landed and where it is, in logical pixels.
+  landed: (f32, f32),
   position: (f32, f32),
   /// A handler of its `on_touch_start` took it: it is not the pointer.
   taken: bool,
@@ -342,6 +386,56 @@ impl Tree {
     self.touch_pointer.down && self.touch_pointer.no_click
   }
 
+  /// A render since the fingers landed may have replaced what they landed on: built anew in another shape, an
+  /// element is another node, and the events of a touch and of a gesture that began there would reach nobody.
+  /// Each finger's elements, and those of the fingers together, are then what stands at the place it landed on
+  /// now: see [`followed`].
+  fn touches_follow_a_rebuild(&mut self) {
+    let lost = self.root.as_ref().is_some_and(|root| {
+      let gone = |target: &NodeId| find_node_by_id(root, *target).is_none();
+      self
+        .touch_pointer
+        .touches
+        .iter()
+        .any(|touch| touch.targets.iter().any(gone))
+    });
+    if !lost {
+      return;
+    }
+    // What a handler of the gesture's own changed may be built and not laid out yet, where no frame came
+    // between two of its events: what stands under the fingers is asked of the layout of what is built.
+    self.lay_out_rebuilt_for_input();
+    let (Some(root), Some(layout)) = (&self.root, &self.last_layout) else {
+      return;
+    };
+    let radii = self.layout_engine.radii();
+    let mut any = false;
+    for touch in &mut self.touch_pointer.touches {
+      if let Some(targets) = followed(root, layout, &radii, &touch.targets, touch.landed) {
+        touch.targets = targets;
+        any = true;
+      }
+    }
+    if !any {
+      return;
+    }
+    // The elements all the fingers of the session landed on, as it was made of them when they landed.
+    let touches = &self.touch_pointer.touches;
+    if let Some(session) = &mut self.touch_pointer.session {
+      let mut held = session
+        .fingers
+        .iter()
+        .filter_map(|(id, ..)| touches.iter().find(|touch| touch.id == *id));
+      if let Some(first) = held.next() {
+        let mut chain = first.targets.clone();
+        for touch in held {
+          chain.retain(|target| touch.targets.contains(target));
+        }
+        session.chain = chain;
+      }
+    }
+  }
+
   /// [`touch_event`](Self::touch_event) at a time of the caller's, for tests of what depends on how fast
   /// fingers go.
   pub(super) fn touch_event_at(
@@ -372,10 +466,13 @@ impl Tree {
       self.touch_pointer.touches.push(ActiveTouch {
         id,
         targets,
+        landed: (lx, ly),
         position: (lx, ly),
         taken: false,
         gestured: false,
       });
+    } else {
+      self.touches_follow_a_rebuild();
     }
     let Some(index) = self.touch_pointer.touches.iter().position(|touch| touch.id == id) else {
       return TouchRoute::Pointer;
