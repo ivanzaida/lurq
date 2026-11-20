@@ -1,5 +1,5 @@
 //! The page of the switch: its playground, the switch bound to a signal, its
-//! states, and the track alone in a row of settings.
+//! states, the track alone in a row of settings, and a switch pressed as a whole in a row pressed of its own.
 
 use std::sync::Arc;
 
@@ -42,12 +42,16 @@ pub struct SwitchPage {
   label: Signal<String>,
   on: Signal<bool>,
   label_hidden: Signal<bool>,
+  whole: Signal<bool>,
   invalid: Signal<bool>,
   disabled: Signal<bool>,
   dark: Signal<bool>,
   motion: Signal<bool>,
   sync: Signal<bool>,
   paused: Signal<bool>,
+  /// The switch pressed as a whole in a row of its own, and how many times the row was pressed.
+  enforced: Signal<bool>,
+  row_presses: Signal<usize>,
 }
 
 impl SwitchPage {
@@ -55,6 +59,7 @@ impl SwitchPage {
   fn play(&self, ctx: &mut Ctx) -> Element {
     let (label, on) = (self.label.get(), self.on.get());
     let (label_hidden, invalid, disabled) = (self.label_hidden.get(), self.invalid.get(), self.disabled.get());
+    let whole = self.whole.get();
     let (record, set) = (self.playground.recorder(), self.on.clone());
     let plain = {
       let label = label.clone();
@@ -62,6 +67,7 @@ impl SwitchPage {
         Switch::new(&label)
           .on(on)
           .label_hidden(label_hidden)
+          .whole(whole)
           .invalid(invalid)
           .disabled(disabled)
       }
@@ -74,6 +80,9 @@ impl SwitchPage {
     let mut code = vec![format!("Switch::new({label:?})")];
     if label_hidden {
       code.push("    .label_hidden(true)".to_owned());
+    }
+    if whole {
+      code.push("    .whole(true)".to_owned());
     }
     if invalid {
       code.push("    .invalid(true)".to_owned());
@@ -104,6 +113,7 @@ impl SwitchPage {
     let flags = [
       self.on.clone(),
       self.label_hidden.clone(),
+      self.whole.clone(),
       self.invalid.clone(),
       self.disabled.clone(),
     ];
@@ -124,10 +134,11 @@ impl SwitchPage {
           divider(),
           flag("on", &self.on),
           flag("label_hidden", &self.label_hidden),
+          flag("whole", &self.whole),
           flag("invalid", &self.invalid),
           flag("disabled", &self.disabled),
         ],
-        changed: [on, label_hidden, invalid, disabled]
+        changed: [on, label_hidden, whole, invalid, disabled]
           .into_iter()
           .filter(|changed| *changed)
           .count(),
@@ -177,12 +188,15 @@ impl Component for SwitchPage {
       label: ctx.signal("Dark mode".to_owned()),
       on: ctx.signal(false),
       label_hidden: ctx.signal(false),
+      whole: ctx.signal(false),
       invalid: ctx.signal(false),
       disabled: ctx.signal(false),
       dark: ctx.signal(true),
       motion: ctx.signal(false),
       sync: ctx.signal(true),
       paused: ctx.signal(false),
+      enforced: ctx.signal(true),
+      row_presses: ctx.signal(0),
     }
   }
 
@@ -230,6 +244,38 @@ impl Component for SwitchPage {
         )
         .border_top(line()),
       );
+    let (enforced, presses) = (self.enforced.clone(), self.row_presses.clone());
+    let whole = Column::new()
+      .width(FILL)
+      .spacing(9.0)
+      .child(
+        Row::new()
+          .width(FILL)
+          .padding_horizontal(16.0)
+          .padding_vertical(12.0)
+          .spacing(16.0)
+          .align_items(Alignment::Center)
+          .justify(Justify::SpaceBetween)
+          .rounded(RadiusSize::Md)
+          .background(PaletteColor::Background)
+          .border(line())
+          .on_click(move |_| presses.update(|count| *count += 1))
+          .child(text("Rule: no force-push", 14.0, FontWeight::Medium))
+          .child(
+            Switch::new("Enforced")
+              .whole(true)
+              .id("enforced")
+              .on(enforced.get())
+              .on_change(move |next| enforced.set(next)),
+          ),
+      )
+      .child(quiet(
+        &format!(
+          "the row was pressed {} times; a press of the switch is the switch's alone",
+          self.row_presses.get()
+        ),
+        12.0,
+      ));
     let rows = [
       (
         "label",
@@ -267,6 +313,13 @@ impl Component for SwitchPage {
         "bool",
         "false",
         "The track alone, where the text is somewhere else. The label is still what the switch is called.",
+      ),
+      (
+        "whole",
+        "bool",
+        "false",
+        "The track and the label are one control: pressed, focused and ringed as a whole, the id on the whole \
+         and the parts named after it (x-track, x-thumb, x-label).",
       ),
       (
         "disabled",
@@ -363,6 +416,28 @@ impl Component for SwitchPage {
               "            .label_hidden(true)",
               "            .on(sync.get())",
               "            .on_change(move |on| set.set(on)),",
+              "    )",
+            ],
+          ),
+        ),
+        Section::new(
+          "Pressed as a whole, in a row pressed of its own",
+          "With whole(true) the track and the label are one control, one ring around both, and the id is on the \
+           whole. A press of a switch, whole or not, is its own: the row around it, which counts its presses, is \
+           not pressed by it.",
+          self.frame.demo(
+            3,
+            whole,
+            ".whole(true)",
+            &[
+              "Row::new()",
+              "    .on_click(move |_| open_rule())",
+              "    .child(Text::new(\"Rule: no force-push\"))",
+              "    .child(",
+              "        Switch::new(\"Enforced\")",
+              "            .whole(true)",
+              "            .id(\"enforced\") // enforced-track, enforced-thumb, enforced-label",
+              "            .bind(enforced),",
               "    )",
             ],
           ),

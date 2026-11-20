@@ -473,6 +473,29 @@ impl Component for CardPage {
     let composed = items()
       .child(item(held(340.0, self.settings_card()), "settings card"))
       .child(item(Self::stat_card(), "stat card"));
+    // Cards of one height in a row, each a share of it: the body takes the height, and what grows in it fills it.
+    let figure = |label: &str, value: &str, note: Option<&str>| {
+      let mut card = Card::new()
+        .height(118.0)
+        .flex(1.0)
+        .min_width(150.0)
+        .padding(16.0)
+        .gap(4.0)
+        .child(quiet(label, 12.0))
+        .child(text(value, 22.0, FontWeight::SemiBold))
+        .child(Column::new().flex(1.0));
+      if let Some(note) = note {
+        card = card.child(quiet(note, 12.0));
+      }
+      card
+    };
+    let figures = Row::new()
+      .width(FILL)
+      .spacing(12.0)
+      .wrap()
+      .child(figure("Runs", "1,284", Some("12% more than last week")))
+      .child(figure("Tokens", "3.7M", None))
+      .child(figure("Cost", "$41.20", Some("in budget")));
     let rows = [
       (
         "title",
@@ -532,7 +555,8 @@ impl Component for CardPage {
         "height / min_width / max_width / min_height / max_height",
         "impl Into<Length>",
         "",
-        "A height of its own, and the least and the most it is wide and high.",
+        "A height of its own, and the least and the most it is wide and high. Given a height, the card gives \
+         what its header leaves to its body, and its footer stays at the bottom.",
       ),
       (
         "padding",
@@ -693,6 +717,33 @@ impl Component for CardPage {
               "    .child(label)",
               "    .child(value)",
               "    .child(delta)",
+            ],
+          ),
+        ),
+        Section::new(
+          "Of one height, side by side",
+          "A card given a height of its own gives what its header leaves to its body: a child with flex(1.0) fills \
+           it, so the last line of each figure stands at the bottom whatever is over it. Where the row is narrow, \
+           the cards go on to the next line. What is in a card is \
+           clipped to its rounded corners.",
+          self.frame.demo(
+            4,
+            figures,
+            ".height(118.0).flex(1.0)",
+            &[
+              "Row::new()",
+              "    .spacing(12.0)",
+              "    .child(",
+              "        Card::new()",
+              "            .height(118.0)",
+              "            .flex(1.0)",
+              "            .padding(16.0)",
+              "            .gap(4.0)",
+              "            .child(Text::new(\"Runs\"))",
+              "            .child(Text::new(\"1,284\"))",
+              "            .child(Column::new().flex(1.0)) // the room left",
+              "            .child(Text::new(\"12% more than last week\")),",
+              "    )",
             ],
           ),
         ),

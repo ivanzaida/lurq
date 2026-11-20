@@ -689,3 +689,30 @@ fn a_card_cuts_what_is_in_it_at_its_rounded_corners() {
     "at its rounded corners"
   );
 }
+
+#[test]
+fn a_card_of_a_least_height_is_as_high_as_what_is_in_it_and_no_higher() {
+  let mut stage = Stage::new(|_| {
+    Row::new()
+      .child(
+        Card::new()
+          .min_height(60.0)
+          .padding(Padding::all(10.0))
+          .id("short")
+          .child(Row::new().size(50.0, 20.0)),
+      )
+      .child(
+        Card::new()
+          .min_height(60.0)
+          .padding(Padding::all(10.0))
+          .gap(0.0)
+          .id("tall")
+          .child(Row::new().size(50.0, 100.0)),
+      )
+      .into()
+  });
+  let (_, _, _, short) = stage.bounds("short");
+  assert_eq!(short, 60.0, "its least height, in a row with room for more");
+  let (_, _, _, tall) = stage.bounds("tall");
+  assert_eq!(tall, 120.0, "as high as what is in it, over its least height");
+}
