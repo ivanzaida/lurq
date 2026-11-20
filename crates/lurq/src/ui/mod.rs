@@ -595,7 +595,7 @@ pub use table_of_contents::{
   TableOfContentsView,
 };
 pub use tabs::{Tab, TabEntry, Tabs, TabsOrientation, TabsPart, TabsRenderer, TabsState, TabsVariant, TabsView};
-pub use tag::{Tag, TagPart, TagRenderer, TagShape, TagSize, TagState, TagVariant, TagView};
+pub use tag::{Tag, TagPart, TagRemoveEvent, TagRenderer, TagShape, TagSize, TagState, TagVariant, TagView};
 pub use teaching_tip::{
   TeachingTip, TeachingTipPart, TeachingTipRenderer, TeachingTipState, TeachingTipVariant, TeachingTipView, Tour,
   TourStep,

@@ -2063,6 +2063,7 @@ Tag::new("main").term("branch:").icon(icons::BRANCH);
 | `icon(name)` | An icon before the text, by its name in the theme's set |
 | `term(&str)` | A term before the text, `branch:` before `main`, as the app writes it (its punctuation too), quieter than the text. The tag is still called by its text |
 | `on_remove(handler)` | Gives the tag its remove button, and is called on a press of it |
+| `on_remove_event(Fn(&TagRemoveEvent))` | `on_remove` given what took the tag away: `TagRemoveEvent::Press` (the button's press) or `Key` (Backspace or Delete on it). A tag in a row a press opens calls `event.stop_propagation()`, so the row hears nothing of it. Handlers of both are called in the order they were given |
 | `shape(TagShape)` | `Default`, or `Pill`: round at both ends, with no line around it |
 | `remove_label(&str)` | What the remove button is called to what reads the tree: "Remove" and the tag's text by default |
 | `disabled(bool)` | Dimmed; its remove button is not pressed and Tab passes it by |
