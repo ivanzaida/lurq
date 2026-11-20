@@ -221,7 +221,10 @@ pub struct CalendarPage {
   due: Signal<Option<Date>>,
   shown: Signal<YearMonth>,
   stay: Signal<Option<DateRange>>,
-  kept: [DateMemory; 7],
+  /// The start and the end of a range chosen in two calendars of one date.
+  start: Signal<Option<Date>>,
+  end: Signal<Option<Date>>,
+  kept: [DateMemory; 9],
 }
 
 impl CalendarPage {
@@ -473,6 +476,8 @@ impl Component for CalendarPage {
       due: ctx.signal(None),
       shown: ctx.signal(YearMonth::current()),
       stay: ctx.signal(None),
+      start: ctx.signal(Some(Date::today())),
+      end: ctx.signal(Some(Date::today().add_days(6))),
       kept: std::array::from_fn(|_| DateMemory::new()),
     }
   }
@@ -539,6 +544,18 @@ impl Component for CalendarPage {
         .memory(&self.kept[6]),
       "months in Roman numerals, a DateText of the page's own",
     ));
+    let (start, end) = (self.start.get(), self.end.get());
+    let mut start_calendar = Calendar::new(self.start.clone()).other_end(end).memory(&self.kept[7]);
+    if let Some(end) = end {
+      start_calendar = start_calendar.max(end);
+    }
+    let mut end_calendar = Calendar::new(self.end.clone()).other_end(start).memory(&self.kept[8]);
+    if let Some(start) = start {
+      end_calendar = end_calendar.min(start);
+    }
+    let ends = items()
+      .child(item(start_calendar, &format!("start · {}", says(start))))
+      .child(item(end_calendar, &format!("end · {}", says(end))));
     let keyboard = KEYS
       .into_iter()
       .fold(Column::new().width(FILL).spacing(10.0), |list, (key, does)| {
@@ -603,6 +620,13 @@ impl Component for CalendarPage {
         "Months, days and the first day: the one given, else the app's (set_date_locale), else English.",
       ),
       ("first_day", "Weekday", "locale's", "The day the weeks start on."),
+      (
+        "other_end",
+        "Option<Date>",
+        "None",
+        "Of a calendar of one date: the other end of a range its date is one end of, marked while this end is \
+         chosen.",
+      ),
       ("week_numbers", "bool", "false", "The ISO week number before each week."),
       (
         "outside_days",
@@ -690,6 +714,28 @@ impl Component for CalendarPage {
           ),
         ),
         Section::new(
+          "The other end of a range",
+          "A range chosen in two calendars of one date each, a start and an end: each marks the date of the other \
+           (other_end), on the highlight, and cannot go past it.",
+          self.frame.demo(
+            5,
+            ends,
+            ".other_end(end)",
+            &[
+              "// start, end: Signal<Option<Date>>",
+              "Calendar::new(start.clone())",
+              "    .other_end(end.get())",
+              "    .max(end_date)",
+              "    .mount(ctx)",
+              "",
+              "Calendar::new(end.clone())",
+              "    .other_end(start.get())",
+              "    .min(start_date)",
+              "    .mount(ctx)",
+            ],
+          ),
+        ),
+        Section::new(
           "Days that cannot be chosen",
           "Out of the range or turned down by the app, a day is muted and takes no press. The keys still reach it, \
            and it says it cannot be chosen.",
@@ -712,7 +758,8 @@ impl Component for CalendarPage {
         Section::new(
           "Locales",
           "The names of the months and the days and the first day of the week are the locale's: the one the \
-           calendar is given, else the app's (app.set_date_locale), else English.",
+           calendar is given, else the app's (app.set_locale, whose dates an app may change word by word, or \
+           app.set_date_locale), else English.",
           self.frame.demo(
             3,
             locales,

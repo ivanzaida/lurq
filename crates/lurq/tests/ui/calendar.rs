@@ -729,3 +729,85 @@ fn a_footer_stands_under_the_months_across_the_panel() {
     "the app's own element, with its own id"
   );
 }
+
+#[test]
+fn the_other_end_of_a_range_is_tinted_while_this_end_is_chosen() {
+  // The start's calendar, the end the 20th: the start is chosen up to it, and the end stays marked.
+  let start = Signal::new(Some(day(11, 12)));
+  let mut stage = single(&start, |calendar| calendar.other_end(day(11, 20)).max(day(11, 20)));
+  assert_eq!(stage.fill_color(&cell(11, 20)), Some(light(PaletteColor::Highlight)));
+  assert_eq!(stage.text("20").0, light(PaletteColor::HighlightForeground));
+  assert_eq!(stage.fill_color(&cell(11, 12)), Some(light(PaletteColor::Primary)));
+  assert_eq!(stage.fill_color(&cell(11, 15)), None, "the days between are not a band");
+  stage.click(&cell(11, 21));
+  assert_eq!(
+    start.get_untracked(),
+    Some(day(11, 12)),
+    "past the other end it cannot be chosen"
+  );
+  stage.click(&cell(11, 16));
+  assert_eq!(start.get_untracked(), Some(day(11, 16)));
+  assert_eq!(
+    stage.fill_color(&cell(11, 20)),
+    Some(light(PaletteColor::Highlight)),
+    "still marked"
+  );
+
+  // Chosen on the other end itself, the day is chosen.
+  let both = Signal::new(Some(day(11, 20)));
+  let mut stage = single(&both, |calendar| calendar.other_end(day(11, 20)));
+  assert_eq!(stage.fill_color(&cell(11, 20)), Some(light(PaletteColor::Primary)));
+}
+
+#[cfg(any(feature = "devtools", feature = "mcp"))]
+#[test]
+fn tooling_reads_the_other_end_on_its_day() {
+  let value = Signal::new(Some(day(11, 12)));
+  let mut stage = single(&value, |calendar| calendar.other_end(Some(day(11, 3))));
+  let said = |stage: &mut Stage, id: &str| {
+    stage
+      .tree
+      .get_element_by_id_mut(id)
+      .and_then(|element| element.description("range_other_end"))
+  };
+  assert_eq!(said(&mut stage, &cell(11, 3)).as_deref(), Some("true"));
+  assert_eq!(said(&mut stage, &cell(11, 4)), None);
+}
+
+#[test]
+fn a_date_picker_gives_its_calendar_the_other_end() {
+  let value = Signal::new(Some(day(11, 12)));
+  let shown = value.clone();
+  let mut stage = roomy(Stage::new(move |ctx| {
+    Column::new()
+      .padding(10.0)
+      .child(
+        lurq::ui::DatePicker::new(shown.clone())
+          .other_end(day(11, 20))
+          .today(day(11, 9))
+          .inline(true)
+          .id("due")
+          .mount(ctx),
+      )
+      .into()
+  }));
+  assert_eq!(
+    stage.fill_color("due-calendar-day-2026-11-20"),
+    Some(light(PaletteColor::Highlight))
+  );
+}
+
+#[test]
+fn the_apps_locale_names_the_months_and_the_weekdays_in_its_own_words() {
+  let app = lurq::app::App::new();
+  let mut locale = lurq::core::Locale::for_tag("uk");
+  locale.dates.months[10] = Arc::from("Листопадик");
+  locale.dates.weekdays_short = ["П", "В", "С", "Ч", "Пт", "Сб", "Нд"].map(Arc::from);
+  app.set_locale(locale);
+  let value = Signal::new(Some(day(11, 12)));
+  let stage = in_app(&app, &value, true);
+  assert!(stage.paints("Листопадик 2026"), "the month's title in the app's word");
+  let (p, nd) = (stage.text_quad("П").unwrap(), stage.text_quad("Нд").unwrap());
+  assert!(p.x < nd.x, "the app's weekdays, from the locale's first day");
+  assert!(!stage.paints("Пн"), "and not the locale's own");
+}
