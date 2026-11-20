@@ -365,6 +365,80 @@ dropped). When a decision is replaced, the old entry stays and says what replace
 - **Why.** An app's marks are drawn by name wherever lurq's components draw icons, as its glyphs are.
 - **State.** Built on `claude/k4-f-misc` (2026-11-20).
 
+### A card that clips to its corners and gives its height to its body
+
+- **Question.** Orchester's cards (`ui/card.rs` of its kit) clip what is in them to their rounded corners (a table, a
+  picture, a header's fill reach the edge), and a card of a fixed height or a share of a row (`flex(1.0)`, the usage
+  figure cards 118 high) gives that height to its body, so that what is in it with `flex` fills it. A `ui::Card` lets
+  what is in it paint over its corners, and its content and body are as high as what is in them, whatever the card is.
+  Can lurq's card do both?
+- **Decision (Ivan, 2026-11-20: "так давай роби в луркі").** `Card::clip(true)` clips what is in the card to its
+  rounded corners; it is not the default, since a card clips the focus rings of the controls at its edges then. The
+  content and the body take the height the card has over what is in them, always: a card as high as its content is
+  as before, and one of a fixed height or a share of a column gives the rest to its body, whose children with `flex`
+  fill it; the footer stays at the bottom.
+- **Why.** The kit's card is a column that clips; a card that could do neither kept the kit on its own.
+- **State.** In work on `claude/k5-b-surfaces`.
+
+### A data list's term at the top of a value that wraps, and its id kept by a theme's renderer
+
+- **Question.** Orchester's detail rows (`ui/detail_row.rs`) put the term at the top of its value, where the value
+  wraps onto several lines or is an element of several lines. A `ui::DataList` centers the term on the value's height.
+  And a theme's renderer of a data list could not put the list's id on its root: the view kept it to itself.
+- **Decision (Ivan, 2026-11-20: "так давай роби в луркі").** `DataList::align(Alignment)` says how a term and its
+  value stand to each other across: `Center` as before, or `Start`, the term at the top of the value. The view gives a
+  renderer the id and the key (`DataListView::id`, `key`), and `DataListView::root_of(element)` puts them and the
+  list's name on the root a renderer builds.
+- **Why.** The kit's detail rows move onto `DataList` only with their term where the design draws it, and a list whose
+  id a theme drops cannot be found by the tests that read it.
+- **State.** In work on `claude/k5-b-surfaces`.
+
+### An alert at the top of its first line, with a note, without a title, and in the inspector's layout
+
+- **Question.** Orchester's notices (`ui/notice.rs`, `ui/setting_notice.rs`) put the icon and the actions at the top
+  of the first line where the actions stand at the end, say a quieter note after the actions (Settings), may have no
+  title (Settings), and in an inspector of 340 have the icon beside the title alone, with the words, the parts and the
+  actions under them across the whole width. A `ui::Alert` centers what is in it on its actions, has a title always,
+  and no note and no such layout. Its kit's ids are `<id>-icon`, `-text`, `-title`, `-body`, `-actions`, `-note`.
+- **Decision (Ivan, 2026-11-20: "так давай роби в луркі").** `Alert::align_top(true)` (state `align_top`): the icon,
+  the words, the actions and the close control stand at the top, the actions on the first line. `Alert::note(&str)`:
+  a quieter line after the actions (part `note`, state `note`). An empty title draws no title part
+  (`Alert::untitled()`), and the alert is then called by its description. `Alert::compact(true)` (state `compact`): the
+  icon beside the title alone, the description, the body and the actions under them across the alert, the actions
+  under the words. `Alert::actions_end(true)` (state `actions_end`): actions under the words stand at the far end.
+  Ids keep the part-ids rule: the kit's `-body` is lurq's `-description` (the kit's words under the title), its
+  `-actions` lurq's `-action` (the part's name, kept so a theme's rule on it holds), `-icon`, `-text`, `-title` and
+  `-note` are the same; the app renames the two it reads.
+- **Why.** The kit's notices are built on `ui::Alert` only where it draws them as the design does.
+- **State.** In work on `claude/k5-b-surfaces`.
+
+### A breadcrumb's links cut at a width, with their whole name in a tooltip while cut
+
+- **Question.** Orchester's breadcrumb (`ui/breadcrumb.rs`) cuts an ancestor's name at 160 with an ellipsis and shows
+  it whole in a tooltip while it is cut; ancestors keep their room and the page gives way. A `ui::Breadcrumb`'s links
+  are as wide as their names.
+- **Decision (Ivan, 2026-11-20: "так давай роби в луркі").** `Breadcrumb::link_max_width(length)`: each link is at
+  most that wide and keeps its room, its name cut with an ellipsis, and a tooltip says the name whole while it is cut
+  (`Tooltip::when_cut`).
+- **Why.** A trail of long names (folders, projects) fits its bar only if each of them gives up room, and a name cut
+  must still be readable.
+- **State.** In work on `claude/k5-b-surfaces`.
+
+### A switch and a checkbox pressed as a whole, their id on the whole, and a press kept from a row around them
+
+- **Question.** Orchester's toggles (`ui/toggle.rs`) are one control: the mark and the label pressed together, one
+  ring around both, the id on the whole and its parts `<id>-mark`, `<id>-knob`, `<id>-label`; a press of one does
+  not reach the row it stands in. A `ui::Switch` and a `ui::Checkbox` put the id on the track or the box alone, and a
+  press of them goes on to a pressable row around them.
+- **Decision (Ivan, 2026-11-20: "так давай роби в луркі").** `Switch::whole(true)` and `Checkbox::whole(true)`
+  (state `whole`): the root is what is pressed, focused and ringed, with the track or the box and the label in it; the
+  id is on the root and the parts are named after it. lurq keeps its part names: the kit's `-mark` is a switch's
+  `-track` and a checkbox's `-box`, its `-knob` a switch's `-thumb`, and `-label` is the same. A press of a switch or
+  a checkbox, whole or not, its label too, stops there: a row around it is not pressed.
+- **Why.** The kit's toggle is found by its id as a whole and pressed inside rows; with the id on the box alone and a
+  press that also pressed the row, it could not move onto lurq.
+- **State.** In work on `claude/k5-b-surfaces`.
+
 ## 2026-11-19
 
 ### A component's id is the prefix of the ids of its parts
