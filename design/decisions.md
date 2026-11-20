@@ -27,7 +27,10 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   whether it took it; the panel then leaves that key alone. The pointer on an item makes it the active one.
 - **Why.** What Orchester's kit needs to put its slash and mention menus on `ui::Menu`; every app with a search field
   over a list of choices needs the same.
-- **State.** Decided; in work on `claude/k6-b-menus-calendar`.
+- **State.** Built on `claude/k6-b-menus-calendar` (2026-11-20): `Menu::keeps_focus`, `MenuKeys` (`new`, `field`,
+  `active`, `key_down`), `MenuItemState::Active`; and `Popover::keeps_focus(bool)`, a popover that leaves the focus
+  where it is. A menu that keeps the focus does not tell the field an `a11y_activedescendant`: the field is the app's,
+  and the active item says `a11y_selected`.
 
 ### A menu item asked for aside
 
@@ -39,7 +42,7 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   on the active item of a menu that keeps the focus elsewhere. Such a press is the handler's alone (`on_select` is not
   called) and the menu closes, as after a choice. An item that opens a submenu or a page has none.
 - **Why.** What Orchester's kit needs (its `MenuItem::opens`); the same press means the same thing on every control.
-- **State.** Decided; in work on `claude/k6-b-menus-calendar`.
+- **State.** Built on `claude/k6-b-menus-calendar` (2026-11-20): `MenuItem::on_open_aside`.
 
 ### A calendar's heading with its buttons at the end, and its keys read without the focus
 
@@ -57,7 +60,9 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   left alone, and so is Enter where the focus is on what takes Enter itself (a button of the footer). `CalendarKeys::Days`
   stays the default. The day the keys are on is kept in a `DateMemory` or by a mounted calendar.
 - **Why.** What Orchester's kit needs to put its picker's grid on `ui::Calendar`.
-- **State.** Decided; in work on `claude/k6-b-menus-calendar`.
+- **State.** Built on `claude/k6-b-menus-calendar` (2026-11-20): `CalendarHeading`, `CalendarKeys`,
+  `Calendar::heading`, `Calendar::keys`, `Calendar::on_choose`, states `cursor` and `nav_at_end`,
+  `CalendarView::cursor_day`. Of several months, both buttons stand at the end of the last month's heading.
 
 ### Page tabs that keep their places, an icon after a label, and tabs at the line's end
 
@@ -71,7 +76,25 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   `trailing_icon`). `Tab::at_end(true)`: the tab stands at the end of the line, after the note and the app's element,
   with the tabs so placed; it is still a tab of the list, reached by its arrow keys and in the More menu in its order.
 - **Why.** What Orchester's kit needs to put its page tabs on `ui::Tabs`.
-- **State.** Decided; in work on `claude/k6-b-menus-calendar`.
+- **State.** Built on `claude/k6-b-menus-calendar` (2026-11-20): `Tabs::reserve_selected_width`, `Tab::trailing_icon`
+  (part `trailing_icon`), `Tab::at_end`; mounted tabs count the tabs at the end in what the list needs to stand whole.
+
+### A dialog's first focus, key caps in the app's words, and a note's elements that wrap
+
+- **Question.** Orchester's dialogs that Enter confirms (delete, save) give the focus to their main action, or to no
+  control, so that Enter does what the note says; `ui::Dialog` gives it to its first stop of Tab (Cancel), and Enter
+  presses Cancel. Their note writes the keys in the app's own words ("Enter", "Esc", translated) and the caps have ids;
+  `note_key` writes the platform's names and glyphs, and its caps have none. A long reason in the note
+  (`note_child`) ran out of the note in place of wrapping.
+- **Decision (Ivan, 2026-11-20: "роби", after the K6 list was put to him).** `Button::autofocus(true)`: the focus goes to
+  the button as the dialog, popover or menu it is in opens (the engine's `autofocus`, which `ui::Button` did not pass
+  on). `Dialog::initial_focus(DialogFocus::Panel)`: the panel itself takes the focus, a stop of Tab before its first
+  control, so Enter confirms and presses no button; `DialogFocus::FirstControl` stays the default.
+  `Dialog::note_key_worded(cap, words)`: a cap that says the app's word as it is. Every cap of the note is named by
+  the new part `note_key_cap` (`x-note_key_cap`, `x-note_key_cap-2`). An element `note_child` puts in the note gives
+  way where the note is short and is never wider than it, so a text in it wraps.
+- **Why.** What Orchester's kit needs to put its dialogs on `ui::Dialog`.
+- **State.** Built on `claude/k6-b-menus-calendar` (2026-11-20).
 
 ### Window tabs that keep a gap between them, and fit by it
 
