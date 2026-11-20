@@ -9,6 +9,42 @@ them says so. Decisions about phones and tablets are in [mobile-decisions.md](mo
 Each entry: **the question**, **the decision**, **why**, and its **state** (decided, in work on a branch, built,
 dropped). When a decision is replaced, the old entry stays and says what replaced it.
 
+## 2026-11-21
+
+### A menu's section that scrolls, an item that leaves the menu open, submenus opened by a press, and popovers placed as Orchester's are
+
+- **Question.** Orchester's kit cannot move its last menus and popovers onto `ui::Menu` and `ui::Popover`: the slash
+  menu's skills, the @mention files, a choice field's options, the base branch and the browser's overflow menu are
+  rows in a section that scrolls, which lurq's menu does not reach (the kit draws them as standalone items with keys
+  of its own); a filter that chooses several is a menu whose rows must not close it; a card's *Move to*, *Priority*
+  and *Tags* open their lists on a press, not under the pointer; a menu at the pointer over a row and a popover the
+  app opens (the kanban question) must not take a press of their anchor for a press of a trigger; and the status
+  bar's popover stands 12 from the bar's end and a chip's popover inside its column, which `ui::Popover` cannot say
+  (one offset, no inset of `within`). Should lurq's menu and popover do these?
+- **Decision (Ivan, 2026-11-21: "давай додай можливості в лурк ці").**
+  1. `MenuEntry::Scroll { entries, max_height }` and `Menu::scrolling(entries, max_height)`: a section of the menu
+     that scrolls past `max_height` (the part `scroll`, `x-scroll`), whose items stay the menu's: they close it, are
+     named after it, are reached by the arrows and by typing their label, and the focused one is scrolled into
+     view; under `keeps_focus` they are counted among the items the keys move, and the active one is scrolled into
+     view. `Menu::entry(MenuEntry)` adds any entry.
+  2. `MenuItem::keeps_open(true)`: choosing the item calls its handlers and leaves the menu open, the focus where it
+     was (or, under `keeps_focus`, the active item where it was): a multi-select filter's option, checked or not.
+  3. `Menu::submenus(SubmenuOpen::Press)`: the submenus of the menu's items open on a press of their item (and Enter,
+     Space and Right), and a press of an open one's item closes it; the pointer opens and closes none.
+     `SubmenuOpen::Hover`, the default, is today's.
+  4. `Menu::switch_on_anchor_press(false)` and `Popover::switch_on_anchor_press(false)`: the anchor is no trigger of
+     a dropdown, as the engine's `Popup` already says.
+  5. `Popover::cross_offset(value)`: how far the popover is moved along the edge it stands on, toward the end (or
+     down, beside its anchor), besides `offset` away from it. `Popover::within_inset(element, Padding)` and the
+     engine's `Overlay::within_inset` / `Popup::within_inset`: kept inside the box of `element` less the inset on each
+     side.
+  6. The suspected bug, a popover over its control with an offset of -6 standing 6 into the control: checked with a
+     test first, fixed if the engine is wrong.
+- **Why.** What Orchester's kit needs to drop its `standalone` items and `held_panel`, its `popup_by_app`, and the
+  arithmetic of `bar_popover` and `popover_inside`. None of it is Orchester's alone: long menus scroll, filters choose
+  several, many apps open submenus on a click.
+- **State.** In work on `claude/k7-b-menus` (2026-11-21).
+
 ## 2026-11-20
 
 ### The list of every open tab: the app's to know, its keys first, its rows, its place and its words
