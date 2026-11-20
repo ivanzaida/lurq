@@ -108,6 +108,8 @@ struct ThemeInner {
   preferred_appearance: Option<crate::app::window::Appearance>,
   /// The system's appearance, as last told.
   system_appearance: crate::app::window::Appearance,
+  /// Whether the system said what it is in yet: a shell did, or the app asked before it had a window.
+  system_heard: bool,
   #[cfg(feature = "markdown")]
   text_marks: Arc<ThemeTextMarks>,
   #[cfg(feature = "markdown")]
@@ -202,6 +204,7 @@ impl Theme {
         follows_system: true,
         preferred_appearance: None,
         system_appearance: appearance,
+        system_heard: false,
         #[cfg(feature = "markdown")]
         text_marks: Arc::new(definition.text_marks),
         #[cfg(feature = "markdown")]
@@ -814,13 +817,38 @@ impl Theme {
 
   /// Takes the system's settings, if the theme follows them. A shell calls it when they change.
   pub fn apply_system(&self, system: &crate::app::window::SystemSettings) {
-    self.inner.write().unwrap().system_appearance = system.appearance;
+    {
+      let mut inner = self.inner.write().unwrap();
+      inner.system_appearance = system.appearance;
+      inner.system_heard = true;
+    }
     if !self.follows_system() {
       return;
     }
     self.set_appearance(self.preferred_appearance().unwrap_or(system.appearance));
     self.set_text_scale(system.text_scale);
     self.set_bold_text(system.bold_text);
+  }
+
+  /// Takes the system's appearance alone, if the theme follows the system: what
+  /// [`App::read_system_appearance`](crate::app::App::read_system_appearance) gives it before the app has a
+  /// window. The text scale and bold text are as they were.
+  pub fn apply_system_appearance(&self, appearance: crate::app::window::Appearance) {
+    {
+      let mut inner = self.inner.write().unwrap();
+      inner.system_appearance = appearance;
+      inner.system_heard = true;
+    }
+    if self.follows_system() {
+      self.set_appearance(self.preferred_appearance().unwrap_or(appearance));
+    }
+  }
+
+  /// The system's appearance, once it said it: a tree mounted after that tells its window so from the first
+  /// render.
+  pub(crate) fn heard_system_appearance(&self) -> Option<crate::app::window::Appearance> {
+    let inner = self.inner.read().unwrap();
+    inner.system_heard.then_some(inner.system_appearance)
   }
 
   /// The family of interface text: [`ThemeTypography::sans`].

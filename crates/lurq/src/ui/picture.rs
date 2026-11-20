@@ -2583,12 +2583,17 @@ impl PictureView {
         NodeUpdate::aspect_ratio(node, wide / high * (1.0 - 4.0 * f32::EPSILON));
         NodeUpdate::max_height(node, high);
       }
-      (_, height, ratio) => {
+      (width, height, ratio) => {
         if let Some(height) = height {
           NodeUpdate::height(node, height);
         }
         if let Some(ratio) = ratio {
           NodeUpdate::aspect_ratio(node, ratio);
+          // A ratio with no side said is as wide as its room. A column stretches its child to that by itself; a
+          // row does not, and the box there was as wide as its pixels: nothing, while they are not loaded.
+          if width.is_none() && height.is_none() {
+            NodeUpdate::width(node, Dimension::Pct(100.0));
+          }
         }
       }
     }

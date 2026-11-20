@@ -1015,10 +1015,29 @@ nothing was set.
 
 The window hears the system's appearance once the shell has made it, after the root was mounted: the root's
 `create` and its first render (`tree.mount_root(..)` runs both) are in the light palette on a dark system, and so
-is a color read there and kept. What is drawn is not: the window is drawn first after it has heard. So read the
-theme's colors in `render`, which runs again when the appearance changes, or read `ctx.window().system.appearance`
-in `render` and build again what was made from them in `create`: a `NavigationBar::new()` or a `TabBar::new()`
-kept from `create` keeps the light palette's colors.
+is a color read there and kept. What is drawn is not: the window is drawn first after it has heard.
+
+An app asks the system itself before it mounts its root, with no window:
+
+```rust
+let mut app = App::new();
+app.read_system_appearance();
+tree.mount_root::<Root>(&mut app, props);
+```
+
+`App::read_system_appearance()` reads what the system is in and gives it to the theme, as the shell does later:
+the root is created and first rendered in the look the window will have, `theme.appearance()` and
+`ctx.window().system.appearance` say it there, and a color read in `create` is the right one. It reads the
+setting on Windows (light while a high contrast theme is on, as the window says then), the person's defaults on
+macOS, the main screen's traits on iOS and `prefers-color-scheme` in a browser, and gives `None` and changes
+nothing on Linux and where the system did not say. It is one call the app makes, and not what `App::new()` does:
+a test that builds an app is in the light look on every machine. `lurq::app::system_appearance()` is the reading
+alone. A theme that does not follow the system, or has a preferred appearance, keeps its own.
+
+What changes while the app runs still comes later: read the theme's colors in `render`, which runs again when
+the appearance changes, or read `ctx.window().system.appearance` in `render` and build again what was made from
+them in `create`: a `NavigationBar::new()` or a `TabBar::new()` kept from `create` keeps the colors it was made
+with.
 
 ### What The Theme Takes
 

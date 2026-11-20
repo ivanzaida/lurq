@@ -55,6 +55,16 @@ struct GalleryProps {
 #[cfg(feature = "mcp")]
 static MCP: std::sync::OnceLock<lurq::mcp::McpHandle> = std::sync::OnceLock::new();
 
+/// The look the gallery's root was created in: the theme's appearance, and the system's as its window said it.
+/// The Theme page shows it: with the system asked before the root is mounted, it is the system's.
+static CREATED_IN: std::sync::OnceLock<(lurq::app::window::Appearance, lurq::app::window::Appearance)> =
+  std::sync::OnceLock::new();
+
+/// The look the gallery's root was created in: see [`CREATED_IN`].
+pub(crate) fn created_in() -> Option<(lurq::app::window::Appearance, lurq::app::window::Appearance)> {
+  CREATED_IN.get().copied()
+}
+
 struct Gallery {
   shell: Shell,
   open: OpenTabs,
@@ -64,6 +74,7 @@ impl Component for Gallery {
   type Props = GalleryProps;
 
   fn create(ctx: &mut Ctx) -> Self {
+    let _ = CREATED_IN.set((ctx.theme().appearance(), ctx.window().info().system.appearance));
     let shell = Shell::new(ctx);
     let open = OpenTabs::new(&ctx.props::<GalleryProps>().route);
     // In a browser the address names the page: it is opened on, follows the pages and takes the back button. Its
@@ -223,6 +234,9 @@ fn main() {
 
 /// Opens the gallery's window on `route`, drawn by the engines `engine` makes.
 fn run(mut app: App, route: String, engine: impl Fn() -> Box<dyn RenderEngine> + 'static) {
+  // The system is asked whether it is light or dark before the root is mounted: the root is created in the
+  // look its window will have, and not in the light one on a dark system.
+  app.read_system_appearance();
   // The languages lurq has no tokenizer of its own for, by syntect's grammars.
   syntect_code::register(&app);
   let mut tree = Tree::new();

@@ -25,7 +25,7 @@ use lurq::{
 use super::kit::named;
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{FILL, muted, props_table},
+  kit::{FILL, mono, muted, props_table, quiet},
   playground::{Playground, Shown, Spec, divider, flag, prop},
 };
 
@@ -554,6 +554,46 @@ impl Component for ThemePage {
          keeps the gallery in its theme.",
       ),
     ];
+    // What the system says with no window, and the look the gallery's root was created in.
+    let system = {
+      // The name over the value: a line of the name beside it does not fit a window as narrow as a phone.
+      let says = |name: &str, value: String, id: &str| {
+        Column::new()
+          .width(FILL)
+          .spacing(2.0)
+          .child(quiet(name, 12.0).width(FILL))
+          .child(mono(&value, 12.0).id(id))
+      };
+      let look = |appearance: Option<Appearance>| match appearance {
+        Some(Appearance::Light) => "Light",
+        Some(Appearance::Dark) => "Dark",
+        None => "not said",
+      };
+      let created = crate::created_in();
+      Column::new()
+        .width(FILL)
+        .spacing(10.0)
+        .child(says(
+          "the system, asked now with no window",
+          look(lurq::app::system_appearance()).to_owned(),
+          "theme-system-asked",
+        ))
+        .child(says(
+          "the theme the gallery's root was created in",
+          look(created.map(|(theme, _)| theme)).to_owned(),
+          "theme-root-created-in",
+        ))
+        .child(says(
+          "what its window said of the system then",
+          look(created.map(|(_, window)| window)).to_owned(),
+          "theme-root-window-said",
+        ))
+        .child(says(
+          "what the window says now",
+          look(Some(ctx.window().info().system.appearance)).to_owned(),
+          "theme-window-says",
+        ))
+    };
     self.frame.page(
       ctx,
       Header {
@@ -640,6 +680,24 @@ impl Component for ThemePage {
               "theme.opacity_value(OpacityLevel::Disabled)",
               "theme.blur_value(BlurSize::Thin)",
               "theme.focus_ring().width",
+            ],
+          ),
+        ),
+        Section::new(
+          "The system's look, before the window",
+          "A shell tells the theme whether the system is light or dark once it has made its window, and the root            is mounted before that: on a dark system it was created in the light palette. The gallery asks the            system first, with no window, so its root is created in the look the window will have.",
+          self.frame.demo(
+            4,
+            system,
+            "app.read_system_appearance()",
+            &[
+              "let mut app = App::new();",
+              "// Before the root is mounted: the theme is in the system's look from the root's create.",
+              "app.read_system_appearance();",
+              "tree.mount_root::<Root>(&mut app, props);",
+              "",
+              "// The reading alone: Some(Appearance::Dark), or None where the system cannot be asked.",
+              "let look = lurq::app::system_appearance();",
             ],
           ),
         ),
