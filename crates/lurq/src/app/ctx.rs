@@ -3776,6 +3776,9 @@ impl Ctx {
       let Some(index) = self.children.iter().position(|slot| slot.id == dirty_slot_id) else {
         continue;
       };
+      // The children it was handed are what they were when this component last rendered: those that rendered
+      // again by themselves since are what they are now, before it builds itself of them again.
+      let handed = self.fresh_slot_children(index);
       let slot = &mut self.children[index];
       if !slot.ctx.any_dirty() {
         continue;
@@ -3784,6 +3787,9 @@ impl Ctx {
         slot.offstage_dirty = true;
         slot.ctx.clear_dirty();
         continue;
+      }
+      if let Some(handed) = handed {
+        slot.ctx.slot_children = Some(handed);
       }
 
       if slot.ctx.is_dirty() {
@@ -3820,6 +3826,61 @@ impl Ctx {
 
     self.update_subtree_dirty_from_children();
     replacements
+  }
+
+  /// The children handed to the component in the slot at `index`, which is about to render again by itself,
+  /// with the output of every component among them that rendered again by itself since it last rendered.
+  /// `None` where none did, or it holds no children, or is not about to render.
+  ///
+  /// A component's children are elements: the output of the components the parent mounted for it, as it was at
+  /// the parent's render (`mount_with`, `Ctx::children`). A child that changes by itself goes to the live tree
+  /// at once, and is not in what its holder keeps: a holder that then rendered again alone (a row that follows
+  /// a finger, a sheet on its way) put the child back as it was when the parent last rendered. The components
+  /// are those below this one, which mounted them; one handed down from further up is as its holder has it.
+  fn fresh_slot_children(&self, index: usize) -> Option<Vec<Element>> {
+    let holder = &self.children[index];
+    if !holder.ctx.is_dirty() || holder.offstage {
+      return None;
+    }
+    let handed = holder.ctx.slot_children.as_ref()?;
+    // Nothing below this component rendered since the holder did: its children are as it has them.
+    if !self.any_slot_rendered_after(holder.rendered_at, holder.id) {
+      return None;
+    }
+    let mut any = false;
+    let mut fresh = |root: &Node| -> Option<Node> {
+      let id = root.component_slot_id()?;
+      let slot = self.descendant_slot(id).filter(|slot| slot.id != holder.id)?;
+      if slot.rendered_at <= holder.rendered_at {
+        return None;
+      }
+      let mut output = slot.assemble(self, None)?;
+      output.adopt_outer_decoration(root);
+      any = true;
+      Some(output)
+    };
+    let children: Vec<Element> = handed
+      .iter()
+      .map(|child| {
+        // A child that is a component's root itself, or an element with components below it.
+        let node = match fresh(&child.node) {
+          Some(node) => node,
+          None => child.node.clone_with_component_roots(&mut fresh),
+        };
+        Element::from_node(node)
+      })
+      .collect();
+    any.then_some(children)
+  }
+
+  /// Whether a component below this one, other than the one in the slot `but` and what is in it, rendered
+  /// after the render `since`.
+  fn any_slot_rendered_after(&self, since: u64, but: u64) -> bool {
+    self
+      .children
+      .iter()
+      .filter(|slot| slot.id != but)
+      .any(|slot| slot.rendered_at > since || slot.ctx.any_slot_rendered_after(since, but))
   }
 
   /// The slot of a component this one mounted, `for_each` items included.

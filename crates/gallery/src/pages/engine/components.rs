@@ -24,7 +24,7 @@ use lurq::{
 use super::kit::{samples, well};
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{FILL, mono, props_table, quiet, text},
+  kit::{FILL, line, mono, props_table, quiet, text},
   playground::{Playground, Shown, Spec, divider, field, prop},
 };
 
@@ -98,6 +98,76 @@ impl Component for InfoCard {
       .child(Rect::new(FILL, 1.0).background(PaletteColor::Border))
       .child(text(&props.body, 13.0, FontWeight::Normal).width(FILL))
       .child(quiet(&format!("rendered {} times", self.renders.get()), 11.0))
+  }
+}
+
+/// A count of its own, which a parent hands to another component as its child.
+struct Tally {
+  count: Signal<u32>,
+}
+
+impl Component for Tally {
+  type Props = ();
+
+  fn create(ctx: &mut Ctx) -> Self {
+    Self { count: ctx.signal(0) }
+  }
+
+  fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
+    let count = self.count.clone();
+    Row::new()
+      .spacing(12.0)
+      .align_items(Alignment::Center)
+      .child(quiet("the child's count", 12.0))
+      .child(mono(&self.count.get().to_string(), 12.0).id("handed-count"))
+      .child(
+        Button::new("+1")
+          .variant(ButtonVariant::Outline)
+          .size(ButtonSize::Sm)
+          .id("handed-more")
+          .on_click(move |_| count.update(|count| *count += 1)),
+      )
+  }
+}
+
+/// A box that holds the children it was handed, and renders again by itself as its own count goes: a row that
+/// follows a finger does, and a sheet on its way.
+struct Holding {
+  renders: Signal<u32>,
+}
+
+impl Component for Holding {
+  type Props = ();
+
+  fn create(ctx: &mut Ctx) -> Self {
+    Self { renders: ctx.signal(0) }
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let renders = self.renders.clone();
+    Column::new()
+      .width(320.0)
+      .max_width(FILL)
+      .spacing(12.0)
+      .padding(12.0)
+      .rounded(RadiusSize::Lg)
+      .border(line())
+      .child(
+        Row::new()
+          .spacing(12.0)
+          .wrap()
+          .align_items(Alignment::Center)
+          .child(quiet("the holder rendered by itself", 12.0))
+          .child(mono(&self.renders.get().to_string(), 12.0).id("handed-renders"))
+          .child(
+            Button::new("Render the holder")
+              .variant(ButtonVariant::Outline)
+              .size(ButtonSize::Sm)
+              .id("handed-render")
+              .on_click(move |_| renders.update(|renders| *renders += 1)),
+          ),
+      )
+      .with_children(ctx.children().to_vec())
   }
 }
 
@@ -418,6 +488,10 @@ impl Component for ComponentsPage {
     let playground = self.play(ctx);
     let cards = Self::cards(ctx);
     let list = self.list(ctx);
+    let handed = {
+      let child = ctx.mount::<Tally>(());
+      ctx.mount_with::<Holding>((), vec![child])
+    };
     self.frame.page(
       ctx,
       Header {
@@ -484,6 +558,23 @@ impl Component for ComponentsPage {
               "items.update(|items| items.rotate_left(1));",
               "// Remove last",
               "items.update(|items| { items.pop(); });",
+            ],
+          ),
+        ),
+        Section::new(
+          "Children handed to a component",
+          "The page mounts the count and hands it to the box as its child. Press +1: the count renders again by            itself. Then render the holder by itself: it builds itself of its children again, and shows the count            as it is now, and not as it was when the page last rendered.",
+          self.frame.demo(
+            2,
+            handed,
+            "ctx.mount_with::<Holding>(props, children)",
+            &[
+              "// The parent.",
+              "let child = ctx.mount::<Tally>(());",
+              "ctx.mount_with::<Holding>((), vec![child])",
+              "",
+              "// The holder's render: what it was handed, as each child is now.",
+              "Column::new().with_children(ctx.children().to_vec())",
             ],
           ),
         ),
