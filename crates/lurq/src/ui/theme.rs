@@ -12,6 +12,7 @@ use super::{
   icon::SpinMotion,
   part_style::PartStyle,
   recipe::{Case, Name, Recipe, ResolvedRecipe, ResolvedStyles, resolve_styles},
+  skeleton::SkeletonMotion,
 };
 use crate::{
   app::theme::{Breakpoint, Theme},
@@ -196,6 +197,7 @@ pub struct UiDefinition {
   part_renderers: HashMap<(Name, Name), Stored>,
   bare: bool,
   spin_motion: SpinMotion,
+  skeleton_motion: SkeletonMotion,
 }
 
 impl UiDefinition {
@@ -251,6 +253,17 @@ impl UiDefinition {
   /// How every spinning icon and spinner moves that is not told its own motion: smooth unless set.
   pub fn spin_motion(&self) -> SpinMotion {
     self.spin_motion
+  }
+
+  /// How every skeleton moves that is not told its own motion: see [`SkeletonMotion`].
+  pub fn set_skeleton_motion(&mut self, motion: SkeletonMotion) -> &mut Self {
+    self.skeleton_motion = motion;
+    self
+  }
+
+  /// How every skeleton moves that is not told its own motion: smooth unless set.
+  pub fn skeleton_motion(&self) -> SkeletonMotion {
+    self.skeleton_motion
   }
 
   /// Gives a component a recipe in place of the design's, all of it: nothing
@@ -428,6 +441,23 @@ impl Theme {
   pub fn set_spin_motion(&self, motion: SpinMotion) {
     self.update_ui(|ui| {
       ui.set_spin_motion(motion);
+    });
+  }
+
+  /// How every skeleton moves that is not told its own motion ([`Skeleton::motion`]): smooth unless set. See
+  /// [`SkeletonMotion`].
+  ///
+  /// [`Skeleton::motion`]: super::Skeleton::motion
+  pub fn skeleton_motion(&self) -> SkeletonMotion {
+    self.track_access();
+    self.with_ui(UiDefinition::skeleton_motion)
+  }
+
+  /// Gives every skeleton that is not told its own motion `motion`: `SkeletonMotion::stepped(20)` for an app whose
+  /// skeletons pulse in 20 poses a second, so that the window draws no more frames than that while one is shown.
+  pub fn set_skeleton_motion(&self, motion: SkeletonMotion) {
+    self.update_ui(|ui| {
+      ui.set_skeleton_motion(motion);
     });
   }
 

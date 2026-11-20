@@ -36,7 +36,9 @@ use crate::{
 };
 
 /// Where a paste shortcut reads from: the OS clipboard (with the `clipboard`
-/// feature), or what a test installs with [`Tree::set_clipboard_reader`].
+/// feature), or what an app installs with
+/// [`App::set_clipboard_reader`](crate::app::App::set_clipboard_reader) or a
+/// test with [`Tree::set_clipboard_reader`].
 pub trait ClipboardReader: Send + Sync {
   /// The clipboard's text, for a paste no handler looks at.
   fn read_text(&self) -> Option<String>;
@@ -50,7 +52,9 @@ pub trait ClipboardReader: Send + Sync {
 }
 
 /// Where a copy writes: the OS clipboard (with the `clipboard` feature), or
-/// what a test installs with [`Tree::set_clipboard_writer`].
+/// what an app installs with
+/// [`App::set_clipboard_writer`](crate::app::App::set_clipboard_writer) or a
+/// test with [`Tree::set_clipboard_writer`].
 pub trait ClipboardWriter: Send + Sync {
   /// Puts `text` on the clipboard: whether it was written.
   fn write_text(&self, text: &str) -> bool;
@@ -211,9 +215,25 @@ impl Tree {
     self.clipboard_writer = writer;
   }
 
+  /// Where copies go in place of the OS clipboard: the tree's own writer, else the app's.
+  fn clipboard_writer(&self) -> Option<Arc<dyn ClipboardWriter>> {
+    self.clipboard_writer.clone().or_else(|| {
+      let app = self.root_ctx.as_ref().and_then(crate::app::ctx::Ctx::app_if_set)?;
+      app.shared.clipboard_writer.lock().clone()
+    })
+  }
+
+  /// Where pastes read in place of the OS clipboard: the tree's own reader, else the app's.
+  fn clipboard_reader(&self) -> Option<Arc<dyn ClipboardReader>> {
+    self.clipboard_reader.clone().or_else(|| {
+      let app = self.root_ctx.as_ref().and_then(crate::app::ctx::Ctx::app_if_set)?;
+      app.shared.clipboard_reader.lock().clone()
+    })
+  }
+
   /// Writes `text` where copies go: whether it was written.
   pub(super) fn write_clipboard_text(&self, text: &str) -> bool {
-    match &self.clipboard_writer {
+    match &self.clipboard_writer() {
       Some(writer) => writer.write_text(text),
       None => {
         // What was copied with its Markdown is no longer what the clipboard holds.
@@ -230,7 +250,7 @@ impl Tree {
   /// it.
   #[cfg(feature = "markdown")]
   pub(super) fn write_clipboard_rich(&self, text: &str, markdown: &str) -> bool {
-    match &self.clipboard_writer {
+    match &self.clipboard_writer() {
       Some(writer) => writer.write_rich(text, markdown),
       None => {
         let rich = crate::components::RichText::from_markdown(markdown);
@@ -268,7 +288,7 @@ impl Tree {
   }
 
   pub(super) fn paste_from_reader(&mut self, keyboard: &KeyboardEvent) -> bool {
-    let Some(reader) = self.clipboard_reader.clone().or_else(os_clipboard) else {
+    let Some(reader) = self.clipboard_reader().or_else(os_clipboard) else {
       return false;
     };
     self.paste_content(

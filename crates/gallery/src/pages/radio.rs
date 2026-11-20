@@ -1,21 +1,25 @@
 //! The page of the radio: its playground, a group bound to a signal, the
 //! states of one radio, a choice that cannot be made, and a choice the app
-//! holds that must be made.
+//! holds that must be made, and radios pressed as a whole in rows pressed of their own.
 
 use std::sync::Arc;
 
 use lurq::{
-  app::{component::Component, ctx::Ctx},
+  app::{
+    component::Component,
+    ctx::Ctx,
+    theme::{PaletteColor, RadiusSize},
+  },
   components::{Column, Row},
   core::Signal,
-  layout::Alignment,
+  layout::{Alignment, layout_kind::Justify},
   node::Element,
   ui::{Choice, Interaction, Orientation, Radio, RadioGroup},
 };
 
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{FILL, props_table, quiet, segmented_fill},
+  kit::{FILL, line, props_table, quiet, segmented_fill},
   playground::{Playground, Shown, Spec, divider, flag, prop},
 };
 
@@ -43,12 +47,16 @@ pub struct RadioPage {
   orientation: Signal<Orientation>,
   invalid: Signal<bool>,
   disabled: Signal<bool>,
+  whole: Signal<bool>,
   last_disabled: Signal<bool>,
   density: Signal<usize>,
   period: Signal<usize>,
   plan: Signal<&'static str>,
   /// The answer of a question that has none until it is given.
   answer: Signal<Option<bool>>,
+  /// The branch a row of whole radios chose, and how many times a row was pressed beside them.
+  branch: Signal<usize>,
+  row_presses: Signal<usize>,
 }
 
 impl RadioPage {
@@ -56,6 +64,7 @@ impl RadioPage {
   fn play(&self, ctx: &mut Ctx) -> Element {
     let selected = self.selected.get().min(DENSITIES.len() - 1);
     let (invalid, disabled, last_disabled) = (self.invalid.get(), self.disabled.get(), self.last_disabled.get());
+    let whole = self.whole.get();
     let orientation = self.orientation.get();
     let horizontal = orientation == Orientation::Horizontal;
     let choices = move || {
@@ -69,6 +78,7 @@ impl RadioPage {
         .orientation(orientation)
         .invalid(invalid)
         .disabled(disabled)
+        .whole(whole)
     };
     let (record, set) = (self.playground.recorder(), self.selected.clone());
     let group = plain(Box::new(move |index| {
@@ -93,6 +103,9 @@ impl RadioPage {
     }
     if disabled {
       code.push("    .disabled(true)".to_owned());
+    }
+    if whole {
+      code.push("    .whole(true)".to_owned());
     }
 
     let mut tree = vec![format!(
@@ -121,7 +134,12 @@ impl RadioPage {
     let (to_selected, to_orientation, flags) = (
       self.selected.clone(),
       self.orientation.clone(),
-      [self.invalid.clone(), self.disabled.clone(), self.last_disabled.clone()],
+      [
+        self.invalid.clone(),
+        self.disabled.clone(),
+        self.whole.clone(),
+        self.last_disabled.clone(),
+      ],
     );
     self.playground.card(
       ctx,
@@ -153,10 +171,11 @@ impl RadioPage {
           ),
           flag("invalid", &self.invalid),
           flag("disabled", &self.disabled),
+          flag("whole", &self.whole),
           divider(),
           flag("Spacious disabled", &self.last_disabled),
         ],
-        changed: [selected != 0, horizontal, invalid, disabled, last_disabled]
+        changed: [selected != 0, horizontal, invalid, disabled, whole, last_disabled]
           .into_iter()
           .filter(|changed| *changed)
           .count(),
@@ -183,11 +202,14 @@ impl Component for RadioPage {
       orientation: ctx.signal(Orientation::Vertical),
       invalid: ctx.signal(false),
       disabled: ctx.signal(false),
+      whole: ctx.signal(false),
       last_disabled: ctx.signal(false),
       density: ctx.signal(1),
       period: ctx.signal(1),
       plan: ctx.signal("team"),
       answer: ctx.signal(None),
+      branch: ctx.signal(0),
+      row_presses: ctx.signal(0),
     }
   }
 
@@ -238,6 +260,38 @@ impl Component for RadioPage {
         Some(true) => "the app holds: Some(true)",
         Some(false) => "the app holds: Some(false)",
       },
+    ));
+    let presses = self.row_presses.clone();
+    let rule = Row::new()
+      .width(FILL)
+      .padding_horizontal(16.0)
+      .padding_vertical(12.0)
+      .spacing(16.0)
+      .align_items(Alignment::Center)
+      .justify(Justify::SpaceBetween)
+      .rounded(RadiusSize::Md)
+      .background(PaletteColor::Background)
+      .border(line())
+      .on_click(move |_| presses.update(|count| *count += 1))
+      .child(quiet("Merge into", 14.0))
+      .child(
+        RadioGroup::new(
+          self.branch.clone(),
+          [
+            Choice::new(0usize, "main").id("branch-main"),
+            Choice::new(1, "develop").id("branch-develop"),
+          ],
+        )
+        .orientation(Orientation::Horizontal)
+        .whole(true),
+      );
+    let whole = Column::new().width(FILL).spacing(9.0).child(rule).child(quiet(
+      &format!(
+        "the signal has: {} · the row was pressed {} times",
+        self.branch.get(),
+        self.row_presses.get()
+      ),
+      12.0,
     ));
     let group_rows = [
       (
@@ -291,6 +345,12 @@ impl Component for RadioPage {
         "false",
         "Every radio dimmed with its label; the group takes no input.",
       ),
+      (
+        "whole",
+        "bool",
+        "false",
+        "Each radio's mark and label one control, pressed, focused and ringed as a whole, a choice's id on it.",
+      ),
     ];
     let radio_rows = [
       (
@@ -324,6 +384,13 @@ impl Component for RadioPage {
         "bool",
         "false",
         "Half the opacity, with its label; it takes no input.",
+      ),
+      (
+        "whole",
+        "bool",
+        "false",
+        "The mark and its label one control: pressed, focused and ringed as a whole, its id on the whole and its \
+         parts named after it (x-mark, x-dot, x-label). A press of a radio never reaches a row around it.",
       ),
     ];
     let playground = self.play(ctx);
@@ -434,6 +501,30 @@ impl Component for RadioPage {
               "    set.set(Some(*yes))",
               "})",
               ".invalid(answer.get().is_none())",
+            ],
+          ),
+        ),
+        Section::new(
+          "Pressed as a whole, in a row pressed of its own",
+          "Each radio's mark and label are one control, ringed as a whole from the keyboard, its id on the whole. A \
+           press of a radio is its own: the row around it, which counts its presses, is pressed only beside them.",
+          self.frame.demo(
+            5,
+            whole,
+            ".whole(true)",
+            &[
+              "// branch: Signal<usize>",
+              "Row::new()",
+              "    .on_click(move |_| /* the row's own press */)",
+              "    .child(Text::new(\"Merge into\"))",
+              "    .child(",
+              "        RadioGroup::new(branch, [",
+              "            Choice::new(0, \"main\").id(\"branch-main\"),",
+              "            Choice::new(1, \"develop\").id(\"branch-develop\"),",
+              "        ])",
+              "        .orientation(Orientation::Horizontal)",
+              "        .whole(true),",
+              "    )",
             ],
           ),
         ),
