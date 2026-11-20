@@ -7442,8 +7442,10 @@ VideoPlayer::new().media(frame).controls(false).child(my_controls).mount(ctx);
 | --- | --- |
 | `new()` | A player of nothing yet: a black picture, paused at the start, of no known length |
 | `media(element)` | What is drawn as the picture, filling the player |
-| `poster(element)` | Drawn over the picture before the first play (not playing, at the start, not waiting, ended or failed), with the length in a chip at its bottom end and no bar |
+| `poster(element)` | Drawn over the picture before the first play (not playing, at the start, not waiting, ended or failed), with the length in a chip at its bottom end and no bar. With a [source](#playing-a-video) it also stays until the video's first frame is there, whether or not it was told to play already. Nothing of the picture is drawn under it: a poster that does not cover the box shows the box beside it |
 | `child(element)`, `children(..)` | The app's own layer over the whole picture, under the middle and the bar, with the controls and without them |
+| `child_with(Fn(&VideoPlayback) -> element)` | A layer of the app's built from what the player is doing each time it is rendered: `position`, `duration`, `buffered`, `playing`, `waiting`, `ended`, `failed`, `opening`, `poster_shown`, `volume`, `muted`, `rate`, `progress()`, and `seek(seconds)`, `set_playing(bool)`, `set_muted(bool)` to move it. How an app's own controls show and set the time of a player with a source: see [your own controls](#your-own-controls-over-a-video) |
+| `background(color)` | What is behind the picture, where the picture does not cover the box: beside a video of another shape, and before its first frame. Black unless told; a clear color shows what the app has under the player. The same as `style(VideoPlayerPart::Root, |s| s.background(..))` |
 | `controls(bool)` | The bar and the middle of the picture; on by default. Without them the player is its picture and the app's layer |
 | `playing(Signal<bool>)`, `playing_controlled(bool, handler)`, `on_playing_change(handler)` | Whether it plays. Play, the disc in the middle, a press of the picture, Space and K tell what it is to be |
 | `position(Signal<f32>)`, `position_controlled(f64, handler)`, `on_position_change(handler)`, `on_position_change_end(handler)` | Where it is, in seconds. `on_position_change` is told as the seek bar's handle moves, `on_position_change_end` where it is let go; a key that seeks tells both |
@@ -7903,7 +7905,49 @@ VideoPlayer::new()
   .mount(ctx)
 ```
 
-At its end the media goes to its start in what it has open: nothing is opened again, an address read through the app's loader is asked for nothing it holds (its first megabyte is always held, and its last sixteen), and it does not stop. `on_ended` is told each time round; `playing` stays true, and `on_playing_change` is told nothing. Setting `playing` again in `on_ended` did this with a stop at the seam. `Media::set_looped(true)` is the same for an app's own player, and `AudioPlayer::looped(true)` for a sound.
+At its end the media goes to its start in what it has open: nothing is opened again, an address read through the app's loader is asked for nothing it holds (its first megabyte is always held, and the sixteen blocks read last), and it does not stop. `on_ended` is told each time round; `playing` stays true, and `on_playing_change` is told nothing. Setting `playing` again in `on_ended` did this with a stop at the seam. `Media::set_looped(true)` is the same for an app's own player, and `AudioPlayer::looped(true)` for a sound.
+
+### Your own controls over a video
+
+A player with `controls(false)` is its picture and the app's layer. With a source, where it is and how long it is are the media's, and no signal of the app's follows them: a layer that shows the time is built from the player itself, with `child_with`. It is given a `VideoPlayback` each time the player is rendered, which is as often as the player's own bar would be drawn again, and its `seek`, `set_playing` and `set_muted` do what the player's own controls do: the media is moved, and the app's handlers are told.
+
+```rust
+use lurq::ui::{MediaTime, PlayButton, PlayButtonVariant, SeekBar, VideoPlayer};
+
+VideoPlayer::new()
+  .source(&Source::url("https://videos.example.com/clip.mp4"))
+  .poster(still)
+  .looped(true)
+  .controls(false)
+  .child_with(move |playback| {
+    let (to, play) = (playback.clone(), playback.clone());
+    Stack::new()
+      .child(
+        PlayButton::new()
+          .variant(PlayButtonVariant::Overlay)
+          .playing(playback.playing)
+          .on_change(move |plays| play.set_playing(plays)),
+      )
+      .child(MediaTime::new(playback.position, playback.duration).on_media(true))
+      .child(
+        SeekBar::controlled(playback.position, playback.duration.unwrap_or(0.0), move |at| to.seek(at))
+          .on_media(true),
+      )
+  })
+  .mount(ctx)
+```
+
+- The layer is built in the player's own render: it reads no signal for the time, and nothing but the player is rendered again as the video plays. What it captures is moved into it (elements built once outside are cloned in it).
+- `playback.opening` is true until the video's first frame is there, and `playback.waiting` while it reads what is not there yet: a spinner of the app's own shows on either.
+- A poster stays over the box until the first frame is there, also where the player plays at once, so a feed shows the still of its next video and not a black box. Without a poster the box shows its `background`, black unless told.
+
+### A video opened ahead
+
+A feed wants the video after the one shown to start at once. A player that is given its source and not told to play is that: it opens the source, shows its first frame (under its poster, where it has one) and stays paused at its start, and it plays at once when `playing` is set.
+
+- From an address it then reads what opening asks for and nothing ahead of it. On Windows that is one request, for the first 256 KiB, which is what Media Foundation reads of a file at a time, and the 16 KiB about an index kept at the file's end where it has one there. A neighbour opened ahead does not take the connection from the video that plays.
+- Told to play, it reads ahead of what plays from then on (the two blocks after the one read, see [Loading](../resources-media/#loading)), and what follows its start is asked for at once.
+- `Media::open` with no `play` is the same for an app's own player; `Media::has_frame()` says when its first frame is there, and `Media::is_open()` when it opened.
 
 An app that draws its own player asks for a media itself:
 

@@ -150,6 +150,11 @@ pub(crate) struct Shared {
   starved: std::sync::atomic::AtomicBool,
   /// What it presents next is its start, which who listens is to be told: see [`Shared::presented`].
   pub(crate) awaits_start: std::sync::atomic::AtomicBool,
+  /// It was told to play, once: what it reads of an address is fetched ahead from then on, and until then only
+  /// what its decoder asks for, so that a video opened ahead and left paused takes its start and no more.
+  eager: std::sync::atomic::AtomicBool,
+  /// What the app's loader reads of it, where it plays an address.
+  stream: Mutex<Option<Arc<dyn Reader>>>,
 }
 
 /// The state of a media, and the clock it is read from: where it was at `since`, going at `rate` while it plays.
@@ -237,6 +242,8 @@ impl Shared {
       reads_waiting: std::sync::atomic::AtomicUsize::new(0),
       starved: std::sync::atomic::AtomicBool::new(false),
       awaits_start: std::sync::atomic::AtomicBool::new(false),
+      eager: std::sync::atomic::AtomicBool::new(false),
+      stream: Mutex::new(None),
     })
   }
 
@@ -262,6 +269,12 @@ impl Shared {
   pub(crate) fn presented(&self) {
     let mut inner = self.inner();
     self.presented_in(&mut inner);
+    let first = inner.presented == 1;
+    drop(inner);
+    // Its picture is there from now on ([`Media::has_frame`]): what draws it is told once.
+    if first {
+      self.wake();
+    }
   }
 
   /// [`presented`](Self::presented), for what holds the media's state already.
@@ -451,7 +464,13 @@ pub(crate) enum Opened {
 fn stream(shared: &Arc<Shared>, loader: &Loader, source: &Source, address: Arc<str>) -> Option<Opened> {
   #[cfg(windows)]
   match loader.open(source) {
-    Ok(reader) => return Some(Opened::Reader(Arc::new(Watched::new(reader, shared)), address)),
+    Ok(reader) => {
+      // Until it is told to play it reads what its decoder asks for and nothing ahead of that. Kept before
+      // that is read: one told to play meanwhile turns the reading ahead on itself.
+      *shared.stream.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(reader.clone());
+      reader.read_ahead(shared.eager.load(std::sync::atomic::Ordering::Acquire));
+      return Some(Opened::Reader(Arc::new(Watched::new(reader, shared)), address));
+    }
     // A build without the feature `http`: Media Foundation reads the address itself, and sends no header.
     Err(LoadError::Unsupported(_)) => {}
     Err(error) => {
@@ -825,9 +844,21 @@ impl Media {
     self.shared().inner().frame.clone()
   }
 
-  /// Plays from where it is; from its start where it had ended.
+  /// Plays from where it is; from its start where it had ended. What it reads of an address is fetched ahead
+  /// of what plays from now on: until it is first told to play it reads only what opening it asks for, so one
+  /// opened ahead and left paused takes its start from a slow host and no more.
   pub fn play(&self) {
-    self.shared().tell(Command::Play);
+    let shared = self.shared();
+    shared.eager.store(true, std::sync::atomic::Ordering::Release);
+    let stream = shared
+      .stream
+      .lock()
+      .unwrap_or_else(|poisoned| poisoned.into_inner())
+      .clone();
+    if let Some(stream) = stream {
+      stream.read_ahead(true);
+    }
+    shared.tell(Command::Play);
   }
 
   /// Stops where it is. Its state says so at once: the thread stops decoding when it hears.
@@ -884,6 +915,20 @@ impl Media {
   pub fn set_muted(&self, muted: bool) {
     self.shared().inner().muted = muted;
     self.shared().tell(Command::Muted(muted));
+  }
+
+  /// Whether it opened: what it is (its length, its picture's size, whether it has sound) is known, and it does
+  /// what it is told. A media that failed never did.
+  pub fn is_open(&self) -> bool {
+    self.shared().inner().opened
+  }
+
+  /// Whether its picture shows a frame of it. A media has its image as soon as it opened
+  /// ([`frame`](Self::frame)), and its first frame is decoded a moment later: until then the image is black. A
+  /// player keeps its poster, or shows nothing, until this is true.
+  pub fn has_frame(&self) -> bool {
+    let inner = self.shared().inner();
+    inner.size.is_some() && inner.presented > 0
   }
 
   /// Whether it goes on from its start at its end, as a clip in a feed does: it is sent to its start in what it

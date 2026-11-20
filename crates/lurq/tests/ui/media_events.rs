@@ -485,3 +485,137 @@ fn an_audio_player_tells_it_started_when_its_sound_is_heard() {
   stage.pass();
   assert_eq!(log.take(), ["started"]);
 }
+
+fn has(stage: &mut Stage, id: &str) -> bool {
+  stage.tree.get_element_by_id_mut(id).is_some()
+}
+
+/// A poster with an id, to find it by.
+fn poster() -> Column {
+  Column::new().id("poster").size(
+    lurq::node::dimension::Dimension::Pct(100.0),
+    lurq::node::dimension::Dimension::Pct(100.0),
+  )
+}
+
+#[test]
+fn a_poster_stays_until_the_first_frame_of_a_player_told_to_play_at_once() {
+  let drive = drive_media();
+  let log = Log::default();
+  let made = log.clone();
+  let mut stage = stage(move |ctx| {
+    video(&made)
+      .poster(poster())
+      .controls(false)
+      .playing_controlled(true, |_| {})
+      .mount(ctx)
+  });
+  let media = drive.last();
+  assert!(has(&mut stage, "poster"), "while it opens");
+
+  // It opened and plays, and its first frame is still to come: the poster is what shows.
+  media.open(CLIP);
+  stage.pass();
+  stage.pass();
+  // What the app set is not told back to it.
+  assert_eq!(log.take(), ["load Some(15.0) 1280x720 sound true"]);
+  assert!(has(&mut stage, "poster"), "it plays, with no frame of it yet");
+
+  media.present();
+  stage.pass();
+  stage.pass();
+  assert!(!has(&mut stage, "poster"), "its first frame is there");
+}
+
+#[test]
+fn a_poster_of_a_paused_player_stays_over_its_first_frame_until_it_plays() {
+  let drive = drive_media();
+  let log = Log::default();
+  let made = log.clone();
+  let mut stage = stage(move |ctx| video(&made).poster(poster()).mount(ctx));
+  let media = drive.last();
+  media.open(CLIP);
+  media.present();
+  stage.pass();
+  stage.pass();
+  assert!(
+    has(&mut stage, "poster"),
+    "paused at its start, the poster is its picture"
+  );
+
+  // The button in the middle of the poster.
+  stage.click("v-center");
+  stage.pass();
+  stage.pass();
+  assert!(!has(&mut stage, "poster"), "it plays");
+}
+
+#[test]
+fn a_layer_of_the_apps_is_built_from_what_a_sourced_player_is_doing_and_moves_it() {
+  use lurq::ui::VideoPlayback;
+  let drive = drive_media();
+  let log = Log::default();
+  let made = log.clone();
+  let seen: Arc<Mutex<Vec<String>>> = Arc::default();
+  let (said, kept): (_, Arc<Mutex<Option<VideoPlayback>>>) = (seen.clone(), Arc::default());
+  let held = kept.clone();
+  let mut stage = stage(move |ctx| {
+    let (said, held) = (said.clone(), held.clone());
+    video(&made)
+      .controls(false)
+      .child_with(move |playback| {
+        said.lock().unwrap().push(format!(
+          "at {:.0} of {:?}, playing {}, opening {}",
+          playback.position, playback.duration, playback.playing, playback.opening
+        ));
+        *held.lock().unwrap() = Some(playback.clone());
+        Column::new().id("layer")
+      })
+      .mount(ctx)
+  });
+  let media = drive.last();
+  assert!(has(&mut stage, "layer"));
+  assert_eq!(
+    seen.lock().unwrap().last().map(String::as_str),
+    Some("at 0 of None, playing false, opening true")
+  );
+
+  media.open(CLIP);
+  media.present();
+  stage.pass();
+  stage.pass();
+  assert_eq!(
+    seen.lock().unwrap().last().map(String::as_str),
+    Some("at 0 of Some(15.0), playing false, opening false"),
+    "its length is known once it opened"
+  );
+  log.take();
+
+  // The layer sends it somewhere: the media goes there, and the layer is built again with where it is.
+  let playback = kept.lock().unwrap().clone().expect("the layer was built");
+  playback.seek(9.0);
+  stage.pass();
+  stage.pass();
+  assert_eq!(
+    seen.lock().unwrap().last().map(String::as_str),
+    Some("at 9 of Some(15.0), playing false, opening false")
+  );
+  assert!(
+    (playback.progress() - 0.0).abs() < 1e-6,
+    "what it was built from does not change"
+  );
+  let playback = kept.lock().unwrap().clone().unwrap();
+  assert!((playback.progress() - 0.6).abs() < 1e-6);
+  // Past its end is its end.
+  playback.seek(99.0);
+  stage.pass();
+  stage.pass();
+  assert!(seen.lock().unwrap().last().unwrap().starts_with("at 15 of"));
+
+  // And plays it: the app's handler hears it as it hears the player's own button.
+  playback.set_playing(true);
+  stage.pass();
+  stage.pass();
+  assert_eq!(log.take(), ["playing true"]);
+  assert!(seen.lock().unwrap().last().unwrap().contains("playing true"));
+}

@@ -38,6 +38,12 @@ pub trait Reader: Send + Sync {
   fn buffered(&self) -> Vec<Range<u64>> {
     self.len().map(|len| 0..len).into_iter().collect()
   }
+
+  /// Whether it fetches what follows a read before that is asked for. A reader of an address does unless told
+  /// not to, so that what plays does not wait for each part; told not to, it fetches what it is asked for and
+  /// no more, which is what a video opened ahead and left paused wants of a slow host. Told to again, it
+  /// fetches what follows its last read at once. Nothing to a reader that has everything.
+  fn read_ahead(&self, _ahead: bool) {}
 }
 
 /// A reader of bytes in memory.

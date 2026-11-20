@@ -325,13 +325,27 @@ app
   network again; `loader.forget(&source)` forgets it, and the next `load` tries anew.
 - `loader.open(&source)` gives a `Reader`: `len()`, `content_type()`, `read_at(offset, buf)` and `buffered()`, for
   what reads a part of a source and not all of it. A file, a resource and bytes are read where they are. An address
-  is read by ranges of 1 MiB as they are asked for, with the rule's and the source's headers and the loader's timeout
-  on each request, the two that follow fetched ahead and the last 16 kept. `open` asks for the first range before it
+  is read by ranges as they are asked for, with the rule's and the source's headers and the loader's timeout on each
+  request, the two that follow fetched ahead and the last 16 kept. `open` asks for the first range before it
   returns, so it blocks (call it off the UI thread): its answer gives the length and the `Content-Type`, and a server
   that refuses fails it there (`LoadError::Status(403)`, `LoadError::NotFound`). A read that fails later gives an
   `io::Error` that `LoadError::from` turns into what the server answered. A server that reads no ranges is read from
   its start for each. What the cache on the disk keeps of the address is read from its file. It needs the feature
   `http`, and is not built in a browser (`LoadError::Unsupported`).
+- **The ranges grow.** The first two are 256 KiB, each one after them twice the one before up to 1 MiB, and 1 MiB
+  from there on: what opens a video reads its start, and on a host that sends 600 KB a second a first megabyte
+  kept the first frame waiting two seconds, while what plays reads on, where larger ranges are fewer requests.
+  256 KiB is what Media Foundation reads of a file at a time, so a smaller first range is more requests for the
+  same bytes and no sooner. `loader.read_blocks(first, most)` says others, for the readers opened from then on.
+- **An index at the end.** An MP4 file not written for the network has its index (`moov`) after its pictures, and a
+  decoder asks for it only after the start, one request after the other. The reader sees it in the first range and
+  asks for the ranges of the index at once, beside those that follow the start.
+- **Reading ahead** can be turned off, `reader.read_ahead(false)`: the reader then fetches what is read and no
+  more, until it is told to again, when it fetches what follows its last read at once. A media does so until it
+  is first told to play ([a video opened ahead](../design-system/#a-video-opened-ahead)).
+- **What it asked for.** With `lurq::resources=debug` in the tracing filter every range request is a line: the
+  address, the range, the bytes that came and the milliseconds it took. What a slow start is made of (the
+  connection in the first request, the requests one after another) is read there.
 - The loader keeps no bytes in memory. What is decoded from them is kept by who decodes: a picture's pixels are in
   `lurq::images::decoded_images()`.
 
