@@ -646,3 +646,79 @@ fn a_theme_names_the_card_groups_without_their_type() {
   let (backups, support) = (stage.bounds("backups"), stage.bounds("support"));
   assert_eq!(support.1 - (backups.1 + backups.3), 40.0);
 }
+
+#[test]
+fn a_radio_card_holds_the_apps_content_and_mark_and_says_why_it_is_disabled() {
+  let (asked, told) = log();
+  let mut stage = Stage::new(move |_| {
+    let (one, two) = (told.clone(), told.clone());
+    Column::new()
+      .padding(8.0)
+      .spacing(12.0)
+      .child(
+        RadioCard::new("Claude Code")
+          .description("Runs the CLI.")
+          .mark(Row::new().id("maker").size(16.0, 16.0))
+          .content(Row::new().id("picker").size(120.0, 24.0))
+          .id("cli"),
+      )
+      .child(
+        RadioCard::new("Codex")
+          .description("Runs Codex.")
+          .disabled_reason("Not installed on this computer.")
+          .id("locked")
+          .on_change(move |_| one.lock().unwrap().push("locked".to_owned())),
+      )
+      .child(
+        RadioCard::new("API")
+          .selected(true)
+          .loading(true)
+          .id("busy")
+          .on_change(move |_| two.lock().unwrap().push("busy".to_owned())),
+      )
+      .into()
+  });
+  // The mark stands where an icon would, before the text; the content under the description.
+  let (mark_x, _, _, _) = stage.bounds("maker");
+  let description = stage.text_quad("Runs the CLI.").expect("the description");
+  assert!(mark_x < description.x, "the mark before the text");
+  let (_, picker_y, _, _) = stage.bounds("picker");
+  assert!(picker_y >= description.y + description.height, "the content under the description");
+  assert!(stage.bounds("cli-content").3 > 0.0, "in the part `content`");
+
+  // A card disabled for a reason says it, shows a lock for its mark and takes no press.
+  assert!(stage.paints("Not installed on this computer."));
+  assert!(stage.bounds("locked-reason").3 > 0.0);
+  assert!(stage.bounds("locked-lock").2 > 0.0, "a lock in place of the mark");
+  stage.click("locked");
+
+  // A card loading keeps its mark and takes no press.
+  assert!(has_dot(&mut stage, "busy"), "its mark kept");
+  stage.click("busy");
+  assert!(asked.lock().unwrap().is_empty());
+  let theme = stage.app.theme().clone();
+  let root = theme
+    .resolve::<RadioCard>(&Case::new().state(ChoiceCardState::Loading, true), None)
+    .part(ChoiceCardPart::Root)
+    .rest();
+  assert_eq!(root.opacity, Some(Opacity::Level(OpacityLevel::Disabled)), "dimmed");
+}
+
+#[cfg(any(feature = "mcp", feature = "devtools"))]
+#[test]
+fn tooling_hears_why_a_card_is_disabled_and_that_one_is_busy() {
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .child(RadioCard::new("Codex").disabled_reason("Not installed.").id("locked"))
+      .child(RadioCard::new("API").loading(true).id("busy"))
+      .into()
+  });
+  let mut said = |id: &str, key: &str| {
+    stage
+      .tree
+      .get_element_by_id_mut(id)
+      .and_then(|element| element.description(key))
+  };
+  assert_eq!(said("locked", "a11y_disabled_reason").as_deref(), Some("Not installed."));
+  assert_eq!(said("busy", "a11y_busy").as_deref(), Some("true"));
+}
