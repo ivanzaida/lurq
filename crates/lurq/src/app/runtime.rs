@@ -102,6 +102,7 @@ mod input_token_paint;
 mod interaction_groups;
 pub(crate) mod key_capture;
 mod key_scroll;
+mod keys_first;
 mod keyed_focus;
 mod leaving_layers;
 #[cfg(feature = "image")]
@@ -4710,7 +4711,7 @@ impl Tree {
       control,
     };
     if let Some(root) = &self.root {
-      fire_keyboard_recursive(root, &mut evt, self.focused_path.as_deref());
+      keys_first::fire_key(root, &mut evt, self.focused_path.as_deref(), keys_first::KeyPhase::Down);
     }
     // A handler that asked for an element of its group by its key has it focused after the render the key causes.
     let keyed_focus = evt
@@ -4836,7 +4837,7 @@ impl Tree {
       Some(r) => r,
       None => return,
     };
-    fire_keyboard_up_recursive(root, &mut evt, self.focused_path.as_deref());
+    keys_first::fire_key(root, &mut evt, self.focused_path.as_deref(), keys_first::KeyPhase::Up);
     // Alt let go with nothing pressed while it was down goes to a row of menus, unless a handler took it.
     if evt.key == "Alt" && std::mem::take(&mut self.alt_alone) && !evt.default_prevented() && self.menu_row_alt() {
       self.needs_redraw = true;
@@ -14052,56 +14053,6 @@ fn find_slider_by_binding_recursive<'a>(
 
 fn point_in_element_rect(x: f32, y: f32, rect: ElementRect) -> bool {
   x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height
-}
-
-/// The rest of the path to the focused node from the child at `index` of a
-/// node on it: `None` where the child is not on the way to the focus.
-fn focus_path_through(focus_path: Option<&[usize]>, index: usize) -> Option<&[usize]> {
-  let (first, rest) = focus_path?.split_first()?;
-  (*first == index).then_some(rest)
-}
-
-/// Calls the `on_key_down` handlers of `node` and of everything in it.
-/// `focus_path` is the path from `node` to the focused node, while `node` is
-/// on the way to it.
-fn fire_keyboard_recursive(node: &Node, evt: &mut KeyboardEvent, focus_path: Option<&[usize]>) -> bool {
-  evt.target_id = node.node_id();
-  evt.focus_within = focus_path.is_some();
-  for handler in &node.events.on_key_down {
-    handler.call(evt);
-    if evt.immediate_propagation_stopped() {
-      return true;
-    }
-  }
-  if evt.propagation_stopped() {
-    return true;
-  }
-  for (index, child) in node.children().iter().enumerate() {
-    if fire_keyboard_recursive(child, evt, focus_path_through(focus_path, index)) {
-      return true;
-    }
-  }
-  false
-}
-
-fn fire_keyboard_up_recursive(node: &Node, evt: &mut KeyboardEvent, focus_path: Option<&[usize]>) -> bool {
-  evt.target_id = node.node_id();
-  evt.focus_within = focus_path.is_some();
-  for handler in &node.events.on_key_up {
-    handler.call(evt);
-    if evt.immediate_propagation_stopped() {
-      return true;
-    }
-  }
-  if evt.propagation_stopped() {
-    return true;
-  }
-  for (index, child) in node.children().iter().enumerate() {
-    if fire_keyboard_up_recursive(child, evt, focus_path_through(focus_path, index)) {
-      return true;
-    }
-  }
-  false
 }
 
 #[cfg(feature = "perf_profile")]

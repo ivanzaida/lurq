@@ -681,6 +681,11 @@ pub(crate) trait NodeUpdate {
   /// (Tab, Enter, Escape, the arrows of a focus group, a menu's Alt, typing in an input, the handlers of every other
   /// node, the accelerators of the app's menu). A shortcut recorder while it records.
   fn captures_keys(&mut self, captures: bool);
+  /// While the focus is on the node or in it, the node and its subtree hear a key before the rest of the tree, and a
+  /// key a handler of theirs stops (`stop_propagation`) the rest of the tree does not hear. What the window does with
+  /// the key by default is done as before, unless a handler prevents it. A panel over the page whose keys are its
+  /// own while it has the focus: its Enter and its Escape are not also a dialog's under it.
+  fn keys_first(&mut self, first: bool);
   /// What the node gives a form under its `name` where its kind gives nothing of its own (a text input gives its
   /// text, a checkbox `on`): a control of the design system that is no engine control, as a shortcut recorder's
   /// `Ctrl+Shift+P`.
@@ -1114,6 +1119,8 @@ pub(crate) struct RareStyle {
   pub(crate) inert: bool,
   /// The node takes every key of the window while it is in the tree; see `NodeUpdate::captures_keys`.
   pub(crate) captures_keys: bool,
+  /// The node hears a key before the rest of the tree while the focus is in it; see `NodeUpdate::keys_first`.
+  pub(crate) keys_first: bool,
   /// What the node gives a form under its name, where its kind gives nothing of its own; see
   /// `NodeUpdate::form_value`.
   pub(crate) form_value: Option<Arc<str>>,
@@ -1348,6 +1355,12 @@ impl NodeUpdate for Node {
     }
     if captures {
       KEY_CAPTURE_IN_USE.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+  }
+
+  fn keys_first(&mut self, first: bool) {
+    if self.rare_style.keys_first != first {
+      self.rare_style.keys_first = first;
     }
   }
 
@@ -5643,6 +5656,11 @@ impl Node {
   /// Whether the node takes every key of the window: see `NodeUpdate::captures_keys`.
   pub(crate) fn captures_keys(&self) -> bool {
     self.rare_style.captures_keys
+  }
+
+  /// Whether the node hears a key first while the focus is in it: see `NodeUpdate::keys_first`.
+  pub(crate) fn keys_first(&self) -> bool {
+    self.rare_style.keys_first
   }
 
   /// The node was built inert, or its ref made it so (`ElementRefMut::set_inert`). An element it is in may make it
