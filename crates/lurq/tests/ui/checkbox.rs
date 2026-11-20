@@ -566,3 +566,51 @@ mod in_a_form {
     assert_eq!(submitted(&sent).get_string("news"), Some("on"));
   }
 }
+
+#[test]
+fn a_checkbox_pressed_as_a_whole_has_its_id_on_the_whole_and_keeps_its_press_from_a_row() {
+  let (rows, asked) = (Arc::new(Mutex::new(0)), Arc::new(Mutex::new(Vec::new())));
+  let (row_told, told) = (rows.clone(), asked.clone());
+  let mut stage = Stage::new(move |_| {
+    let (row_told, told, boxed) = (row_told.clone(), told.clone(), told.clone());
+    Column::new()
+      .padding(8.0)
+      .child(
+        Row::new()
+          .id("row")
+          .padding(8.0)
+          .spacing(12.0)
+          .on_click(move |_| *row_told.lock().unwrap() += 1)
+          .child(
+            Checkbox::new("Send reports")
+              .checked(true)
+              .whole(true)
+              .id("reports")
+              .on_change(move |next| told.lock().unwrap().push(("whole", next))),
+          )
+          .child(
+            Checkbox::new("Keep me signed in")
+              .id("keep")
+              .on_change(move |next| boxed.lock().unwrap().push(("box", next))),
+          ),
+      )
+      .into()
+  });
+  let ids = stage.ids();
+  for id in ["reports", "reports-box", "reports-indicator", "reports-label", "keep", "keep-label"] {
+    assert!(ids.contains(&id.to_owned()), "{id} in {ids:?}");
+  }
+  let (_, _, box_width, _) = stage.bounds("reports-box");
+  assert_eq!(box_width, 16.0);
+  stage.key("Tab");
+  assert!(stage.has_ring(light(PaletteColor::Ring)), "the whole is focused and ringed");
+  stage.key(" ");
+  stage.click("reports-label");
+  stage.click("keep");
+  stage.click("keep-label");
+  assert_eq!(
+    *asked.lock().unwrap(),
+    [("whole", false), ("whole", false), ("box", true), ("box", true)]
+  );
+  assert_eq!(*rows.lock().unwrap(), 0, "the row is not pressed");
+}

@@ -549,6 +549,14 @@ impl ResolvedRecipe {
     self
   }
 
+  /// This recipe with its root at `part` in place of the one the component declares: for a component that is laid
+  /// out with its id on another part in one of its forms (a switch pressed as a whole, its id on the whole and not on
+  /// its track). Called before [`owned_by`](Self::owned_by).
+  pub(crate) fn rooted_at(mut self, part: impl Into<Name>) -> Self {
+    self.root = part.into();
+    self
+  }
+
   /// The recipe of a component whose id is `id`, which names the nodes of its parts after it: `x-label`, `x-dot`,
   /// and `x-label-2` for a second node of a part. The root's node is not named: the component puts `id` on it.
   /// Given no id, the component takes the id of the part of the component it is built in that it stands for (as
