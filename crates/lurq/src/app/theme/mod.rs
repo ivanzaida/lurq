@@ -42,7 +42,7 @@ pub use form::{
   FormButtonRole, FormButtonTheme, FormCheckboxStyle, FormFieldTheme, FormInputTheme, FormSliderStyle, FormTextRole,
   FormTheme,
 };
-pub use icons::{IconGlyph, ThemeIcons};
+pub use icons::{IconGlyph, IconSvg, IconTint, ThemeIcons};
 #[cfg(feature = "markdown")]
 pub use markdown::{
   MarkdownBlockStyle, MarkdownFocusRing, MarkdownInlineStyle, MarkdownLinkState, MarkdownTextStyle, ThemeMarkdown,
@@ -675,6 +675,19 @@ impl Theme {
   pub fn set_icon(&self, name: impl Into<RoleName>, glyph: IconGlyph) {
     let name = name.into();
     self.mutate_inner(|inner| inner.icons.set(name, glyph));
+  }
+
+  /// The SVG the theme draws the icon `name` with, if it draws it with one ([`ThemeIcons::set_svg`]).
+  pub fn icon_svg(&self, name: impl Into<RoleName>) -> Option<IconSvg> {
+    self.track_access();
+    self.inner.read().unwrap().icons.svg(name).cloned()
+  }
+
+  /// Gives the icon `name` an SVG in place of a glyph: an app's mark. Every [`Icon`](crate::ui::Icon) of that name on
+  /// screen is drawn again.
+  pub fn set_icon_svg(&self, name: impl Into<RoleName>, svg: IconSvg) {
+    let name = name.into();
+    self.mutate_inner(|inner| inner.icons.set_svg(name, svg));
   }
 
   pub fn typography(&self) -> ThemeRef<'_, ThemeTypography> {

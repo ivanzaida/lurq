@@ -121,6 +121,20 @@ impl SpinMotion {
   }
 }
 
+/// `$element` with the id and the key of `$icon`, as an element.
+macro_rules! named {
+  ($element:expr, $icon:expr) => {{
+    let mut element = $element;
+    if let Some(id) = &$icon.id {
+      element = element.id(id.clone());
+    }
+    if let Some(key) = &$icon.key {
+      element = element.key(key.clone());
+    }
+    Element::from(element)
+  }};
+}
+
 /// An icon.
 ///
 /// ```
@@ -141,7 +155,9 @@ impl SpinMotion {
 /// ([`ThemeIcons`](crate::app::theme::ThemeIcons)): one of lurq's own
 /// ([`icons`](super::icons)) unless the theme gives the name another, and any
 /// name the theme adds. A name the theme has no glyph for takes its room and
-/// draws nothing.
+/// draws nothing. A name the theme draws with an SVG
+/// ([`IconSvg`](crate::app::theme::IconSvg), with the feature `canvas`) is
+/// that SVG at the icon's size, in its color where its tint says so.
 ///
 /// An icon names no color: it is drawn in the foreground of what it is in, as
 /// text is, so a button's icon is the color of its label. It is a square the
@@ -220,15 +236,24 @@ impl Icon {
   /// this in the theme of what is being rendered.
   pub fn build(self, theme: &Theme) -> Element {
     let side = self.side(theme);
+    #[cfg(feature = "canvas")]
+    if let Some(svg) = theme.icon_svg(self.name) {
+      return match svg.data() {
+        Some(data) => {
+          let mut drawn = crate::components::Svg::new(data).width(side).height(side);
+          if let Some(color) = self.color.clone() {
+            drawn = drawn.foreground(color);
+          }
+          if let Some(animation) = self.spinning(theme) {
+            drawn = drawn.animation(animation);
+          }
+          named!(drawn, self)
+        }
+        None => self.blank(side),
+      };
+    }
     let Some(glyph) = theme.icon(self.name) else {
-      let mut blank = Rect::new(side, side);
-      if let Some(id) = self.id {
-        blank = blank.id(id);
-      }
-      if let Some(key) = self.key {
-        blank = blank.key(key);
-      }
-      return blank.into();
+      return self.blank(side);
     };
     let mut buffer = [0; 4];
     let mut icon = Text::styled(
@@ -244,25 +269,29 @@ impl Icon {
     .nowrap()
     .width(side)
     .height(side);
-    if let Some(color) = self.color {
+    if let Some(color) = self.color.clone() {
       icon = icon.color(color);
     }
+    if let Some(animation) = self.spinning(theme) {
+      icon = icon.animation(animation);
+    }
+    named!(icon, self)
+  }
+
+  /// The turn of a spinning icon, as its motion or the theme's says: `None` where it does not turn.
+  fn spinning(&self, theme: &Theme) -> Option<Animation> {
     let motion = self.motion.unwrap_or_else(|| theme.spin_motion());
-    if self.spin && !motion.is_still(theme) {
-      icon = icon.animation(
-        Animation::new(SPIN)
-          .duration(SPIN_PERIOD)
-          .easing(motion.easing(SPIN_PERIOD, 1, Easing::Linear))
-          .iteration_count(AnimationIterationCount::Infinite),
-      );
-    }
-    if let Some(id) = self.id {
-      icon = icon.id(id);
-    }
-    if let Some(key) = self.key {
-      icon = icon.key(key);
-    }
-    icon.into()
+    (self.spin && !motion.is_still(theme)).then(|| {
+      Animation::new(SPIN)
+        .duration(SPIN_PERIOD)
+        .easing(motion.easing(SPIN_PERIOD, 1, Easing::Linear))
+        .iteration_count(AnimationIterationCount::Infinite)
+    })
+  }
+
+  /// The room of an icon the theme draws nothing for: its name has no drawing, or an SVG that cannot be read.
+  fn blank(&self, side: f32) -> Element {
+    named!(Rect::new(side, side), self)
   }
 }
 

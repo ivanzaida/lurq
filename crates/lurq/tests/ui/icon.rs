@@ -4,7 +4,7 @@
 use lurq::{
   app::{
     App,
-    theme::{IconGlyph, IconSize, PaletteColor, ThemeIcons, ThemePalette},
+    theme::{IconGlyph, IconSize, IconSvg, IconTint, PaletteColor, ThemeIcons, ThemePalette},
   },
   components::{Column, Row},
   node::color::Color,
@@ -169,4 +169,64 @@ fn a_spinning_icon_turns_while_motion_is_reduced_too() {
     stage.text_quad(&spinner).unwrap().transform,
     "and goes on turning"
   );
+}
+
+const SQUARE: &str =
+  r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" fill="black" stroke="black"/></svg>"#;
+
+/// The SVG painted in the quads of the stage, if one is.
+fn painted_svg(stage: &Stage) -> Option<lurq::svg::SvgData> {
+  stage.quads().into_iter().find_map(|quad| match quad.content {
+    lurq::layout::quad::QuadContent::Svg { data } => Some(data),
+    _ => None,
+  })
+}
+
+#[test]
+fn an_icon_the_theme_draws_with_an_svg_is_that_svg_at_its_size_in_its_color() {
+  let app = App::new();
+  app.theme().set_icon_svg("mark", IconSvg::filled(SQUARE));
+  let mut stage = Stage::in_app(app, |_| {
+    Row::new()
+      .child(Icon::new("mark").size(IconSize::Lg).color(PaletteColor::Success).id("mark"))
+      .into()
+  });
+  let (_, _, width, height) = stage.bounds("mark");
+  assert_eq!((width, height), (20.0, 20.0), "a square of its size");
+  let data = painted_svg(&stage).expect("the SVG is painted");
+  assert_eq!(data.fill_override(), Some(light(PaletteColor::Success)), "its shapes in its color");
+  assert_eq!(data.stroke_override(), None, "a filled one leaves its lines alone");
+}
+
+#[test]
+fn a_stroked_svg_takes_the_foreground_of_what_it_is_in_and_a_colored_one_keeps_its_own() {
+  let app = App::new();
+  app.theme().set_icon_svg("line", IconSvg::stroked(SQUARE));
+  let stage = Stage::in_app(app, |_| Row::new().foreground(RED).child(Icon::new("line")).into());
+  let data = painted_svg(&stage).expect("the SVG is painted");
+  assert_eq!(data.stroke_override(), Some(RED));
+  assert_eq!(data.fill_override(), None);
+
+  let app = App::new();
+  app.theme().set_icon_svg("brand", IconSvg::colored(SQUARE));
+  let stage = Stage::in_app(app, |_| Row::new().foreground(RED).child(Icon::new("brand")).into());
+  let data = painted_svg(&stage).expect("the SVG is painted");
+  assert_eq!((data.fill_override(), data.stroke_override()), (None, None));
+}
+
+#[test]
+fn a_name_has_one_drawing_a_glyph_or_an_svg() {
+  let mut set = ThemeIcons::lurq();
+  set.set_svg(icons::SEARCH, IconSvg::stroked(SQUARE));
+  assert!(set.get(icons::SEARCH).is_none(), "the SVG took the glyph's place");
+  assert_eq!(set.svg(icons::SEARCH).map(IconSvg::tint), Some(IconTint::Stroke));
+  assert_eq!(set.len(), icons::ALL.len(), "still one icon of that name");
+  set.set(icons::SEARCH, IconGlyph::new("brand icons", 'S'));
+  assert!(set.svg(icons::SEARCH).is_none());
+  // What is no SVG takes its room and draws nothing.
+  let app = App::new();
+  app.theme().set_icon_svg("broken", IconSvg::stroked("not an svg"));
+  let mut stage = Stage::in_app(app, |_| Row::new().child(Icon::new("broken").id("broken")).into());
+  assert_eq!(stage.bounds("broken").2, 16.0);
+  assert!(painted_svg(&stage).is_none());
 }
