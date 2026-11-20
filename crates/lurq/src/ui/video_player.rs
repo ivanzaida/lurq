@@ -537,6 +537,7 @@ pub struct VideoPlayer {
   captions_track: Option<Arc<str>>,
   captions_button: bool,
   settings_button: bool,
+  looped: bool,
   qualities: Vec<Arc<str>>,
   quality: Held<Option<usize>>,
   fullscreen: Held<bool>,
@@ -641,6 +642,7 @@ impl VideoPlayer {
       captions_track: None,
       captions_button: true,
       settings_button: true,
+      looped: false,
       qualities: Vec::new(),
       quality: Held::new(None),
       fullscreen: Held::new(false),
@@ -943,6 +945,16 @@ impl VideoPlayer {
   /// speed's button without it; the compact form has no settings, and its "more" menu stays.
   pub fn settings_button(mut self, shown: bool) -> Self {
     self.settings_button = shown;
+    self
+  }
+
+  /// Whether its [`source`](Self::source) goes on from its start at its end, as a clip in a feed does: the media
+  /// is sent to its start in what it has open ([`Media::set_looped`](crate::media::Media::set_looped)), so
+  /// nothing is opened or read again. `on_ended` is told each time round, and `playing` stays true: the player
+  /// is not drawn as ended. Off unless told. A player without a source is drawn from what the app gives it, and
+  /// this does nothing.
+  pub fn looped(mut self, looped: bool) -> Self {
+    self.looped = looped;
     self
   }
 
@@ -1795,6 +1807,9 @@ fn playing(mut player: VideoPlayer, live: &Live, ctx: &mut Ctx) -> VideoPlayer {
     if said.3 != Some(player.muted.value) {
       media.set_muted(player.muted.value);
       said.3 = Some(player.muted.value);
+    }
+    if media.looped() != player.looped {
+      media.set_looped(player.looped);
     }
   }
   // What a person does on a control is done to the media, after the app's own handlers heard of it.

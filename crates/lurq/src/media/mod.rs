@@ -164,6 +164,10 @@ pub(crate) struct Inner {
   pub ended: bool,
   pub error: Option<MediaError>,
   pub rate: f64,
+  /// At its end it goes on from its start, in what it has open: see [`Media::set_looped`].
+  pub looped: bool,
+  /// How many times it went on from its start at its end, looped: each is told as an end ([`Media::on_ended`]).
+  pub rounds: u64,
   pub at: f64,
   pub since: Instant,
   /// How many times it was sent somewhere ([`Media::seek`]). The thread counts the ones it has done, and does
@@ -210,6 +214,8 @@ impl Shared {
         ended: false,
         error: None,
         rate: 1.0,
+        looped: false,
+        rounds: 0,
         at: 0.0,
         since: Instant::now(),
         sent: 0,
@@ -855,6 +861,19 @@ impl Media {
   pub fn set_muted(&self, muted: bool) {
     self.shared().inner().muted = muted;
     self.shared().tell(Command::Muted(muted));
+  }
+
+  /// Whether it goes on from its start at its end, as a clip in a feed does: it is sent to its start in what it
+  /// has open, and nothing is opened or read again that it holds. Each time round `on_ended` is told, as at any
+  /// end, and it plays on: its state does not say it ended, and it is not told it stopped playing. Off unless
+  /// told.
+  pub fn set_looped(&self, looped: bool) {
+    self.shared().inner().looped = looped;
+    self.shared().told.notify_all();
+  }
+
+  pub fn looped(&self) -> bool {
+    self.shared().inner().looped
   }
 
   /// Calls `wake` when the media changes in a way its clock does not tell: it opened, it ended, it failed, it

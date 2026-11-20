@@ -7455,6 +7455,7 @@ VideoPlayer::new().media(frame).controls(false).child(my_controls).mount(ctx);
 | `captions(Signal<bool>)`, `captions_controlled(bool, handler)`, `on_captions_change(handler)` | Whether the captions show |
 | `caption_text(&str)`, `captions_track(&str)` | The line to show now, and the name of the track the settings say ("English") |
 | `captions_button(bool)`, `settings_button(bool)` | Whether the captions' button (with their row in the menus and the key C) and the settings' button (with its menu) are drawn: they are unless told. The captions' button is drawn only where the player has captions, whatever this says: a track (`caption_cues`, `captions_track`), a line (`caption_text`), captions the app holds (`captions`, `on_captions_change`) or that are on. The settings' button only where its menu has something in it: qualities, a speed (not live), captions. Without the settings the large form keeps its speed's button; the compact form has none, and its "more" menu stays |
+| `looped(bool)` | Its [source](#playing-a-video) goes on from its start at its end, as a clip in a feed does: in what it has open, with nothing opened or read again. `on_ended` is told each time round, `playing` stays true and the player is not drawn as ended. Off unless told; a player without a source does nothing with it |
 | `qualities(&[&str])`, `quality(Signal<Option<usize>>)`, `quality_controlled(..)`, `on_quality_change(handler)` | The qualities offered after "Auto", and the one it plays in: `None` for the one the player picks |
 | `fullscreen(Signal<bool>)`, `fullscreen_controlled(..)`, `on_fullscreen_change(handler)` | Whether it fills the screen; its button then exits. The app makes it so |
 | `picture_in_picture(Signal<bool>)`, `picture_in_picture_controlled(..)`, `on_picture_in_picture_change(handler)` | Whether it plays in a small window of its own |
@@ -7889,6 +7890,18 @@ VideoPlayer::new()
 - `on_ended` is told again only after it played again. `on_error` is told a kind (`core::MediaError`), whose words are the locale's (`MediaWords::error`), once until the person tries again, which opens the source anew. Waiting is reading what is not there yet once it opened (an address on Apple's systems); opening is not waiting.
 - `on_playing_change` hears a press, as without a source, and the media stopping or starting by itself: at its end, when it fails, a sound that starts over. What a press told or the app set is not told again when the media does it. A signal bound to `playing` follows the media at its end, and that is not the app pausing it.
 - A player without a source tells none of these: whether it waits, ended or failed is what the app gives it.
+
+A clip that plays round and round, as in a feed, is looped:
+
+```rust
+VideoPlayer::new()
+  .source(&Source::url("https://videos.example.com/clip.mp4"))
+  .looped(true)
+  .on_ended(move || rounds.update(|count| *count += 1))
+  .mount(ctx)
+```
+
+At its end the media goes to its start in what it has open: nothing is opened again, an address read through the app's loader is asked for nothing it holds (its first megabyte is always held, and its last sixteen), and it does not stop. `on_ended` is told each time round; `playing` stays true, and `on_playing_change` is told nothing. Setting `playing` again in `on_ended` did this with a stop at the seam. `Media::set_looped(true)` is the same for an app's own player, and `AudioPlayer::looped(true)` for a sound.
 
 An app that draws its own player asks for a media itself:
 

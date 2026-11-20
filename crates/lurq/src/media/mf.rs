@@ -1389,7 +1389,26 @@ unsafe fn play(
       let timed = picture.is_some()
         || sound.as_ref().is_some_and(|sound| sound.output.is_some())
         || (playing && duration.is_none_or(|duration| shared.inner().position() >= duration));
-      if !ended && seen && listened && timed {
+      let looped = playing && shared.inner().looped;
+      if !ended && seen && listened && timed && looped {
+        // It goes on from its start in the reader it has open, as a seek there does: nothing is opened again,
+        // what the reader holds is not read again, and it does not stop: the end is told, and it plays on.
+        go(&reader, 0.0)?;
+        if let Some(picture) = &mut picture {
+          picture.sent(Some(0.0));
+        }
+        if let Some(sound) = &mut sound {
+          sound.sent(Some(0.0));
+        }
+        {
+          let mut inner = shared.inner();
+          inner.at = 0.0;
+          inner.rounds += 1;
+          inner.since = Instant::now();
+        }
+        worked = true;
+        shared.wake();
+      } else if !ended && seen && listened && timed {
         {
           let mut inner = shared.inner();
           inner.hold();

@@ -417,6 +417,7 @@ pub struct AudioPlayer {
   rate: Held<f64>,
   shuffle: Held<bool>,
   repeat: Held<AudioRepeat>,
+  looped: bool,
   loading: bool,
   error: Option<Arc<str>>,
   unheard: bool,
@@ -460,6 +461,7 @@ impl AudioPlayer {
       rate: Held::new(1.0),
       shuffle: Held::new(false),
       repeat: Held::new(AudioRepeat::Off),
+      looped: false,
       loading: false,
       error: None,
       unheard: false,
@@ -622,6 +624,16 @@ impl AudioPlayer {
   /// Called on a press of the shuffle button, with whether shuffle is to be on. Each call adds a handler.
   pub fn on_shuffle_change(mut self, handler: impl Fn(bool) + Send + Sync + 'static) -> Self {
     self.shuffle.tell.push(Arc::new(handler));
+    self
+  }
+
+  /// Whether its [`source`](Self::source) goes on from its start at its end without stopping: the sound is sent
+  /// to its start in what it has open ([`Media::set_looped`](crate::media::Media::set_looped)), `on_ended` is told
+  /// each time round and `playing` stays true. Off unless told. [`AudioRepeat::One`] starts over too, by stopping
+  /// at the end and playing again; this is for a sound that is one loop, and has no button. A player without a
+  /// source does nothing with it.
+  pub fn looped(mut self, looped: bool) -> Self {
+    self.looped = looped;
     self
   }
 
@@ -2022,6 +2034,9 @@ fn playing(mut player: AudioPlayer, played: &Played, ctx: &mut Ctx) -> AudioPlay
     if said.3 != Some(player.muted.value) {
       media.set_muted(player.muted.value);
       said.3 = Some(player.muted.value);
+    }
+    if media.looped() != player.looped {
+      media.set_looped(player.looped);
     }
   }
   // What a person does on a control is done to the media, after the app's own handlers heard of it.

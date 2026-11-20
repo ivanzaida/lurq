@@ -375,8 +375,12 @@ impl Ranges {
       }
       let bytes: Arc<[u8]> = Arc::from(fetched.bytes);
       blocks.held.push_back((index, bytes.clone()));
-      if blocks.held.len() > HELD_BLOCKS {
-        blocks.held.pop_front();
+      // The first block is kept whatever was read since: a file's start says what it is, and a media that goes
+      // on from its start at its end, or is sent there, starts from it at once.
+      if blocks.held.len() > HELD_BLOCKS
+        && let Some(oldest) = blocks.held.iter().position(|(held, _)| *held != 0)
+      {
+        blocks.held.remove(oldest);
       }
       bytes
     });

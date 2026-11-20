@@ -205,6 +205,8 @@ pub struct Pages {
   pub address: String,
   /// How many requests it answered 403.
   pub refused: Arc<AtomicUsize>,
+  /// How many requests it answered with a part of the file.
+  pub served: Arc<AtomicUsize>,
   /// Set, it answers 403 to every request from then on.
   pub refusing: Arc<AtomicBool>,
   /// How long it waits before it answers, in milliseconds.
@@ -217,17 +219,20 @@ pub fn serve_to_its_pages(body: Vec<u8>) -> Pages {
   let pages = Pages {
     address: format!("http://{}/clip.mp4", listener.local_addr().unwrap()),
     refused: Arc::new(AtomicUsize::new(0)),
+    served: Arc::new(AtomicUsize::new(0)),
     refusing: Arc::new(AtomicBool::new(false)),
     slow: Arc::new(AtomicU64::new(0)),
   };
   let body = Arc::new(body);
   let (refused, refusing, slow) = (pages.refused.clone(), pages.refusing.clone(), pages.slow.clone());
+  let served = pages.served.clone();
   std::thread::spawn(move || {
     for stream in listener.incoming() {
       let Ok(mut stream) = stream else {
         return;
       };
       let (body, refused, refusing, slow) = (body.clone(), refused.clone(), refusing.clone(), slow.clone());
+      let served = served.clone();
       std::thread::spawn(move || {
         let (mut request, mut chunk) = (Vec::new(), [0_u8; 1024]);
         while !request.windows(4).any(|window| window == b"\r\n\r\n") {
@@ -243,6 +248,7 @@ pub fn serve_to_its_pages(body: Vec<u8>) -> Pages {
           let _ = stream.write_all(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
           return;
         }
+        served.fetch_add(1, Ordering::SeqCst);
         let len = body.len();
         let (from, to) = request
           .lines()
@@ -385,4 +391,67 @@ pub fn a_clip_whose_reads_ahead_come_in_time_does_not_wait_while_it_plays() {
     "it plays on while it reads ahead; it waited at {waited:?}"
   );
   assert!(media.state().position > 3.0, "{}", media.state().position);
+}
+
+/// Plays `media` from near its end, and gives how its state went until it has played on from its start: whether it
+/// ever said it ended or stopped playing.
+fn played_over_its_end(media: &Media, near_end: f64) -> (bool, bool) {
+  media.seek(near_end);
+  media.play();
+  until(media, "playing near its end", |state| {
+    state.playing && state.position >= near_end
+  });
+  let (mut ended, mut stopped) = (false, false);
+  let started = Instant::now();
+  loop {
+    let state = media.state();
+    ended |= state.ended;
+    stopped |= !state.playing;
+    if state.position < near_end - 1.0 && state.position > 0.2 {
+      return (ended, stopped);
+    }
+    assert!(
+      started.elapsed() < Duration::from_secs(10),
+      "it never played on from its start. It is {state:?}"
+    );
+    std::thread::sleep(Duration::from_millis(2));
+  }
+}
+
+pub fn a_looped_clip_goes_on_from_its_start_at_its_end_and_does_not_stop() {
+  let media = quiet(&Source::file(clip()));
+  until(&media, "opened", |state| !state.waiting);
+  media.set_looped(true);
+  let image = media.frame().expect("its picture");
+  let (ended, stopped) = played_over_its_end(&media, 14.3);
+  assert!(!ended, "its state never says it ended");
+  assert!(!stopped, "nor that it stopped playing");
+  // It plays on: frames of its start are shown.
+  let before = image.version();
+  std::thread::sleep(Duration::from_millis(300));
+  assert!(image.version() > before, "frames come after the seam");
+
+  // Told not to any more, it ends at its end as any other.
+  media.set_looped(false);
+  media.seek(14.6);
+  let state = until(&media, "ended", |state| state.ended);
+  assert!(!state.playing);
+}
+
+/// On Windows, where the app's loader reads what a media plays.
+pub fn a_looped_clip_at_an_address_asks_the_server_for_nothing_again() {
+  let pages = serve_to_its_pages(std::fs::read(clip()).expect("the clip"));
+  let media = quiet(&Source::url(&pages.address).header("Referer", PAGES));
+  until(&media, "opened", |state| !state.waiting && state.error.is_none());
+  media.set_looped(true);
+  let (ended, _) = played_over_its_end(&media, 14.3);
+  let asked = pages.served.load(Ordering::SeqCst);
+  assert!(!ended);
+  let (ended, _) = played_over_its_end(&media, 14.3);
+  assert!(!ended);
+  assert_eq!(
+    pages.served.load(Ordering::SeqCst),
+    asked,
+    "a second time around reads what is held"
+  );
 }

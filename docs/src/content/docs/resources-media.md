@@ -390,7 +390,7 @@ media.play();
 | --- | --- |
 | `on_load(Fn(&MediaInfo))` | Once it opened and is ready to play: `duration` (`None` for what has no end), `size` of its picture (`None` for a sound), whether it has `sound` |
 | `on_error(Fn(&MediaError))` | Once it cannot play: a kind, which the locale says (`MediaWords::error`); `detail()` is what the system said, for a log. A media that failed stays failed: trying again is opening it anew |
-| `on_ended(Fn())` | Each time it played to its end, again only after it played again |
+| `on_ended(Fn())` | Each time it played to its end, again only after it played again. A looped media (`media.set_looped(true)`) is told at each end as it goes on from its start, and is not told it stopped playing |
 | `on_playing_change(Fn(bool))` | Whether it plays, each time that changes once it opened: told to play or pause, it ended, it failed |
 | `on_waiting_change(Fn(bool))` | Whether it waits for what it plays once it opened (an address read slower than it plays); opening is not waiting |
 

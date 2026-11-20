@@ -156,6 +156,14 @@ fn heard_from(shared: &Arc<Shared>, kind: &str) {
       inner.since = Instant::now();
       inner.playing = false;
     }
+    // Looped: the element goes on from its start, with what it has loaded.
+    "ended" if inner.looped => {
+      element.set_current_time(0.0);
+      let _ = element.play();
+      inner.at = 0.0;
+      inner.rounds += 1;
+      inner.since = Instant::now();
+    }
     "ended" => {
       inner.at = inner.duration.unwrap_or(at);
       inner.since = Instant::now();

@@ -28,6 +28,7 @@ fn main() {
     a_clip_has_its_sound_and_what_is_only_heard_of_it_has_no_picture,
     a_clip_at_an_address_is_asked_for_with_the_headers_of_its_source_and_goes_where_it_is_sent,
     the_loaders_rule_gives_a_clip_its_headers_and_a_sources_own_take_their_place,
+    a_looped_clip_goes_on_from_its_start_at_its_end_and_does_not_stop,
   ]
   .into_iter()
   .collect();
