@@ -417,7 +417,7 @@ pub use mentions::{
 };
 pub use menu::{
   Menu, MenuEntry, MenuItem, MenuItemPart, MenuItemRenderer, MenuItemState, MenuItemView, MenuKeys, MenuPart, MenuRenderer,
-  MenuState, MenuView,
+  MenuState, MenuView, SubmenuOpen,
 };
 pub use menubar::{Menubar, MenubarMenu, MenubarPart, MenubarRenderer, MenubarState, MenubarView};
 pub use message_box::{

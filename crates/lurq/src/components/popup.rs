@@ -63,6 +63,13 @@ impl Popup {
     self
   }
 
+  /// Keeps the popup inside the box of `element` less an inset on each side, top, right, bottom and left: see
+  /// [`Overlay::within_inset`].
+  pub fn within_inset(mut self, element: impl Into<ElementRef>, top: f32, right: f32, bottom: f32, left: f32) -> Self {
+    self.overlay = self.overlay.within_inset(element, top, right, bottom, left);
+    self
+  }
+
   /// Places the popup by the box of `element` in place of its anchor's: see [`Overlay::placed_by`].
   pub fn placed_by(mut self, element: impl Into<ElementRef>) -> Self {
     self.overlay = self.overlay.placed_by(element);

@@ -60,9 +60,34 @@ pub struct RadioPage {
   row_presses: Signal<usize>,
   /// What an export takes, chosen by rows pressed as a whole with a radio's mark alone in them.
   include: Signal<usize>,
+  /// Which of the radios with long labels is selected.
+  long_label: Signal<usize>,
 }
 
 impl RadioPage {
+  /// Radios whose long labels go on to more lines in a narrow column, the mark beside the first line.
+  fn long_labels(&self) -> Column {
+    let radio = |index: usize, label: &str| {
+      let set = self.long_label.clone();
+      Radio::new(label)
+        .label_wraps(true)
+        .selected(self.long_label.get() == index)
+        .on_change(move |_| set.set(index))
+    };
+    Column::new()
+      .width(280.0)
+      .max_width(FILL)
+      .spacing(12.0)
+      .child(radio(
+        0,
+        "Merge every run into the module's branch, and the branch into master when it is done",
+      ))
+      .child(radio(
+        1,
+        "Merge each run into master by itself, as soon as its review passes",
+      ))
+  }
+
   /// The options of an export, each a column pressed as a whole that says it is chosen: a radio's mark alone and a
   /// name, and what it takes under them.
   fn marks(&self) -> Column {
@@ -246,6 +271,7 @@ impl Component for RadioPage {
       branch: ctx.signal(0),
       row_presses: ctx.signal(0),
       include: ctx.signal(0),
+      long_label: ctx.signal(0),
     }
   }
 
@@ -414,6 +440,12 @@ impl Component for RadioPage {
         "false",
         "The mark alone. The label is still what the radio is called.",
       ),
+      (
+        "label_wraps",
+        "bool",
+        "false",
+        "The label goes on to more lines within the width the radio is given, the mark beside its first line.",
+      ),
       ("invalid", "bool", "false", "The edge in the destructive color."),
       (
         "disabled",
@@ -438,6 +470,7 @@ impl Component for RadioPage {
     ];
     let playground = self.play(ctx);
     let marks = self.marks();
+    let long_labels = self.long_labels();
     self.frame.page(
       ctx,
       Header {
@@ -589,6 +622,17 @@ impl Component for RadioPage {
               "    .child(Row::new().child(Radio::new(\"Messages only\").selected(chosen).mark_only(true)).child(name))",
               "    .child(hint)",
             ],
+          ),
+        ),
+        Section::new(
+          "A label over several lines",
+          "With label_wraps(true) a long label goes on to more lines within the width the radio is given, the mark \
+           beside its first line.",
+          self.frame.demo(
+            7,
+            long_labels,
+            ".label_wraps(true)",
+            &["Radio::new(\"Merge every run into the module's branch, and …\").label_wraps(true).selected(module)"],
           ),
         ),
         Section::new(

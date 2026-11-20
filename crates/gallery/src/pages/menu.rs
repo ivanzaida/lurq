@@ -1,7 +1,8 @@
 //! The page of the menu: its playground, a dropdown from a button, the board's
 //! menu with checked, disabled and grouped items, the split button's menu, and
-//! items with a detail, a reason and an avatar, a menu of the app's own rows, and a menu that keeps the focus in a
-//! field, its items asked for aside.
+//! items with a detail, a reason and an avatar, a menu of the app's own rows, a menu that keeps the focus in a
+//! field, its items asked for aside, and a section that scrolls, a filter that stays open and submenus opened by a
+//! press.
 
 use std::sync::Arc;
 
@@ -11,7 +12,7 @@ use lurq::{
   core::{ElementRef, Signal},
   layout::Alignment,
   node::Element,
-  ui::{Button, ButtonGroup, ButtonGroupVariant, ButtonVariant, Menu, MenuItem, MenuKeys, icons},
+  ui::{Button, ButtonGroup, ButtonGroupVariant, ButtonVariant, Menu, MenuItem, MenuKeys, SubmenuOpen, icons},
 };
 
 use crate::{
@@ -88,7 +89,34 @@ pub struct MenuPage {
   slash_keys: MenuKeys,
   slash_text: Signal<String>,
   slash_ran: Signal<String>,
+  // A section that scrolls, a filter that chooses several, and submenus opened by a press.
+  branch: Signal<String>,
+  statuses: Signal<Vec<&'static str>>,
+  move_anchor: ElementRef,
+  move_open: Signal<bool>,
+  priority_anchor: ElementRef,
+  priority_open: Signal<bool>,
+  card_chosen: Signal<String>,
 }
+
+/// The branches of the section that scrolls.
+const BRANCHES: [&str; 12] = [
+  "main",
+  "develop",
+  "release/1.4",
+  "release/1.5",
+  "feature/search",
+  "feature/tabs",
+  "feature/sync",
+  "fix/caret",
+  "fix/scroll",
+  "docs/menus",
+  "chore/deps",
+  "spike/gpu",
+];
+
+/// What the filter chooses among, several at once.
+const STATUSES: [&str; 4] = ["Running", "Waiting", "Failed", "Done"];
 
 /// The commands the field offers after a `/`.
 const COMMANDS: [&str; 4] = ["Summarize", "Explain", "Translate", "Open the run"];
@@ -394,6 +422,67 @@ impl MenuPage {
       .into()
   }
 
+  /// A menu with a section of branches that scrolls, a filter whose options leave it open, and a card's menu whose
+  /// lists open on a press, all drawn in place.
+  fn longer(&self) -> Element {
+    let branches = BRANCHES.map(|name| {
+      let branch = self.branch.clone();
+      MenuItem::new(name)
+        .radio(self.branch.get() == name)
+        .on_select(move || branch.set(name.to_owned()))
+    });
+    let scrolling = Menu::controlled(true, ElementRef::new(), |_| {})
+      .inline(true)
+      .heading("Base branch")
+      .scrolling(branches, 160.0)
+      .separator()
+      .item(MenuItem::new("Refresh").icon(icons::REFRESH));
+    let chosen = self.statuses.get();
+    let filter = Menu::controlled(true, ElementRef::new(), |_| {})
+      .inline(true)
+      .heading("Status")
+      .items(STATUSES.map(|name| {
+        let statuses = self.statuses.clone();
+        MenuItem::new(name)
+          .checked(chosen.contains(&name))
+          .keeps_open(true)
+          .on_select(move || {
+            statuses.update(|held| match held.iter().position(|at| *at == name) {
+              Some(at) => {
+                held.remove(at);
+              }
+              None => held.push(name),
+            });
+          })
+      }));
+    let says = |name: &str| Self::says(&self.card_chosen, name);
+    let card = Menu::controlled(true, ElementRef::new(), |_| {})
+      .inline(true)
+      .submenus(SubmenuOpen::Press)
+      .item(MenuItem::new("Open").icon(icons::EXTERNAL_LINK).on_select(says("Open")))
+      .item(
+        MenuItem::new("Move to").submenu(
+          Menu::new(self.move_open.clone(), self.move_anchor.clone())
+            .items(["Todo", "In progress", "Done"].map(|column| MenuItem::new(column).on_select(says(column)))),
+        ),
+      )
+      .item(
+        MenuItem::new("Priority").submenu(
+          Menu::new(self.priority_open.clone(), self.priority_anchor.clone())
+            .items(["High", "Medium", "Low"].map(|rank| MenuItem::new(rank).on_select(says(rank)))),
+        ),
+      );
+    let card_caption = match self.card_chosen.get() {
+      name if name.is_empty() => "press Move to or Priority".to_owned(),
+      name => format!("chosen: {name}"),
+    };
+    items()
+      .child(item(scrolling, &format!("base: {}", self.branch.get())))
+      .child(item(filter, &format!("shown: {}", chosen.join(", "))))
+      .child(item(card, &card_caption))
+      .into()
+  }
+
   /// What a choice does on this page: the signal says which it was.
   fn says(chosen: &Signal<String>, name: &str) -> impl Fn() + Send + Sync + use<> {
     let (chosen, name) = (chosen.clone(), name.to_owned());
@@ -440,6 +529,13 @@ impl Component for MenuPage {
       slash_keys: MenuKeys::new(slash_field),
       slash_text: ctx.signal(String::new()),
       slash_ran: ctx.signal(String::new()),
+      branch: ctx.signal("main".to_owned()),
+      statuses: ctx.signal(vec!["Running"]),
+      move_anchor: ElementRef::new(),
+      move_open: ctx.signal(false),
+      priority_anchor: ElementRef::new(),
+      priority_open: ctx.signal(false),
+      card_chosen: ctx.signal(String::new()),
     }
   }
 
@@ -618,6 +714,7 @@ impl Component for MenuPage {
       );
     let own = items().child(item(models, "content(row) on each item, a child foot"));
     let slash = self.slash();
+    let longer = self.longer();
 
     let rows = [
       (
@@ -670,6 +767,31 @@ impl Component for MenuPage {
         "CollisionStrategy",
         "FlipThenClamp",
         "What the panel does where the window has no room on its side.",
+      ),
+      (
+        "scrolling",
+        "entries, f32",
+        "",
+        "A section that scrolls past the height given; its items are the menu's, reached by the arrows and typing \
+         and scrolled into view.",
+      ),
+      (
+        "submenus",
+        "SubmenuOpen",
+        "Hover",
+        "What opens the submenus of its items: the pointer, or only a press (Press).",
+      ),
+      (
+        "switch_on_anchor_press",
+        "bool",
+        "true",
+        "Whether the anchor is the trigger of a dropdown; false for a menu at the pointer over a row.",
+      ),
+      (
+        "MenuItem::keeps_open",
+        "bool",
+        "false",
+        "Choosing the item calls its handlers and leaves the menu open: an option of a filter of several.",
       ),
       (
         "on_dismiss",
@@ -972,6 +1094,35 @@ impl Component for MenuPage {
               "    .item(MenuItem::new(\"Open the run\").on_select(..).on_open_aside(|press| ..))",
               "",
               "TextInput::new(text).ref_element(field)",
+            ],
+          ),
+        ),
+        Section::new(
+          "A section that scrolls, a filter, submenus on a press",
+          "The branches are a section of the menu that scrolls past 160: the arrows and typing reach them and scroll \
+           the one they reach into view, and choosing one closes the menu. The filter's options leave the menu open, \
+           so several are chosen in one visit. The card's lists open on a press of their item, or Enter, Space and \
+           Right, and not under the pointer; a press of the open one closes it.",
+          self.frame.demo(
+            6,
+            longer,
+            ".scrolling(..) .keeps_open(true) .submenus(SubmenuOpen::Press)",
+            &[
+              "Menu::new(open, anchor)",
+              "    .heading(\"Base branch\")",
+              "    .scrolling(branches.map(|name| MenuItem::new(name).radio(..).on_select(..)), 160.0)",
+              "    .separator()",
+              "    .item(MenuItem::new(\"Refresh\").icon(icons::REFRESH))",
+              "",
+              "Menu::new(open, anchor)",
+              "    .heading(\"Status\")",
+              "    .items(statuses.map(|name| MenuItem::new(name).checked(..).keeps_open(true).on_select(..)))",
+              "",
+              "Menu::new(open, anchor)",
+              "    .submenus(SubmenuOpen::Press)",
+              "    .item(MenuItem::new(\"Open\").icon(icons::EXTERNAL_LINK).on_select(..))",
+              "    .item(MenuItem::new(\"Move to\").submenu(Menu::new(moving, move_to).items(..)))",
+              "    .item(MenuItem::new(\"Priority\").submenu(Menu::new(ranking, priority).items(..)))",
             ],
           ),
         ),

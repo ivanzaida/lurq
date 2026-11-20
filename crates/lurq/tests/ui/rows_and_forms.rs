@@ -190,6 +190,38 @@ fn a_row_has_tags_and_a_mark_after_its_title_and_a_detail_under_its_description(
 }
 
 #[test]
+fn a_row_s_subtitle_stands_between_its_title_and_its_description_and_a_detail_after_them() {
+  let (rows, press_row) = counter();
+  let (paths, press_path) = counter();
+  let mut stage = scene(move || {
+    let (press_row, press_path) = (press_row.clone(), press_path.clone());
+    ListItem::new("Program path")
+      .subtitle(
+        Button::new("/Applications/Chrome.app")
+          .id("path")
+          .on_click(move |_| press_path()),
+      )
+      .description("Leave empty to find it on its own")
+      .detail(Row::new().size(60.0, 14.0).id("link"))
+      .on_click(move |_| press_row())
+      .id("r")
+      .into()
+  });
+  for id in ["r-title", "r-subtitle", "r-description", "r-detail"] {
+    assert!(has(&stage, id), "{id} in {:?}", stage.ids());
+  }
+  let (_, title_y, _, title_height) = stage.bounds("r-title");
+  let (_, path_y, _, path_height) = stage.bounds("path");
+  let (_, description_y, _, description_height) = stage.bounds("r-description");
+  let (_, link_y, ..) = stage.bounds("link");
+  assert!(path_y >= title_y + title_height, "the subtitle under the title");
+  assert!(description_y >= path_y + path_height, "the description under the subtitle");
+  assert!(link_y >= description_y + description_height, "the detail under the description");
+  stage.click("path");
+  assert_eq!((count(&paths), count(&rows)), (1, 0), "a press of the subtitle is its own");
+}
+
+#[test]
 fn what_a_row_says_under_itself_stands_under_its_line_and_is_not_a_press_of_the_row() {
   let (rows, press_row) = counter();
   let (fixes, fix) = counter();

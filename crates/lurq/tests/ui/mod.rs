@@ -87,6 +87,7 @@ mod input;
 mod input_kinds;
 mod input_otp;
 mod kbd;
+mod label_wraps;
 // Pictures decoded in the test: the feature that has `lurq::images`.
 #[cfg(feature = "raster")]
 mod lightbox;
@@ -106,6 +107,8 @@ mod menu;
 mod menu_content;
 mod menu_item_detail;
 mod menu_keys;
+mod menu_press;
+mod menu_scroll;
 mod menubar;
 mod message_box;
 mod meter;
@@ -130,6 +133,7 @@ mod play_button;
 mod pointer_only;
 mod popconfirm;
 mod popover;
+mod popover_place;
 mod progress;
 mod progress_dialog;
 mod property_grid;

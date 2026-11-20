@@ -6,7 +6,7 @@ use super::{
   names,
   part_style::{Length, PartTransition},
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
-  shared::{fading, pressable},
+  shared::{beside_first_line, control_label, label_top, fading, pressable},
   theme::{Themed, current_theme},
 };
 use crate::{
@@ -86,6 +86,7 @@ pub type SwitchRenderer = Arc<dyn Fn(SwitchView) -> Element + Send + Sync>;
 pub struct Switch {
   label: Arc<str>,
   label_hidden: bool,
+  label_wraps: bool,
   whole: bool,
   on: bool,
   invalid: bool,
@@ -105,6 +106,7 @@ impl Switch {
     Self {
       label: Arc::from(label),
       label_hidden: false,
+      label_wraps: false,
       whole: false,
       on: false,
       invalid: false,
@@ -122,6 +124,14 @@ impl Switch {
   /// Whether the switch is its track alone. Its label stays what it is called.
   pub fn label_hidden(mut self, hidden: bool) -> Self {
     self.label_hidden = hidden;
+    self
+  }
+
+  /// Whether the label goes on to more lines within the width the switch is given, the track beside its first
+  /// line and centered on it: a label that may be long. The switch is then no wider than what holds it. Not unless
+  /// told: the label is on one line.
+  pub fn label_wraps(mut self, wraps: bool) -> Self {
+    self.label_wraps = wraps;
     self
   }
 
@@ -244,6 +254,7 @@ impl Switch {
     let view = SwitchView {
       label: self.label,
       label_hidden: self.label_hidden,
+      label_wraps: self.label_wraps,
       whole: self.whole,
       on: self.on,
       invalid: self.invalid,
@@ -273,6 +284,8 @@ impl From<Switch> for Element {
 pub struct SwitchView {
   pub label: Arc<str>,
   pub label_hidden: bool,
+  /// Whether the label goes on to more lines, the track beside its first line.
+  pub label_wraps: bool,
   /// Whether the switch and its label are one control, its id on the whole.
   pub whole: bool,
   pub on: bool,
@@ -382,7 +395,22 @@ impl SwitchView {
       return None;
     }
     let part = self.part(SwitchPart::Label);
-    Some(Row::new().part(&part).child(part.text(&self.label).nowrap()))
+    let wraps = self.label_wraps.then(|| label_top(&part, &self.part(SwitchPart::Track)));
+    Some(control_label(&part, &self.label, wraps))
+  }
+
+  /// Whether the label is shown and goes on to more lines.
+  fn wraps(&self) -> bool {
+    self.label_wraps && !self.label_hidden
+  }
+
+  /// The track as it stands beside the label: held at the label's first line where the label wraps.
+  fn beside_label(&self, track: impl Into<Element>) -> Element {
+    if self.wraps() {
+      beside_first_line(&self.part(SwitchPart::Label), track).into()
+    } else {
+      track.into()
+    }
   }
 
   /// How the default renderer builds a switch: the track with its thumb, and the label beside it; pressed as a whole,
@@ -398,16 +426,27 @@ impl SwitchView {
       if end {
         track = track.justify(Justify::End);
       }
-      return self.whole_root().child(track).with_children(self.label()).into();
+      let root = self
+        .whole_root()
+        .child(self.beside_label(track))
+        .with_children(self.label());
+      return if self.wraps() {
+        root.align_items(Alignment::Start).max_width(Dimension::Pct(100.0)).into()
+      } else {
+        root.into()
+      };
     }
     let mut track = self.track().child(self.thumb());
     if end {
       track = track.justify(Justify::End);
     }
     let mut root = Row::new()
-      .align_items(Alignment::Center)
+      .align_items(if self.wraps() { Alignment::Start } else { Alignment::Center })
       .part(&self.part(SwitchPart::Root))
-      .child(track);
+      .child(self.beside_label(track));
+    if self.wraps() {
+      root = root.max_width(Dimension::Pct(100.0));
+    }
     if let Some(label) = self.label() {
       root = root.child(label.on_click(own_press(self.press())));
     }

@@ -6,7 +6,7 @@ use super::{
   names,
   part_style::PartTransition,
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
-  shared::{Choice, Orientation, fading, pressable},
+  shared::{Choice, Orientation, beside_first_line, control_label, label_top, fading, pressable},
   theme::{Themed, current_theme},
 };
 use crate::{
@@ -16,7 +16,7 @@ use crate::{
   components::{self, Column, Row},
   core::{ElementRef, Signal, SignalValue},
   layout::{Alignment, layout_kind::Justify},
-  node::{CursorIcon, Element, FocusGroup, border::Border},
+  node::{CursorIcon, Element, FocusGroup, border::Border, dimension::Dimension},
 };
 
 /// The parts of a radio a recipe styles.
@@ -88,6 +88,7 @@ pub type RadioRenderer = Arc<dyn Fn(RadioView) -> Element + Send + Sync>;
 pub struct Radio {
   label: Arc<str>,
   label_hidden: bool,
+  label_wraps: bool,
   whole: bool,
   mark_only: bool,
   count: Option<Arc<str>>,
@@ -109,6 +110,7 @@ impl Radio {
     Self {
       label: Arc::from(label),
       label_hidden: false,
+      label_wraps: false,
       whole: false,
       mark_only: false,
       count: None,
@@ -128,6 +130,14 @@ impl Radio {
   /// Whether the radio is its mark alone. Its label stays what it is called.
   pub fn label_hidden(mut self, hidden: bool) -> Self {
     self.label_hidden = hidden;
+    self
+  }
+
+  /// Whether the label goes on to more lines within the width the radio is given, the mark beside its first
+  /// line and centered on it: a label that may be long. The radio is then no wider than what holds it. Not unless
+  /// told: the label is on one line.
+  pub fn label_wraps(mut self, wraps: bool) -> Self {
+    self.label_wraps = wraps;
     self
   }
 
@@ -257,6 +267,7 @@ impl Radio {
     let view = RadioView {
       label: self.label,
       label_hidden: self.label_hidden,
+      label_wraps: self.label_wraps,
       whole: self.whole,
       mark_only: self.mark_only,
       count: self.count,
@@ -288,6 +299,8 @@ impl From<Radio> for Element {
 pub struct RadioView {
   pub label: Arc<str>,
   pub label_hidden: bool,
+  /// Whether the label goes on to more lines, the mark beside its first line.
+  pub label_wraps: bool,
   /// Whether the mark and its label are one control, its id on the whole.
   pub whole: bool,
   /// Whether the radio is its mark alone, with no press, focus or label.
@@ -371,7 +384,22 @@ impl RadioView {
       return None;
     }
     let part = self.part(RadioPart::Label);
-    Some(Row::new().part(&part).child(part.text(&self.label).nowrap()))
+    let wraps = self.label_wraps.then(|| label_top(&part, &self.part(RadioPart::Mark)));
+    Some(control_label(&part, &self.label, wraps))
+  }
+
+  /// Whether the label is shown and goes on to more lines.
+  fn wraps(&self) -> bool {
+    self.label_wraps && !self.label_hidden
+  }
+
+  /// The mark as it stands beside the label: held at the label's first line where the label wraps.
+  fn beside_label(&self, mark: impl Into<Element>) -> Element {
+    if self.wraps() {
+      beside_first_line(&self.part(RadioPart::Label), mark).into()
+    } else {
+      mark.into()
+    }
   }
 
   /// The count after the label, in the style of its part: `None` where it has none.
@@ -424,18 +452,25 @@ impl RadioView {
         .justify(Justify::Center)
         .part(&self.part(RadioPart::Mark))
         .with_children(dot);
-      return self
+      let root = self
         .whole_root()
-        .child(mark)
+        .child(self.beside_label(mark))
         .with_children(self.label())
-        .with_children(self.count())
-        .into();
+        .with_children(self.count());
+      return if self.wraps() {
+        root.align_items(Alignment::Start).max_width(Dimension::Pct(100.0)).into()
+      } else {
+        root.into()
+      };
     }
     let mark = self.mark().with_children(dot);
     let mut root = Row::new()
-      .align_items(Alignment::Center)
+      .align_items(if self.wraps() { Alignment::Start } else { Alignment::Center })
       .part(&self.part(RadioPart::Root))
-      .child(mark);
+      .child(self.beside_label(mark));
+    if self.wraps() {
+      root = root.max_width(Dimension::Pct(100.0));
+    }
     if let Some(label) = self.label() {
       root = root.child(label.on_click(own_press(self.press())));
     }

@@ -2,7 +2,10 @@
 //! board draws them, what a press or a key selects, the panel of the
 //! selected tab, the overflowing form, and a theme's other anatomy.
 
-use std::sync::{Arc, Mutex};
+use std::{
+  sync::{Arc, Mutex},
+  time::Duration,
+};
 
 use lurq::{
   app::{
@@ -14,7 +17,8 @@ use lurq::{
   layout::quad::{Quad, QuadContent},
   node::{Element, color::Color},
   ui::{
-    Case, Interaction, Opacity, Tab, Tabs, TabsOrientation, TabsPart, TabsRenderer, TabsState, TabsVariant, TabsView,
+    Case, Interaction, Opacity, Recipe, Selector, Tab, Tabs, TabsOrientation, TabsPart, TabsRenderer, TabsState,
+    TabsVariant, TabsView,
   },
 };
 
@@ -927,4 +931,119 @@ fn built_tabs_too_wide_for_their_room_end_their_labels_in_an_ellipsis_inside_it(
     (width - label.width - 24.0).abs() < 0.5,
     "padded 12 each side of its label"
   );
+}
+
+#[test]
+fn a_tab_in_a_state_of_its_own_paints_its_parts_in_it_and_the_others_do_not() {
+  let rules = Recipe::new().when(Selector::new().state("waits"), TabsPart::Count, |s| {
+    s.foreground(PaletteColor::Warning)
+  });
+  let mut stage = Stage::new(move |_| {
+    Row::new()
+      .padding(8.0)
+      .child(
+        Tabs::controlled(
+          0,
+          [
+            Tab::new(0, "Running").count(4),
+            Tab::new(1, "Waiting").count(2).state("waits", true),
+            Tab::new(2, "Done").count(9).state("waits", false),
+          ],
+          |_| {},
+        )
+        .variant(TabsVariant::Line)
+        .rules(&rules),
+      )
+      .into()
+  });
+  assert_eq!(stage.text("2").0, light(PaletteColor::Warning), "the tab in the state");
+  assert_ne!(stage.text("4").0, light(PaletteColor::Warning));
+  assert_ne!(
+    stage.text("9").0,
+    light(PaletteColor::Warning),
+    "a state taken out is none"
+  );
+}
+
+#[test]
+fn a_tab_that_opens_shows_its_tooltip_and_the_apps_tooltip_wins_over_a_reason() {
+  let mut stage = Stage::new(|ctx| {
+    Column::new()
+      .size(400.0, 300.0)
+      .padding(40.0)
+      .child(
+        Tabs::controlled(
+          0,
+          [
+            Tab::new(0, "Runs").id("runs"),
+            Tab::new(1, "Agents").id("agents").hint("Two agents wait for you"),
+            Tab::new(2, "Insights")
+              .id("insights")
+              .disabled_reason("Comes later")
+              .tooltip(lurq::ui::Tooltip::new("Insights come with the next release")),
+          ],
+          |_| {},
+        )
+        .mount(ctx),
+      )
+      .into()
+  });
+  stage.own_timers();
+  assert!(!stage.paints("Two agents wait for you"));
+  stage.hover("agents");
+  stage.tick_timers(Duration::from_secs(2));
+  stage.pass();
+  assert!(stage.paints("Two agents wait for you"), "the hint of a tab that opens");
+  stage.hover("insights");
+  stage.tick_timers(Duration::from_secs(4));
+  stage.pass();
+  assert!(stage.paints("Insights come with the next release"));
+  assert!(
+    !stage.paints("Comes later"),
+    "the app's tooltip in place of the reason's"
+  );
+}
+
+#[test]
+fn reselecting_tabs_tell_a_press_of_the_selected_tab_again() {
+  let told = Arc::new(Mutex::new(Vec::new()));
+  let section = Signal::new(0u8);
+  let (held, heard) = (section.clone(), told.clone());
+  let mut stage = Stage::new(move |ctx| {
+    let heard = heard.clone();
+    let tabs = Tabs::new(
+      held.clone(),
+      [Tab::new(0, "One").id("one"), Tab::new(1, "Two").id("two")],
+    )
+    .reselect(true)
+    .on_change(move |value| heard.lock().unwrap().push(*value))
+    .mount(ctx);
+    Column::new().padding(8.0).child(tabs).into()
+  });
+  stage.click("one");
+  assert_eq!(*told.lock().unwrap(), [0], "the selected tab, told again");
+  assert_eq!(section.get(), 0);
+  stage.click("two");
+  stage.click("two");
+  assert_eq!(*told.lock().unwrap(), [0, 1, 1]);
+  assert_eq!(section.get(), 1);
+}
+
+#[test]
+fn tabs_that_do_not_reselect_tell_nothing_of_a_press_of_the_selected_tab() {
+  let told = Arc::new(Mutex::new(Vec::new()));
+  let heard = told.clone();
+  let mut stage = Stage::new(move |_| {
+    let heard = heard.clone();
+    Column::new()
+      .padding(8.0)
+      .child(Tabs::controlled(
+        0u8,
+        [Tab::new(0, "One").id("one"), Tab::new(1, "Two").id("two")],
+        move |value| heard.lock().unwrap().push(*value),
+      ))
+      .into()
+  });
+  stage.click("one");
+  assert!(told.lock().unwrap().is_empty());
 }

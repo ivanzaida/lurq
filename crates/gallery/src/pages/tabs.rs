@@ -1,7 +1,8 @@
 //! The page of the tabs: their playground, tabs bound to a signal with a
 //! panel each, the three variants the board draws, the list down the side,
 //! their states, a page's line with its note, dots and counts still read, tabs that keep their places with a lock
-//! after a label and a tab at the line's end, and the overflowing form.
+//! after a label and a tab at the line's end, a tab's own state and tooltip with tabs that reselect, and the
+//! overflowing form.
 
 use std::sync::Arc;
 
@@ -11,7 +12,7 @@ use lurq::{
   core::Signal,
   layout::{Alignment, text_style::FontWeight},
   node::Element,
-  ui::{Interaction, Tab, Tabs, TabsOrientation, TabsVariant, icons},
+  ui::{Interaction, Recipe, Selector, Tab, Tabs, TabsOrientation, TabsPart, TabsVariant, icons},
 };
 
 use crate::{
@@ -87,6 +88,9 @@ pub struct TabsPage {
   side: Signal<usize>,
   canvas: Signal<usize>,
   places: Signal<usize>,
+  /// The tabs that reselect: which is selected, and how many times a press opened the selected one again.
+  agents: Signal<usize>,
+  reopened: Signal<u32>,
 }
 
 impl TabsPage {
@@ -283,6 +287,8 @@ impl Component for TabsPage {
       side: ctx.signal(0),
       canvas: ctx.signal(1),
       places: ctx.signal(0),
+      agents: ctx.signal(0),
+      reopened: ctx.signal(0),
     }
   }
 
@@ -463,6 +469,40 @@ impl Component for TabsPage {
       .mount(ctx),
     );
 
+    // A count of what waits in the warning color by a state of its tab, a tooltip on a tab that opens, and a press of
+    // the selected tab that opens its page again.
+    let waits = Recipe::new().when(Selector::new().state("waits"), TabsPart::Count, |s| {
+      s.foreground(PaletteColor::Warning)
+    });
+    let (reopened, again) = (self.reopened.get(), self.reopened.clone());
+    let selected = self.agents.get();
+    let own = items().child(item(
+      Column::new().width(FILL).child(
+        Tabs::new(
+          self.agents.clone(),
+          [
+            Tab::new(0, "Running").count(3),
+            Tab::new(1, "Waiting").count(2).state("waits", true),
+            Tab::new(2, "Profiles")
+              .trailing_icon(icons::LOCK)
+              .hint("Profiles you share come with a team server"),
+          ],
+        )
+        .variant(TabsVariant::Line)
+        .rules(&waits)
+        .reselect(true)
+        .on_change(move |tab| {
+          // The signal is set before on_change hears it: the tab selected at this render is the one pressed again.
+          if *tab == selected {
+            again.update(|count| *count += 1);
+          }
+        })
+        .key("own")
+        .mount(ctx),
+      ),
+      &format!("a press of the selected tab opened it again {reopened} times"),
+    ));
+
     let overflowing = Column::new().width(420.0).max_width(FILL).child(
       Tabs::new(
         self.canvas.clone(),
@@ -486,7 +526,25 @@ impl Component for TabsPage {
         "impl Fn(&T)",
         "",
         "Told the value of the tab a person selects, after the signal is set: not what the app sets, nor a press of \
-         the selected tab. A second one is called after the first.",
+         the selected tab (unless reselect). A second one is called after the first.",
+      ),
+      (
+        "reselect",
+        "bool",
+        "false",
+        "A press of the selected tab, and choosing it in the More menu, tells on_change its value again.",
+      ),
+      (
+        "Tab::state",
+        "Name, bool",
+        "",
+        "The tab alone in a state the theme's recipe names, seen by every part of it: a count in the warning color.",
+      ),
+      (
+        "Tab::tooltip / Tab::hint",
+        "Tooltip / &str",
+        "",
+        "A tooltip on the tab whether it can be selected or not, in place of a disabled reason's.",
       ),
       (
         "tabs",
@@ -720,6 +778,31 @@ impl Component for TabsPage {
               ".variant(TabsVariant::Line)",
               ".reserve_selected_width(true)",
               ".note(\"Read 2 minutes ago\")",
+              ".mount(ctx)",
+            ],
+          ),
+        ),
+        Section::new(
+          "A tab's state, its tooltip, a press of the selected tab",
+          "A tab in a state of its own is seen by its parts in the recipe: the count of what waits is in the warning \
+           color. A tab that opens can have a tooltip of its own, an explanation beside its lock. With reselect, a \
+           press of the selected tab tells on_change again, for a page whose selected tab opens its page anew.",
+          self.frame.demo(
+            8,
+            own,
+            ".state(\"waits\", true) .hint(..) .reselect(true)",
+            &[
+              "let waits = Recipe::new()",
+              "    .when(Selector::new().state(\"waits\"), TabsPart::Count, |s| s.foreground(PaletteColor::Warning));",
+              "Tabs::new(section, [",
+              "    Tab::new(0, \"Running\").count(3),",
+              "    Tab::new(1, \"Waiting\").count(2).state(\"waits\", true),",
+              "    Tab::new(2, \"Profiles\").trailing_icon(icons::LOCK).hint(\"Profiles you share come with a team server\"),",
+              "])",
+              ".variant(TabsVariant::Line)",
+              ".rules(&waits)",
+              ".reselect(true)",
+              ".on_change(|tab| open_page(*tab))",
               ".mount(ctx)",
             ],
           ),

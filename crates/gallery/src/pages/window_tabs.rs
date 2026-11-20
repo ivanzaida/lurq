@@ -180,6 +180,8 @@ pub struct WindowTabsPage {
   many: Files,
   app: Files,
   all: Files,
+  /// Whether the list of every open tab is open: the page's signal, which its button sets too.
+  all_listed: Signal<bool>,
 }
 
 /// The rules of a strip whose tabs are 2 apart, and 2 before the add button, with no line between them.
@@ -543,6 +545,7 @@ impl Component for WindowTabsPage {
         open: ctx.signal((0..12).collect()),
         selected: ctx.signal(0),
       },
+      all_listed: ctx.signal(false),
     }
   }
 
@@ -680,6 +683,7 @@ impl Component for WindowTabsPage {
       .overflow(WindowTabsOverflow::List)
       .menu(WindowTabsMenu::All)
       .list_shortcut(true)
+      .menu_open(self.all_listed.clone())
       .on_close(move |file| close.close(*file))
       .on_add(move || {
         add.add();
@@ -687,7 +691,15 @@ impl Component for WindowTabsPage {
       .on_reorder(move |from, to| reorder.reorder(from, to))
       .mount(ctx)
     };
-    let all = window(all, 520.0, &format!("{} files open", self.all.open.get().len()));
+    let listed = self.all_listed.clone();
+    let all = Column::new()
+      .width(FILL)
+      .spacing(12.0)
+      .align_items(Alignment::Start)
+      .child(window(all, 520.0, &format!("{} files open", self.all.open.get().len())))
+      // The app opens the list by its signal, whether a tab is hidden or not: close tabs until all fit to see it
+      // hang from the tabs.
+      .child(lurq::ui::Button::new("Show every open tab").on_click(move |_| listed.set(true)));
 
     let rows = [
       (
@@ -1014,7 +1026,9 @@ impl Component for WindowTabsPage {
            field over twelve, a check on the selected tab, a mark on each tab not in the bar, and a close button \
            on each row, which says the file's folder after its name. Ctrl+Shift+A (Cmd+Shift+A) opens it; Up and \
            Down move through it, Enter chooses, Ctrl+W closes the row's tab, Escape empties the search and then \
-           closes it. While it has the focus its keys are its own, and the selected tab's row is kept in view.",
+           closes it. While it has the focus its keys are its own, and the selected tab's row is kept in view. The \
+           shortcut and the app's signal (menu_open, the button under the window) open it with every tab in the bar \
+           too: the More button stays hidden, and the list hangs from the tabs.",
           self.frame.demo(
             4,
             all,
@@ -1037,6 +1051,8 @@ impl Component for WindowTabsPage {
               "    .overflow(WindowTabsOverflow::List)",
               "    .menu(WindowTabsMenu::All)",
               "    .list_shortcut(true)",
+              "    // The app's signal: setting it opens the list, whether a tab is hidden or not.",
+              "    .menu_open(listed)",
               "    .on_close(..)",
               "    .on_add(..)",
               "    .mount(ctx)",
