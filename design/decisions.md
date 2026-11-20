@@ -26,7 +26,7 @@ dropped). When a decision is replaced, the old entry stays and says what replace
 - **Why.** What a kit's copier is for is the whole app's, not one button's: a QA copy that writes the person's
   clipboard from one place is as wrong as from another, so the hook is the app's and lurq's own copies keep their
   behaviour.
-- **State.** In work on `claude/k5-e-misc`.
+- **State.** Built on `claude/k5-e-misc` (2026-11-20).
 
 ### A calendar that marks the other end of a range, in the app's own words
 
@@ -41,7 +41,7 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   `App::set_date_locale`), whose fields an app may change one by one; this is documented and tested.
 - **Why.** The kit's date picker moves onto `ui::Calendar` only with the mark it draws, and its words must be
   Orchester's own.
-- **State.** In work on `claude/k5-e-misc`.
+- **State.** Built on `claude/k5-e-misc` (2026-11-20).
 
 ### Skeletons that pulse in steps, and bones laid out as the app chains them
 
@@ -58,7 +58,7 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   `height`. lurq has no margins, so there are none to take.
 - **Why.** The kit's bones and its pulse move onto `ui::Skeleton` only where the bones keep their shapes and the
   pulse its cadence.
-- **State.** In work on `claude/k5-e-misc`.
+- **State.** Built on `claude/k5-e-misc` (2026-11-20).
 
 ### A radio pressed as a whole, its id on the whole, and a press kept from a row around it
 
@@ -71,7 +71,7 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   after it (`x-mark`, `x-dot`, `x-label`, `x-count`). A press of a radio, whole or not, its label too, stops there:
   a row around it is not pressed.
 - **Why.** The same as for the switch and the checkbox, for the third of the kit's toggles.
-- **State.** In work on `claude/k5-e-misc`.
+- **State.** Built on `claude/k5-e-misc` (2026-11-20).
 
 ### Window tabs that hold Orchester's title-bar tabs
 

@@ -960,6 +960,7 @@ Radio::new("Compact").selected(true).on_change(|selected| println!("compact: {se
 | `label(&str)` | What the group is called to tooling. It draws nothing: a [field](#field) gives it its label |
 | `invalid(bool)` | Every radio's edge in the destructive color: the choice was made wrongly, or not at all |
 | `disabled(bool)` | The whole group takes no input. `Choice::disabled` takes one choice out |
+| `whole(bool)` | Each radio pressed as a whole, as `Radio::whole` says; a choice's id is then on its whole. The group is one stop of Tab still |
 | choices | A `(value, label)` or a `Choice`, whose `id(..)` is its radio's (its mark's, its parts named after it: `<id>-label`, `<id>-count`), `count(n)` a number after the label, `state(name, on)` a state of the theme's on its radio alone, and `element_ref(..)` a ref to its mark |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the radio Tab would stop on |
 
@@ -969,16 +970,19 @@ Radio::new("Compact").selected(true).on_change(|selected| println!("compact: {se
 | `on_change(handler)` | Called with `true` on a press while the radio is not selected. A press of the one selected calls nothing |
 | `label_hidden(bool)` | The mark alone. The label is still what the radio is called |
 | `count(n)` | A number after the label, in the part `Count`: 12 in `MutedForeground` |
-| `element_ref(ElementRef)` | Refers to the mark once it is laid out |
+| `element_ref(ElementRef)` | Refers to the mark once it is laid out; to the whole where it is `whole` |
 | `invalid(bool)` | The edge in the destructive color |
-| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the mark |
+| `whole(bool)` | The mark and its label are one control (state `Whole`): what is pressed, focused and ringed is the whole of them, one stop of Tab, a `radio` to tooling; its id is on the whole and the mark, the dot, the label and the count are named after it (`x-mark`, `x-dot`, `x-label`, `x-count`). `RadioView::whole_root()` for a renderer |
+| `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the mark, or of the whole |
 
 - A press of the mark or of the label selects the radio; a press of the one selected does nothing, so a choice
   once made is not taken back. A group is one stop of Tab, at the selected radio or the first; the arrow keys
   move the focus to the next radio and select it, Home and End the first and the last, and a disabled one is
-  passed by. A radio on its own is a stop of Tab that Space and Enter press. The focus ring is the mark's.
+  passed by. A radio on its own is a stop of Tab that Space and Enter press. The focus ring is the mark's, or the
+  whole's. A press of a radio, its mark, its label or its whole, is its own: a row around it with an `on_click` of its
+  own is not pressed by it, disabled or not.
 - Parts: `RadioPart::Root` (the mark and the label, side by side), `Mark` (what is pressed), `Dot`, `Label`, `Count`.
-  States: `RadioState::Selected`, `Invalid`, `Disabled`. A group's parts: `RadioGroupPart::Root` (the radios
+  States: `RadioState::Selected`, `Invalid`, `Disabled`, `Whole`. A group's parts: `RadioGroupPart::Root` (the radios
   one under the other, 12 apart) and `Item`, laid over the theme's recipe for each radio's root; its states
   `RadioGroupState::Vertical` and `Horizontal` (side by side, 24 apart), one of which is on. A theme's
   renderer of a group gets a `RadioGroupView`: its radios built, in `view.radios`, and `view.render()`. A theme names
@@ -2491,13 +2495,17 @@ Skeleton::status(
 | `Skeleton::block(width, height)` | An image, a chart, a card. `Length::Fill` is all the room it has |
 | `Skeleton::paragraph(lines)` | Lines 10 apart; the one before the last a little shorter, the last shorter still |
 | `width(length)`, `height(length)` | The app's size over the shape's. For a paragraph, the width of all of it and the height of each line |
+| `min_width`, `max_width`, `min_height`, `max_height`, `radius(..)` | The rest of what an app lays on a bone: its least and most sizes and its corners, over the shape's. For a paragraph, the widths are of all of it, the heights and the radius of each line |
+| `flex(factor)`, `flex_shrink(factor)` | Its share of the room left in its row or column, and how much of its size it gives up where there is too little, as an element's. lurq has no margins: a gap or a padding around it says where it stands |
 | `animation(SkeletonAnimation)` | `Pulse` (the default), `Shimmer` or `None` |
+| `motion(SkeletonMotion)` | How it pulses or shimmers, in place of the theme's (`theme.set_skeleton_motion(..)`): `SkeletonMotion::SMOOTH` (the default), or `SkeletonMotion::stepped(per_second)`, with `.period(duration)` |
 | `Skeleton::status(label, content)` | A `status` called `label` around a group of skeletons |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them |
 
 - A skeleton is nothing to tooling that reads the tree: nothing of it is described, so it is left out as any box with no text, id or handler is. What is loading is said once, by `Skeleton::status` around a group of them.
-- A skeleton pulses with `ui::SKELETON_PULSE`, from whole to half and back in `SKELETON_PULSE_PERIOD`; one that shimmers has a sheen as wide as itself cross it in `SKELETON_SHIMMER_PERIOD`, from wholly before its start to wholly past its end, whatever its width: in a row three times the skeleton's width centred on it, the room before the sheen grows from nothing to two thirds of the row (`ui::SKELETON_SHIMMER`, a width in percent). Both play on the animation clock, so every skeleton on screen pulses as one, and the sheen crosses all of them at once. Where motion is reduced a skeleton stands still.
-- Parts: `SkeletonPart::Root` (the box of a shape, or the column of a paragraph's lines), `Bone` (a shape), `Sheen` (the fill of its middle; it is as wide as the bone). The shapes are the variants of `SkeletonShape`: `Line`, `Circle`, `Block`, `Paragraph`.
+- A skeleton pulses with `ui::SKELETON_PULSE`, from whole to half and back in `SKELETON_PULSE_PERIOD`; one that shimmers has a sheen as wide as itself cross it in `SKELETON_SHIMMER_PERIOD`, from wholly before its start to wholly past its end, whatever its width: in a row three times the skeleton's width centred on it, the room before the sheen grows from nothing to two thirds of the row (`ui::SKELETON_SHIMMER`, a width in percent). Both play on the animation clock, so every skeleton on screen pulses as one, and the sheen crosses all of them at once. Where motion is reduced a skeleton stands still, whatever its motion.
+- A `SkeletonMotion` says how they move: smoothly, or in steps (`SkeletonMotion::stepped(20)`), each pose held until the next and no frame asked for between, so that a window with skeletons shown draws 20 frames a second and none more, all of them changing at the same moment; and how long a pulse, or a crossing of the sheen, takes (`.period(..)`, `SKELETON_PULSE_PERIOD` unless told). A theme gives the motion of every skeleton not told its own: `app.theme().set_skeleton_motion(SkeletonMotion::stepped(20).period(Duration::from_millis(1600)))`.
+- Parts: `SkeletonPart::Root` (the box of a shape, or the column of a paragraph's lines), `Bone` (a shape), `Sheen` (the fill of its middle; it is as wide as the bone). A theme's renderer is given `SkeletonView` with its `motion`, and builds the root with `view.root()`, which carries the id, the key and the app's `flex`. The shapes are the variants of `SkeletonShape`: `Line`, `Circle`, `Block`, `Paragraph`.
 - In the design every shape is in `Muted`; a line is 12 high and `radius-sm`, a circle `radius-full`, a block 200 by 112 and `radius-lg`; a paragraph's lines are 10 apart, its last two 92 and 60 hundredths of its width. The sheen runs from the shape's fill to `SecondaryHover` and back.
 - The board's media row and card are built from these and are no components of their own: the gallery's Skeleton page has both, with their code.
 
@@ -6556,6 +6564,7 @@ Calendar::new(due.clone()).memory(&self.memory);
 | `week_numbers(bool)` | The ISO 8601 week number before each week |
 | `outside_days(bool)` | The days of the months before and after in the first and the last week; on, as the design draws them, and none with several months |
 | `today(Date)` | The day marked as today (the state `Current`), in place of the system's |
+| `other_end(Option<Date>)` | Of a calendar of one date: the other end of a range its date is one end of, the date of the range's other picker, marked (the state `OtherEnd`, on `Highlight` with its radius, `range_other_end` to tooling) while a person chooses this end |
 | `disabled(bool)` | It takes no input |
 | `footer(element)` | An element of the app's under the months, across the panel, in the part `Footer`: 8 under a line of 1 in `Border`. Today and Clear, a line of what the days mean. It is not in the focus group of the days |
 | `label(&str)` | What the calendar is called to tooling: its panel is then a `group`. Each month is a `grid` called by its month whatever it says |
@@ -6564,11 +6573,18 @@ Calendar::new(due.clone()).memory(&self.memory);
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the day Tab would enter at. Each day has the id with `-day-` and the date after it: `due-day-2026-11-12`; a weekday's head `-weekday-` and its English short name (`due-weekday-mon`); the buttons `-nav-previous` and `-nav-next`; its other parts `-` and the part's name (see [ids of parts](#ids-of-parts)) |
 
 - The calendar does not keep what is chosen: the app's signal does. It keeps the month it shows, starting at the month of what is chosen, or of today, and follows the value to its month when the app sets it to a date that is not shown; mounted, or with a `DateMemory`, it keeps it between renders. Converted into an element with neither it keeps nothing: its buttons show no other month unless the app gives it the month, and a range shows only once it is chosen.
-- Its text (the title of a month, the heads of the weekdays, what a day and the buttons are called) is one [`DateText`](../dates/#how-an-app-writes-its-dates): its own `.locale(..)`, else the app's `app.set_date_locale(..)`, else English. The app's is read where the calendar is built in a render, mounted or not, and a change of it builds the calendar again.
+- Its text (the title of a month, the heads of the weekdays, what a day and the buttons are called) is one [`DateText`](../dates/#how-an-app-writes-its-dates): its own `.locale(..)`, else the app's (`app.set_locale(..)`, whose `Locale::dates` it is, or `app.set_date_locale(..)` after it), else English. The app's is read where the calendar is built in a render, mounted or not, and a change of it builds the calendar again. An app that names its months or its weekdays in words of its own changes them in the locale's `dates` (`months`, `weekdays_short`, `weekdays`, `labels`, ...) and sets it:
+
+  ```rust
+  let mut locale = Locale::for_tag("uk");
+  locale.dates.weekdays_short = ["пн", "вт", "ср", "чт", "пт", "сб", "нд"].map(Arc::from);
+  locale.dates.months[10] = Arc::from("Листопад");
+  app.set_locale(locale);
+  ```
 - A range: the first press starts it, the pointer and the keys show where it would end, and the second ends it, before the first or after it. Its ends are chosen days, and the days between are one band.
 - The days are one stop of Tab, at the chosen day, today or the first of the month; the buttons of the heading are stops of their own before them. Left and Right go a day, Up and Down a week, Home and End to the ends of the week, PageUp and PageDown a month and with Shift a year: into the month before or after, which is then shown, and kept between the least and the greatest date. A day that cannot be chosen takes the focus too and says so: the keys pass no day by. Enter and Space choose. The keys are the days' own, through the engine's `KeyboardEvent::focus_key`.
 - To what reads the tree each month is a `grid` called by its month (`November 2026`), of `row`s of `gridcell`s called by their day (`Thursday, Nov 12, 2026`) that say `a11y_selected`, `a11y_current` (`date`, for today) and `a11y_disabled`; the names of the days are `columnheader`s.
-- Parts: `CalendarPart::Root` (the panel), `Months` (the row of headings and the row of days, its gap the room between months), `Header`, `Title`, `Nav` and `NavIcon` (rules over the outline buttons and their glyphs), `Grid`, `Weekdays`, `Weekday`, `Week`, `WeekNumber`, `Day`, `Footer`. States of the calendar: `CalendarState::Disabled`, `Bare` (in a picker's panel: no fill or edge of its own); of a day: `Selected`, `Current` (today), `Outside`, `Unavailable`, `RangeStart`, `RangeEnd`, `InRange`.
+- Parts: `CalendarPart::Root` (the panel), `Months` (the row of headings and the row of days, its gap the room between months), `Header`, `Title`, `Nav` and `NavIcon` (rules over the outline buttons and their glyphs), `Grid`, `Weekdays`, `Weekday`, `Week`, `WeekNumber`, `Day`, `Footer`. States of the calendar: `CalendarState::Disabled`, `Bare` (in a picker's panel: no fill or edge of its own); of a day: `Selected`, `Current` (today), `Outside`, `Unavailable`, `RangeStart`, `RangeEnd`, `InRange`, `OtherEnd`.
 - In the design the panel is 248 wide, on `Popover` with an edge of 1 in `Border`, `radius-lg` and 12 of padding; the heading is 32 high, the month in the body's type at 500 between two outline buttons of 28 (`radius-md`, edge in `Input`, chevrons of 16 in `MutedForeground`), 8 over the days. A day is 32 square with `radius-md`, its number at 13; the names of the days are at 12 in `MutedForeground`; the rows are 8 apart. Today and a day under the pointer are on `Highlight` (the board's `accent`); the chosen day is on `Primary`, its number in `PrimaryForeground` at 500. A day of the month beside, and one that cannot be chosen, is in `MutedForeground` at half opacity. The days between a range's ends are on `Highlight` with no radius.
 - A theme's renderer is given `CalendarView`: `view.months`, `view.chosen`, `view.draft`, `view.hover`, `view.shown_range()`, `view.day_states(date, outside)`, `view.day_recipe(states)`, `view.entry()`, and the pieces `nav(by)`, `header(index)`, `headers()`, `weekdays()`, `day(date, month)`, `week(days, month)`, `grid(index)`, `grids()`, `panel()` and `render()`.
 
@@ -6609,6 +6625,7 @@ DatePicker::controlled(self.due.get(), move |date| due.set(date));
 | `format(Fn(Date) -> String)`, `parse(Fn(&str) -> Option<Date>)` | How the field writes the date and reads what is typed, in place of the locale's |
 | `locale(impl DateText)` | How dates are written and read, and the calendar's names, first day and the controls' names, in place of the app's (`app.set_date_locale`, English where it set none) |
 | `min`, `max`, `disabled_days`, `first_day`, `week_numbers`, `today` | As the calendar's: what cannot be chosen cannot be typed either |
+| `other_end(Option<Date>)` | The other end of a range the date is one end of, which the calendar marks: a start's picker is given the end's date, and the end's the start's |
 | `clearable(bool)` | A button at the end of the field that empties it while it holds a date |
 | `size(DatePickerSize)`, `invalid`, `warning`, `valid`, `read_only`, `disabled`, `label`, `full_width`, `name` | As an [input](#input)'s; `DatePickerSize` is `TextBoxSize`. A read-only picker opens no calendar |
 | `trigger_label(&str)`, `clear_label(&str)`, `panel_label(&str)` | What the button, the cross and the panel are called to tooling: "Choose date", "Clear", "Choose date" in English |
