@@ -9,6 +9,43 @@ them says so. Decisions about phones and tablets are in [mobile-decisions.md](mo
 Each entry: **the question**, **the decision**, **why**, and its **state** (decided, in work on a branch, built,
 dropped). When a decision is replaced, the old entry stays and says what replaced it.
 
+## 2026-11-20
+
+### Pressables that Tab passes by, and a press that opens beside what is open
+
+- **Question.** Orchester's desktop app reaches its buttons, rows, tabs, segments and breadcrumb links with the
+  pointer and with their own shortcuts, never with Tab: a press of one leaves the focus where it was, and Tab goes
+  from field to field of a form. A `ui::Button`, `ListItem`, `Tab`, `Segment` and a breadcrumb's link are all stops
+  of Tab, and a press focuses them, so the app could not move its kit onto them (plan K4, item 1: `button` with 403
+  call sites, `icon_button`, `breadcrumb`, `tabs`, `row_group`, `setting_rows`). Its links also open as a browser's
+  do: the middle button, or a press with Ctrl held (Cmd on a Mac), opens the place in a new tab and does not do what
+  a plain press does. Should lurq's pressables do both, and how?
+- **Decision (Ivan, 2026-11-20: "давай роби тоді ці всі пункти").** Every pressable component of the item takes
+  `.tab_stop(false)`: Tab passes it by and a press of it with the pointer leaves the focus where it was; it still
+  takes the focus when the app gives it (`Ctx::focus`), Enter and Space still press it then, the arrows of a focus
+  group it is in still move to it, and its role and name are as they were. On a component of several (`Tabs`,
+  `SegmentedControl`, `Breadcrumb`) it is said once for all of them. The engine gets the two halves as two props of
+  an element, `tab_stop(bool)` and `focus_on_press(bool)`. A `Button`, a `ListItem`, a `Tab` and a `BreadcrumbStep`
+  take `.on_open_aside(handler)`, the name `SidebarItem` has: the middle button, or a primary press with Ctrl held
+  (Cmd on a Mac), calls it in place of the press, and nothing else happens: no focus, no `on_click`, no selection,
+  no submit, and the press does not reach what is around it. It is given the press, so the app tells a press with
+  Shift held (a tab it switches to) from one without. `SidebarItem::on_open_aside` stays as it was, with no event.
+- **Why.** What Orchester's kit does (`ui/pressable.rs`, `navigation/link.rs`: `Focus::Pointer`, `navigates`) is a
+  rule of many desktop apps, and can be said once in lurq rather than worked around with `focusable(false)`, which
+  also kept the focus a shortcut or a test gives. The event and not a bare call because the app's rule for where a
+  page opens reads Shift.
+- **State.** In work on `claude/k4-a-pointer-only`.
+
+### A tag's remove button that Tab passes by
+
+- **Question.** Orchester's chips have a remove button that Tab does not stop at (plan K4, item 11); a `ui::Tag`'s
+  is a stop of Tab. Should it be able not to be?
+- **Decision (Ivan, 2026-11-20: "давай роби тоді ці всі пункти").** `Tag::tab_stop(false)`, by the mechanism of the
+  entry above: its remove button is passed by Tab and a press leaves the focus where it was; focused by the app, a
+  click, Enter, Space, Backspace and Delete still take the tag away.
+- **Why.** The same rule as Orchester's other pressables, on the one pressable a tag has.
+- **State.** In work on `claude/k4-a-pointer-only`.
+
 ## 2026-11-19
 
 ### A component's id is the prefix of the ids of its parts
