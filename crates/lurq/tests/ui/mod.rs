@@ -172,6 +172,7 @@ mod switch;
 mod table;
 mod table_of_contents;
 mod tabs;
+mod tabs_places;
 mod tag;
 mod teaching_tip;
 mod text_editing;
