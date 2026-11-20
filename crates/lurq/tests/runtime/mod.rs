@@ -62,6 +62,7 @@ mod nested_paging;
 mod nested_wheel_scroll;
 mod outside_press;
 mod overlay;
+mod pager;
 mod pass_report;
 mod perf_overlay;
 mod rect_observers;

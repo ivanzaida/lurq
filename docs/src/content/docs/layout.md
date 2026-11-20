@@ -935,6 +935,61 @@ the page, as it would had the list been drawn there at once.
 A finger's scroll is a gesture with one container for all of it, chosen where the finger lands: see
 [iOS](../ios/#scrolling).
 
+### A pager
+
+`components::Pager` shows pages one at a time, each as large as the pager, down or across: a feed of videos that
+goes a video at a time, a strip of an album's pictures in a page of it. Which page it is at is an index the app
+holds, and only the page shown and the ones beside it are built.
+
+```rust
+use lurq::{components::Pager, core::Signal};
+
+let at: Signal<usize> = ctx.signal(0);
+
+Pager::new(clips.len(), move |ctx, index| ctx.mount::<Clip>(clips[index].clone()))
+  .index(at.clone())
+  .on_index_change(|index| println!("at clip {index}"))
+  .mount(ctx)
+```
+
+| | |
+| --- | --- |
+| `Pager::new(count, \|ctx, index\| page)` | How many pages there are, and what builds the page at an index |
+| `index(Signal<usize>)` | The page it is at, held by the app: the pager goes to the page the signal says, and sets it to the page a person brought it to. Without one it starts at its first page and keeps where it is itself |
+| `on_index_change(\|index\| ..)` | Called with the page a person brought it to, after the signal was set. Not for a page the app set |
+| `vertical()`, `horizontal()` | Pages one under another, which is what it does unless told, or one beside another |
+| `beside(pages)` | How many pages are built on each side of the one shown: 1 unless told, never none |
+| `keys(bool)` | Whether the keys turn it: they do unless told |
+| `width(..)`, `height(..)` | How large it is: all of its room unless told. A page is as large |
+| `id(..)`, `key(..)` | The id of its box (the list of its pages is `{id}-pages`, a page `{id}-page-{index}`), and what tells it from the pagers beside it |
+
+- **The index is the truth, and it changes when the move is over.** A finger drags the pages and lets go, and the
+  index is as it was until the page it went to is at rest: `on_index_change` is then called once. A wheel and a
+  key send the pages to the next one and the index follows the same way. A feed plays the video of the index and
+  nothing else; what is to start earlier reads where the pages are going (`ScrollState::target_page` of a list of
+  its own, or the page's own [visibility](#how-much-of-an-element-shows)).
+- **A page is a component of its own.** What builds a page is called in the page's own component: what it mounts
+  there and what that keeps (a video that is open, a count) lives as long as the page is built, and is dropped
+  with it when the pager is two pages away. A page that comes back is made anew, so what must outlive it is the
+  app's: the picture each album's strip is at is a signal the app keeps, given to the strip as its `index`.
+- **A thousand pages hold three.** The pages that are not built are room and nothing else. An index the app sets
+  to a page that is built (the one beside) takes the pager there over a few frames; one further away takes it
+  there at once, and no page on the way is made.
+- **One gesture, one page, one way.** A finger never takes the pager further than the page beside the one it
+  started on, however hard it throws. A pager across in a pager that goes down takes the finger that first went
+  across, and the one around it the finger that first went down ([Scroll containers inside one
+  another](#scroll-containers-inside-one-another)); whatever ends the gesture, each comes to rest on a page.
+- **A wheel turns a page for a notch**, and a touchpad's swipe turns one, with what it leaves rolling. A wheel
+  that goes on turning turns again after two thirds of a second. A list inside a page scrolls first, as inside any
+  scroll container, and the pager turns when it is at its end.
+- **The keys.** The arrow keys along its way turn a page; Page Up, Page Down, Home and End turn a pager that goes
+  down. They are the pager's where the focus is in it, and also where it is not while most of the pager shows
+  (a strip in a page that is not shown takes none), unless a text input has the focus.
+- Only the page shown takes the pointer and the focus: Tab does not go into a page that is not there.
+
+`ui::Carousel` is the design system's component for slides with arrows and dots beside them, all built at once;
+a pager is the engine's, for pages that fill their room and are too many, or too heavy, to build together.
+
 ### Sticky elements
 
 `.sticky(Sticky::top(0.0))` holds an element at an edge of the scroll container it is in while that scrolls, as CSS

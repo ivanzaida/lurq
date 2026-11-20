@@ -1573,6 +1573,14 @@ pub const PAGES: &[Page] = &[
     mount: |ctx| ctx.mount::<engine::visibility::VisibilityPage>(()),
   },
   Page {
+    path: "/engine/pager",
+    name: "Pager",
+    icon: Some("panels"),
+    about: "engine primitive pager pages paging page view PageView UIPageViewController ViewPager feed vertical horizontal swipe index signal on_index_change current neighbours lazy built beside strip album carousel wheel arrow keys direction lock Pager",
+    group: Group::Engine,
+    mount: |ctx| ctx.mount::<engine::pager::PagerPage>(()),
+  },
+  Page {
     path: "/engine/virtualized-list",
     name: "Virtualized List",
     icon: Some("list"),
