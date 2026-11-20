@@ -746,3 +746,81 @@ fn a_search_field_told_to_leaves_the_bar_and_the_large_title_where_they_are() {
     .rect();
   assert_eq!(field.1, y, "and the field stays under it");
 }
+
+/// The texts that say `says` and are seen, as they are drawn: where, how large, and how opaque.
+fn drawn(tree: &mut Tree, says: &str) -> Vec<(f32, f32, f32, f32, f32)> {
+  tree
+    .painted_quads()
+    .into_iter()
+    .filter(|quad| matches!(&quad.content, lurq::layout::quad::QuadContent::Text { text, .. } if &**text == says))
+    .filter(|quad| quad.opacity > 0.02)
+    .map(|quad| {
+      let scale = quad.transform.matrix_2x2()[0];
+      (quad.x + quad.transform.tx, quad.y + quad.transform.ty, quad.width * scale, quad.height * scale, quad.opacity)
+    })
+    .collect()
+}
+
+/// The runs of glyphs drawn over the bar and seen, each as one box: left, top, right, bottom, as drawn, how
+/// opaque, and how many glyphs. Glyphs of one text share their transform's origin and their opacity.
+fn runs_over_the_bar(tree: &mut Tree) -> Vec<(f32, f32, f32, f32, f32, usize)> {
+  let frame = crate::support::render_pass(tree);
+  let mut runs: Vec<((i32, i32, i32), (f32, f32, f32, f32, f32, usize))> = Vec::new();
+  for glyph in frame.glyphs.iter().filter(|glyph| glyph.y < 110.0) {
+    let layered: f32 = frame
+      .layers
+      .iter()
+      .filter(|layer| (layer.start_order..layer.end_order).contains(&glyph.order))
+      .map(|layer| layer.opacity)
+      .product();
+    let alpha = glyph.color[3] * layered;
+    if alpha <= 0.02 {
+      continue;
+    }
+    let [a, b, c, d] = glyph.transform;
+    let origin = (glyph.x + glyph.transform_origin[0], glyph.y + glyph.transform_origin[1]);
+    let at = |x: f32, y: f32| {
+      let (dx, dy) = (x - origin.0, y - origin.1);
+      (origin.0 + a * dx + c * dy, origin.1 + b * dx + d * dy)
+    };
+    let (left, top) = at(glyph.x, glyph.y);
+    let (right, bottom) = at(glyph.x + glyph.width, glyph.y + glyph.height);
+    let key = (origin.0.round() as i32, origin.1.round() as i32, (alpha * 1000.0) as i32);
+    match runs.iter_mut().find(|(had, _)| *had == key) {
+      Some((_, run)) => *run = (run.0.min(left), run.1.min(top), run.2.max(right), run.3.max(bottom), alpha, run.5 + 1),
+      None => runs.push((key, (left, top, right, bottom, alpha, 1))),
+    }
+  }
+  runs.into_iter().map(|(_, run)| run).collect()
+}
+
+/// The texts drawn over the bar as one run that is moved or scaled, as the title on its way to the way back
+/// is: each glyph of a plain text is a run of its own, and is not one of them.
+fn flying(tree: &mut Tree) -> Vec<(f32, f32, f32, f32, f32, usize)> {
+  runs_over_the_bar(tree)
+    .into_iter()
+    .filter(|run| run.5 > 1 && run.4 > 0.05)
+    .collect()
+}
+
+#[test]
+fn a_large_title_goes_to_the_way_back_as_one_title() {
+  let (mut tree, router) = setup();
+  router.push("/big");
+  settle(&mut tree);
+  router.push("/second");
+  run_pass(&mut tree);
+  let first = flying(&mut tree);
+  assert!(first.len() <= 1, "the push's first frame draws the title once: {first:?}");
+  settle(&mut tree);
+
+  // A finger takes the screen back: the title comes from the way back to its place, one title all the way.
+  tree.touch_event(1, TouchPhase::Start, 2.0, 300.0, None);
+  for step in 1..=8 {
+    tree.touch_event(1, TouchPhase::Move, 2.0 + 40.0 * step as f32, 300.0, None);
+    run_pass(&mut tree);
+    let drawn = flying(&mut tree);
+    assert_eq!(drawn.len(), 1, "at {}: one title, wholly seen: {drawn:?}", 40 * step);
+    assert!(drawn[0].4 > 0.99, "at {}: not faded: {drawn:?}", 40 * step);
+  }
+}
