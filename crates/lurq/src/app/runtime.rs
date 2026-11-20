@@ -9521,6 +9521,11 @@ fn build_overlay_node(
     at: spec.at,
     at_placement: spec.at_placement,
     clear: spec.clear,
+    within: spec
+      .within
+      .as_ref()
+      .filter(|element| element.is_attached())
+      .map(crate::core::ElementRef::bounds),
   };
   let (node, bounds) = place_overlay(
     node,
@@ -9550,6 +9555,8 @@ pub(super) struct OverlayPlacing {
   at_placement: Option<Placement>,
   /// What of the window's edges it keeps clear of (`Overlay::keep_clear`).
   clear: [f32; 4],
+  /// The box of the element it is kept inside besides the window (`Overlay::within`), as it was laid out.
+  within: Option<ElementRect>,
 }
 
 /// Measures `node`, an overlay's content, and puts it by its anchor at that size. Run again on a layer that
@@ -9574,6 +9581,7 @@ fn place_overlay(
     at,
     at_placement,
     clear,
+    within,
   } = placing;
   let measure_constraints = Constraints::loose(Size::new(
     constraints.max_width.min(viewport.width).max(0.0),
@@ -9615,8 +9623,17 @@ fn place_overlay(
     }
     (Some(point), None) => point_position(point, overlay_size, viewport, offset_x, offset_y, collision),
     (None, _) => {
-      let placement =
-        resolve_overlay_collision(placement, anchor, overlay_size, viewport, offset_x, offset_y, collision);
+      // It flips where the box it is kept inside has no room, the window's or an element's: the anchor is taken
+      // into that box's space.
+      let (frame_x, frame_y, room) = within.map_or((0.0, 0.0, viewport), |frame| {
+        (frame.x, frame.y, Size::new(frame.width, frame.height))
+      });
+      let moved = ElementRect {
+        x: anchor.x - frame_x,
+        y: anchor.y - frame_y,
+        ..anchor
+      };
+      let placement = resolve_overlay_collision(placement, moved, overlay_size, room, offset_x, offset_y, collision);
       overlay_position(anchor, overlay_size, placement, offset_x, offset_y)
     }
   };
@@ -9627,7 +9644,21 @@ fn place_overlay(
       (viewport.height - top - bottom).max(overlay_size.height.min(viewport.height)),
     );
     let (x, y) = clamp_overlay_position(x - left, y - top, overlay_size, room);
-    clamp_overlay_position(x + left, y + top, overlay_size, viewport)
+    let (x, y) = (x + left, y + top);
+    // Into the element's box, then into the window, which wins.
+    let (x, y) = match within {
+      Some(frame) => {
+        let (x, y) = clamp_overlay_position(
+          x - frame.x,
+          y - frame.y,
+          overlay_size,
+          Size::new(frame.width, frame.height),
+        );
+        (x + frame.x, y + frame.y)
+      }
+      None => (x, y),
+    };
+    clamp_overlay_position(x, y, overlay_size, viewport)
   } else {
     (x, y)
   };
@@ -13352,6 +13383,7 @@ fn update_element_refs_recursive(
     return;
   }
   if let Some(element_ref) = &node.element_ref {
+    element_ref.set_text_cut(node.text_is_cut());
     element_ref.update(
       abs_x,
       abs_y,
@@ -13389,6 +13421,7 @@ fn update_element_refs_recursive(
 /// inside the zero-size box says.
 fn collapse_dropped_element_refs(node: &Node, abs_x: f32, abs_y: f32, parent_x: f32, parent_y: f32) {
   if let Some(element_ref) = &node.element_ref {
+    element_ref.set_text_cut(false);
     element_ref.update(abs_x, abs_y, abs_x - parent_x, abs_y - parent_y, 0.0, 0.0);
   }
   for child in node.children() {

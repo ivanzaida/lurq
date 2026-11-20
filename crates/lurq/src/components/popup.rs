@@ -57,6 +57,12 @@ impl Popup {
     self
   }
 
+  /// Keeps the popup inside the box of `element` besides the window: see [`Overlay::within`].
+  pub fn within(mut self, element: impl Into<ElementRef>) -> Self {
+    self.overlay = self.overlay.within(element);
+    self
+  }
+
   pub fn collision(mut self, collision: CollisionStrategy) -> Self {
     self.overlay = self.overlay.collision(collision);
     self

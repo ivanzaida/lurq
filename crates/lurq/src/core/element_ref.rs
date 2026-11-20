@@ -44,6 +44,9 @@ struct ElementRefInner {
   width: f32,
   height: f32,
   attached: bool,
+  /// Whether the element is a text drawn in fewer letters than it has, as the last layout drew it
+  /// ([`ElementRef::text_cut`]).
+  text_cut: bool,
   hovered: bool,
   active: bool,
   focused: bool,
@@ -195,6 +198,19 @@ impl ElementRef {
 
   pub fn is_attached(&self) -> bool {
     self.inner.read().unwrap().attached
+  }
+
+  /// Whether the element is a text that the last layout drew in fewer letters than it has: ended by an ellipsis
+  /// where its room ran out (`TextOverflow::Elipsis`), or cut to a limit of lines. `false` for a text drawn whole,
+  /// for an element that is no text, and before it is laid out. A label that says itself whole in a tooltip only
+  /// while it is cut reads this ([`ui::Tooltip::when_cut`](crate::ui::Tooltip::when_cut)).
+  pub fn text_cut(&self) -> bool {
+    self.inner.read().unwrap().text_cut
+  }
+
+  /// What the layout drew of the element's text: cut or whole.
+  pub(crate) fn set_text_cut(&self, cut: bool) {
+    self.inner.write().unwrap().text_cut = cut;
   }
 
   pub fn hovered(&self) -> bool {
