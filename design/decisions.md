@@ -43,7 +43,13 @@ dropped). When a decision is replaced, the old entry stays and says what replace
 - **Why.** What Orchester's kit needs to drop its `standalone` items and `held_panel`, its `popup_by_app`, and the
   arithmetic of `bar_popover` and `popover_inside`. None of it is Orchester's alone: long menus scroll, filters choose
   several, many apps open submenus on a click.
-- **State.** In work on `claude/k7-b-menus` (2026-11-21).
+- **State.** Built on `claude/k7-b-menus` (2026-11-21): `MenuEntry::Scroll`, `Menu::scrolling`, `Menu::entry`, the part
+  `MenuPart::Scroll`; `MenuItem::keeps_open`; `Menu::submenus(SubmenuOpen)`; `Menu::switch_on_anchor_press`,
+  `Popover::switch_on_anchor_press`; `Popover::cross_offset`, `Popover::within_inset`, `Overlay::within_inset`,
+  `Popup::within_inset`. The suspected bug is no fault: a popover's or a menu's offset is away from its anchor on every
+  side, over it too, so -6 over a control stands 6 into it as documented (`popover_place` pins it); Orchester's kit
+  passes `-gap` for `PopoverSide::Above` and should pass `gap`. The gallery's Menu page has "A section that scrolls, a
+  filter, submenus on a press"; the Popover page's bar popover uses the cross offset.
 
 ## 2026-11-20
 
