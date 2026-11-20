@@ -211,7 +211,7 @@ impl WindowTabsView {
 
 /// The keys of the list shortcut as the platform writes them: ⇧⌘A on a Mac, Ctrl+Shift+A elsewhere, in the
 /// locale's names of the keys.
-fn list_keys() -> String {
+pub(super) fn list_keys() -> String {
   if cfg!(target_os = "macos") {
     "⇧⌘A".to_owned()
   } else {

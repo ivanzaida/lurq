@@ -94,6 +94,14 @@ impl WindowTabsView {
     if let Some(id) = &self.id {
       panel = panel.id(format!("{id}-panel"));
     }
+    // Escape empties the search wherever the focus is in the list, before it closes the list.
+    let held = self.kept.query.clone();
+    panel = panel.on_key_down(move |event: KeyboardEvent| {
+      if event.focus_within && event.key == "Escape" && !event.composing && !held.get_untracked().is_empty() {
+        event.prevent_default();
+        held.set(String::new());
+      }
+    });
     if self.searched() {
       panel = panel.child(self.search(&listed));
     }
@@ -127,6 +135,10 @@ impl WindowTabsView {
           choose();
         }
       });
+    if self.list_shortcut {
+      // While it is empty, the field says the keys that open and close the list.
+      field = field.shortcut(&super::list::list_keys());
+    }
     if let Some(id) = &self.id {
       field = field.id(format!("{id}-search"));
     }
@@ -136,11 +148,14 @@ impl WindowTabsView {
       // A key reaches every node: Down goes to the first row only while the focus is in the field.
       .on_key_down(move |event: KeyboardEvent| {
         let plain = !(event.ctrl || event.alt || event.meta || event.shift);
-        if event.focus_within && plain && !event.composing && event.key == "ArrowDown" {
-          if let Some(first) = first {
-            event.prevent_default();
-            kept.focus_menu(MenuFocus::Item(first));
-          }
+        if event.focus_within
+          && plain
+          && !event.composing
+          && event.key == "ArrowDown"
+          && let Some(first) = first
+        {
+          event.prevent_default();
+          kept.focus_menu(MenuFocus::Item(first));
         }
       })
       .child(field)
@@ -163,7 +178,7 @@ impl WindowTabsView {
     let mut rows = Column::new()
       .align_items(Alignment::Stretch)
       .part(&self.part(WindowTabsPart::Items))
-      .focus_group(FocusGroup::vertical())
+      .focus_group(FocusGroup::vertical().one_stop(true))
       .describe("a11y_role", "listbox")
       .describe("a11y_name", crate::ui::current_locale().navigation.open_tabs.clone());
     for (at, index) in listed.iter().enumerate() {

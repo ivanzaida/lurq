@@ -993,10 +993,13 @@ struct Kept {
   query: Signal<String>,
   search: ElementRef,
   item_refs: Arc<Mutex<Vec<ElementRef>>>,
-  /// Where the focus is to go, once the strip holds as many tabs as this says, where it says.
-  menu_focus: Arc<Mutex<Option<(MenuFocus, Option<usize>)>>>,
+  menu_focus: Arc<Mutex<Option<FocusRequest>>>,
   window_height: Arc<Mutex<Option<f32>>>,
 }
+
+/// Where the focus is to go in the list of every tab, once the strip holds as many tabs as the second says, where
+/// it says.
+type FocusRequest = (MenuFocus, Option<usize>);
 
 /// Where the focus goes in the list of every tab, once it is rendered.
 #[derive(Clone, Copy, Debug, PartialEq)]
