@@ -7459,7 +7459,7 @@ VideoPlayer::new().media(frame).controls(false).child(my_controls).mount(ctx);
 | `controls(bool)` | The bar and the middle of the picture; on by default. Without them the player is its picture and the app's layer |
 | `playing(Signal<bool>)`, `playing_controlled(bool, handler)`, `on_playing_change(handler)` | Whether it plays. Play, the disc in the middle, a press of the picture, Space and K tell what it is to be |
 | `position(Signal<f32>)`, `position_controlled(f64, handler)`, `on_position_change(handler)`, `on_position_change_end(handler)` | Where it is, in seconds. `on_position_change` is told as the seek bar's handle moves, `on_position_change_end` where it is let go; a key that seeks tells both |
-| `duration(f64)`, `buffered(f64)`, `chapters(&[f64])` | How long it is (until said, the time reads `-:-- / -:--`), how far it is loaded, and where its chapters start |
+| `duration(f64)`, `buffered(f64)`, `chapters(&[f64])` | How long it is (until said, the time reads `-:-- / -:--`), how far it is loaded, and where its chapters start. With a [source](#playing-a-video) the player knows how far unless told (`MediaState::buffered`): all of a file, of bytes and of a sound loaded whole; of an address the app's loader reads as it plays (Windows), the end of the ranges it holds in a row from where it plays, by the share of its bytes, which grows as ranges come and is no further than the position after a seek to a part not fetched; and nothing is drawn as loaded where it is not known (before it opened, and an address the system's own player reads: macOS, iOS, a browser). It was the whole length from the moment it opened |
 | `preview(Fn(f64) -> Element)` | The frame for a time, which the mounted seek bar shows in a frame of 128 by 72 over the time under the pointer |
 | `volume(Signal<f32>)`, `volume_controlled(f64, handler)`, `on_volume_change(handler)`, `on_volume_change_end(handler)` | How loud, from 0 to 1 |
 | `muted(Signal<bool>)`, `muted_controlled(bool, handler)`, `on_muted_change(handler)` | Whether the sound is off; the volume is kept |
@@ -7546,7 +7546,7 @@ AudioPlayer::controlled(17.0, 42.0, |_| {})
 | `controlled(position, duration, on_change)` | The position held by the app, which is told where a person moves it |
 | `variant(AudioPlayerVariant)` | `Full` (the card, the default), `Compact`, `Voice`, `Mini` |
 | `on_change(Fn(f64))`, `on_change_end(Fn(f64))` | Where a person moves the position, as a drag moves it and where it is let go, a key's step is made or the mini player's line is pressed |
-| `buffered(f64)` | How far it is loaded, in seconds |
+| `buffered(f64)` | How far it is loaded, in seconds. With a source the player knows it unless told, as a [video player](#video-player) does: all of a sound loaded whole or kept, the ranges fetched of one read as it plays, nothing where it is not known |
 | `playing(Signal<bool>)`, `playing_controlled(bool, handler)`, `on_playing_change(Fn(bool))` | Whether it plays. A press of play, or Space with the focus on the bar or the volume, tells what it is to be |
 | `volume(Signal<f32>)`, `volume_controlled(f64, handler)`, `on_volume_change(Fn(f64))` | The volume, from 0 to 1: the card and the mini player |
 | `muted(Signal<bool>)`, `muted_controlled(bool, handler)`, `on_muted_change(Fn(bool))` | Whether it is muted; muting keeps the volume |
@@ -7904,6 +7904,7 @@ VideoPlayer::new()
 - `on_ended` is told again only after it played again. `on_error` is told a kind (`core::MediaError`), whose words are the locale's (`MediaWords::error`), once until the person tries again, which opens the source anew. Waiting is reading what is not there yet once it opened (an address on Apple's systems); opening is not waiting.
 - `on_playing_change` hears a press, as without a source, and the media stopping or starting by itself: at its end, when it fails, a sound that starts over. What a press told or the app set is not told again when the media does it. A signal bound to `playing` follows the media at its end, and that is not the app pausing it.
 - A player without a source tells none of these: whether it waits, ended or failed is what the app gives it.
+- **How far it is loaded** is the media's too: `VideoPlayback::buffered` in a layer of the app's (`child_with`), and the lighter part of the player's own seek bar. It is how far the video is fetched from where it plays, and `None` where that is not known: a line of the app's draws nothing as loaded then (`SeekBar::buffered(playback.buffered.unwrap_or(0.0))`). A looped video near its end is fetched to its end; gone on from its start, it is fetched as far as what is held from there, which for a long one may be its first megabyte alone.
 
 A clip that plays round and round, as in a feed, is looped:
 
@@ -7965,7 +7966,7 @@ An app that draws its own player asks for a media itself:
 let media = Media::open(app.loader(), &Source::file("clips/lake.mp4"));
 media.play();
 let picture = media.frame().map(Video::new); // drawn again by itself as frames come
-let state = media.state(); // duration, position, size, playing, waiting, ended, error, rate
+let state = media.state(); // duration, position, buffered, size, playing, waiting, ended, error, rate
 media.seek(42.0);
 media.set_rate(1.5);
 media.on_change(|| { /* it changed: called on the media's own thread, with nothing said */ });
@@ -8020,7 +8021,7 @@ let song = Media::sound(app.loader(), &Source::file("songs/night-drive.mp3"));
 song.set_volume(0.8);
 song.play();
 song.set_muted(true);
-let state = song.state(); // duration, position, sound, volume, muted, playing, waiting, ended, error, rate
+let state = song.state(); // duration, position, buffered, sound, volume, muted, playing, waiting, ended, error, rate
 ```
 
 A video has its sound too: `Media::open` and `VideoPlayer::source` play it, and the picture goes by what is heard.

@@ -710,3 +710,45 @@ fn an_audio_player_says_what_it_plays_and_what_it_is_doing_to_what_reads_the_tre
   stage.pass();
   assert_eq!(said(&mut stage, "p", "media_state").as_deref(), Some("ended"));
 }
+
+#[test]
+fn a_sourced_player_shows_how_far_its_media_is_fetched_and_not_its_whole_length() {
+  use lurq::ui::VideoPlayback;
+  let drive = drive_media();
+  let log = Log::default();
+  let made = log.clone();
+  let kept: Arc<Mutex<Option<VideoPlayback>>> = Arc::default();
+  let held = kept.clone();
+  let told = lurq::core::Signal::new(None::<f64>);
+  let app_says = told.clone();
+  let mut stage = stage(move |ctx| {
+    let held = held.clone();
+    let mut player = video(&made).controls(false).child_with(move |playback| {
+      *held.lock().unwrap() = Some(playback.clone());
+      Column::new().id("layer")
+    });
+    if let Some(buffered) = app_says.get() {
+      player = player.buffered(buffered);
+    }
+    player.mount(ctx)
+  });
+  let loaded = |stage: &mut Stage| {
+    stage.pass();
+    stage.pass();
+    kept.lock().unwrap().as_ref().and_then(|playback| playback.buffered)
+  };
+  let media = drive.last();
+  media.open(CLIP);
+  assert_eq!(
+    loaded(&mut stage),
+    None,
+    "not known: nothing is drawn as loaded, and not the 15 s it is long"
+  );
+  media.fetch(Some(4.0));
+  assert_eq!(loaded(&mut stage), Some(4.0));
+  media.fetch(Some(9.5));
+  assert_eq!(loaded(&mut stage), Some(9.5), "further as more of it comes");
+  // What the app says is what is shown.
+  told.set(Some(12.0));
+  assert_eq!(loaded(&mut stage), Some(12.0));
+}

@@ -85,6 +85,13 @@ pub struct MediaState {
   pub duration: Option<f64>,
   /// Where it is, in seconds.
   pub position: f64,
+  /// How far it is fetched from where it is, in seconds: the end of what is there to play from its position with
+  /// nothing more asked of the network. All of a file, of bytes and of a sound that was loaded whole. For an
+  /// address the app's loader reads as it plays (Windows), the end of the ranges it holds in a row from the
+  /// position, taken by the share of its bytes: it grows as ranges come, and after it is sent to a part that is
+  /// not fetched it is no further than there. `None` where that is not known: before it opened, for what has no
+  /// length, and for an address the system's own player reads (macOS, iOS, a browser).
+  pub buffered: Option<f64>,
   /// How large its picture is, once it opened. `None` for what has no picture, and for what is only heard.
   pub size: Option<(u32, u32)>,
   /// Whether it has sound, once it opened.
@@ -155,6 +162,38 @@ pub(crate) struct Shared {
   eager: std::sync::atomic::AtomicBool,
   /// What the app's loader reads of it, where it plays an address.
   stream: Mutex<Option<Arc<dyn Reader>>>,
+  /// All of what it plays is there: a file, or bytes.
+  whole: std::sync::atomic::AtomicBool,
+}
+
+/// How far a media `duration` long is fetched from `position`, in seconds, where `held` are the ranges of bytes
+/// there of the `len` it has: the end of the range the position is in, by the share of its bytes. Where the
+/// position is in none, it is fetched no further than the position.
+///
+/// A file's index stands before what it indexes, so the bytes of a time are a little after its share: a range
+/// that begins a little after the position's share is taken to hold it.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn fetched_to(position: f64, duration: f64, len: u64, held: &[std::ops::Range<u64>]) -> f64 {
+  if duration <= 0.0 || len == 0 {
+    return position;
+  }
+  let position = position.clamp(0.0, duration);
+  let at = ((position / duration) * len as f64) as u64;
+  let slack = (len / 50).max(1 << 20);
+  let mut end = None;
+  for range in held {
+    // The ranges are in order: one that takes up where the last ended goes on the run.
+    match end {
+      None if range.start <= at.saturating_add(slack) && at < range.end => end = Some(range.end),
+      Some(run) if range.start <= run => end = Some(run.max(range.end)),
+      _ => {}
+    }
+  }
+  match end {
+    Some(end) if end >= len => duration,
+    Some(end) => (end as f64 / len as f64 * duration).max(position),
+    None => position,
+  }
 }
 
 /// The state of a media, and the clock it is read from: where it was at `since`, going at `rate` while it plays.
@@ -179,6 +218,9 @@ pub(crate) struct Inner {
   /// How many times it showed a frame, or gave its output sound where it has no picture: what it presents after
   /// it could move is its start ([`Media::on_started`]).
   pub presented: u64,
+  /// How far it is fetched from where it is, in seconds, where what plays it says so itself: a media a test
+  /// drives. What the app's loader reads, and a file, are told from what is held ([`Media::state`]).
+  pub fetched: Option<f64>,
   pub at: f64,
   pub since: Instant,
   /// How many times it was sent somewhere ([`Media::seek`]). The thread counts the ones it has done, and does
@@ -228,6 +270,7 @@ impl Shared {
         looped: false,
         rounds: 0,
         presented: 0,
+        fetched: None,
         at: 0.0,
         since: Instant::now(),
         sent: 0,
@@ -244,6 +287,7 @@ impl Shared {
       awaits_start: std::sync::atomic::AtomicBool::new(false),
       eager: std::sync::atomic::AtomicBool::new(false),
       stream: Mutex::new(None),
+      whole: std::sync::atomic::AtomicBool::new(false),
     })
   }
 
@@ -679,6 +723,10 @@ fn live(shared: &Arc<Shared>, asked: Asked, heard: bool, run: impl FnOnce(&Arc<S
   let Some((opened, kept)) = settle(shared, asked) else {
     return;
   };
+  shared.whole.store(
+    matches!(opened, Opened::File(_) | Opened::Bytes(..)),
+    std::sync::atomic::Ordering::Release,
+  );
   run(shared, opened, heard);
   // A file of the cache on the disk that could not be played is let go: it has the length it was written
   // with, and is not what was written. The next try loads it anew.
@@ -820,22 +868,46 @@ impl Media {
     &self.0.shared
   }
 
+  /// How far a media that opened, `duration` long, is fetched from `position`: see [`MediaState::buffered`].
+  fn buffered(&self, duration: f64, position: f64) -> Option<f64> {
+    let shared = self.shared();
+    if shared.whole.load(std::sync::atomic::Ordering::Acquire) {
+      return Some(duration);
+    }
+    let stream = shared
+      .stream
+      .lock()
+      .unwrap_or_else(|poisoned| poisoned.into_inner())
+      .clone()?;
+    Some(fetched_to(position, duration, stream.len()?, &stream.buffered()))
+  }
+
   /// Where it is and what it is, now.
   pub fn state(&self) -> MediaState {
-    let inner = self.shared().inner();
-    MediaState {
-      duration: inner.duration,
-      position: inner.position(),
-      size: inner.size,
-      sound: inner.sound,
-      volume: inner.volume,
-      muted: inner.muted,
-      playing: inner.playing,
-      waiting: inner.waiting,
-      ended: inner.ended,
-      error: inner.error.clone(),
-      rate: inner.rate,
-    }
+    let (mut state, opened, fetched) = {
+      let inner = self.shared().inner();
+      let state = MediaState {
+        duration: inner.duration,
+        position: inner.position(),
+        buffered: None,
+        size: inner.size,
+        sound: inner.sound,
+        volume: inner.volume,
+        muted: inner.muted,
+        playing: inner.playing,
+        waiting: inner.waiting,
+        ended: inner.ended,
+        error: inner.error.clone(),
+        rate: inner.rate,
+      };
+      (state, inner.opened, inner.fetched)
+    };
+    // Of the same moment as the rest, and read with the media's state let go: a reader has locks of its own.
+    state.buffered = fetched.or_else(|| {
+      let duration = state.duration.filter(|_| opened)?;
+      self.buffered(duration, state.position)
+    });
+    state
   }
 
   /// Its picture, once it opened: an image that holds the frame of the moment, which a
@@ -1013,6 +1085,39 @@ mod tests {
   use std::sync::atomic::Ordering;
 
   use super::*;
+
+  const MIB: u64 = 1 << 20;
+
+  #[test]
+  fn how_far_it_is_fetched_is_the_end_of_the_ranges_held_in_a_row_from_where_it_is() {
+    // 100 s in 100 MiB: a second to a mebibyte.
+    let (long, len) = (100.0, 100 * MIB);
+    let to = |position: f64, held: &[std::ops::Range<u64>]| fetched_to(position, long, len, held);
+    assert_eq!(to(0.0, &[0..10 * MIB]), 10.0);
+    assert_eq!(to(5.0, &[0..10 * MIB]), 10.0, "from anywhere in the range");
+    assert_eq!(
+      to(0.0, &[0..10 * MIB, 10 * MIB..20 * MIB]),
+      20.0,
+      "ranges that touch are one"
+    );
+    // The start and a part further on: each is fetched to its own end, and what is between to nowhere.
+    let apart = [0..MIB, 50 * MIB..60 * MIB];
+    assert_eq!(to(0.0, &apart), 1.0);
+    assert_eq!(to(50.0, &apart), 60.0);
+    assert_eq!(to(30.0, &apart), 30.0, "sent to a part that is not fetched");
+    assert_eq!(
+      to(49.0, &apart),
+      60.0,
+      "a range that begins a little after its share holds it"
+    );
+    assert_eq!(
+      to(90.0, &[80 * MIB..len]),
+      long,
+      "to the end of its bytes is its whole length"
+    );
+    assert_eq!(to(7.0, &[]), 7.0);
+    assert_eq!(fetched_to(3.0, 0.0, len, &[0..len]), 3.0, "of no length");
+  }
 
   fn opened() -> Arc<Shared> {
     let shared = Shared::new();

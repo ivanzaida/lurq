@@ -280,6 +280,7 @@ mod tests {
       looped: false,
       rounds: 0,
       presented: 0,
+      fetched: None,
       at: 0.0,
       since: crate::time::Instant::now(),
       sent: 0,
