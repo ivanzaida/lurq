@@ -221,6 +221,7 @@ pub(super) struct Cut {
 
 impl Cut {
   /// Blocks of one size.
+  #[cfg(test)]
   pub(super) fn even(size: u64) -> Self {
     Self {
       first: size,

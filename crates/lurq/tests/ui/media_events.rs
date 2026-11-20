@@ -619,3 +619,94 @@ fn a_layer_of_the_apps_is_built_from_what_a_sourced_player_is_doing_and_moves_it
   assert_eq!(log.take(), ["playing true"]);
   assert!(seen.lock().unwrap().last().unwrap().contains("playing true"));
 }
+
+/// What `id` says of itself to what reads the tree under `what`.
+#[cfg(any(feature = "devtools", feature = "mcp"))]
+fn said(stage: &mut Stage, id: &str, what: &str) -> Option<String> {
+  stage
+    .tree
+    .get_element_by_id_mut(id)
+    .and_then(|element| element.description(what))
+    .map(|said| said.to_string())
+}
+
+#[cfg(any(feature = "devtools", feature = "mcp"))]
+#[test]
+fn a_video_player_says_what_it_plays_and_what_it_is_doing_to_what_reads_the_tree() {
+  let drive = drive_media();
+  let log = Log::default();
+  let mut stage = stage(move |ctx| video(&log).mount(ctx));
+  let media = drive.last();
+  // Its source has shown no frame yet.
+  assert_eq!(said(&mut stage, "v", "media_state").as_deref(), Some("opening"));
+  assert_eq!(
+    said(&mut stage, "v", "media_source").as_deref(),
+    Some(r#"File("clips/lake.mp4")"#)
+  );
+  assert_eq!(
+    said(&mut stage, "v", "media_duration"),
+    None,
+    "its length is not known yet"
+  );
+
+  media.open(CLIP);
+  media.present();
+  stage.pass();
+  stage.pass();
+  assert_eq!(said(&mut stage, "v", "media_state").as_deref(), Some("paused"));
+  assert_eq!(said(&mut stage, "v", "media_position").as_deref(), Some("0.0"));
+  assert_eq!(said(&mut stage, "v", "media_duration").as_deref(), Some("15.0"));
+
+  stage.click("v-play");
+  stage.pass();
+  assert_eq!(said(&mut stage, "v", "media_state").as_deref(), Some("playing"));
+  media.wait(true);
+  stage.pass();
+  assert_eq!(said(&mut stage, "v", "media_state").as_deref(), Some("waiting"));
+  media.wait(false);
+  media.end();
+  stage.pass();
+  stage.pass();
+  assert_eq!(said(&mut stage, "v", "media_state").as_deref(), Some("ended"));
+
+  // One that cannot play.
+  media.fail(MediaError::Unsupported);
+  stage.pass();
+  stage.pass();
+  assert_eq!(said(&mut stage, "v", "media_state").as_deref(), Some("failed"));
+}
+
+#[cfg(any(feature = "devtools", feature = "mcp"))]
+#[test]
+fn an_audio_player_says_what_it_plays_and_what_it_is_doing_to_what_reads_the_tree() {
+  let drive = drive_media();
+  let mut stage = stage(move |_| {
+    AudioPlayer::controlled(0.0, 0.0, |_| {})
+      .source(&Source::bytes(b"a song".to_vec()))
+      .title("Night Drive")
+      .id("p")
+      .into()
+  });
+  let media = drive.last();
+  assert_eq!(said(&mut stage, "p", "media_state").as_deref(), Some("opening"));
+  // Bytes are said by how many they are, and never themselves.
+  assert_eq!(
+    said(&mut stage, "p", "media_source").as_deref(),
+    Some("Bytes { len: 6 }")
+  );
+  assert_eq!(said(&mut stage, "p", "media_duration"), None);
+
+  media.open(SONG);
+  stage.pass();
+  stage.pass();
+  assert_eq!(said(&mut stage, "p", "media_state").as_deref(), Some("paused"));
+  assert_eq!(said(&mut stage, "p", "media_duration").as_deref(), Some("180.0"));
+
+  stage.click("p-play");
+  stage.pass();
+  assert_eq!(said(&mut stage, "p", "media_state").as_deref(), Some("playing"));
+  media.end();
+  stage.pass();
+  stage.pass();
+  assert_eq!(said(&mut stage, "p", "media_state").as_deref(), Some("ended"));
+}

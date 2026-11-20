@@ -603,6 +603,13 @@ impl Tree {
     did_work
   }
 
+  /// Whether nothing is left to draw: no redraw asked for, no animation, no canvas on its way, and nothing a
+  /// finger left moving (its momentum, a list on its way to a page, content springing back), which the shell
+  /// steps between frames and no animation counts.
+  pub(crate) fn mcp_idle(&self) -> bool {
+    !self.needs_redraw() && !self.has_active_timeline() && !self.has_moving_canvas() && self.finger_deadline().is_none()
+  }
+
   /// Resolve parked `lurq_wait` replies after a pass; runs on every tree.
   pub(crate) fn mcp_notify_pass(&mut self, report: &crate::app::runtime::PassReport) {
     self.reconcile_file_dialogs();
@@ -610,7 +617,7 @@ impl Tree {
       return;
     }
     let rendered = report.rendered;
-    let idle = !self.needs_redraw() && !self.has_active_timeline() && !self.has_moving_canvas();
+    let idle = self.mcp_idle();
     let mut keep_producing_frames = false;
     self.mcp_wait_entries.retain_mut(|entry| {
       let Some(reply) = entry.reply.take() else {

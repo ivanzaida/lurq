@@ -112,3 +112,128 @@ fn a_scroll_areas_bars_are_scrollbars_with_their_value_and_a_labelled_one_is_a_r
   );
   assert!(!attrs(both).contains("scrollbar_vertical"), "the content fits down");
 }
+
+/// A feed of three pages that scrolls by pages, 100 by 100.
+struct Feed {
+  state: ScrollState,
+}
+
+/// The state the feed scrolls by, which the test holds too.
+struct FeedProps(ScrollState);
+
+impl PartialEq for FeedProps {
+  fn eq(&self, _: &Self) -> bool {
+    true
+  }
+}
+
+impl Component for Feed {
+  type Props = FeedProps;
+
+  fn create(ctx: &mut Ctx) -> Self {
+    Self {
+      state: ctx.props::<FeedProps>().0.clone(),
+    }
+  }
+
+  fn render(&self, _: &mut Ctx) -> impl Into<Element> {
+    // In a box of its own: the root of a component is called by the component's name.
+    Column::new().size(200.0, 200.0).child(
+      lurq::components::ScrollVertical::new(Column::new().size(100.0, 300.0))
+        .with_scroll_state(self.state.clone())
+        .id("feed")
+        .size(100.0, 100.0),
+    )
+  }
+}
+
+/// Serves the tree's MCP requests until `agent` is done, stepping what a finger left moving where `steps`.
+fn serve<T: Send + 'static>(tree: &mut Tree, app: &mut App, agent: std::thread::JoinHandle<T>, steps: bool) -> T {
+  let deadline = Instant::now() + Duration::from_secs(60);
+  while !agent.is_finished() {
+    assert!(Instant::now() < deadline, "the agent did not finish");
+    if steps {
+      tree.finger_tick(Instant::now());
+    }
+    tree.drain_mcp_requests(app);
+    tree.pass_headless(app);
+    std::thread::sleep(Duration::from_millis(2));
+  }
+  agent.join().expect("agent thread")
+}
+
+#[test]
+fn a_scroll_container_says_where_its_content_is_and_where_it_is_going() {
+  use lurq::app::events::TouchPhase;
+  let mut app = App::new();
+  let mut tree = Tree::new();
+  tree.resize(200, 200);
+  let state = ScrollState::new();
+  state.set_paging(true);
+  tree.mount_root::<Feed>(&mut app, FeedProps(state.clone()));
+  tree.pass_headless(&mut app);
+  let mcp = tree.enable_mcp(McpConfig::new().app_name("lurq-scroll-state-test"));
+  let (port, token) = (mcp.port(), mcp.token().to_owned());
+  let feed = |client: &mut Client| client.tool_json("lurq_inspect", json!({"role": "scrollvertical"}));
+
+  // At rest on its first page.
+  let agent = std::thread::spawn({
+    let token = token.clone();
+    move || {
+      let mut client = Client::new(port, token);
+      client.initialize();
+      feed(&mut client)
+    }
+  });
+  let at_rest = serve(&mut tree, &mut app, agent, true);
+  let said = attrs(&at_rest["matches"][0]);
+  assert!(said.contains(r#"["scroll_offset","0,0"]"#), "{said} of {at_rest}");
+  assert!(said.contains(r#"["scroll_page","0"]"#), "{said}");
+  assert!(said.contains(r#"["scroll_target_page","0"]"#), "{said}");
+  assert!(!said.contains("scroll_moving"), "{said}");
+
+  // A short flick up: the finger has lifted 20 into the first page, and the list is on its way to the second.
+  let start = Instant::now();
+  tree.set_press_clock(Some(start));
+  tree.finger(1, TouchPhase::Start, 50.0, 90.0, None);
+  for (millis, y) in [(8, 75.0), (16, 65.0), (24, 55.0)] {
+    tree.set_press_clock(Some(start + Duration::from_millis(millis)));
+    tree.finger(1, TouchPhase::Move, 50.0, y, None);
+  }
+  tree.set_press_clock(Some(start + Duration::from_millis(28)));
+  tree.finger(1, TouchPhase::End, 50.0, 55.0, None);
+  tree.set_press_clock(None);
+  assert_eq!(state.scroll_y(), 20.0);
+  // Asked at once, with nothing stepping what the finger left: it is on its way.
+  let agent = std::thread::spawn({
+    let token = token.clone();
+    move || {
+      let mut client = Client::new(port, token);
+      client.initialize();
+      feed(&mut client)
+    }
+  });
+  let moving = serve(&mut tree, &mut app, agent, false);
+  let said = attrs(&moving["matches"][0]);
+  assert!(said.contains(r#"["scroll_moving","true"]"#), "it is on its way: {said}");
+  assert!(said.contains(r#"["scroll_offset","0,20"]"#), "{said}");
+  assert!(
+    said.contains(r#"["scroll_target_page","1"]"#),
+    "and says where to: {said}"
+  );
+
+  // And once time has brought it to its page.
+  let agent = std::thread::spawn(move || {
+    let mut client = Client::new(port, token);
+    client.initialize();
+    std::thread::sleep(Duration::from_millis(900));
+    feed(&mut client)
+  });
+  let rested = serve(&mut tree, &mut app, agent, true);
+  tree.shutdown_mcp();
+  let said = attrs(&rested["matches"][0]);
+  assert!(said.contains(r#"["scroll_offset","0,100"]"#), "{said}");
+  assert!(said.contains(r#"["scroll_page","1"]"#), "{said}");
+  assert!(!said.contains("scroll_moving"), "{said}");
+  assert_eq!(state.scroll_y(), 100.0);
+}

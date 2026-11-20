@@ -211,6 +211,42 @@ pub(super) fn scrollbar_attrs(node: &Node) -> Vec<(String, String)> {
   {
     attrs.push(("scrollbar_horizontal".to_owned(), value));
   }
+  attrs.extend(scroll_state_attrs(&state, direction));
+  attrs
+}
+
+/// Where a scroll container's content is, for who looks into why a list shows what it shows: its offset in
+/// logical pixels (`scroll_offset=0,844`, across then down) where its content overflows; for a container that
+/// scrolls by pages, or whose page something follows, the page nearest its offset and the one it is going to
+/// (`scroll_page`, `scroll_target_page`: one number along the way it scrolls, two for one that scrolls both
+/// ways); and `scroll_moving=true` while a finger, its momentum, a way to a page or a wheel's scroll has its
+/// content.
+fn scroll_state_attrs(
+  state: &crate::layout::layout_kind::ScrollState,
+  direction: crate::layout::layout_kind::ScrollDirection,
+) -> Vec<(String, String)> {
+  use crate::layout::layout_kind::ScrollDirection;
+  let mut attrs = Vec::new();
+  let overflows =
+    state.content_width() - state.viewport_width() > 0.5 || state.content_height() - state.viewport_height() > 0.5;
+  if overflows {
+    attrs.push((
+      "scroll_offset".to_owned(),
+      format!("{},{}", state.scroll_x().round(), state.scroll_y().round()),
+    ));
+  }
+  if overflows && (state.paging() || state.page_watched()) {
+    let along = |page: (usize, usize)| match direction {
+      ScrollDirection::Horizontal => page.0.to_string(),
+      ScrollDirection::Vertical => page.1.to_string(),
+      ScrollDirection::Both => format!("{},{}", page.0, page.1),
+    };
+    attrs.push(("scroll_page".to_owned(), along(state.page())));
+    attrs.push(("scroll_target_page".to_owned(), along(state.target_page())));
+  }
+  if state.moving() {
+    attrs.push(("scroll_moving".to_owned(), "true".to_owned()));
+  }
   attrs
 }
 

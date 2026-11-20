@@ -590,6 +590,7 @@ impl VideoPlayerPage {
           }
         };
         let mut player = player
+          .id("playground-player")
           .ended(ended)
           .controls(controls)
           .playing(playing.clone())
