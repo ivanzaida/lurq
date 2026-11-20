@@ -44,8 +44,7 @@ language: a number's format is not in the locale yet.
 A component that lurq gains (a new type of `lurq::ui`, or of the engine's `components` that an app builds with) is
 not done until the gallery shows it: its page in `crates/gallery/src/pages/<name>.rs`, registered in
 `pages/mod.rs`, with its playground, its props, every variant, size and state it has, and its use among others, as
-the playbook's steps say. A feature added to a component that has a page is shown on that page: a control of its
-playground, a row of its props, a section where it needs one. Run `cargo test -p gallery narrow` for the page
+the playbook's steps say. Run `cargo test -p gallery narrow` for the page
 (`NARROW_PAGES=/<path>`). A branch that adds a component with no page is not merged.
 
 ## Decisions are written down

@@ -13,12 +13,10 @@ dropped). When a decision is replaced, the old entry stays and says what replace
 
 ### Every new component is shown in the gallery
 
-- **Question.** `ui::StatusLabel` came with plan K4's item 7 with no gallery page, and features added to other
-  components (an alert's several actions, a dialog's note, a tag's term) came with no demo on theirs. Is a
-  component done without its page?
+- **Question.** `ui::StatusLabel` came with plan K4's item 7 with no gallery page. Is a component done without its page?
 - **Decision (Ivan, 2026-11-20: "нові компоненти які додаєш мають бути додані в галерею лурка", "і додай це в
-  агент мд і десіжни").** No. Every component lurq adds gets its page in the gallery before its branch is merged,
-  and a feature added to a component with a page is shown there. Written in `AGENTS.md`.
+  агент мд і десіжни").** No. Every component lurq adds gets its page in the gallery before its branch is merged.
+  Written in `AGENTS.md`.
 - **Why.** The gallery is where a person and an agent see what lurq has and try it; a component missing from it is
   one nobody finds.
 - **State.** In force. `StatusLabel`'s page is added on `claude/k4-f-misc`.
