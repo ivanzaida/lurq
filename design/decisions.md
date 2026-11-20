@@ -47,7 +47,10 @@ dropped). When a decision is replaced, the old entry stays and says what replace
 - **Why.** What Orchester's kit needs to drop its workarounds (`navigation/input.rs`'s check of a layer over the page,
   the question's check of where the focus is) and its own sizing of the list, and to keep the design's rows. None of
   it is Orchester's alone: a browser's tab search says a page and its site, stands under its bar, and takes its keys.
-- **State.** In work on `claude/k6-a-tabs-list` (2026-11-20).
+- **State.** Built on `claude/k6-a-tabs-list` (2026-11-20): `WindowTabs::menu_open`, `on_menu_open_change`,
+  `list_clear_of`, `list_inset`, `more_tooltip`; `WindowTab::list_label`, `list_detail`, `list_trailing`; the parts
+  `ItemDetail` and `ItemMarks` and the state `Searchable`; the engine's `keys_first`; a `within` rule in no group
+  answering to its button. The gallery's "Every open tab in a list" says each file's folder.
 
 ### Window tabs that keep a gap between them, and fit by it
 

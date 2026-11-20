@@ -495,6 +495,9 @@ Row::new()
   on anything in it lights it too, so a keyboard reaches the action and sees it.
 - An element in two groups answers to the innermost: a group inside another lights only what is in it, and the outer
   one lights the rest.
+- An element in no group answers to the innermost button it is in, as to a group: the label of a button styled by
+  the button's hover (`Recipe::within_hovered(ButtonPart::Label, ..)`) is painted while the button is under the
+  pointer. A button in a group is no group of its own; a button in a button that is one lights only what is in it.
 - It paints only, as the disabled style does: a frame, padding or flex in it is ignored, so nothing moves as it comes and
   goes. It is laid under every other state style.
 - An element hidden by it (opacity 0) is still under the pointer and still a stop of Tab; with the pointer on it, its
@@ -793,6 +796,33 @@ Row::new()
 
 - An element that is disabled or inert, or in one that is, captures nothing.
 - Where two capture at once, the first in the order of the tree takes the keys.
+
+### Keys Heard First
+
+A key is told to every element of the tree in its order, from the root down, until a handler stops it
+(`stop_propagation`): a panel in a layer over the page, which comes after the page, hears a key after the page's
+handlers. An element built with `.keys_first(true)` is told first while the focus is on it or in it: it and what is in
+it hear the key before the rest of the tree, and a key one of their handlers stops the rest does not hear. What the
+window does with the key by default is done as before (Enter presses the focused button, Escape closes the top layer,
+Tab moves the focus), unless a handler prevents it. With the focus elsewhere it is told in its place in the tree, once.
+
+```rust
+use lurq::{app::events::KeyboardEvent, components::Column};
+
+// The panel's Enter is not also the Enter of a question under it: the panel stops it, and the focused row is pressed.
+Column::new()
+  .keys_first(true)
+  .on_key_down(|event: KeyboardEvent| {
+    if event.focus_within && event.key == "Enter" {
+      event.stop_propagation();
+    }
+  })
+```
+
+- A handler of the element that is told first hears what is in it next, as anywhere in the tree; to keep a key from the
+  rest of the window after what is in it heard it, stop it from an element after them.
+- Where two such elements are on the way to the focus, the outer one is told first. The list of every open tab of
+  [window tabs](../design-system/#window-tabs) is one.
 
 ### Editing commands: undo, redo, copy, cut, paste
 
