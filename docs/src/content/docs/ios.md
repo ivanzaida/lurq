@@ -194,7 +194,10 @@ One gesture scrolls one container, the innermost that has room in the finger's d
   one way takes that part of the finger's travel for the whole gesture and none of the other, and no list
   inside it takes what is left: a strip of pictures in a page does not creep sideways under a finger that
   scrolls the page on a slant, and a drag to the left that turns downward stays the strip's. A list that
-  scrolls both ways (`ScrollBoth`) follows the finger both ways.
+  scrolls both ways (`ScrollBoth`) follows the finger both ways, on a slant too, alone and inside a list that
+  scrolls one way. With a strip inside it, the gesture that starts on the strip and first goes across is the
+  strip's alone, and the one that first goes down is the board's, both ways: one gesture scrolls one list, so
+  the board does not drift down under a finger that scrolls the strip on a slant, as it did through 0.64.
 - **The scroll indicator.** On iOS a bar is `ScrollBarStyle::indicator()` unless styled otherwise: thin, over
   the content, shown while it scrolls.
 - **A tap on the status bar** scrolls the outermost vertical list to its top.
