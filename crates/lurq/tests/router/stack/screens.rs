@@ -31,6 +31,11 @@ impl PartialEq for SharedRouter {
 }
 
 thread_local! {
+  /// How many times the box at the top of the screen at `/linked` was clicked.
+  static LINK_CLICKED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+thread_local! {
   /// How many times the screen at `/first` was created in this test: each test runs on a thread of its own.
   static FIRST_CREATED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
@@ -153,6 +158,17 @@ impl Component for Root {
           .route("/led", |ctx| {
             ctx.navigation_item(NavigationItem::new("Led").leading(Text::new("a control of its own")));
             Text::new("led screen").into()
+          })
+          .route("/linked", |ctx| {
+            ctx.navigation_item(NavigationItem::new("Linked").large_title(true));
+            let content = lurq::components::Column::new()
+              .child(
+                lurq::components::Rect::new(300.0, 200.0)
+                  .id("linked-box")
+                  .on_click(|_| LINK_CLICKED.with(|clicked| clicked.set(clicked.get() + 1))),
+              )
+              .child(lurq::components::Spacer::new().width(300.0).height(2000.0));
+            StackOutlet::large_title_scroll(ctx, content).into()
           })
           .route("/big", |ctx| {
             ctx.navigation_item(NavigationItem::new("Gamma").large_title(true));
@@ -766,7 +782,13 @@ fn drawn(tree: &mut Tree, says: &str) -> Vec<(f32, f32, f32, f32, f32)> {
     .filter(|quad| quad.opacity > 0.02)
     .map(|quad| {
       let scale = quad.transform.matrix_2x2()[0];
-      (quad.x + quad.transform.tx, quad.y + quad.transform.ty, quad.width * scale, quad.height * scale, quad.opacity)
+      (
+        quad.x + quad.transform.tx,
+        quad.y + quad.transform.ty,
+        quad.width * scale,
+        quad.height * scale,
+        quad.opacity,
+      )
     })
     .collect()
 }
@@ -795,9 +817,22 @@ fn runs_over_the_bar(tree: &mut Tree) -> Vec<(f32, f32, f32, f32, f32, usize)> {
     };
     let (left, top) = at(glyph.x, glyph.y);
     let (right, bottom) = at(glyph.x + glyph.width, glyph.y + glyph.height);
-    let key = (origin.0.round() as i32, origin.1.round() as i32, (alpha * 1000.0) as i32);
+    let key = (
+      origin.0.round() as i32,
+      origin.1.round() as i32,
+      (alpha * 1000.0) as i32,
+    );
     match runs.iter_mut().find(|(had, _)| *had == key) {
-      Some((_, run)) => *run = (run.0.min(left), run.1.min(top), run.2.max(right), run.3.max(bottom), alpha, run.5 + 1),
+      Some((_, run)) => {
+        *run = (
+          run.0.min(left),
+          run.1.min(top),
+          run.2.max(right),
+          run.3.max(bottom),
+          alpha,
+          run.5 + 1,
+        )
+      }
       None => runs.push((key, (left, top, right, bottom, alpha, 1))),
     }
   }
@@ -821,7 +856,10 @@ fn a_large_title_goes_to_the_way_back_as_one_title() {
   router.push("/second");
   run_pass(&mut tree);
   let first = flying(&mut tree);
-  assert!(first.len() <= 1, "the push's first frame draws the title once: {first:?}");
+  assert!(
+    first.len() <= 1,
+    "the push's first frame draws the title once: {first:?}"
+  );
   settle(&mut tree);
 
   // A finger takes the screen back: the title comes from the way back to its place, one title all the way.
@@ -857,4 +895,28 @@ fn a_large_title_takes_the_color_of_the_bar_given_after_its_screen_was_built() {
   BAR_TITLE.with(|title| title.set(Some(white)));
   settle(&mut tree);
   assert_eq!(large_title_color(&mut tree), Some(white));
+}
+
+#[test]
+fn a_finger_that_travels_across_a_screens_list_clicks_nothing_and_takes_nothing_back() {
+  let (mut tree, router) = setup();
+  router.push("/second");
+  settle(&mut tree);
+  router.push("/linked");
+  settle(&mut tree);
+  let (x, y, width, height) = tree
+    .find_element(|element| element.id() == Some("linked-box"))
+    .map(|element| element.rect())
+    .expect("the box");
+  let (x, y) = (x + width / 2.0, y + height / 2.0);
+  // Across the box from its middle, a long way from the left edge, and lifted.
+  tree.finger(1, TouchPhase::Start, x, y, None);
+  for step in 1..=10 {
+    tree.finger(1, TouchPhase::Move, x + 4.0 * step as f32, y, None);
+    run_pass(&mut tree);
+  }
+  tree.finger(1, TouchPhase::End, x + 40.0, y, None);
+  settle(&mut tree);
+  assert_eq!(LINK_CLICKED.with(std::cell::Cell::get), 0, "a drag is no tap");
+  assert!(shows(&mut tree, "Linked"), "and it takes the screen nowhere");
 }

@@ -445,7 +445,7 @@ To scroll an element into view without focusing it, use `ctx.scroll_into_view(&e
 Focus-visible is the keyboard-only part of focus, like CSS `:focus-visible`: a button focused by Tab shows a focus ring, the same button focused by a click does not. The focused element is focus-visible when the last input that could move focus was the keyboard:
 
 - **Keyboard**: Tab and Shift+Tab, and any key press other than a bare modifier (Shift, Control, Alt, Super/Command) made without Control, Alt or Super/Command held. Arrow keys, Space, Enter, Escape and letters count, so pressing a key on a clicked button shows its ring, as in a browser; a shortcut such as Ctrl+C or Cmd+C does not.
-- **Pointer**: any mouse button press in the window, including one that only closes a popup, and `ElementHandle::click()`. It hides the ring of the element that keeps focus.
+- **Pointer**: any mouse button press in the window, including one that only closes a popup, a finger or a pen that lands, whether it taps, pans a list or pulls it to refresh, and `ElementHandle::click()`. It hides the ring of the element that keeps focus.
 - **Focus requests** (`ctx.focus(&element_ref)`, `ElementHandle::focus()`) inherit the last input's modality: a request made from a key handler shows the ring, one made from a click handler does not. Before any input the modality is pointer, so an app that focuses an element at startup shows no ring until the user touches the keyboard.
 - **Text inputs** are focus-visible whenever they have focus, clicked or not, as browsers treat text fields: the caret alone does not show which field takes the keys.
 

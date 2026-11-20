@@ -1252,6 +1252,12 @@ impl Tree {
     }
   }
 
+  /// The finger that is the pointer travelled past the slop before it lifts, over what holds no press of its
+  /// own: it is no tap, and the release that comes next clicks nothing. Its `on_mouse_up` is still told.
+  pub(crate) fn touch_release_without_click(&mut self) {
+    self.click_press = None;
+  }
+
   /// The press of the finger that is the pointer ends without a click, and the pointer leaves: a scroll
   /// started, a long press was taken, or the system took the touch.
   pub fn touch_cancel_press(&mut self, x: f32, y: f32) {

@@ -5,6 +5,9 @@
 //!
 //! Where nothing under the finger scrolls, and on a control that is dragged (a slider, a scrollbar), the finger
 //! is the pointer with its button down: it presses when it lands, moves the pointer and releases when it lifts.
+//! One that went further than [`TAP_SLOP`] from where it landed is no tap, as on the platform: its release clicks
+//! nothing, and ends what holds the press (a slider, a selection, a drag) as any release does. So is one that
+//! travels after its long press.
 //!
 //! Over content that scrolls, a finger that lands may be about to scroll or to tap, so nothing is pressed yet,
 //! and nothing is hovered: a finger has no hover.
@@ -62,8 +65,10 @@ pub(super) enum TouchAction {
   Move { x: f64, y: f64 },
   /// The left button goes down at the point.
   Press { x: f64, y: f64 },
-  /// The left button comes up at the point, which clicks, and the pointer leaves.
-  Release { x: f64, y: f64 },
+  /// The left button comes up at the point, and the pointer leaves. It clicks where `tap`: a finger that
+  /// travelled past the slop is no tap, and its release ends what holds the press (a slider, a drag) and clicks
+  /// nothing.
+  Release { x: f64, y: f64, tap: bool },
   /// A press and its release at the point at once: a tap, whose click is not held back.
   Tap { x: f64, y: f64 },
   /// The finger rested at the point: `on_long_press`. The shell tells back whether a handler took it; see
@@ -108,6 +113,10 @@ enum State {
     rest: Option<(Instant, (f64, f64))>,
     /// A handler took the long press: the finger clicks nothing when it lifts.
     taken: bool,
+    /// Where the finger landed, and whether it has gone further from there than the slop since: then it is no
+    /// tap, and clicks nothing when it lifts.
+    landed: (f64, f64),
+    travelled: bool,
   },
   Scrolling {
     /// The fingers on the content and where each one is: the one that started the scroll, and those that
@@ -161,7 +170,12 @@ impl TouchPointer {
   /// Whether another finger than `id` is the pointer, with its press sent.
   fn pressed_by_another(&self, id: u64) -> bool {
     match &self.state {
-      State::Dragging { id: held, .. } | State::Pending { id: held, pressed: true, .. } => *held != id,
+      State::Dragging { id: held, .. }
+      | State::Pending {
+        id: held,
+        pressed: true,
+        ..
+      } => *held != id,
       _ => false,
     }
   }
@@ -259,6 +273,8 @@ impl TouchPointer {
         at: position,
         rest: Some((now + LONG_PRESS, position)),
         taken: false,
+        landed: position,
+        travelled: false,
       };
       actions.push(TouchAction::Press {
         x: position.0,
@@ -311,12 +327,20 @@ impl TouchPointer {
         actions.push(scroll(start, (0.0, 0.0), ScrollPhase::Start));
         actions
       }
-      State::Dragging { id: held, at, rest, .. } if *held == id => {
+      State::Dragging {
+        id: held,
+        at,
+        rest,
+        landed,
+        travelled,
+        ..
+      } if *held == id => {
         *at = position;
         // A finger that travels is not resting.
         if rest.is_some_and(|(_, start)| distance(start, position) > TAP_SLOP * scale) {
           *rest = None;
         }
+        *travelled |= distance(*landed, position) > TAP_SLOP * scale;
         vec![TouchAction::Move {
           x: position.0,
           y: position.1,
@@ -359,15 +383,20 @@ impl TouchPointer {
       State::Pending { caught: true, .. } => vec![TouchAction::Settle],
       State::Pending {
         start, pressed: true, ..
-      } => vec![TouchAction::Release { x: start.0, y: start.1 }],
+      } => vec![TouchAction::Release {
+        x: start.0,
+        y: start.1,
+        tap: true,
+      }],
       State::Pending { start, .. } => vec![TouchAction::Tap { x: start.0, y: start.1 }],
       State::Dragging { taken: true, .. } => vec![TouchAction::CancelPress {
         x: position.0,
         y: position.1,
       }],
-      State::Dragging { .. } => vec![TouchAction::Release {
+      State::Dragging { landed, travelled, .. } => vec![TouchAction::Release {
         x: position.0,
         y: position.1,
+        tap: !travelled && distance(landed, position) <= TAP_SLOP * scale,
       }],
       State::Scrolling {
         anchor, last, samples, ..
@@ -440,6 +469,8 @@ impl TouchPointer {
           at: *start,
           rest: None,
           taken: false,
+          landed: *start,
+          travelled: false,
         };
       }
       return actions;
@@ -641,6 +672,9 @@ impl Tree {
   ) -> TouchRoute {
     if phase == TouchPhase::Start {
       self.touch_pointer.pen = pen;
+      // The ring of the focus is the keyboard's: a finger that lands takes it away, whether it taps or pans, as
+      // a press of the mouse does.
+      self.set_input_modality(super::focus_visible::InputModality::Pointer);
     }
     // A finger on a selection's handle drags it, and is nothing else's.
     let scale = self.scale_factor();
@@ -753,7 +787,12 @@ impl Tree {
       match action {
         TouchAction::Move { x, y } => self.touch_pointer_move(x as f32, y as f32),
         TouchAction::Press { x, y } => self.touch_press(x as f32, y as f32),
-        TouchAction::Release { x, y } => self.touch_release(x as f32, y as f32),
+        TouchAction::Release { x, y, tap } => {
+          if !tap && !self.has_active_input_interaction() {
+            self.touch_release_without_click();
+          }
+          self.touch_release(x as f32, y as f32);
+        }
         TouchAction::Tap { x, y } => self.touch_tap(x as f32, y as f32, TAP_HIGHLIGHT),
         TouchAction::LongPress { x, y } => {
           if self.touch_long_press(x as f32, y as f32) {

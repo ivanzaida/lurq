@@ -102,6 +102,10 @@ which are the platform's:
 
 - **A press waits** 150 ms over content that scrolls, to see whether the finger scrolls instead. A finger that
   moves more than 10 points scrolls, and there is no click. A quick tap still clicks at once.
+- **A finger that travels is no tap.** Moved more than 10 points from where it landed, it clicks nothing when it
+  lifts, in any direction: whether something scrolled that way or not (a list that scrolls up and down, crossed
+  sideways), where nothing scrolls at all, and after it rested into a long press. Its `on_mouse_up` is still told,
+  and a slider, a selection or a drag it holds ends as it does.
 - **Nothing is hovered.** Hover styles are not applied under a finger.
 - **A tap shows as pressed** for a moment even when the finger was down for less than a frame.
 - `MouseEvent::pointer_kind` is `PointerKind::Touch` for these events (`Pen` for a pen's), for an element that must tell.

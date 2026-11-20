@@ -5,8 +5,9 @@
 //! - Keyboard: Tab / Shift+Tab, and any key press other than a bare modifier (Shift, Control, Alt, AltGraph,
 //!   Super/Meta) made without Control, Alt or Super/Meta held. A shortcut such as Ctrl+C on a clicked button leaves the
 //!   modality as it was; a plain key press (arrows, Space, Enter, Escape, letters) turns the ring on, like a browser.
-//! - Pointer: a mouse button press anywhere in the window (also one that closes a popup), and
-//!   [`super::ElementHandle::click`]. It turns the ring of the current focus off.
+//! - Pointer: a mouse button press anywhere in the window (also one that closes a popup), a finger or a pen that lands
+//!   (a tap, a pan, a pull to refresh), and [`super::ElementHandle::click`]. It turns the ring of the current focus
+//!   off.
 //!
 //! Focus is visible while the modality is keyboard, so a programmatic focus request (`Ctx::focus`,
 //! [`super::ElementHandle::focus`]) inherits the last input's modality: a request made from a key handler shows the
