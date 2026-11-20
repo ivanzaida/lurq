@@ -233,6 +233,8 @@ pub(crate) struct OverlaySpec {
   pub(crate) clear: [f32; 4],
   /// The element whose box it is kept inside besides the window: see [`Overlay::within`].
   pub(crate) within: Option<ElementRef>,
+  /// How far inside that element's box it stays, top, right, bottom, left: see [`Overlay::within_inset`].
+  pub(crate) within_inset: [f32; 4],
   /// The element it is placed by in place of its anchor, wholly or on the side it opens on: see
   /// [`Overlay::placed_by`] and [`Overlay::clear_of`].
   pub(crate) frame: Option<PlacingFrame>,
@@ -401,6 +403,7 @@ impl OverlaySpec {
       at_placement: self.at_placement,
       clear: self.clear,
       within: self.within.clone(),
+      within_inset: self.within_inset,
       frame: self.frame.clone(),
     }
   }
@@ -539,6 +542,7 @@ pub struct Overlay {
   at_placement: Option<Placement>,
   clear: [f32; 4],
   within: Option<ElementRef>,
+  within_inset: [f32; 4],
   frame: Option<PlacingFrame>,
 }
 
@@ -566,6 +570,7 @@ impl Overlay {
       at_placement: None,
       clear: [0.0; 4],
       within: None,
+      within_inset: [0.0; 4],
       frame: None,
     }
   }
@@ -736,6 +741,15 @@ impl Overlay {
     self
   }
 
+  /// [`within`](Self::within) the box of `element` less `top`, `right`, `bottom` and `left` on its sides, in logical
+  /// pixels: a popover that ends 12 before the end of the column it belongs in. A negative inset lets it stand that
+  /// far past the box's edge.
+  pub fn within_inset(mut self, element: impl Into<ElementRef>, top: f32, right: f32, bottom: f32, left: f32) -> Self {
+    self.within = Some(element.into());
+    self.within_inset = [top, right, bottom, left];
+    self
+  }
+
   /// Places the overlay by the box of `element`, as it was last laid out, in place of its anchor's: it stands at its
   /// placement of that box, `offset` away, and flips and is clamped there as it would be by its anchor. The anchor
   /// stays what it hangs from: its trigger, what a press on is not outside it, where the focus goes back, what hides
@@ -783,6 +797,7 @@ impl Overlay {
       at_placement: self.at_placement,
       clear: self.clear,
       within: self.within,
+      within_inset: self.within_inset,
       frame: self.frame,
     })
   }

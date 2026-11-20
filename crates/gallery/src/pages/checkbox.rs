@@ -63,6 +63,8 @@ pub struct CheckboxPage {
   kinds: [Signal<bool>; 2],
   /// What refers to a checkbox the page moves the focus to.
   focused: ElementRef,
+  /// The checkboxes whose labels go on to more lines.
+  long_labels: [Signal<bool>; 2],
 }
 
 impl CheckboxPage {
@@ -191,6 +193,26 @@ impl CheckboxPage {
     )
   }
 
+  /// Checkboxes whose long labels go on to more lines in a narrow column, the box beside the first line: one alone,
+  /// one pressed as a whole.
+  fn long_labels(&self) -> Column {
+    Column::new()
+      .width(280.0)
+      .max_width(FILL)
+      .spacing(12.0)
+      .child(
+        Checkbox::new("Keep the worktree of every run in ~/projects/orchester/.orchester/worktrees until it is merged")
+          .label_wraps(true)
+          .bind(self.long_labels[0].clone()),
+      )
+      .child(
+        Checkbox::new("Ask before a run deletes a branch with commits that nobody has merged yet")
+          .label_wraps(true)
+          .whole(true)
+          .bind(self.long_labels[1].clone()),
+      )
+  }
+
   /// A box over a list, and the list: the box is checked while all of the
   /// list are, indeterminate while some are, and a press of it picks all or none.
   /// A filter's options, each a row pressed as a whole that says it is checked, with a checkbox's mark alone; and a
@@ -300,6 +322,7 @@ impl Component for CheckboxPage {
       row_presses: ctx.signal(0),
       kinds: [ctx.signal(true), ctx.signal(false)],
       focused: ElementRef::new(),
+      long_labels: [ctx.signal(true), ctx.signal(false)],
     }
   }
 
@@ -415,6 +438,12 @@ impl Component for CheckboxPage {
          the parts named after it (x-box, x-indicator, x-label).",
       ),
       (
+        "label_wraps",
+        "bool",
+        "false",
+        "The label goes on to more lines within the width the checkbox is given, the box beside its first line.",
+      ),
+      (
         "mark_only",
         "bool",
         "false",
@@ -436,6 +465,7 @@ impl Component for CheckboxPage {
     ];
     let playground = self.play(ctx);
     let marks = self.marks(ctx);
+    let long_labels = self.long_labels();
     let select_all = self.select_all();
     let picked = self.days.get();
     let group = items()
@@ -612,6 +642,22 @@ impl Component for CheckboxPage {
               "let reports_ref = ElementRef::new();",
               "Checkbox::new(\"Send crash reports\").element_ref(reports_ref.clone()).bind(reports)",
               "Button::new(\"Focus the checkbox\").on_click(move |_| focus.focus(&reports_ref))",
+            ],
+          ),
+        ),
+        Section::new(
+          "A label over several lines",
+          "With label_wraps(true) a long label goes on to more lines within the width the checkbox is given, the box \
+           beside its first line. A short label leaves the checkbox as narrow as before.",
+          self.frame.demo(
+            6,
+            long_labels,
+            ".label_wraps(true)",
+            &[
+              "Column::new()",
+              "    .width(280.0)",
+              "    .child(Checkbox::new(\"Keep the worktree of every run in … until it is merged\").label_wraps(true).bind(keep))",
+              "    .child(Checkbox::new(\"Ask before a run deletes a branch …\").label_wraps(true).whole(true).bind(ask))",
             ],
           ),
         ),

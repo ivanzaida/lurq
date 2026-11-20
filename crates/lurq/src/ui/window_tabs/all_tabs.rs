@@ -107,8 +107,18 @@ impl WindowTabsView {
       .collect()
   }
 
-  /// The list of every open tab, under the More button, or under what the app told it to stand clear of, while it is
-  /// open. The focus goes into it as it opens and back to the button as it closes; Escape empties the search field,
+  /// What the list hangs from, and where it stands by it: the More button, its start lined up with the button's; or,
+  /// with no tab hidden and the button not laid out, the list of tabs, its end at theirs.
+  fn list_anchor(&self) -> (crate::core::ElementRef, Placement) {
+    if self.hidden_count() == 0 {
+      (self.kept.list.clone(), Placement::BottomEnd)
+    } else {
+      (self.kept.anchor.clone(), Placement::BottomStart)
+    }
+  }
+
+  /// The list of every open tab, under the More button (under the tabs where none is hidden and the button is not
+  /// laid out), or under what the app told it to stand clear of, while it is open. The focus goes into it as it opens and back to the button as it closes; Escape empties the search field,
   /// and closes the list where it is empty; a press outside closes it. While it has the focus it hears keys before
   /// the rest of the window, which does not hear those it takes.
   pub(super) fn all_tabs(&self) -> Element {
@@ -156,9 +166,10 @@ impl WindowTabsView {
       }));
     let inset = self.list_inset();
     let told = self.open_told();
-    let mut popup = Popup::new(self.kept.anchor.clone(), content)
+    let (anchor, placement) = self.list_anchor();
+    let mut popup = Popup::new(anchor, content)
       .open(self.kept.open.clone())
-      .placement(Placement::BottomStart)
+      .placement(placement)
       .offset(0.0, LIST_OFFSET)
       .keep_clear(inset, inset, inset, inset)
       .takes_focus(true)
@@ -178,12 +189,13 @@ impl WindowTabsView {
   /// before the window's height is known.
   fn list_height(&self) -> Option<f32> {
     let window = (*self.kept.window_height.lock())?;
+    let anchor = self.list_anchor().0;
     let frame = self
       .list
       .clear_of
       .as_ref()
       .filter(|frame| frame.is_attached())
-      .unwrap_or(&self.kept.anchor);
+      .unwrap_or(&anchor);
     let top = if frame.is_attached() {
       frame.y() + frame.height() + LIST_OFFSET
     } else {

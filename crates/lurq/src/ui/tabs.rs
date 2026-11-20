@@ -16,6 +16,7 @@ use super::{
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
   shared::{Orientation, fading, glyph, one_line, opens_aside, pressable, tab_stop},
   theme::{Themed, current_theme},
+  tooltip::Tooltip,
 };
 use crate::{
   app::{
@@ -175,6 +176,8 @@ type PanelBuilder = Arc<dyn Fn() -> Element + Send + Sync>;
 /// // Three things wait for the person; the next tab is not there yet, and says why.
 /// let review = Tab::new("review", "Review").badge(3);
 /// let later = Tab::new("insights", "Insights").disabled_reason("Comes with the next release");
+/// // A count of what waits, in a state the theme's recipe paints; a tab that says more of itself while pointed at.
+/// let agents = Tab::new("agents", "Agents").count(2).state("waits", true).hint("Two agents wait for you");
 /// ```
 pub struct Tab<T> {
   value: T,
@@ -190,6 +193,8 @@ pub struct Tab<T> {
   inert: bool,
   trailing_icon: Option<Name>,
   at_end: bool,
+  states: Vec<Name>,
+  tooltip: Option<Tooltip>,
   panel: Option<PanelBuilder>,
   on_open_aside: Vec<EventHandler<crate::app::events::MouseEvent>>,
   id: Option<Arc<str>>,
@@ -213,6 +218,8 @@ impl<T> Tab<T> {
       inert: false,
       trailing_icon: None,
       at_end: false,
+      states: Vec::new(),
+      tooltip: None,
       panel: None,
       on_open_aside: Vec::new(),
       id: None,
@@ -294,6 +301,36 @@ impl<T> Tab<T> {
       self.disabled = true;
     }
     self
+  }
+
+  /// Puts this tab alone in a state the theme's recipe names, or takes it out: every part of the tab (its label, its
+  /// count, its badge, its dot, its icons) is styled in it, beside its own states (selected, disabled, inert), and the
+  /// other tabs are not. A count of what waits for the person painted in the warning color:
+  /// `recipe.when(Selector::new().state("waits"), TabsPart::Count, |s| s.foreground(PaletteColor::Warning))`.
+  pub fn state(mut self, state: impl Into<Name>, on: bool) -> Self {
+    let state = state.into();
+    self.states.retain(|held| *held != state);
+    if on {
+      self.states.push(state);
+    }
+    self
+  }
+
+  /// A tooltip on the tab, whether it can be selected or not: what a tab that opens says more of itself, an
+  /// explanation beside its lock. It takes the place of the tooltip of a [`disabled_reason`](Self::disabled_reason),
+  /// which stays the tab's description to tooling. A second takes the place of the first.
+  pub fn tooltip(mut self, tooltip: Tooltip) -> Self {
+    self.tooltip = Some(tooltip);
+    self
+  }
+
+  /// A tooltip on the tab that says `text`: [`tooltip`](Self::tooltip) with a [`Tooltip::new`]. An empty text is
+  /// none, and leaves the tab as it was.
+  pub fn hint(self, text: &str) -> Self {
+    if text.is_empty() {
+      return self;
+    }
+    self.tooltip(Tooltip::new(text))
   }
 
   /// Whether a line before the tab sets it apart from those before it: the archived after the rest.
@@ -563,6 +600,10 @@ pub struct TabEntry {
   pub trailing_icon: Option<Name>,
   /// Whether the tab stands at the end of the line.
   pub at_end: bool,
+  /// The states of its own the tab is in ([`Tab::state`]).
+  pub states: Vec<Name>,
+  /// The tooltip on the tab, if the app gave it one ([`Tab::tooltip`]).
+  tooltip: Option<Tooltip>,
   select: Arc<dyn Fn() + Send + Sync>,
   aside: Vec<EventHandler<crate::app::events::MouseEvent>>,
   panel: Option<PanelBuilder>,
@@ -637,6 +678,7 @@ pub struct Tabs<T = ()> {
   note: Option<Arc<str>>,
   end: Option<Element>,
   reserve: bool,
+  reselect: bool,
   words: Words,
   states: Vec<Name>,
   rules: Recipe,
@@ -662,6 +704,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Tabs<T> {
       note: None,
       end: None,
       reserve: false,
+      reselect: false,
       words: Words {
         back: super::current_locale().navigation.scroll_back.clone(),
         on: super::current_locale().navigation.scroll_on.clone(),
@@ -704,7 +747,8 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Tabs<T> {
 
   /// Called when a person selects a tab other than the selected one, by a press, the arrow keys or the menu of
   /// the overflowing form, with its value: after the signal is set where the tabs are bound. A value the app sets
-  /// is told to none of them, and so is a press of the selected tab. A second handler is called after the first.
+  /// is told to none of them, and so is a press of the selected tab, unless the tabs [reselect](Self::reselect). A
+  /// second handler is called after the first.
   pub fn on_change(mut self, handler: impl Fn(&T) + Send + Sync + 'static) -> Self {
     self.on_change.push(Arc::new(handler));
     self
@@ -789,6 +833,16 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Tabs<T> {
     self
   }
 
+  /// Whether a press of the selected tab, and choosing it in the menu of the overflowing form, tells
+  /// [`on_change`](Self::on_change) its value again: a page whose selected tab is a place of its own, which a press
+  /// opens again (back to the top of a list, out of a record opened from it). The signal of bound tabs is not set,
+  /// its value being the same. Off unless told: a press of the selected tab tells nothing. The arrow keys never
+  /// reselect, nor does an [inert](Tab::inert) tab.
+  pub fn reselect(mut self, reselect: bool) -> Self {
+    self.reselect = reselect;
+    self
+  }
+
   /// What the scroll button at the start of the overflowing list is called, to what reads the tree: "Scroll back".
   pub fn scroll_back_label(mut self, label: &str) -> Self {
     self.words.back = Arc::from(label);
@@ -858,6 +912,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Tabs<T> {
   fn prepare(mut self) -> Prepared {
     let selected = self.selected.take();
     let (write, handlers): (_, Arc<[Handler<T>]>) = (self.write, self.on_change.into());
+    let reselect = self.reselect;
     let tabs = self
       .tabs
       .into_iter()
@@ -878,9 +933,14 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Tabs<T> {
           inert: tab.inert,
           trailing_icon: tab.trailing_icon,
           at_end: tab.at_end,
-          // A press of the selected tab asks for nothing, and tells nothing.
+          states: tab.states,
+          tooltip: tab.tooltip,
+          // A press of the selected tab asks for nothing, and tells nothing unless the tabs reselect.
           select: Arc::new(move || {
-            if chosen || write.as_ref().is_some_and(|write| !write(&value)) {
+            if chosen && !reselect {
+              return;
+            }
+            if !chosen && write.as_ref().is_some_and(|write| !write(&value)) {
               return;
             }
             for handler in handlers.iter() {
@@ -989,6 +1049,9 @@ impl Prepared {
         tab.at_end,
       )
         .hash(&mut hasher);
+      for state in &tab.states {
+        state.as_str().hash(&mut hasher);
+      }
     }
     self.reserve.hash(&mut hasher);
     hasher.finish()
@@ -1065,6 +1128,28 @@ impl Prepared {
         resolve(bits & 1 != 0, bits & 2 != 0, bits & 4 != 0).owned_like(&plain)
       }
     });
+    // A tab in states of its own is resolved in them too, as it is and as the selected tab (the room of its label).
+    let own_recipes = self
+      .tabs
+      .iter()
+      .map(|tab| {
+        (!tab.states.is_empty()).then(|| {
+          let disabled = self.disabled || tab.disabled;
+          let as_selected = |selected: bool| {
+            let case = tab.states.iter().fold(
+              case
+                .clone()
+                .state(TabsState::Selected, selected)
+                .state(TabsState::Disabled, disabled)
+                .state(TabsState::Inert, tab.inert),
+              |case, state| case.state(*state, true),
+            );
+            theme.resolve::<Tabs>(&case, Some(&self.rules)).owned_like(&plain)
+          };
+          [as_selected(tab.selected), as_selected(true)]
+        })
+      })
+      .collect();
     let view = TabsView {
       tabs: self.tabs,
       variant: self.variant,
@@ -1076,6 +1161,7 @@ impl Prepared {
       note: self.note,
       end: self.end,
       recipes,
+      own_recipes,
       list_ref: ElementRef::new(),
       tab_refs,
       room: fits.map(|fits| fits.root.clone()),
@@ -1154,6 +1240,9 @@ pub struct TabsView {
   /// The recipe of a tab in each case of its states, by their bits: selected 1, disabled 2, inert 4. The first,
   /// of none of them, is every other part's.
   recipes: [ResolvedRecipe; 8],
+  /// The recipe of each tab in states of its own, by its index, as it is and as the selected tab: `None` for a tab in
+  /// none.
+  own_recipes: Vec<Option<[ResolvedRecipe; 2]>>,
   overflow: Option<Kept>,
   words: Words,
   /// Of the overflowing form, where the list and each tab were last laid out: what scrolls a tab chosen from
@@ -1194,7 +1283,10 @@ impl TabsView {
     let tab = &self.tabs[index];
     let disabled = self.disabled || tab.disabled;
     let bits = usize::from(tab.selected) + 2 * usize::from(disabled) + 4 * usize::from(tab.inert);
-    let recipe = &self.recipes[bits];
+    let recipe = match self.own_recipes.get(index) {
+      Some(Some([own, _])) => own,
+      _ => &self.recipes[bits],
+    };
     // A tab with an id names its parts after it; one with a key only, after the tabs' id and the key.
     match (&tab.id, &tab.key) {
       (None, Some(key)) => recipe.keyed_item(key, TabsPart::Tab),
@@ -1317,7 +1409,10 @@ impl TabsView {
   fn label_in_room(&self, index: usize, label: &ResolvedPart) -> Column {
     let entry = &self.tabs[index];
     let disabled = self.disabled || entry.disabled;
-    let selected = self.recipes[1 + 2 * usize::from(disabled) + 4 * usize::from(entry.inert)].part(TabsPart::Label);
+    let selected = match self.own_recipes.get(index) {
+      Some(Some([_, own])) => own.part(TabsPart::Label),
+      _ => self.recipes[1 + 2 * usize::from(disabled) + 4 * usize::from(entry.inert)].part(TabsPart::Label),
+    };
     Column::new()
       .align_items(Alignment::Stretch)
       .child(label.text(&entry.label).nowrap().part(label))
@@ -1416,12 +1511,15 @@ impl TabsView {
       .into()
   }
 
-  /// The tab at `index` as the list holds it: [`tab`](Self::tab), with its reason as its tooltip where it has one.
+  /// The tab at `index` as the list holds it: [`tab`](Self::tab), with the app's tooltip where it gave one, else its
+  /// reason as its tooltip where it has one.
   pub fn tab_element(&self, index: usize) -> Element {
     let tab = self.tab(index);
-    match &self.tabs[index].reason {
-      Some(reason) => super::Tooltip::new(reason).declared(tab),
-      None => tab.into(),
+    let entry = &self.tabs[index];
+    match (&entry.tooltip, &entry.reason) {
+      (Some(tooltip), _) => tooltip.clone().declared(tab),
+      (None, Some(reason)) => Tooltip::new(reason).declared(tab),
+      (None, None) => tab.into(),
     }
   }
 

@@ -634,23 +634,14 @@ impl MenubarView {
     let Some(menu) = self.menus.get_mut(index) else {
       return Row::new().into();
     };
-    let entries = std::mem::take(&mut menu.entries);
+    let mut entries = std::mem::take(&mut menu.entries);
     // Opened with Up, the focus goes to its last item that can be chosen.
-    let last = (self.open == Some(index) && self.kept.from_end.load(Ordering::Relaxed))
-      .then(|| {
-        entries
-          .iter()
-          .rposition(|entry| matches!(entry, MenuEntry::Item(item) if !item.is_disabled()))
-      })
-      .flatten();
+    if self.open == Some(index) && self.kept.from_end.load(Ordering::Relaxed) {
+      entries = super::menu::autofocus_last(entries);
+    }
     let mut built = Menu::new(signal, anchor);
-    for (at, entry) in entries.into_iter().enumerate() {
-      built = match entry {
-        MenuEntry::Item(item) => built.item(item.autofocus(Some(at) == last)),
-        MenuEntry::Separator => built.separator(),
-        MenuEntry::Heading(heading) => built.heading(&heading),
-        MenuEntry::Element(element) => built.child(element),
-      };
+    for entry in entries {
+      built = built.entry(entry);
     }
     let titled = self.menus.get(index).map(|menu| menu.title.clone());
     if let Some(title) = titled {

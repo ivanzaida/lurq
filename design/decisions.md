@@ -9,6 +9,125 @@ them says so. Decisions about phones and tablets are in [mobile-decisions.md](mo
 Each entry: **the question**, **the decision**, **why**, and its **state** (decided, in work on a branch, built,
 dropped). When a decision is replaced, the old entry stays and says what replaced it.
 
+## 2026-11-21
+
+### A breadcrumb that ends with a link, and a step that is no link
+
+- **Question.** Orchester's breadcrumbs do not all end with the page one is on: the Files header and Edit task end
+  their trail with a link (the task's key, back to the task), and the Sharing upload and join crumbs start with a
+  step that is plain text (the local project's name, which goes nowhere). lurq's breadcrumb makes every step but the
+  last a link, and the last the current page. Can a step say what it is?
+- **Decision (Ivan, 2026-11-21: "давай додай можливості в лурк ці").** `BreadcrumbStep::link(bool)`: whether the step
+  is a link, over what its place makes it. `link(true)` on the last step makes it a link, and the trail has no
+  current page; `link(false)` on a step before it makes it plain text, in a part of its own (`BreadcrumbPart::Text`,
+  the muted foreground as a link has it), no stop of Tab, not followed, and disabled in the menu of the hidden steps.
+  `Breadcrumb::current(false)` says the same of the whole: the last step is a link like the others, unless it is told
+  `link(false)`. A breadcrumb that overflows never drops its last step, link or page.
+- **Why.** What Orchester's kit (`ui/breadcrumb.rs`, `Crumb::to` and `Crumb::here` in any place) needs to move onto
+  `ui::Breadcrumb`; a trail that ends at a parent of the page (an editor's form under its record) and one that starts
+  at a place that cannot be opened are common to apps.
+- **State.** Built on `claude/k7-a-navigation` (2026-11-21): `BreadcrumbStep::link`, `Breadcrumb::current`,
+  `BreadcrumbView::is_link`, the part `BreadcrumbPart::Text`; the gallery's "Links and plain steps".
+
+### A tab's own state, its tooltip, and a press of the selected tab
+
+- **Question.** Orchester's page tabs paint a count in `warning` when it counts what waits for the person, give an
+  openable tab a tooltip (an explanation beside its lock), and open the current tab's page again when it is pressed
+  (a page whose current tab is a place of its own re-opens it). `ui::Tabs` has no state on one tab a recipe sees,
+  shows a tooltip only for a disabled tab's reason, and a press of the selected tab does nothing.
+- **Decision (Ivan, 2026-11-21: "давай додай можливості в лурк ці").** `Tab::state(name, on)`: the tab alone in a
+  state the theme's recipe names, seen by every part of it (its label, count, badge, dot), as a breadcrumb step's
+  state is. `Tab::tooltip(Tooltip)` and `Tab::hint(&str)`: a tooltip on the tab, open or disabled, in place of the
+  reason's tooltip (the reason stays its description to tooling). `Tabs::reselect(true)`: a press of the selected tab,
+  and choosing it in the menu of the overflowing form, tells `on_change` its value again (the signal is not set, being
+  the same); off unless told.
+- **Why.** What Orchester's kit (`ui/tabs.rs`, `PageTab::count(_, waits)`, `explanation`, `PageTab::to(.., current,
+  ..)`) needs to move onto `ui::Tabs`.
+- **State.** Built on `claude/k7-a-navigation` (2026-11-21): `Tab::state`, `Tab::tooltip`, `Tab::hint`,
+  `Tabs::reselect`, `TabEntry::states`; the gallery's "A tab's state, its tooltip, a press of the selected tab".
+
+### The list of every open tab opens with no tab hidden
+
+- **Question.** The docs of `WindowTabs::list_shortcut` and `menu_open` say the list of every open tab
+  (`WindowTabsMenu::All`) opens at any time, but it hangs from the More button, which is laid out only while a tab
+  has left the strip: with every tab in the strip the shortcut and the app's signal opened nothing on screen.
+- **Decision (Ivan, 2026-11-21: "давай додай можливості в лурк ці").** The list opens with no tab hidden, as the docs
+  say. The More button stays hidden then, and the list hangs from the tabs: 4 under them (or under what
+  `list_clear_of` names), its end at the end of the tabs, inside the window's edges as before. A press on a tab while
+  it so hangs is not outside it.
+- **Why.** Orchester's title bar opens the list by Ctrl/Cmd+Shift+A and from its own button whatever the strip shows.
+- **State.** Built on `claude/k7-a-navigation` (2026-11-21): the list hangs from the list of tabs (`BottomEnd`) while
+  none is hidden; the gallery's "Every open tab in a list" opens it by `menu_open` from a button.
+### A menu's section that scrolls, an item that leaves the menu open, submenus opened by a press, and popovers placed as Orchester's are
+
+- **Question.** Orchester's kit cannot move its last menus and popovers onto `ui::Menu` and `ui::Popover`: the slash
+  menu's skills, the @mention files, a choice field's options, the base branch and the browser's overflow menu are
+  rows in a section that scrolls, which lurq's menu does not reach (the kit draws them as standalone items with keys
+  of its own); a filter that chooses several is a menu whose rows must not close it; a card's *Move to*, *Priority*
+  and *Tags* open their lists on a press, not under the pointer; a menu at the pointer over a row and a popover the
+  app opens (the kanban question) must not take a press of their anchor for a press of a trigger; and the status
+  bar's popover stands 12 from the bar's end and a chip's popover inside its column, which `ui::Popover` cannot say
+  (one offset, no inset of `within`). Should lurq's menu and popover do these?
+- **Decision (Ivan, 2026-11-21: "давай додай можливості в лурк ці").**
+  1. `MenuEntry::Scroll { entries, max_height }` and `Menu::scrolling(entries, max_height)`: a section of the menu
+     that scrolls past `max_height` (the part `scroll`, `x-scroll`), whose items stay the menu's: they close it, are
+     named after it, are reached by the arrows and by typing their label, and the focused one is scrolled into
+     view; under `keeps_focus` they are counted among the items the keys move, and the active one is scrolled into
+     view. `Menu::entry(MenuEntry)` adds any entry.
+  2. `MenuItem::keeps_open(true)`: choosing the item calls its handlers and leaves the menu open, the focus where it
+     was (or, under `keeps_focus`, the active item where it was): a multi-select filter's option, checked or not.
+  3. `Menu::submenus(SubmenuOpen::Press)`: the submenus of the menu's items open on a press of their item (and Enter,
+     Space and Right), and a press of an open one's item closes it; the pointer opens and closes none.
+     `SubmenuOpen::Hover`, the default, is today's.
+  4. `Menu::switch_on_anchor_press(false)` and `Popover::switch_on_anchor_press(false)`: the anchor is no trigger of
+     a dropdown, as the engine's `Popup` already says.
+  5. `Popover::cross_offset(value)`: how far the popover is moved along the edge it stands on, toward the end (or
+     down, beside its anchor), besides `offset` away from it. `Popover::within_inset(element, Padding)` and the
+     engine's `Overlay::within_inset` / `Popup::within_inset`: kept inside the box of `element` less the inset on each
+     side.
+  6. The suspected bug, a popover over its control with an offset of -6 standing 6 into the control: checked with a
+     test first, fixed if the engine is wrong.
+- **Why.** What Orchester's kit needs to drop its `standalone` items and `held_panel`, its `popup_by_app`, and the
+  arithmetic of `bar_popover` and `popover_inside`. None of it is Orchester's alone: long menus scroll, filters choose
+  several, many apps open submenus on a click.
+- **State.** Built on `claude/k7-b-menus` (2026-11-21): `MenuEntry::Scroll`, `Menu::scrolling`, `Menu::entry`, the part
+  `MenuPart::Scroll`; `MenuItem::keeps_open`; `Menu::submenus(SubmenuOpen)`; `Menu::switch_on_anchor_press`,
+  `Popover::switch_on_anchor_press`; `Popover::cross_offset`, `Popover::within_inset`, `Overlay::within_inset`,
+  `Popup::within_inset`. The suspected bug is no fault: a popover's or a menu's offset is away from its anchor on every
+  side, over it too, so -6 over a control stands 6 into it as documented (`popover_place` pins it); Orchester's kit
+  passes `-gap` for `PopoverSide::Above` and should pass `gap`. The gallery's Menu page has "A section that scrolls, a
+  filter, submenus on a press"; the Popover page's bar popover uses the cross offset.
+### A list item's detail between its title and its description
+
+- **Question.** A list item's `detail(element)` stands under the description. Orchester's setting rows (Settings ›
+  Browser › Program path) say the label, then the value on a line of its own (the program's path), then the hint,
+  and a link under the hint as well: one row with an element over its description and another under it. Can a list
+  item put an element between its title and its description?
+- **Decision (Ivan, 2026-11-21: "давай додай можливості в лурк ці").** `ListItem::subtitle(element)`: an element of
+  the app's on a line of its own under the title's line and over the description, after those given before, in a
+  part of its own, `subtitle` (`x-subtitle`, `x-subtitle-2`), whose presses are its own as a detail's are. The
+  details stay under the description, so a row has both.
+- **Why.** What Orchester's kit needs to build its `SettingRow` on `ui::ListItem` (its `detail` and its `link`). A
+  place of its own, not a switch of where every detail goes, since the row has one of each.
+- **State.** Built on `claude/k7-c-rows` (2026-11-21): `ListItem::subtitle`, the part `ListItemPart::Subtitle`,
+  `ListItemView::subtitles`; the gallery's List page says a program's path in "Saying more".
+
+### A checkbox's, a radio's and a switch's label over several lines
+
+- **Question.** `ui::Checkbox`, `ui::Radio` and `ui::Switch` keep their label on one line. Orchester's kit has a
+  checkbox whose label may be long (one that names a folder) and wraps within the parent's width, the box beside
+  its first line, and draws it itself with lurq's box alone. Can lurq's controls wrap their label?
+- **Decision (Ivan, 2026-11-21: "давай додай можливості в лурк ці").** `Checkbox::label_wraps(true)`, and the same
+  on `Radio` and `Switch`, which draw their label alike: the label goes on to more lines within the width the
+  control is given, and the box (the mark, the track) stands beside its first line, centered on it. Not unless
+  told: a label on one line stays the default, as a control that grows to its parent's width would move layouts
+  that have one now.
+- **Why.** What Orchester's kit needs to drop its own wrapping checkbox (`Toggle::wrap_label`). The three controls
+  draw their label the same way, so they gain it together.
+- **State.** Built on `claude/k7-c-rows` (2026-11-21): `Checkbox::label_wraps`, `Radio::label_wraps`,
+  `Switch::label_wraps`, and the field `label_wraps` of their views; a mark taller than the first line (the switch's
+  track) has the line in its middle. The gallery's Checkbox, Radio and Switch pages show "A label over several lines".
+
 ## 2026-11-20
 
 ### The list of every open tab: the app's to know, its keys first, its rows, its place and its words

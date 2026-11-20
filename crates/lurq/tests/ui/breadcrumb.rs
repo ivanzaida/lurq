@@ -1059,3 +1059,159 @@ fn the_separators_are_named_by_the_part_ids_rule_from_the_second() {
   }
   assert!(!ids.iter().any(|held| held == "trail-separator-1"), "no -separator-1: {ids:?}");
 }
+
+/// What tooling is told of the element `id` under `name`.
+#[cfg(any(feature = "devtools", feature = "mcp"))]
+fn said(stage: &mut Stage, id: &str, name: &str) -> Option<String> {
+  stage
+    .tree
+    .get_element_by_id_mut(id)
+    .and_then(|element| element.description(name))
+}
+
+/// Tasks, then the task's key, back to the task: the trail of an edit form, which ends with a link.
+fn ends_with_a_link(tell: impl Fn(&str) + Send + Sync + Clone + 'static, by_step: bool) -> Breadcrumb {
+  let key = BreadcrumbStep::new("KON-12").value("/tasks/KON-12").id("key");
+  let trail = Breadcrumb::default()
+    .id("way")
+    .step(BreadcrumbStep::new("Tasks").value("/tasks").id("tasks"));
+  let trail = if by_step {
+    trail.step(key.link(true))
+  } else {
+    trail.step(key).current(false)
+  };
+  trail.on_select(tell)
+}
+
+#[test]
+fn a_trail_that_ends_with_a_link_follows_its_last_step_and_has_no_page() {
+  for by_step in [true, false] {
+    let (followed, tell) = log();
+    let mut stage = Stage::new(move |_| page(ends_with_a_link(tell.clone(), by_step)));
+    assert_eq!(
+      stage.text("KON-12"),
+      (light(PaletteColor::MutedForeground), 14.0),
+      "drawn as a link"
+    );
+    stage.click("key");
+    assert_eq!(*followed.lock().unwrap(), ["/tasks/KON-12"], "{by_step}");
+    // Both links are stops of Tab.
+    stage.key("Tab");
+    stage.key("Tab");
+    stage.key("Enter");
+    assert_eq!(*followed.lock().unwrap(), ["/tasks/KON-12", "/tasks/KON-12"]);
+  }
+}
+
+#[test]
+fn a_step_that_is_no_link_is_plain_text_that_nothing_follows_and_tab_passes() {
+  let (followed, tell) = log();
+  let mut stage = Stage::new(move |_| {
+    page(
+      Breadcrumb::new([
+        BreadcrumbStep::new("~/kon").id("local").link(false),
+        BreadcrumbStep::new("Settings").value("/settings").id("settings"),
+        BreadcrumbStep::new("Upload").id("upload"),
+      ])
+      .id("way")
+      .on_select(tell.clone()),
+    )
+  });
+  assert_eq!(stage.text("~/kon"), (light(PaletteColor::MutedForeground), 14.0));
+  stage.click("local");
+  assert!(followed.lock().unwrap().is_empty(), "nothing follows it");
+  stage.key("Tab");
+  stage.key("Enter");
+  assert_eq!(*followed.lock().unwrap(), ["/settings"], "Tab stops first at the link after it");
+}
+
+#[test]
+fn a_hidden_step_that_is_no_link_is_a_disabled_item_of_the_menu() {
+  let (followed, tell) = log();
+  let mut stage = Stage::new(move |ctx| {
+    Column::new()
+      .size(400.0, 300.0)
+      .padding(20.0)
+      .child(
+        Breadcrumb::new([
+          BreadcrumbStep::new("Home"),
+          BreadcrumbStep::new("Projects").id("projects").link(false),
+          BreadcrumbStep::new("lurq").id("lurq"),
+          BreadcrumbStep::new("crates"),
+          BreadcrumbStep::new("ui"),
+        ])
+        .id("way")
+        .max_shown(3)
+        .on_select(tell.clone())
+        .mount(ctx),
+      )
+      .into()
+  });
+  stage.click("way-ellipsis");
+  stage.click("projects");
+  assert!(followed.lock().unwrap().is_empty());
+  stage.click("lurq");
+  assert_eq!(*followed.lock().unwrap(), ["lurq"]);
+}
+
+#[test]
+fn a_step_that_is_no_link_is_styled_by_its_own_part() {
+  let rules = lurq::ui::Recipe::new().base(BreadcrumbPart::Text, |s| s.foreground(PaletteColor::Destructive));
+  let mut stage = Stage::new(move |_| {
+    page(
+      Breadcrumb::new([
+        BreadcrumbStep::new("~/kon").link(false),
+        BreadcrumbStep::new("Settings"),
+        BreadcrumbStep::new("Upload"),
+      ])
+      .rules(&rules),
+    )
+  });
+  assert_eq!(stage.text("~/kon").0, light(PaletteColor::Destructive));
+  assert_eq!(stage.text("Settings").0, light(PaletteColor::MutedForeground));
+}
+
+#[test]
+fn a_last_link_longer_than_its_room_gives_way_and_says_itself_whole() {
+  let mut stage = Stage::new(|ctx| {
+    Column::new()
+      .size(400.0, 300.0)
+      .padding(20.0)
+      .child(
+        Row::new().width(200.0).child(
+          Breadcrumb::new([
+            BreadcrumbStep::new("Tasks").id("tasks"),
+            BreadcrumbStep::new("A task whose key is far too long for the row").id("key"),
+          ])
+          .current(false)
+          .id("way")
+          .mount(ctx),
+        ),
+      )
+      .into()
+  });
+  let (tasks, key, way) = (stage.bounds("tasks"), stage.bounds("key"), stage.bounds("way"));
+  assert!(tasks.2 > 30.0, "the step before it keeps its room");
+  assert!(key.0 + key.2 <= way.0 + 200.0 + 0.5, "the last link is cut to the row");
+  assert!(stage.cut_text_quad("A task whose key is far too long for the row").is_some());
+}
+
+#[cfg(any(feature = "devtools", feature = "mcp"))]
+#[test]
+fn a_last_link_and_a_step_that_is_no_link_say_what_they_are_to_tooling() {
+  let (_, tell) = log();
+  let mut stage = Stage::new(move |_| page(ends_with_a_link(tell.clone(), true)));
+  assert_eq!(said(&mut stage, "key", "a11y_role").as_deref(), Some("link"));
+  assert_eq!(said(&mut stage, "key", "a11y_current"), None, "no current page");
+  let mut stage = Stage::new(|_| {
+    page(Breadcrumb::new([
+      BreadcrumbStep::new("~/kon").id("local").link(false),
+      BreadcrumbStep::new("Settings"),
+      BreadcrumbStep::new("Upload").id("upload"),
+    ]))
+  });
+  assert_eq!(said(&mut stage, "local", "a11y_role"), None, "no link");
+  assert_eq!(said(&mut stage, "local", "a11y_name").as_deref(), Some("~/kon"));
+  assert_eq!(said(&mut stage, "local", "a11y_current"), None, "no page either");
+  assert_eq!(said(&mut stage, "upload", "a11y_current").as_deref(), Some("page"));
+}

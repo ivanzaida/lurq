@@ -52,6 +52,8 @@ pub struct SwitchPage {
   /// The switch pressed as a whole in a row of its own, and how many times the row was pressed.
   enforced: Signal<bool>,
   row_presses: Signal<usize>,
+  /// Whether the switch with a long label is on.
+  long_label: Signal<bool>,
 }
 
 impl SwitchPage {
@@ -197,6 +199,7 @@ impl Component for SwitchPage {
       paused: ctx.signal(false),
       enforced: ctx.signal(true),
       row_presses: ctx.signal(0),
+      long_label: ctx.signal(true),
     }
   }
 
@@ -244,6 +247,12 @@ impl Component for SwitchPage {
         )
         .border_top(line()),
       );
+    let long_label = Column::new().width(280.0).max_width(FILL).child(
+      Switch::new("Pause every agent of the project while the computer runs on its battery")
+        .label_wraps(true)
+        .whole(true)
+        .bind(self.long_label.clone()),
+    );
     let (enforced, presses) = (self.enforced.clone(), self.row_presses.clone());
     let whole = Column::new()
       .width(FILL)
@@ -313,6 +322,12 @@ impl Component for SwitchPage {
         "bool",
         "false",
         "The track alone, where the text is somewhere else. The label is still what the switch is called.",
+      ),
+      (
+        "label_wraps",
+        "bool",
+        "false",
+        "The label goes on to more lines within the width the switch is given, the track beside its first line.",
       ),
       (
         "whole",
@@ -447,6 +462,17 @@ impl Component for SwitchPage {
               "            .bind(enforced),",
               "    )",
             ],
+          ),
+        ),
+        Section::new(
+          "A label over several lines",
+          "With label_wraps(true) a long label goes on to more lines within the width the switch is given, the \
+           track beside its first line.",
+          self.frame.demo(
+            4,
+            long_label,
+            ".label_wraps(true)",
+            &["Switch::new(\"Pause every agent of the project while …\").label_wraps(true).whole(true).bind(pause)"],
           ),
         ),
         Section::new(

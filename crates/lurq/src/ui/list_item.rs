@@ -41,6 +41,8 @@ pub enum ListItemPart {
   Content,
   /// What the row says.
   Title,
+  /// An element of the app's on a line of its own under the title's line and over the description: a path.
+  Subtitle,
   /// The second line under the title, where the row has one.
   Description,
   /// What stands after the title, on its line: the app's tags.
@@ -73,6 +75,7 @@ names!(ListItemPart {
   Icon => "icon",
   Content => "content",
   Title => "title",
+  Subtitle => "subtitle",
   Description => "description",
   Tags => "tags",
   Info => "info",
@@ -164,6 +167,7 @@ pub struct ListItem {
   description_pending: bool,
   tags: Vec<Element>,
   info: Option<Arc<str>>,
+  subtitles: Vec<Element>,
   details: Vec<Element>,
   below: Vec<Element>,
   lead: Option<Lead>,
@@ -198,6 +202,7 @@ impl ListItem {
       description_pending: false,
       tags: Vec::new(),
       info: None,
+      subtitles: Vec::new(),
       details: Vec::new(),
       below: Vec::new(),
       lead: None,
@@ -256,6 +261,14 @@ impl ListItem {
   /// the mark is not the row's. An empty text is no mark.
   pub fn info(mut self, info: &str) -> Self {
     self.info = (!info.is_empty()).then(|| Arc::from(info));
+    self
+  }
+
+  /// An element of the app's on a line of its own under the title's line and over the description, after those
+  /// given before: the value a setting names, such as a program's path, with the description that says more under
+  /// it. Its presses are its own, not the row's. Its part is `subtitle`, `x-subtitle`.
+  pub fn subtitle(mut self, subtitle: impl Into<Element>) -> Self {
+    self.subtitles.push(subtitle.into());
     self
   }
 
@@ -505,6 +518,7 @@ impl ListItem {
       description_pending: self.description_pending,
       tags: self.tags,
       info,
+      subtitles: self.subtitles,
       details: self.details,
       below: self.below,
       value: self.value,
@@ -579,6 +593,8 @@ pub struct ListItemView {
   pub tags: Vec<Element>,
   /// The mark after the title that explains the row, with its tooltip.
   pub info: Option<Element>,
+  /// The app's elements between the title's line and the description.
+  pub subtitles: Vec<Element>,
   /// The app's elements under the description.
   pub details: Vec<Element>,
   /// What the row says under itself.
@@ -757,7 +773,7 @@ impl ListItemView {
 
   /// The title over the description, as wide as the room the row leaves them: a longer title is cut with an
   /// ellipsis, a longer description goes on to the next line. The tags and the mark that explains the row stand
-  /// after the title on its line, and the app's details under the description.
+  /// after the title on its line, the app's subtitles under that line, and the app's details under the description.
   pub fn content(&self) -> Column {
     let fill = Dimension::Pct(100.0);
     let part = self.part(ListItemPart::Title);
@@ -786,6 +802,14 @@ impl ListItemView {
       .min_width(Dimension::Px(0.0))
       .part(&self.part(ListItemPart::Content))
       .child(line);
+    for subtitle in &self.subtitles {
+      content = content.child(
+        self
+          .held(Row::new().part(&self.part(ListItemPart::Subtitle)))
+          .max_width(fill)
+          .child(subtitle.clone()),
+      );
+    }
     if self.description_pending {
       content = content.child(self.bone(ListItemPart::Description, ListItemPart::DescriptionSkeleton));
     } else if let Some(description) = &self.description {

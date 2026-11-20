@@ -1,9 +1,11 @@
 //! A menu: a list of commands in a panel over the window, opened from an anchor.
 
+mod entries;
 mod keys;
 
 use std::sync::Arc;
 
+pub(crate) use entries::autofocus_last;
 pub use keys::MenuKeys;
 use keys::{Aside, ItemKeys};
 
@@ -20,12 +22,12 @@ use crate::{
     events::{KeyboardEvent, MouseEvent},
     theme::{BorderSize, IconSize, OpacityLevel, PaletteColor, RadiusSize, ShadowStyle, Theme, TypographyStyle},
   },
-  components::{self, Column, Popup, Row},
+  components::{self, Column, Popup, Row, ScrollVertical},
   core::{ElementRef, Signal},
   layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
   node::{
     CursorIcon, Element, EventHandler, FocusGroup, IntoMouseEventHandler, SpacingValue, border::Border,
-    node_kind::TextOverflow,
+    dimension::Dimension, node_kind::TextOverflow,
   },
 };
 
@@ -52,6 +54,8 @@ pub enum MenuPart {
   PageTitle,
   /// The chevron of the row that goes back from a page.
   PageIcon,
+  /// A section of the menu that scrolls past its most height ([`Menu::scrolling`]).
+  Scroll,
 }
 
 names!(MenuPart {
@@ -61,6 +65,7 @@ names!(MenuPart {
   Label => "label",
   PageTitle => "page_title",
   PageIcon => "page_icon",
+  Scroll => "scroll",
 });
 
 /// The states of a menu a recipe styles.
@@ -89,6 +94,27 @@ pub enum MenuEntry {
   /// An element of the app's, drawn as it is given: a foot under the items, a section of its own, a field. One that
   /// takes the focus is reached by the arrows as an item is.
   Element(Element),
+  /// A section that scrolls where what it holds is higher than `max_height`, in logical pixels: a long list of
+  /// skills, of files, of branches under the menu's other items. What it holds is the menu's: its items close the
+  /// menu, are reached by the arrows and by typing, and are scrolled into view as the keys reach them
+  /// ([`Menu::scrolling`]).
+  Scroll {
+    /// What the section holds, in order.
+    entries: Vec<MenuEntry>,
+    /// How high it is at most, in logical pixels.
+    max_height: f32,
+  },
+}
+
+/// What opens the submenus of a menu's items ([`Menu::submenus`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SubmenuOpen {
+  /// The pointer coming onto an item opens its submenu and closes the others'; a press of it opens it too.
+  #[default]
+  Hover,
+  /// Only a press of the item (and Enter, Space or Right on it) opens its submenu and closes the others', and a press
+  /// of an item whose submenu is open closes it; the pointer opens and closes none.
+  Press,
 }
 
 /// What closes a menu: sets its open signal to `false` and tells the app's `on_open_change`.
@@ -168,6 +194,8 @@ pub struct Menu {
   closes_too: Vec<Closer>,
   context: Option<Option<(f32, f32)>>,
   keys: Option<MenuKeys>,
+  submenu_open: SubmenuOpen,
+  switch_on_anchor_press: bool,
   states: Vec<Name>,
   rules: Recipe,
   id: Option<Arc<str>>,
@@ -222,11 +250,51 @@ impl Menu {
       closes_too: Vec::new(),
       context: None,
       keys: None,
+      submenu_open: SubmenuOpen::Hover,
+      switch_on_anchor_press: true,
       states: Vec::new(),
       rules: Recipe::new(),
       id: None,
       key: None,
     }
+  }
+
+  /// Anything a menu holds, after what it holds already: an item, a separator, a heading, an element or a section
+  /// that scrolls.
+  pub fn entry(mut self, entry: impl Into<MenuEntry>) -> Self {
+    self.entries.push(entry.into());
+    self
+  }
+
+  /// A section after what the menu holds already that scrolls where `entries` are higher than `max_height`, in
+  /// logical pixels (the part [`MenuPart::Scroll`]): the skills under a menu's commands, the files after an `@`, the
+  /// branches of a long list. Its items are the menu's as any other: choosing one closes the menu, they are named
+  /// after the menu's id, the arrows and typing reach them, and the one the focus goes to is scrolled into view. In a
+  /// menu that [keeps the focus](Self::keeps_focus) they are among the items the keys move, and the active one is
+  /// scrolled into view; the section goes back to its top as the menu opens and whenever what it holds changes.
+  pub fn scrolling(mut self, entries: impl IntoIterator<Item = impl Into<MenuEntry>>, max_height: f32) -> Self {
+    self.entries.push(MenuEntry::Scroll {
+      entries: entries.into_iter().map(Into::into).collect(),
+      max_height,
+    });
+    self
+  }
+
+  /// What opens the submenus of the menu's items: the pointer coming onto an item ([`SubmenuOpen::Hover`], the
+  /// default), or only a press of it ([`SubmenuOpen::Press`]), as a menu whose items open lists beside it on a click.
+  pub fn submenus(mut self, open: SubmenuOpen) -> Self {
+    self.submenu_open = open;
+    self
+  }
+
+  /// Whether the anchor is the trigger of a dropdown: while another popup is open, a press of it closes that one and
+  /// goes on to the anchor, so one press switches from one to the other. `true` by default. `false` for a menu whose
+  /// anchor a press does something else to: a menu [`at`](Self::at) the pointer over a row, which the row's secondary
+  /// press opens, or one the app opens by itself. A menu that [keeps the focus](Self::keeps_focus), a submenu and a
+  /// context menu are never one.
+  pub fn switch_on_anchor_press(mut self, switch: bool) -> Self {
+    self.switch_on_anchor_press = switch;
+    self
   }
 
   /// A command, after what the menu holds already.
@@ -456,9 +524,8 @@ impl Menu {
       Placement::BottomStart
     };
     // The open signals of the submenus of its items, which the pointer on another item closes.
-    let submenus = self
-      .entries
-      .iter()
+    let submenus = entries::flat(&self.entries)
+      .into_iter()
       .filter_map(|entry| match entry {
         MenuEntry::Item(item) => item.submenu.as_ref()?.open.signal(),
         _ => None,
@@ -490,6 +557,8 @@ impl Menu {
       closes_too: self.closes_too,
       context: self.context,
       keys: self.keys,
+      submenu_open: self.submenu_open,
+      switch_on_anchor_press: self.switch_on_anchor_press,
       id: self.id,
       key: self.key,
     };
@@ -539,6 +608,9 @@ pub struct MenuView {
   context: Option<Option<(f32, f32)>>,
   /// The keys of a menu that leaves the focus in the app's field.
   keys: Option<MenuKeys>,
+  /// What opens the submenus of its items.
+  pub submenu_open: SubmenuOpen,
+  switch_on_anchor_press: bool,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
@@ -718,7 +790,7 @@ impl MenuView {
   /// The item whose page is shown, where the menu's page signal names an item that has one.
   fn shown_page(&self, entries: &[MenuEntry]) -> Option<usize> {
     let index = self.page.as_ref()?.get()?;
-    matches!(entries.get(index), Some(MenuEntry::Item(item)) if item.page.is_some()).then_some(index)
+    matches!(entries::flat(entries).get(index), Some(MenuEntry::Item(item)) if item.page.is_some()).then_some(index)
   }
 
   /// What an item with a page is keyed by: the row that goes back from its page has the same key, so that the
@@ -778,6 +850,7 @@ impl MenuView {
     let mut item = item
       .named_by(&self.recipe, "item")
       .in_menu(self.closes(), self.submenus.clone());
+    item.submenu_on_press = self.submenu_open == SubmenuOpen::Press;
     // Its submenu is kept where this menu is, unless it was told otherwise.
     if let (Some(within), Some(submenu)) = (&self.within, item.submenu.as_mut())
       && submenu.within.is_none()
@@ -830,8 +903,8 @@ impl MenuView {
   /// the keys, the place of the next item among the items (0), and the active one.
   fn begin_keys(&self, entries: &[MenuEntry]) -> Option<(MenuKeys, usize, Option<usize>)> {
     let keys = self.keys.clone()?;
-    let items: Vec<(&str, bool)> = entries
-      .iter()
+    let items: Vec<(&str, bool)> = entries::flat(entries)
+      .into_iter()
       .filter_map(|entry| match entry {
         MenuEntry::Item(item) => Some((item.label.as_ref(), !item.is_disabled())),
         _ => None,
@@ -855,7 +928,7 @@ impl MenuView {
     let entries = std::mem::take(&mut self.entries);
     match (self.shown_page(&entries), self.page.clone()) {
       (Some(index), Some(page)) => {
-        let Some(MenuEntry::Item(item)) = entries.into_iter().nth(index) else {
+        let Some(MenuEntry::Item(item)) = entries::take(entries, index) else {
           unreachable!("a shown page is an item's")
         };
         panel = panel.child(self.back_row(&item, index)).child(self.separator());
@@ -871,26 +944,13 @@ impl MenuView {
         });
       }
       _ => {
-        let mut active = self.begin_keys(&entries);
-        for (index, entry) in entries.into_iter().enumerate() {
-          panel = panel.child(match entry {
-            MenuEntry::Item(item) => {
-              let mut item = self.opens_page(item, index);
-              if let Some((keys, at, on)) = &mut active {
-                item.keys = Some(ItemKeys {
-                  keys: keys.clone(),
-                  index: *at,
-                  active: *on == Some(*at),
-                });
-                *at += 1;
-              }
-              self.item(item)
-            }
-            MenuEntry::Separator => self.separator(),
-            MenuEntry::Heading(heading) => self.heading(&heading),
-            MenuEntry::Element(element) => element,
-          });
-        }
+        let mut build = Build {
+          place: 0,
+          keys: self.begin_keys(&entries),
+          section: None,
+          sections: 0,
+        };
+        panel = panel.with_children(self.entries_of(entries, &mut build));
       }
     }
     if self.inline {
@@ -935,8 +995,85 @@ impl MenuView {
     if let Some(point) = self.context {
       popup = popup.at(point).switch_on_anchor_press(false);
     }
+    if !self.switch_on_anchor_press {
+      popup = popup.switch_on_anchor_press(false);
+    }
     popup.into()
   }
+
+  /// What `entries` are drawn as, in order, `build` saying where they are among what the menu holds.
+  fn entries_of(&self, entries: Vec<MenuEntry>, build: &mut Build) -> Vec<Element> {
+    let mut built = Vec::with_capacity(entries.len());
+    for entry in entries {
+      let place = build.place;
+      build.place += 1;
+      built.push(match entry {
+        MenuEntry::Item(item) => self.keyed_item(self.opens_page(item, place), build),
+        MenuEntry::Separator => self.separator(),
+        MenuEntry::Heading(heading) => self.heading(&heading),
+        MenuEntry::Element(element) => element,
+        MenuEntry::Scroll { entries, max_height } => self.scroll_section(entries, max_height, build),
+      });
+    }
+    built
+  }
+
+  /// An item, given its place among the items the keys move where the menu keeps the focus in the app's field. In a
+  /// section that scrolls it is held by a node the keys scroll into view.
+  fn keyed_item(&self, mut item: MenuItem, build: &mut Build) -> Element {
+    let mut revealed = None;
+    if let Some((keys, at, on)) = &mut build.keys {
+      item.keys = Some(ItemKeys {
+        keys: keys.clone(),
+        index: *at,
+        active: *on == Some(*at),
+      });
+      if let Some(section) = build.section {
+        revealed = Some(keys.in_section(*at, section));
+      }
+      *at += 1;
+    }
+    let item = self.item(item);
+    match revealed {
+      Some(held) => Column::new()
+        .align_items(Alignment::Stretch)
+        .ref_element(held)
+        .child(item)
+        .into(),
+      None => item,
+    }
+  }
+
+  /// A section that scrolls past `max_height`, holding `entries` as the menu holds its own (the part
+  /// [`MenuPart::Scroll`]). Where the menu keeps the focus in the app's field, the keys keep where it is scrolled to.
+  fn scroll_section(&self, entries: Vec<MenuEntry>, max_height: f32, build: &mut Build) -> Element {
+    let section = build.sections;
+    build.sections += 1;
+    let outer = build.section.replace(section);
+    let content = Column::new()
+      .align_items(Alignment::Stretch)
+      .with_children(self.entries_of(entries, build));
+    build.section = outer;
+    let mut scroll = ScrollVertical::new(content)
+      .part(&self.part(MenuPart::Scroll))
+      .scrollbar(self.theme().scrollbar().clone())
+      .max_height(Dimension::Px(max_height));
+    if let Some((keys, ..)) = &build.keys {
+      let (state, view) = keys.section(section);
+      scroll = scroll.with_scroll_state(state).ref_element(view);
+    }
+    scroll.into()
+  }
+}
+
+/// Where the entries being drawn are among what a menu holds: the place of the next one, the keys of a menu that
+/// keeps the focus in the app's field with the place of the next item among the items and the active one, the
+/// section that scrolls they are in, and how many sections there are before the next.
+struct Build {
+  place: usize,
+  keys: Option<(MenuKeys, usize, Option<usize>)>,
+  section: Option<usize>,
+  sections: usize,
 }
 
 impl crate::ui::Styled for Menu {
@@ -1124,6 +1261,9 @@ pub struct MenuItem {
   /// Of a menu that keeps the focus in the app's field: its keys, the item's place, and whether it is the active one.
   keys: Option<ItemKeys>,
   autofocus: bool,
+  keeps_open: bool,
+  /// Its menu opens submenus on a press only ([`SubmenuOpen::Press`]).
+  submenu_on_press: bool,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
@@ -1156,9 +1296,20 @@ impl MenuItem {
       submenus: Vec::new(),
       keys: None,
       autofocus: false,
+      keeps_open: false,
+      submenu_on_press: false,
       id: None,
       key: None,
     }
+  }
+
+  /// Whether choosing the item leaves its menu open: its handlers are called, and the menu, the focus in it and, in a
+  /// menu that [keeps the focus](Menu::keeps_focus) in the app's field, the active item stay where they are. An option
+  /// of a filter that chooses several, [`checked`](Self::checked) or not as the app says. `false` by default. An item
+  /// that opens a submenu or a page does that, and asking for it aside still closes the menu.
+  pub fn keeps_open(mut self, keeps: bool) -> Self {
+    self.keeps_open = keeps;
+    self
   }
 
   /// An icon before the label, by its name in the theme's set ([`icons`]).
@@ -1396,7 +1547,10 @@ impl MenuItem {
     .state(MenuItemState::Detail, detail.is_some())
     .state(MenuItemState::Unavailable, self.reason.is_some())
     .state(MenuItemState::Content, self.content.is_some())
-    .state(MenuItemState::Active, self.keys.as_ref().is_some_and(|keys| keys.active));
+    .state(
+      MenuItemState::Active,
+      self.keys.as_ref().is_some_and(|keys| keys.active),
+    );
     let view = MenuItemView {
       label: self.label,
       icon: self.icon,
@@ -1424,6 +1578,8 @@ impl MenuItem {
       submenus: self.submenus,
       keys: self.keys,
       autofocus: self.autofocus,
+      keeps_open: self.keeps_open,
+      submenu_on_press: self.submenu_on_press,
       id: self.id,
       key: self.key,
     };
@@ -1478,6 +1634,9 @@ pub struct MenuItemView {
   submenus: Vec<Signal<bool>>,
   keys: Option<ItemKeys>,
   autofocus: bool,
+  /// Whether choosing it leaves its menu open.
+  pub keeps_open: bool,
+  submenu_on_press: bool,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
@@ -1532,11 +1691,32 @@ impl MenuItemView {
       return None;
     }
     if self.submenu.is_some() {
-      return Some(Arc::new(self.reach()));
+      let reach = self.reach();
+      // Where only a press opens a submenu, a press of the item whose submenu is open closes it.
+      return Some(match self.own_submenu().filter(|_| self.submenu_on_press) {
+        Some(own) => Arc::new(move || {
+          if own.get_untracked() {
+            own.set(false);
+          } else {
+            reach();
+          }
+        }),
+        None => Arc::new(reach),
+      });
     }
     // An item that opens a page, or the row back from one: the menu stays open.
     if let Some(stays) = &self.stays {
       return Some(stays.clone());
+    }
+    if self.keeps_open {
+      let handlers = self.on_select.clone();
+      return (!handlers.is_empty()).then(|| {
+        Arc::new(move || {
+          for handler in &handlers {
+            handler();
+          }
+        }) as Arc<dyn Fn() + Send + Sync>
+      });
     }
     let (handlers, closes) = (self.on_select.clone(), self.closes.clone());
     (!handlers.is_empty() || !closes.is_empty()).then(|| {
@@ -1631,7 +1811,7 @@ impl MenuItemView {
           }
         });
     }
-    if !self.disabled && (self.submenu.is_some() || !self.submenus.is_empty()) {
+    if !self.disabled && !self.submenu_on_press && (self.submenu.is_some() || !self.submenus.is_empty()) {
       root = root.on_mouse_enter(self.reach());
     }
     // Right opens the submenu while the item has the focus, which goes to the submenu's first item.

@@ -5,7 +5,7 @@ use std::sync::Arc;
 use super::{
   icons, names,
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
-  shared::{Choice, Orientation, fading, glyph, pressable},
+  shared::{Choice, Orientation, beside_first_line, control_label, fading, glyph, label_top, pressable},
   switch::own_press,
   theme::{Themed, current_theme},
 };
@@ -14,7 +14,7 @@ use crate::{
   components::{self, Column, Row},
   core::{ElementRef, Signal, SignalValue},
   layout::{Alignment, layout_kind::Justify},
-  node::{CursorIcon, Element, border::Border},
+  node::{CursorIcon, Element, border::Border, dimension::Dimension},
 };
 
 /// The parts of a checkbox a recipe styles.
@@ -91,6 +91,7 @@ pub type CheckboxRenderer = Arc<dyn Fn(CheckboxView) -> Element + Send + Sync>;
 pub struct Checkbox {
   label: Arc<str>,
   label_hidden: bool,
+  label_wraps: bool,
   whole: bool,
   mark_only: bool,
   checked: bool,
@@ -117,6 +118,7 @@ impl Checkbox {
     Self {
       label: Arc::from(label),
       label_hidden: false,
+      label_wraps: false,
       whole: false,
       mark_only: false,
       checked: false,
@@ -138,6 +140,14 @@ impl Checkbox {
   /// Whether the checkbox is its box alone. Its label stays what it is called.
   pub fn label_hidden(mut self, hidden: bool) -> Self {
     self.label_hidden = hidden;
+    self
+  }
+
+  /// Whether the label goes on to more lines within the width the checkbox is given, the box beside its first
+  /// line and centered on it: a label that may be long, such as one that names a folder. The checkbox is then no
+  /// wider than what holds it. Not unless told: the label is on one line.
+  pub fn label_wraps(mut self, wraps: bool) -> Self {
+    self.label_wraps = wraps;
     self
   }
 
@@ -296,6 +306,7 @@ impl Checkbox {
     let view = CheckboxView {
       label: self.label,
       label_hidden: self.label_hidden,
+      label_wraps: self.label_wraps,
       whole: self.whole,
       mark_only: self.mark_only,
       checked: self.checked,
@@ -329,6 +340,8 @@ impl From<Checkbox> for Element {
 pub struct CheckboxView {
   pub label: Arc<str>,
   pub label_hidden: bool,
+  /// Whether the label goes on to more lines, the box beside its first line.
+  pub label_wraps: bool,
   /// Whether the box and its label are one control, its id on the whole.
   pub whole: bool,
   /// Whether the checkbox is its mark alone, with no press, focus or label.
@@ -471,7 +484,24 @@ impl CheckboxView {
       return None;
     }
     let part = self.part(CheckboxPart::Label);
-    Some(Row::new().part(&part).child(part.text(&self.label).nowrap()))
+    let wraps = self
+      .label_wraps
+      .then(|| label_top(&part, &self.part(CheckboxPart::Box)));
+    Some(control_label(&part, &self.label, wraps))
+  }
+
+  /// Whether the label is shown and goes on to more lines.
+  fn wraps(&self) -> bool {
+    self.label_wraps && !self.label_hidden
+  }
+
+  /// The box as it stands beside the label: held at the label's first line where the label wraps.
+  fn beside_label(&self, square: impl Into<Element>) -> Element {
+    if self.wraps() {
+      beside_first_line(&self.part(CheckboxPart::Label), square).into()
+    } else {
+      square.into()
+    }
   }
 
   /// How the default renderer builds a checkbox: the box with its mark, and the label beside it; pressed as a whole,
@@ -486,16 +516,34 @@ impl CheckboxView {
         .justify(Justify::Center)
         .part(&self.part(CheckboxPart::Box))
         .with_children(self.indicator());
-      return self.whole_root().child(square).with_children(self.label()).into();
+      let root = self
+        .whole_root()
+        .child(self.beside_label(square))
+        .with_children(self.label());
+      return if self.wraps() {
+        root
+          .align_items(Alignment::Start)
+          .max_width(Dimension::Pct(100.0))
+          .into()
+      } else {
+        root.into()
+      };
     }
     let mut control = self.control();
     if let Some(indicator) = self.indicator() {
       control = control.child(indicator);
     }
     let mut root = Row::new()
-      .align_items(Alignment::Center)
+      .align_items(if self.wraps() {
+        Alignment::Start
+      } else {
+        Alignment::Center
+      })
       .part(&self.part(CheckboxPart::Root))
-      .child(control);
+      .child(self.beside_label(control));
+    if self.wraps() {
+      root = root.max_width(Dimension::Pct(100.0));
+    }
     if let Some(label) = self.label() {
       root = root.child(label.on_click(own_press(self.press())));
     }

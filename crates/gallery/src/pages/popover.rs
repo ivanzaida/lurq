@@ -304,9 +304,11 @@ impl Component for PopoverPage {
           with_trigger("Server", anchor, open)
             .placement(Placement::TopEnd)
             .placed_by(self.bar.clone())
+            .offset(9.0)
+            .cross_offset(-12.0)
             .width(240.0)
             .title("Server")
-            .description("Placed by the bar, at its end; opened by its button."),
+            .description("Placed by the bar, 9 over it and 12 in from its end; opened by its button."),
         ),
     );
 
@@ -408,6 +410,24 @@ impl Component for PopoverPage {
         "None",
         "A point of the window it stands at in place of its anchor.",
       ),
+      (
+        "cross_offset",
+        "impl Into<SpacingValue>",
+        "0",
+        "How far it is moved along the edge it stands on: toward the end over or under its anchor, down beside it.",
+      ),
+      (
+        "within_inset",
+        "ElementRef, Padding",
+        "",
+        "Kept inside that element's box less the padding on each side, as within keeps it in the box.",
+      ),
+      (
+        "switch_on_anchor_press",
+        "bool",
+        "true",
+        "Whether its anchor is the trigger of a dropdown; false for a popover the app opens by itself.",
+      ),
     ];
     let playground = self.play(ctx);
     self.frame.page(
@@ -486,17 +506,19 @@ impl Component for PopoverPage {
         Section::new(
           "Placed by another element",
           "The button in the bar opens it and the focus goes back to it, but the popover stands by the bar's box: \
-           over the bar, at its end.",
+           over the bar, 9 from it, and 12 in from its end by its cross offset.",
           self.frame.demo(
             3,
             by_bar,
-            ".placed_by(bar)",
+            ".placed_by(bar) .cross_offset(-12.0)",
             &[
               "// bar: ElementRef on the bar; anchor, open of the button in it",
               "Popover::new(open.clone(), anchor.clone())",
               "    .trigger(Button::new(\"Server\").variant(ButtonVariant::Outline))",
               "    .placement(Placement::TopEnd)",
               "    .placed_by(bar.clone())",
+              "    .offset(9.0)",
+              "    .cross_offset(-12.0)",
               "    .title(\"Server\")",
             ],
           ),
