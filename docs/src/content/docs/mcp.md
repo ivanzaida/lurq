@@ -94,7 +94,7 @@ All built-in tools use the reserved `lurq_` prefix; custom tools may not.
 | `lurq_find_by_class` | observe | Live lookup of every element with a `.class("...")`, in tree order. |
 | `lurq_windows` | observe | List windows: id, name, title, kind, focus, `minimized`/`maximized`/`full_screen`, size, scale factor, and the buttons and keys clients [hold](#holding-buttons-and-keys) there. |
 | `lurq_menu` | observe | Inspect the native-menu model, command IDs, enabled state, and platform support. |
-| `lurq_wait` | observe | Wait for N presented frames or render idle, so screenshots aren't mid-animation. |
+| `lurq_wait` | observe | Wait for N presented frames or render idle, so screenshots aren't mid-animation. Idle is nothing left to draw and nothing a finger left moving: its momentum, a list on its way to a page, content springing back. |
 | `lurq_logs` | observe | Recent log lines, if the app installed the [log layer](#capturing-logs). |
 | `lurq_interact` | interact | Synthetic input: `click`, `double_click`, `move`, `drag`, `wheel`, `key`, `type`, `scroll_to`; input [held across calls](#holding-buttons-and-keys): `press`/`release`, `key_down`/`key_up`; [pastes and file drags](#pastes-and-file-drags): `paste`, `drag_files`, `drop_files`, `file_drag_leave`; also `request_close`, `menu_activate`, and `history_back`/`history_forward` ([going back](../styling-events/#going-back-and-forward) as a person does, from the focus or from a `ref` or `x`/`y`; `taken` says whether something did). `button` `back` and `forward` are the mouse's side buttons. |
 | `lurq_act` | interact | `invoke` (click) or `hover` a ref from `lurq_inspect`, without agent-supplied coordinates. |
@@ -110,8 +110,8 @@ All built-in tools use the reserved `lurq_` prefix; custom tools may not.
 ([`Tree::finger`](../app-runtime/#a-phone-on-a-desktop)): the fingers' own events, the pointer the first one stands
 for (a tap clicks, a drag scrolls with momentum), and the gestures, so an agent tries what a person does with a
 phone. The app's pointer becomes `coarse`, as under a finger. The gesture is played at once on a clock of its own
-that ends as the call does, at the speed it says; what it leaves moving (momentum, a list springing back) goes on in
-real time, so `lurq_wait` before a screenshot.
+that ends as the call does, at the speed it says; what it leaves moving (momentum, a list on its way to a page, a
+list springing back) goes on in real time, so `lurq_wait` before a screenshot: it answers once that is over.
 
 | `gesture` | Arguments | Makes |
 | --- | --- | --- |
@@ -137,6 +137,36 @@ copies what is selected to the clipboard, as Ctrl+C would.
 `lurq_inspect` with a `query` or a `role` searches every node at any depth (its `max_nodes` caps the matches), so an
 element deep in a page is found by its name or id; an outline with neither goes 12 deep unless `max_depth` says, and
 says `truncated` when it stopped.
+
+### What scrolls, and what plays
+
+Which of several lists moved, and which of several videos plays, is read from the tree: `lurq_inspect`,
+`lurq_read_tree` and the lookups say it as attributes of the element.
+
+A scroll container whose content overflows:
+
+| Attribute | |
+| --- | --- |
+| `scrollbar_vertical`, `scrollbar_horizontal` | How far it is scrolled along that way, from 0 at its start to 100 at its end |
+| `scroll_offset` | Its offset in logical pixels, across then down: `0,844` |
+| `scroll_page` | The page nearest its offset, a page being as long as its viewport: for a container that scrolls by pages (`ScrollState::set_paging`) or whose page something follows (`page_signal`, `on_page_change`). One number along the way it scrolls, `across,down` for one that scrolls both ways |
+| `scroll_target_page` | The page it is going to: the one a finger threw it at, known as the finger lifts, and the one a wheel's notch ends on |
+| `scroll_moving` | `true` while something has its content: a finger, its momentum, a way to a page, a spring back, a wheel's scroll on its way, a drag of its bar. Absent at rest |
+
+```text
+lurq_find_by_id {"id":"feed"}
+ref_4 [main] ScrollVertical role=scrollvertical #feed {scrollbar_vertical=50} {scroll_offset="0,844"} {scroll_page=1} {scroll_target_page=2} {scroll_moving=true} @0,0 390x844
+```
+
+A `ui::VideoPlayer` and a `ui::AudioPlayer`, on the element with their id:
+
+| Attribute | |
+| --- | --- |
+| `media_state` | `opening` (its source has shown no frame yet), `playing`, `paused`, `waiting` (it reads what is not there yet), `ended` or `failed` |
+| `media_position`, `media_duration` | Where it is and how long it is, in seconds; the length once it is known |
+| `media_source` | What it plays, where it was given a source: `File("clips/lake.mp4")`, `Url("https://..")`, `Bytes { len: 477079 }`. Never its headers |
+
+An app's own player says the same of itself with `.describe("media_state", ..)` on its element.
 
 ### Coordinates and refs
 

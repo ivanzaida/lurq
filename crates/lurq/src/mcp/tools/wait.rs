@@ -29,7 +29,7 @@ pub(super) fn wait_tool(tree: &mut Tree, state: &McpState, args: &serde_json::Va
       target.request_redraw();
     }
     _ => {
-      if !target.needs_redraw() && !target.has_active_timeline() && !target.has_moving_canvas() {
+      if target.mcp_idle() {
         let _ = reply.send(Ok(McpToolOutput::Text("already idle".into())));
         return;
       }

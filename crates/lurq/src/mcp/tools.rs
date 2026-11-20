@@ -38,6 +38,8 @@ mod touch_tests;
 mod wait;
 #[cfg(test)]
 mod wheel_tests;
+#[cfg(test)]
+mod finger_wait_tests;
 mod windows;
 #[cfg(test)]
 mod windows_tests;

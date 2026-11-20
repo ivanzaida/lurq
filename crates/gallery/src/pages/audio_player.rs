@@ -476,6 +476,7 @@ impl AudioPlayerPage {
     let position = self.position.clone();
     let mut player = crate::kit::apart(|| {
       AudioPlayer::new(self.position.clone(), if sourced { 0.0 } else { length })
+      .id("playground-player")
       .variant(variant)
       .loading(loading)
       .error(error.then_some("This track can't be played."))

@@ -579,6 +579,8 @@ pub struct VideoPlayer {
   children: Vec<Element>,
   /// The layers of the app's built from what it is doing, over its other children.
   layers: Vec<Layer>,
+  /// What it plays, as tooling is told it: the source it was given.
+  said_source: Option<Arc<str>>,
   /// Its source has shown no frame yet: it opens, or its first frame is to come.
   opening: bool,
   controls: bool,
@@ -689,6 +691,7 @@ impl VideoPlayer {
       poster: None,
       children: Vec::new(),
       layers: Vec::new(),
+      said_source: None,
       opening: false,
       controls: true,
       playing: Held::new(false),
@@ -1880,6 +1883,11 @@ fn playing(mut player: VideoPlayer, live: &Live, ctx: &mut Ctx) -> VideoPlayer {
     played.plays.store(false, Ordering::Relaxed);
     return player;
   };
+  // What reads the tree is told what plays: the file, the address or how many bytes. Never its headers.
+  #[cfg(any(feature = "devtools", feature = "mcp"))]
+  {
+    player.said_source = Some(Arc::from(format!("{source:?}")));
+  }
   // Rendered again when the media says it changed, and as its clock goes.
   played.beat.get();
   let key = source.cache_key();
@@ -2029,6 +2037,35 @@ fn playing(mut player: VideoPlayer, live: &Live, ctx: &mut Ctx) -> VideoPlayer {
     );
   }
   player
+}
+
+/// What a player says of what it plays to what reads the tree (the MCP server, DevTools): which of several
+/// videos a screen is playing is then read from the tree, and not from logs of the app's own. `media_state`
+/// (`opening`, `playing`, `paused`, `waiting`, `ended` or `failed`), `media_position` and `media_duration` in
+/// seconds, and `media_source` where it plays a source. Nothing in a build with no tooling.
+fn said_to_tooling(player: &VideoPlayer) -> Vec<(&'static str, Arc<str>)> {
+  if !cfg!(any(feature = "devtools", feature = "mcp")) {
+    return Vec::new();
+  }
+  let state = if player.error.is_some() {
+    "failed"
+  } else if player.opening {
+    "opening"
+  } else if player.ended {
+    "ended"
+  } else if player.waiting {
+    "waiting"
+  } else if player.playing.value {
+    "playing"
+  } else {
+    "paused"
+  };
+  super::media_time::said_to_tooling(
+    state,
+    player.position.value,
+    player.duration,
+    player.said_source.as_ref(),
+  )
 }
 
 /// The style of the parts of `player` at rest, in the form `size`.
@@ -2339,6 +2376,7 @@ fn view(mut player: VideoPlayer, theme: &Theme, live: &Live, ctx: Option<&mut Ct
     // A finger does not hover: the touch form's controls are shown by a tap, not by the pointer moving.
     poke: (live.mounted && !player.is_touch()).then(|| Arc::new(live.poke()) as Action),
     root: live.root.clone(),
+    tooling: said_to_tooling(&player),
     // A menu drawn open by force hangs from its anchor in the still form too: a picture of it, not dragged.
     mounted: live.mounted || player.force_menu.is_some(),
     filling: live.filling.load(Ordering::Relaxed),
@@ -3599,6 +3637,8 @@ pub struct VideoPlayerView {
   /// element given a new ref is a new element to the runtime: a slider in it would lose its drag and its focus
   /// each time the player is built again, so the still form gives its elements none.
   mounted: bool,
+  /// What it says of what it plays to what reads the tree, by name: see [`said_to_tooling`].
+  tooling: Vec<(&'static str, Arc<str>)>,
   /// Whether it fills its window: its corners are square then.
   filling: bool,
   id: Option<Arc<str>>,
@@ -3640,6 +3680,9 @@ impl VideoPlayerView {
       .tab_index(-1)
       .describe("a11y_role", "group")
       .describe("a11y_name", self.label.clone());
+    for (name, said) in &self.tooling {
+      root = root.describe(*name, said.clone());
+    }
     if self.mounted {
       root = root.ref_element(self.root.clone());
     }

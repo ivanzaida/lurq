@@ -445,6 +445,11 @@ pub struct AudioPlayer {
   locale: Option<crate::core::MediaWords>,
   #[cfg(feature = "media")]
   source: Option<crate::resources::Source>,
+  /// What it plays, as tooling is told it: the source it was given.
+  said_source: Option<Arc<str>>,
+  /// Whether its source has not opened yet, and whether it played to its end: what tooling is told.
+  said_opening: bool,
+  said_ended: bool,
 }
 
 impl AudioPlayer {
@@ -487,6 +492,9 @@ impl AudioPlayer {
       locale: None,
       #[cfg(feature = "media")]
       source: None,
+      said_source: None,
+      said_opening: false,
+      said_ended: false,
     }
   }
 
@@ -1370,6 +1378,7 @@ impl AudioPlayer {
       }
       controls.retry = Some(link.build(theme));
     }
+    let tooling = self.said_to_tooling();
 
     AudioPlayerView {
       variant,
@@ -1396,8 +1405,37 @@ impl AudioPlayer {
         root: kept.root.clone(),
         id: self.id.as_ref().map(|id| format!("{id}-line")),
       }),
+      tooling,
       id: self.id,
     }
+  }
+
+  /// What it says of what it plays to what reads the tree, as a video player does: `media_state` (`failed`,
+  /// `opening` while its source has not opened, `ended`, `waiting` while it loads or waits, `playing` or
+  /// `paused`), where it is and how long. Nothing in a build with no tooling.
+  fn said_to_tooling(&self) -> Vec<(&'static str, Arc<str>)> {
+    if !cfg!(any(feature = "devtools", feature = "mcp")) {
+      return Vec::new();
+    }
+    let state = if self.error.is_some() {
+      "failed"
+    } else if self.said_opening {
+      "opening"
+    } else if self.said_ended {
+      "ended"
+    } else if self.loading {
+      "waiting"
+    } else if self.playing.value {
+      "playing"
+    } else {
+      "paused"
+    };
+    super::media_time::said_to_tooling(
+      state,
+      self.position.value,
+      Some(self.duration),
+      self.said_source.as_ref(),
+    )
   }
 }
 
@@ -1470,6 +1508,8 @@ pub struct AudioPlayerView {
   pub recipe: ResolvedRecipe,
   pub controls: AudioControls,
   line: Option<Line>,
+  /// What it says of what it plays to what reads the tree, by name.
+  tooling: Vec<(&'static str, Arc<str>)>,
   id: Option<Arc<str>>,
 }
 
@@ -1714,6 +1754,9 @@ impl AudioPlayerView {
     let node = &mut *element.node;
     crate::node::NodeUpdate::describe(node, Arc::from("a11y_role"), Arc::from("group"));
     crate::node::NodeUpdate::describe(node, Arc::from("a11y_name"), self.label.clone());
+    for (name, said) in &self.tooling {
+      crate::node::NodeUpdate::describe(node, Arc::from(*name), said.clone());
+    }
     if self.disabled {
       crate::node::NodeUpdate::disabled(node, true);
     }
@@ -1971,6 +2014,10 @@ fn playing(mut player: AudioPlayer, played: &Played, ctx: &mut Ctx) -> AudioPlay
     played.plays.store(false, Ordering::Relaxed);
     return player;
   };
+  // What reads the tree is told what plays: the file, the address or how many bytes. Never its headers.
+  if cfg!(any(feature = "devtools", feature = "mcp")) {
+    player.said_source = Some(Arc::from(format!("{source:?}")));
+  }
   // Rendered again when the media says it changed, and as its clock goes.
   played.beat.get();
   let key = source.cache_key();
@@ -2123,6 +2170,8 @@ fn playing(mut player: AudioPlayer, played: &Played, ctx: &mut Ctx) -> AudioPlay
     player.buffered = player.buffered.or(Some(duration));
   }
   player.loading = player.loading || state.waiting;
+  player.said_opening = state.duration.is_none() && state.error.is_none();
+  player.said_ended = state.ended;
   // Why it cannot play, in the words of the locale: a short line, which the times give their room to.
   if let (None, Some(why)) = (&player.error, &state.error) {
     player.error = Some(match &player.locale {

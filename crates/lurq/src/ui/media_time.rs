@@ -64,6 +64,29 @@ pub fn media_time_text(seconds: f64, hours: bool) -> String {
   }
 }
 
+/// What a player says of what it plays to what reads the tree (the MCP server, DevTools), by the name of each
+/// attribute: `media_state`, `media_position` and `media_duration` in seconds (the length once it is known), and
+/// `media_source` where it plays a source. Which of several players a screen is playing is then read from the
+/// tree, and not from logs of the app's own.
+pub(super) fn said_to_tooling(
+  state: &'static str,
+  position: f64,
+  duration: Option<f64>,
+  source: Option<&Arc<str>>,
+) -> Vec<(&'static str, Arc<str>)> {
+  let mut said: Vec<(&'static str, Arc<str>)> = vec![
+    ("media_state", Arc::from(state)),
+    ("media_position", Arc::from(format!("{position:.1}"))),
+  ];
+  if let Some(duration) = duration.filter(|duration| duration.is_finite() && *duration > 0.0) {
+    said.push(("media_duration", Arc::from(format!("{duration:.1}"))));
+  }
+  if let Some(source) = source {
+    said.push(("media_source", source.clone()));
+  }
+  said
+}
+
 /// What a time not known yet reads.
 const UNKNOWN: &str = "-:--";
 
