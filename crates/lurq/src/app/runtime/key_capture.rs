@@ -101,6 +101,7 @@ impl Tree {
       text_input_focused: false,
       composing: false,
       focus_within: true,
+      focus_takes_enter: false,
       control: EventControl::new(),
     };
     let handlers = if down {

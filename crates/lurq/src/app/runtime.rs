@@ -4694,6 +4694,7 @@ impl Tree {
       text_input_focused: self.text_input_focused(),
       composing: self.is_composing(),
       focus_within: false,
+      focus_takes_enter: self.focus_takes_enter(),
       control,
     };
     if let Some(root) = &self.root {
@@ -4816,6 +4817,7 @@ impl Tree {
       text_input_focused: self.text_input_focused(),
       composing,
       focus_within: false,
+      focus_takes_enter: self.focus_takes_enter(),
       control: EventControl::new(),
     };
     let root = match &self.root {
@@ -7626,6 +7628,33 @@ impl Tree {
       .and_then(|path| find_node_by_path(root, path))
       .or_else(|| self.focused_node.and_then(|id| find_node_by_id(root, id)))
       .is_some_and(|node| matches!(node.node_kind(), NodeKind::TextInput { .. }))
+  }
+
+  /// Whether what has the keyboard's focus does a thing of its own with Enter: a button, a paragraph's link, a
+  /// select, or a text input of several lines. Stamped onto [`KeyboardEvent`]s for a handler that gives Enter a
+  /// meaning around them.
+  fn focus_takes_enter(&self) -> bool {
+    let Some(root) = self.root.as_ref() else {
+      return false;
+    };
+    let Some(node) = self
+      .focused_path
+      .as_deref()
+      .and_then(|path| find_node_by_path(root, path))
+      .or_else(|| self.focused_node.and_then(|id| find_node_by_id(root, id)))
+    else {
+      return false;
+    };
+    if node.button_kind_value().is_some() {
+      return true;
+    }
+    match node.node_kind() {
+      NodeKind::TextInput { state, .. } => state.overflow() == TextInputOverflow::Multiline,
+      NodeKind::Select { .. } => true,
+      #[cfg(feature = "markdown")]
+      NodeKind::InlineLink { .. } => true,
+      _ => false,
+    }
   }
 
   fn has_focused_blinking_text_input(&self, theme_caret_mode: CaretMode) -> bool {
