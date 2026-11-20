@@ -698,6 +698,10 @@ impl DialogView {
     }
     // The room before a key cap is from what is before it: the first thing in the note has none.
     let mut first = self.note_icon.is_none() && self.note.is_none();
+    // Key caps and the app's elements go on to the next line where the note is short.
+    if !self.note_pieces.is_empty() {
+      row = row.wrap();
+    }
     for piece in &self.note_pieces {
       let leads = std::mem::take(&mut first);
       row = row.child(match piece {
@@ -717,8 +721,12 @@ impl DialogView {
   /// The pair that `leads` the note has no room before it.
   fn note_key(&self, keys: &str, words: &str, leads: bool) -> Element {
     let cap = Kbd::shortcut(keys).platform(KeyPlatform::current()).build(self.theme());
+    // A pair is whole on its line where it can be; in a note narrower than it its words are cut.
     let mut pair = Row::new()
-      .flex_shrink(0.0)
+      .flex_shrink(1.0)
+      .min_width(Dimension::Px(0.0))
+      // Never wider than the note, a line of it that wraps included, where nothing shrinks.
+      .max_width(Dimension::Pct(100.0))
       .align_items(Alignment::Center)
       .part(&self.part(DialogPart::NoteKey));
     if leads {
@@ -726,7 +734,15 @@ impl DialogView {
     }
     let mut pair = pair.child(cap);
     if !words.is_empty() {
-      pair = pair.child(self.part(DialogPart::Note).text(words).nowrap());
+      pair = pair.child(
+        self
+          .part(DialogPart::Note)
+          .text(words)
+          .nowrap()
+          .text_overflow(crate::components::TextOverflow::Elipsis)
+          .flex_shrink(1.0)
+          .min_width(Dimension::Px(0.0)),
+      );
     }
     pair.into()
   }
