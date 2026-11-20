@@ -43,6 +43,14 @@ pub enum ListItemPart {
   Title,
   /// The second line under the title, where the row has one.
   Description,
+  /// What stands after the title, on its line: the app's tags.
+  Tags,
+  /// The mark after the title (and its tags) that explains the row, its words in a tooltip.
+  Info,
+  /// An element of the app's under the description, in the text's column: a link, a path.
+  Detail,
+  /// What the row says under itself, across it, under its line: a problem, a code to copy.
+  Below,
   /// What stands after the text: its value, its time, what the app puts there, its keys, its chevron.
   Trailing,
   /// A value at the end, as a setting has one: "Home".
@@ -60,6 +68,10 @@ names!(ListItemPart {
   Content => "content",
   Title => "title",
   Description => "description",
+  Tags => "tags",
+  Info => "info",
+  Detail => "detail",
+  Below => "below",
   Trailing => "trailing",
   Value => "value",
   Meta => "meta",
@@ -135,6 +147,10 @@ type Press = Arc<dyn Fn(&MouseEvent) + Send + Sync>;
 pub struct ListItem {
   title: Arc<str>,
   description: Option<Arc<str>>,
+  tags: Vec<Element>,
+  info: Option<Arc<str>>,
+  details: Vec<Element>,
+  below: Vec<Element>,
   lead: Option<Lead>,
   value: Option<Arc<str>>,
   meta: Option<Arc<str>>,
@@ -163,6 +179,10 @@ impl ListItem {
     Self {
       title: Arc::from(title),
       description: None,
+      tags: Vec::new(),
+      info: None,
+      details: Vec::new(),
+      below: Vec::new(),
       lead: None,
       value: None,
       meta: None,
@@ -188,6 +208,36 @@ impl ListItem {
   /// A second line under the title, in the muted color: who, what, when.
   pub fn description(mut self, description: &str) -> Self {
     self.description = Some(Arc::from(description));
+    self
+  }
+
+  /// An element after the title, on its line, after those given before: a [`Tag`](super::Tag) that says
+  /// *Default* or *Changed*, a [`Badge`](super::Badge). The title gives way before them.
+  pub fn tag(mut self, tag: impl Into<Element>) -> Self {
+    self.tags.push(tag.into());
+    self
+  }
+
+  /// What the row needs explained, in a few words: the mark of an [`InfoLabel`](super::InfoLabel) after the title
+  /// and its tags, an "i" in a circle, with the words in a tooltip above it wherever the row is rendered. A press of
+  /// the mark is not the row's. An empty text is no mark.
+  pub fn info(mut self, info: &str) -> Self {
+    self.info = (!info.is_empty()).then(|| Arc::from(info));
+    self
+  }
+
+  /// An element of the app's under the description, in the text's column, after those given before: a
+  /// [`Link`](super::Link) that says more, a path on a line of its own. Its presses are its own, not the row's.
+  pub fn detail(mut self, detail: impl Into<Element>) -> Self {
+    self.details.push(detail.into());
+    self
+  }
+
+  /// What the row says under itself, after what was given before: a problem, a question, a code to copy. It stands
+  /// across the row, under the line of its title and what is at its end, as part of the row (a list's line is
+  /// under it), and a press of it is not a press of the row.
+  pub fn below(mut self, element: impl Into<Element>) -> Self {
+    self.below.push(element.into());
     self
   }
 
@@ -408,9 +458,17 @@ impl ListItem {
     .map(|indicator| indicator.owned_like(&recipe));
     let press = self.press();
     let setting = case.states.contains(&Name::from(ListItemState::Setting));
+    let info = self
+      .info
+      .as_deref()
+      .map(|info| super::InfoLabel::mark_declared(info, theme));
     let view = ListItemView {
       title: self.title,
       description: self.description,
+      tags: self.tags,
+      info,
+      details: self.details,
+      below: self.below,
       value: self.value,
       meta: self.meta,
       shortcut: self.shortcut,
@@ -475,6 +533,14 @@ impl From<ListItem> for Element {
 pub struct ListItemView {
   pub title: Arc<str>,
   pub description: Option<Arc<str>>,
+  /// The app's elements after the title.
+  pub tags: Vec<Element>,
+  /// The mark after the title that explains the row, with its tooltip.
+  pub info: Option<Element>,
+  /// The app's elements under the description.
+  pub details: Vec<Element>,
+  /// What the row says under itself.
+  pub below: Vec<Element>,
   pub value: Option<Arc<str>>,
   pub meta: Option<Arc<str>>,
   /// The keys at its end, as [`Kbd::shortcut`] writes them.
@@ -642,20 +708,31 @@ impl ListItemView {
   }
 
   /// The title over the description, as wide as the room the row leaves them: a longer title is cut with an
-  /// ellipsis, a longer description goes on to the next line.
+  /// ellipsis, a longer description goes on to the next line. The tags and the mark that explains the row stand
+  /// after the title on its line, and the app's details under the description.
   pub fn content(&self) -> Column {
     let fill = Dimension::Pct(100.0);
     let title = self.part(ListItemPart::Title);
+    // The title's node is the part's, and has its id: `x-title`.
+    let title = title
+      .text(&self.title)
+      .nowrap()
+      .text_overflow(TextOverflow::Elipsis)
+      .part(&title);
+    let line: Element = if self.tags.is_empty() && self.info.is_none() {
+      Column::new()
+        .width(fill)
+        .min_width(Dimension::Px(0.0))
+        .child(title)
+        .into()
+    } else {
+      self.title_line(title).into()
+    };
     let mut content = Column::new()
       .flex(1.0)
       .min_width(Dimension::Px(0.0))
       .part(&self.part(ListItemPart::Content))
-      .child(
-        Column::new()
-          .width(fill)
-          .min_width(Dimension::Px(0.0))
-          .child(title.text(&self.title).nowrap().text_overflow(TextOverflow::Elipsis)),
-      );
+      .child(line);
     if let Some(description) = &self.description {
       let part = self.part(ListItemPart::Description);
       content = content.child(
@@ -666,7 +743,67 @@ impl ListItemView {
           .child(part.text(description).width(fill)),
       );
     }
+    for detail in &self.details {
+      content = content.child(
+        self
+          .held(Row::new().part(&self.part(ListItemPart::Detail)))
+          .max_width(fill)
+          .child(detail.clone()),
+      );
+    }
     content
+  }
+
+  /// The title's line with the tags and the mark that explains the row after the title, which gives way first.
+  fn title_line(&self, title: crate::components::Text) -> Row {
+    let mut line = Row::new()
+      .width(Dimension::Pct(100.0))
+      .min_width(Dimension::Px(0.0))
+      .align_items(Alignment::Center)
+      .overflow_visible()
+      .child(Row::new().flex_shrink(1.0).min_width(Dimension::Px(0.0)).child(title));
+    if !self.tags.is_empty() {
+      line = line.child(
+        Row::new()
+          .flex_shrink(0.0)
+          .align_items(Alignment::Center)
+          .overflow_visible()
+          .part(&self.part(ListItemPart::Tags))
+          .with_children(self.tags.iter().cloned()),
+      );
+    }
+    if let Some(info) = &self.info {
+      line = line.child(
+        self
+          .held(Row::new().flex_shrink(0.0).part(&self.part(ListItemPart::Info)))
+          .child(info.clone()),
+      );
+    }
+    line
+  }
+
+  /// `row` holding what the app put in the row, whose presses are its own in a row that is pressed.
+  fn held(&self, row: Row) -> Row {
+    let row = row.align_items(Alignment::Center).overflow_visible();
+    if self.pressable() {
+      row.on_click(|event: MouseEvent| event.stop_propagation())
+    } else {
+      row
+    }
+  }
+
+  /// What the row says under itself, across it, in the style of its part: `None` where it says nothing.
+  pub fn below(&mut self) -> Option<Column> {
+    if self.below.is_empty() {
+      return None;
+    }
+    Some(
+      Column::new()
+        .width(Dimension::Pct(100.0))
+        .align_items(Alignment::Stretch)
+        .part(&self.part(ListItemPart::Below))
+        .with_children(std::mem::take(&mut self.below)),
+    )
   }
 
   /// What stands after the text, in the style of its part: the value, the note, what the app puts there, the keys
@@ -733,7 +870,20 @@ impl ListItemView {
     children.extend(leading.map(Into::into));
     children.push(content.into());
     children.extend(trailing.map(Into::into));
-    self.root(children)
+    let Some(below) = self.below() else {
+      return self.root(children);
+    };
+    // The row and what it says under itself are one item: the key is on what holds both, the id on the row.
+    let key = self.key.take();
+    let mut item = Column::new()
+      .width(Dimension::Pct(100.0))
+      .align_items(Alignment::Stretch)
+      .child(self.root(children))
+      .child(below);
+    if let Some(key) = key {
+      item = item.key(key);
+    }
+    item.into()
   }
 }
 
@@ -778,7 +928,9 @@ impl Themed for ListItem {
   /// board draws no setting of one line: it is 44 at the least. Its height and the room over and under it follow
   /// the density, by a row's step and half of it.
   fn recipe() -> Recipe {
-    use ListItemPart::{Chevron, Content, Description, Icon, Leading, Meta, Root, Title, Trailing, Value};
+    use ListItemPart::{
+      Below, Chevron, Content, Description, Detail, Icon, Info, Leading, Meta, Root, Tags, Title, Trailing, Value,
+    };
     use ListItemState::{Contained, Disabled, Pressable, Selected, Setting};
     let (two_lines, with_icon) = (ListItemState::Description, ListItemState::Icon);
     use PaletteColor::{Foreground, Highlight, Muted, MutedForeground, Ring, StateHover, StatePressed};
@@ -829,6 +981,14 @@ impl Themed for ListItem {
           .foreground(MutedForeground)
       })
       .density(Density::Touch, Description, |s| s.font_size(14.0))
+      // lurq's, the board has none: tags 6 after the title and 6 apart, the mark that explains the row 6 after
+      // them; a detail 2 under the description; what the row says under itself 12 in from its sides, 8 above its
+      // bottom, 8 apart.
+      .base(Tags, |s| s.padding_start(6.0).gap(6.0))
+      .base(Info, |s| s.padding_start(6.0))
+      .base(Detail, |s| s.padding_top(2.0))
+      .base(Below, |s| s.padding_x(12.0).padding_bottom(8.0).gap(8.0))
+      .density(Density::Touch, Below, |s| s.padding_x(16.0))
       .base(Trailing, |s| s.gap(8.0).foreground(MutedForeground))
       .base(Value, |s| {
         s.typography(TypographyStyle::Body)
@@ -852,7 +1012,9 @@ impl Themed for ListItem {
       .state(Setting, Description, |s| s.font_size(12.0))
       .state(Setting, Icon, |s| s.square(20.0).foreground(Foreground))
       .state(Setting, Trailing, |s| s.gap(12.0))
-      .state(Setting, Chevron, |s| s.square(IconSize::Md));
+      .state(Setting, Chevron, |s| s.square(IconSize::Md))
+      // Under a setting, 14 in from its sides as its line is, and 12 above its bottom.
+      .state(Setting, Below, |s| s.padding_x(14.0).padding_bottom(12.0));
     // Two lines of the theme's type are a pixel under the board's, whose lines are whole pixels: the row is the
     // board's 57 at the least.
     let described = || Selector::new().state(Setting).state(two_lines);

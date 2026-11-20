@@ -287,6 +287,16 @@ impl InfoLabel {
     }
   }
 
+  /// The mark alone, which explains `info`, with its tooltip above it wherever it is rendered: what a
+  /// [`ListItem`](super::ListItem) draws after its title, built with no `Ctx`.
+  pub(crate) fn mark_declared(info: &str, theme: &Theme) -> Element {
+    let label = Self::new("").info(info);
+    let Some(mark) = label.view(theme).mark() else {
+      return Element::new();
+    };
+    label.tooltip(info).placement(Placement::Top).declared(mark)
+  }
+
   /// Builds the label's still form in `theme`: the label and its mark, with nothing that shows on them.
   /// Converting an info label into an element does this in the theme of what is being rendered.
   pub fn build(self, theme: &Theme) -> Element {
