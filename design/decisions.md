@@ -11,6 +11,70 @@ dropped). When a decision is replaced, the old entry stays and says what replace
 
 ## 2026-11-20
 
+### A menu whose rows are the app's, and panels placed by another frame
+
+- **Question.** Orchester's menus (`ui/menu.rs` of its kit, and the menus of its pickers, its slash and mention
+  lists, its context meter) are a panel the app builds itself: its own rows (a label cut to its room with its words in
+  a tooltip, a detail after the label on one line or under it, a hint at the end, a row 40 high for an agent and its
+  model, a row of an unavailable choice only faded whose reason a foot under the rows says once), separators, a foot
+  of words, sections. `ui::Menu` owns its item list and draws each item itself: the kit could take its look,
+  keyboard, focus and dismissal only by giving up its rows. Its popovers and menus also open by a frame that is not
+  their trigger (the status bar's popover above the bar and at its end while the bar's item stays the trigger) or at
+  a point. Should a lurq menu take the app's rows, and a popup be placed by another element?
+- **Decision (Ivan, 2026-11-20: "так давай роби в луркі").** Yes:
+  1. A `MenuItem` takes the app's element as all it shows (`MenuItem::content(element)`), in place of its icon, label,
+     detail and end; the item keeps everything else: its root is the item that is pressed, reached by the arrows,
+     found by typing its label, called by its label to tooling, checked, disabled or unavailable for a reason
+     (`a11y_description`), destructive, and choosing it closes the menu and calls its handlers. The app's recipe of
+     `menu_item` gives the root its height, its padding and its fill under the pointer. So a row of the app's is a
+     menu's row and the keyboard works, with no role of the menu's for the app to put on an element of its own.
+  2. A menu holds the app's elements among its entries (`Menu::child`, `Menu::children`, `MenuEntry::Element`): a
+     foot, a section of its own, a field. Drawn as given; one that takes the focus is reached by the arrows as an item
+     is, and choosing it does what the app wires.
+  3. A popup may be placed by another element than its anchor (`Overlay::placed_by`, `Popup::placed_by`,
+     `Menu::placed_by`, `Popover::placed_by`): it stands at its placement of that element's box, flips and is clamped
+     as it would by its anchor, and the anchor stays what it hangs from (its trigger, where the focus goes back, what
+     hides it out of view). A menu and a popover may stand at a point of the window too (`Menu::at`, `Popover::at`),
+     as a context menu does.
+- **Why.** The kit's menus keep their rows, which are its design, and get lurq's menu: the roving focus, the typing,
+  Escape, a press outside, Tab, the focus given back, flipping and clamping, `within`. A popover by the status bar no
+  longer reckons its offset from where two elements were last laid out.
+- **State.** In work on `claude/k5-d-overlays` (2026-11-20).
+
+### A hover card the pointer passes through
+
+- **Question.** The cards of Orchester's status bar show what an item of the bar is (the cloud, the MCP server, the
+  runner) while the pointer rests on it: they say words, hold nothing to press, let the pointer through to what is
+  under them, and go as soon as the pointer leaves the item. `ui::HoverCard` takes the pointer, stays while it is on
+  the card and goes after a delay to cross to it. Can a hover card do both?
+- **Decision (Ivan, 2026-11-20: "так давай роби в луркі").** `HoverCard::pass_through(true)`: the card takes no
+  pointer (what is under it is hovered and pressed through it), and it goes as the pointer leaves the element it is
+  about, with no delay. The focus and Escape do what they did. Staying open while the card is hovered stays the
+  default.
+- **Why.** A card of words over a bar the pointer moves along must not hide the next item from the pointer, nor
+  linger over it.
+- **State.** In work on `claude/k5-d-overlays` (2026-11-20).
+
+### Tooltips placed by a frame, held by the app, and worded for a cut text
+
+- **Question.** Orchester's tooltips do three things `ui::Tooltip` does not: a skill chip's tooltip opens over the
+  composer box the chip sits in, clear of the box's top, and not over the chip; a message's actions show their
+  tooltips themselves, the app saying which one shows ("hung" tooltips, with no hover of the tooltip's own); and a
+  browser tab's label says one thing in its tooltip while it fits (the page's title) and another while it is cut.
+  Can lurq's tooltip do them?
+- **Decision (Ivan, 2026-11-20: "так давай роби в луркі").**
+  1. `Tooltip::over(&frame)`: the tooltip keeps clear of `frame`, an element around the one it describes, on the side
+     it opens on: its distance is measured from the frame's edge and it lines up with its element along it
+     (`Overlay::clear_of`). It flips as it would.
+  2. `Tooltip::hang(anchor, open)`: a tooltip the app shows and hides itself beside an element of its own, open while
+     `open` is (a `bool` or a `Signal<bool>`): the pointer, the focus, a press and Escape do nothing to it, it takes no
+     pointer, and it is an element the app puts among the children of any container.
+  3. `Tooltip::hint(text)` with `when_cut`: what the tooltip says while the text is whole, in place of showing
+     nothing; while the text is cut it says its own text, as before.
+- **Why.** Each is how the kit's tooltips behave today, and none is Orchester's alone: a tooltip over a field's box, a
+  toolbar that shows its tooltips itself, a tab's title.
+- **State.** In work on `claude/k5-d-overlays` (2026-11-20).
+
 ### Window tabs that hold Orchester's title-bar tabs
 
 - **Question.** Orchester draws the tabs of its title bar itself: a Home tab of an icon alone, tabs capped at a width
