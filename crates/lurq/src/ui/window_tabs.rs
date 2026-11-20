@@ -2027,6 +2027,9 @@ impl WindowTabsView {
     if let Some(more) = self.more() {
       row = row.child(more);
     }
+    if let Some(list) = self.list_beside() {
+      row = row.child(list);
+    }
     let Some(drag) = self.drag else {
       return match self.overflow {
         WindowTabsOverflow::Scroll => row.into(),

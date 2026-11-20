@@ -123,7 +123,12 @@ impl WindowTabsView {
     if self.list_shortcut {
       tooltip = tooltip.shortcut(&list_keys());
     }
-    let menu = if all { self.all_tabs() } else { self.hidden_menu() };
+    // With no tab hidden the button is not laid out, and the list of every tab hangs from the tabs (`list_beside`).
+    let menu = match (all, self.hidden_count()) {
+      (true, 0) => None,
+      (true, _) => Some(self.all_tabs()),
+      (false, _) => Some(self.hidden_menu()),
+    };
     Some(
       Row::new()
         .align_items(Alignment::Center)
@@ -135,9 +140,20 @@ impl WindowTabsView {
         // the last layout dropped and which would refuse the focus its menu takes.
         .key("more")
         .child(tooltip.declared(button))
-        .child(menu)
+        .with_children(menu)
         .into(),
     )
+  }
+
+  /// The list of every tab while it is open with no tab hidden: the More button is not laid out then, and the list
+  /// hangs from the tabs, beside which it takes no room. None otherwise, where it is the button's.
+  pub(super) fn list_beside(&self) -> Option<Element> {
+    let beside = self.overflow == WindowTabsOverflow::List
+      && self.kept.revision.is_some()
+      && self.menu == WindowTabsMenu::All
+      && self.hidden_count() == 0
+      && self.kept.open.get();
+    beside.then(|| self.all_tabs())
   }
 
   /// What opens the More button's menu, or closes it. The list of every tab opens with its search empty, the focus
@@ -167,7 +183,8 @@ impl WindowTabsView {
   }
 
   /// The handler of Ctrl+Shift+A (Cmd+Shift+A on macOS), where the strip has the list shortcut: it opens the More
-  /// button's menu, or closes it. The menu of the hidden tabs opens only while a tab is hidden.
+  /// button's menu, or closes it. The menu of the hidden tabs opens only while a tab is hidden; the list of every tab at
+  /// any time, under the tabs where none is hidden.
   pub(super) fn list_keys(&self) -> Option<impl Fn(KeyboardEvent) + Send + Sync + 'static> {
     if !self.list_shortcut || self.disabled || self.overflow != WindowTabsOverflow::List {
       return None;

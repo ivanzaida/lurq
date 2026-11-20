@@ -284,3 +284,55 @@ fn the_more_buttons_tooltip_says_the_apps_words() {
   assert!(stage.paints("8 more tabs"));
   assert!(!stage.paints("8 hidden tabs"));
 }
+
+/// Ctrl+Shift+A, or Cmd+Shift+A on macOS: the list shortcut.
+fn list_key(stage: &mut Stage) {
+  crate::support::shortcut(&mut stage.tree, "A", "KeyA", true);
+  stage.pass();
+  stage.pass();
+}
+
+#[test]
+fn with_no_tab_hidden_the_list_opens_under_the_tabs_by_the_apps_signal_and_the_shortcut() {
+  let (open, heard) = (Signal::new(false), Heard::default());
+  let mut host = Host::new(3, 790.0);
+  host.strip = |strip| strip.list_shortcut(true);
+  let (mut stage, value) = hosted(host, open.clone(), ElementRef::new(), &heard);
+  assert!(!shown(&mut stage, "strip-more"), "every tab in the strip: no More button");
+  open.set(true);
+  stage.pass();
+  stage.pass();
+  assert!(shown(&mut stage, "t0-item"), "the app opens it by its signal");
+  assert!(!shown(&mut stage, "strip-more"), "the More button stays hidden");
+  // It hangs from the tabs: 4 under them, its end at theirs.
+  let (list_x, list_y, list_width, list_height) = stage.bounds("strip-list");
+  let (x, y, width, _) = stage.bounds("strip-panel");
+  assert!(close_to(y, list_y + list_height + 4.0), "4 under the tabs: {y}");
+  assert!(close_to(x + width, list_x + list_width), "its end at the tabs' end: {x} {width}");
+  stage.click("t2-item");
+  assert_eq!(value.get(), 2, "a choice selects its tab");
+  assert!(!open.get(), "and closes it");
+
+  list_key(&mut stage);
+  assert!(open.get(), "the shortcut opens it");
+  assert!(shown(&mut stage, "t0-item"));
+  assert_eq!(focused(&stage).as_deref(), Some("t2-item"), "on the selected tab's row");
+  list_key(&mut stage);
+  assert!(!open.get(), "and closes it");
+  assert!(!shown(&mut stage, "t0-item"));
+  assert_eq!(*heard.opened.lock().unwrap(), [false, true, false]);
+}
+
+#[test]
+fn with_no_tab_hidden_the_list_stands_clear_of_the_title_bar() {
+  let (open, heard) = (Signal::new(false), Heard::default());
+  let mut host = Host::new(3, 790.0);
+  host.under_bar = true;
+  let (mut stage, _) = hosted(host, open.clone(), ElementRef::new(), &heard);
+  open.set(true);
+  stage.pass();
+  stage.pass();
+  let (bar_y, bar_height) = (stage.bounds("bar").1, 36.0);
+  let (_, y, ..) = stage.bounds("strip-panel");
+  assert!(close_to(y, bar_y + bar_height + 4.0), "4 under the bar: {y}");
+}
