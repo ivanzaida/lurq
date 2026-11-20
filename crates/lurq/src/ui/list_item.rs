@@ -12,7 +12,7 @@ use super::{
   radio::{RadioPart, RadioState},
   recipe::{Case, Interaction, Name, ROW_STEPS, Recipe, ResolvedPart, ResolvedRecipe, Selector},
   separator::Separator,
-  shared::{fading, glyph, pressable},
+  shared::{fading, glyph, opens_aside, pressable, tab_stop},
   theme::{Themed, current_theme},
 };
 use crate::{
@@ -146,6 +146,8 @@ pub struct ListItem {
   selected: bool,
   disabled: bool,
   on_click: Vec<EventHandler<MouseEvent>>,
+  on_open_aside: Vec<EventHandler<MouseEvent>>,
+  tab_stop: bool,
   href: Option<Arc<str>>,
   density: Option<Density>,
   states: Vec<Name>,
@@ -171,6 +173,8 @@ impl ListItem {
       selected: false,
       disabled: false,
       on_click: Vec::new(),
+      on_open_aside: Vec::new(),
+      tab_stop: true,
       href: None,
       density: None,
       states: Vec::new(),
@@ -287,6 +291,27 @@ impl ListItem {
     self
   }
 
+  /// Called when a person asks for what the row opens beside what is open, in place of pressing it: a press of the
+  /// middle button, or a press with Ctrl held (Cmd on macOS), and Enter with it while the row is focused. An app
+  /// with tabs opens the place in a new one. Such a press is the handler's alone: the row's
+  /// [`on_click`](Self::on_click) is not called, its [`href`](Self::href) is not gone to, it takes no focus and does
+  /// not reach what is around it. It is given the press, whose `shift` asks for a tab that is switched to. A row
+  /// with only this handler is pressed too, and a plain press of it does nothing. A second handler is called after
+  /// the first.
+  pub fn on_open_aside(mut self, handler: impl IntoMouseEventHandler) -> Self {
+    self.on_open_aside.push(handler.into_event_handler());
+    self
+  }
+
+  /// Whether Tab stops at a row that is pressed; it does unless told otherwise. `false` is a row the pointer and
+  /// the app's own shortcuts reach: Tab passes it by (what stands at its end is a stop of its own as before), and
+  /// a press of it leaves the focus where it was. Focused by the app or by the arrows of the list it is in, it is
+  /// pressed by Enter and Space as before, and it is the same row to what reads the tree.
+  pub fn tab_stop(mut self, stops: bool) -> Self {
+    self.tab_stop = stops;
+    self
+  }
+
   /// Where a press of the row goes, in the app's router: the row is pressed, and a link to what reads the tree.
   /// Outside a router it goes nowhere, and its [`on_click`](Self::on_click) is still called.
   pub fn href(mut self, path: &str) -> Self {
@@ -342,7 +367,7 @@ impl ListItem {
 
   /// Builds the row in `theme`. Converting a row into an element does this in the theme of what is being rendered.
   pub fn build(self, theme: &Theme) -> Element {
-    let pressable = !self.on_click.is_empty() || self.href.is_some();
+    let pressable = !self.on_click.is_empty() || !self.on_open_aside.is_empty() || self.href.is_some();
     let case = Case {
       variant: None,
       size: None,
@@ -405,6 +430,8 @@ impl ListItem {
       trailing: self.trailing,
       forced: self.forced,
       press,
+      aside: self.on_open_aside,
+      tab_stop: self.tab_stop,
       id: self.id,
       key: self.key,
       setting,
@@ -419,7 +446,7 @@ impl ListItem {
   /// What a press of the row does: its handlers, then its path in the router around it. `None` for a row that is
   /// not pressed.
   fn press(&self) -> Option<Press> {
-    if self.on_click.is_empty() && self.href.is_none() {
+    if self.on_click.is_empty() && self.on_open_aside.is_empty() && self.href.is_none() {
       return None;
     }
     let handlers = self.on_click.clone();
@@ -471,6 +498,9 @@ pub struct ListItemView {
   trailing: Option<Element>,
   forced: Option<Interaction>,
   press: Option<Press>,
+  /// What a press that asks for the row beside what is open calls, in place of `press`.
+  aside: Vec<EventHandler<MouseEvent>>,
+  tab_stop: bool,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
   /// Whether the row is a setting: its text gives way only down to [`SETTING_TEXT_LEAST`], and then what is at
@@ -534,7 +564,8 @@ impl ListItemView {
       None if self.link => "link",
       None => "button",
     };
-    let mut row = pressable(&part, self.disabled)
+    // Ahead of the press, which a press that asks for the row aside does not reach.
+    let mut row = opens_aside(tab_stop(pressable(&part, self.disabled), self.tab_stop), &self.aside)
       .justify(Justify::Start)
       .align_items(Alignment::Center)
       // What the app put at the row's end is a stop of Tab of its own, after the row.

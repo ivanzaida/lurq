@@ -7,7 +7,7 @@ use super::{
   names,
   part_style::Length,
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
-  shared::pressable,
+  shared::{opens_aside, pressable, tab_stop},
   theme::{Themed, current_theme},
 };
 use crate::{
@@ -191,6 +191,8 @@ pub struct Button {
   rules: Recipe,
   forced: Option<Interaction>,
   on_click: Vec<EventHandler<crate::app::events::MouseEvent>>,
+  on_open_aside: Vec<EventHandler<crate::app::events::MouseEvent>>,
+  tab_stop: bool,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
   element_ref: Option<crate::core::ElementRef>,
@@ -219,6 +221,8 @@ impl Button {
       rules: Recipe::new(),
       forced: None,
       on_click: Vec::new(),
+      on_open_aside: Vec::new(),
+      tab_stop: true,
       id: None,
       key: None,
       element_ref: None,
@@ -322,6 +326,26 @@ impl Button {
   /// Called on a click, and on Enter and Space while the button is focused.
   pub fn on_click(mut self, handler: impl IntoMouseEventHandler) -> Self {
     self.on_click.push(handler.into_event_handler());
+    self
+  }
+
+  /// Called when a person asks for what the button opens beside what is open, in place of pressing it: a press of
+  /// the middle button, or a press with Ctrl held (Cmd on macOS), and Enter with it while the button is focused. An
+  /// app with tabs opens the place in a new one. Such a press is the handler's alone: the button's
+  /// [`on_click`](Self::on_click) is not called, it takes no focus, submits no form and does not reach what is
+  /// around it. It is given the press, whose `shift` asks for a tab that is switched to. A second handler is called
+  /// after the first.
+  pub fn on_open_aside(mut self, handler: impl IntoMouseEventHandler) -> Self {
+    self.on_open_aside.push(handler.into_event_handler());
+    self
+  }
+
+  /// Whether Tab stops at the button; it does unless told otherwise. `false` is a button the pointer and the
+  /// app's own shortcuts reach, as a toolbar's or a list's are in many desktop apps: Tab passes it by, and a
+  /// press of it leaves the focus where it was. Focused by the app, it is pressed by Enter and Space as before,
+  /// and it is the same button to what reads the tree.
+  pub fn tab_stop(mut self, stops: bool) -> Self {
+    self.tab_stop = stops;
     self
   }
 
@@ -442,6 +466,8 @@ impl Button {
       recipe,
       forced: self.forced,
       on_click: self.on_click,
+      on_open_aside: self.on_open_aside,
+      tab_stop: self.tab_stop,
       id: self.id,
       key: self.key,
       element_ref: self.element_ref,
@@ -489,6 +515,8 @@ pub struct ButtonView {
   pub recipe: ResolvedRecipe,
   forced: Option<Interaction>,
   on_click: Vec<EventHandler<crate::app::events::MouseEvent>>,
+  on_open_aside: Vec<EventHandler<crate::app::events::MouseEvent>>,
+  tab_stop: bool,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
   element_ref: Option<crate::core::ElementRef>,
@@ -511,13 +539,15 @@ impl ButtonView {
   /// pressed, focused and disabled, with nothing in it yet. A renderer puts
   /// the button's content in it.
   pub fn root(&self) -> components::Button {
-    let mut root = pressable(&self.part(ButtonPart::Root), self.disabled);
+    let mut root = tab_stop(pressable(&self.part(ButtonPart::Root), self.disabled), self.tab_stop);
     // A button that is loading is not pressed again: it is there, and focused if it was, and does nothing.
     #[cfg(feature = "form")]
     if self.submit && !self.loading {
       root = root.submit();
     }
     if !self.loading {
+      // Ahead of the press, which a press that asks for it aside does not reach.
+      root = opens_aside(root, &self.on_open_aside);
       for handler in &self.on_click {
         root = root.on_click(handler.clone());
       }

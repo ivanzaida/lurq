@@ -9,11 +9,12 @@ use super::{
 };
 use crate::{
   animation::{KeyframesId, Transition},
+  app::events::{MouseButton, MouseEvent},
   app::theme::{IconSize, MotionDuration},
   components::{self, Row, TextOverflow},
   core::{Signal, SignalValue},
   layout::layout_kind::Justify,
-  node::Element,
+  node::{Element, EventHandler},
 };
 
 /// Which way a component runs: along a row, or down a column. One type for every component that has a way, of
@@ -119,6 +120,63 @@ pub(crate) fn pressable(part: &ResolvedPart, disabled: bool) -> components::Butt
     .tab_index(0)
     .disabled(disabled)
     .part(part)
+}
+
+/// `button` as `tab_stop(stops)` of a pressable says: where it is `false`, Tab passes the button by and a press of
+/// it with the pointer leaves the focus where it was. It still takes the focus the app gives it, which Enter and
+/// Space press it from, and the arrows of a focus group it is in still move to it.
+pub(crate) fn tab_stop(button: components::Button, stops: bool) -> components::Button {
+  if stops {
+    button
+  } else {
+    button.tab_stop(false).focus_on_press(false)
+  }
+}
+
+/// Whether a press asks for what it is on beside what is open, where a press of the primary button can: with Ctrl
+/// held, or Cmd where that is the platform's key (Ctrl and a press is the secondary press of a Mac).
+pub(crate) fn command_held(event: &MouseEvent) -> bool {
+  if cfg!(any(target_os = "macos", target_os = "ios")) {
+    event.meta
+  } else {
+    event.ctrl
+  }
+}
+
+/// `button` calling `handlers` (its `on_open_aside`) where a press asks for it beside what is open: a click of the
+/// middle button, or of the primary one with the platform's key held ([`command_held`]). Such a press is theirs
+/// alone: the button's own handlers are not called, it takes no focus, submits no form, and does not reach what
+/// is around the button. Given before the button's own `on_click`, which it runs ahead of. No handlers, no change.
+pub(crate) fn opens_aside(button: components::Button, handlers: &[EventHandler<MouseEvent>]) -> components::Button {
+  if handlers.is_empty() {
+    return button;
+  }
+  let call = |handlers: Vec<EventHandler<MouseEvent>>| {
+    move |event: &MouseEvent| {
+      for handler in &handlers {
+        handler.call(event);
+      }
+    }
+  };
+  let (primary, middle) = (call(handlers.to_vec()), call(handlers.to_vec()));
+  button
+    // A middle press is the start of this click, not of a scroll that follows the pointer.
+    .on_mouse_down(|event: MouseEvent| {
+      if event.button == MouseButton::Middle {
+        event.prevent_default();
+      }
+    })
+    .on_mouse_click(MouseButton::Middle, move |event: MouseEvent| {
+      event.stop_propagation();
+      middle(&event);
+    })
+    .on_click(move |event: MouseEvent| {
+      if command_held(&event) {
+        event.prevent_default();
+        event.stop_immediate_propagation();
+        primary(&event);
+      }
+    })
 }
 
 /// `text` on one line in the style of `part`, which gives way first where

@@ -7,7 +7,7 @@ use super::{
   icons, names,
   part_style::Length,
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
-  shared::{fading, glyph, pressable},
+  shared::{fading, glyph, pressable, tab_stop},
   theme::{Themed, current_theme},
 };
 use crate::{
@@ -138,6 +138,7 @@ pub struct Tag {
   icon: Option<Name>,
   shape: TagShape,
   disabled: bool,
+  tab_stop: bool,
   remove_label: Option<Arc<str>>,
   states: Vec<Name>,
   rules: Recipe,
@@ -156,6 +157,7 @@ impl Tag {
       icon: None,
       shape: TagShape::Default,
       disabled: false,
+      tab_stop: true,
       remove_label: None,
       states: Vec::new(),
       rules: Recipe::new(),
@@ -200,6 +202,15 @@ impl Tag {
   /// Whether the tag takes no input: it is dimmed, and its remove button is not pressed.
   pub fn disabled(mut self, disabled: bool) -> Self {
     self.disabled = disabled;
+    self
+  }
+
+  /// Whether Tab stops at the remove button; it does unless told otherwise. `false` is a tag whose remove button
+  /// the pointer reaches, and the app's own keys: Tab passes it by, and a press of it takes the tag away and leaves
+  /// the focus where it was. Focused by the app, a click, Enter, Space, Backspace and Delete press it as before,
+  /// and it is the same button to what reads the tree.
+  pub fn tab_stop(mut self, stops: bool) -> Self {
+    self.tab_stop = stops;
     self
   }
 
@@ -280,6 +291,7 @@ impl Tag {
       shape: self.shape,
       removable,
       disabled: self.disabled,
+      tab_stop: self.tab_stop,
       recipe: theme
         .resolve::<Tag>(&case, Some(&self.rules))
         .owned_by(self.id.as_ref()),
@@ -315,6 +327,8 @@ pub struct TagView {
   /// Whether it has a handler for its remove button, and so the button.
   pub removable: bool,
   pub disabled: bool,
+  /// Whether Tab stops at the remove button.
+  tab_stop: bool,
   /// The style of each part of this tag.
   pub recipe: ResolvedRecipe,
   forced: Option<Interaction>,
@@ -354,7 +368,7 @@ impl TagView {
       .rest()
       .width
       .unwrap_or(Length::Icon(IconSize::Sm));
-    let mut remove = pressable(&part, self.disabled)
+    let mut remove = tab_stop(pressable(&part, self.disabled), self.tab_stop)
       .describe("a11y_role", "button")
       .describe("a11y_name", self.remove_label.clone())
       .child(Icon::new(icons::CLOSE).size(side).build(self.theme()));

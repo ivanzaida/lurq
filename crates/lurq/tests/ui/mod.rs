@@ -119,6 +119,7 @@ mod picture;
 #[cfg(feature = "canvas")]
 mod pie_chart;
 mod play_button;
+mod pointer_only;
 mod popconfirm;
 mod popover;
 mod progress;

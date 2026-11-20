@@ -7,7 +7,7 @@ use super::{
   names,
   part_style::Length,
   recipe::{Case, Interaction, Name, Recipe, ResolvedRecipe},
-  shared::{ChangeHandler, Choice, Chosen, fading, glyph, pressable},
+  shared::{ChangeHandler, Choice, Chosen, fading, glyph, pressable, tab_stop},
   theme::{Themed, current_theme},
 };
 use crate::{
@@ -106,6 +106,7 @@ pub struct SegmentedControl<T = ()> {
   disabled: bool,
   invalid: bool,
   full_width: bool,
+  tab_stop: bool,
   states: Vec<Name>,
   rules: Recipe,
   forced: Option<Interaction>,
@@ -124,6 +125,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SegmentedControl<T> {
       disabled: false,
       invalid: false,
       full_width: false,
+      tab_stop: true,
       states: Vec::new(),
       rules: Recipe::new(),
       forced: None,
@@ -204,6 +206,15 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SegmentedControl<T> {
   /// Whether the control is as wide as what it is in, with its segments sharing the width.
   pub fn full_width(mut self, full_width: bool) -> Self {
     self.full_width = full_width;
+    self
+  }
+
+  /// Whether Tab stops in the control; it does, once, unless told otherwise. `false` is a control the pointer and
+  /// the app's own shortcuts reach: Tab passes its segments by, and a press of one chooses it and leaves the focus
+  /// where it was. A segment the app focuses is pressed by Enter and Space and its arrow keys move along the
+  /// segments as before, and they are the same to what reads the tree.
+  pub fn tab_stop(mut self, stops: bool) -> Self {
+    self.tab_stop = stops;
     self
   }
 
@@ -289,7 +300,8 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SegmentedControl<T> {
       let forced = self.forced.filter(|_| Some(index) == entry);
       let part = |part: SegmentedControlPart| recipe.part(part).forced(forced);
       let pick = segment.pick;
-      let mut pressed = pressable(&part(SegmentedControlPart::Segment), self.disabled || segment.disabled)
+      let pressed = pressable(&part(SegmentedControlPart::Segment), self.disabled || segment.disabled);
+      let mut pressed = tab_stop(pressed, self.tab_stop)
         .focus_entry(segment.selected)
         .on_click(move |_| pick());
       if self.full_width {

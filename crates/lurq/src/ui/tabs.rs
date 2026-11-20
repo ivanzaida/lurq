@@ -14,7 +14,7 @@ use super::{
   names,
   part_style::Length,
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
-  shared::{Orientation, fading, glyph, one_line, pressable},
+  shared::{Orientation, fading, glyph, one_line, opens_aside, pressable, tab_stop},
   theme::{Themed, current_theme},
 };
 use crate::{
@@ -31,7 +31,10 @@ use crate::{
     scrollbar::ScrollBarStyle,
     text_style::FontWeight,
   },
-  node::{CursorIcon, Element, FocusGroup, border::Border, dimension::Dimension, outline::Outline},
+  node::{
+    CursorIcon, Element, EventHandler, FocusGroup, IntoMouseEventHandler, border::Border, dimension::Dimension,
+    outline::Outline,
+  },
 };
 
 /// How much of the room it shows a press of a scroll button moves the list of an overflowing form.
@@ -157,6 +160,7 @@ pub struct Tab<T> {
   disabled: bool,
   separated: bool,
   panel: Option<PanelBuilder>,
+  on_open_aside: Vec<EventHandler<crate::app::events::MouseEvent>>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
@@ -172,6 +176,7 @@ impl<T> Tab<T> {
       disabled: false,
       separated: false,
       panel: None,
+      on_open_aside: Vec::new(),
       id: None,
       key: None,
     }
@@ -204,6 +209,16 @@ impl<T> Tab<T> {
   /// What the tab shows while it is the selected one, built only then.
   pub fn panel(mut self, panel: impl Fn() -> Element + Send + Sync + 'static) -> Self {
     self.panel = Some(Arc::new(panel));
+    self
+  }
+
+  /// Called when a person asks for what the tab stands for beside what is open, in place of selecting it: a press
+  /// of the middle button, or a press with Ctrl held (Cmd on macOS), and Enter with it while the tab is focused.
+  /// Such a press is the handler's alone: the tab is not selected, takes no focus, and the tabs' `on_change` is not
+  /// called. It is given the press, whose `shift` asks for a tab that is switched to. Its item in the menu of the
+  /// overflowing form is chosen as before. A second handler is called after the first.
+  pub fn on_open_aside(mut self, handler: impl IntoMouseEventHandler) -> Self {
+    self.on_open_aside.push(handler.into_event_handler());
     self
   }
 
@@ -395,6 +410,7 @@ pub struct TabEntry {
   pub separated: bool,
   pub selected: bool,
   select: Arc<dyn Fn() + Send + Sync>,
+  aside: Vec<EventHandler<crate::app::events::MouseEvent>>,
   panel: Option<PanelBuilder>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
@@ -461,6 +477,7 @@ pub struct Tabs<T = ()> {
   orientation: TabsOrientation,
   disabled: bool,
   manual: bool,
+  tab_stop: bool,
   label: Option<Arc<str>>,
   overflow: bool,
   words: Words,
@@ -482,6 +499,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Tabs<T> {
       orientation: TabsOrientation::default(),
       disabled: false,
       manual: false,
+      tab_stop: true,
       label: None,
       overflow: false,
       words: Words {
@@ -555,6 +573,15 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Tabs<T> {
   /// the selection follows the focus.
   pub fn manual(mut self, manual: bool) -> Self {
     self.manual = manual;
+    self
+  }
+
+  /// Whether Tab stops in the list; it does, once, unless told otherwise. `false` is a list the pointer and the
+  /// app's own shortcuts reach: Tab passes its tabs and its More button by, and a press of one leaves the focus
+  /// where it was. A tab the app focuses is pressed by Enter and Space and its arrow keys move along the list as
+  /// before, and the tabs are the same to what reads the tree. The panel is a stop of Tab as before.
+  pub fn tab_stop(mut self, stops: bool) -> Self {
+    self.tab_stop = stops;
     self
   }
 
@@ -668,6 +695,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Tabs<T> {
               handler(&value);
             }
           }),
+          aside: tab.on_open_aside,
           panel: tab.panel,
           id: tab.id,
           key: tab.key,
@@ -680,6 +708,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Tabs<T> {
       orientation: self.orientation,
       disabled: self.disabled,
       manual: self.manual,
+      tab_stop: self.tab_stop,
       label: self.label,
       overflow: self.overflow,
       words: self.words,
@@ -730,6 +759,7 @@ struct Prepared {
   orientation: TabsOrientation,
   disabled: bool,
   manual: bool,
+  tab_stop: bool,
   label: Option<Arc<str>>,
   overflow: bool,
   words: Words,
@@ -827,6 +857,7 @@ impl Prepared {
       orientation: self.orientation,
       disabled: self.disabled,
       manual: self.manual,
+      tab_stop: self.tab_stop,
       label: self.label,
       recipes: [plain, selected, disabled, both],
       list_ref: ElementRef::new(),
@@ -896,6 +927,8 @@ pub struct TabsView {
   pub disabled: bool,
   pub manual: bool,
   pub label: Option<Arc<str>>,
+  /// Whether Tab stops in the list and at its More button.
+  tab_stop: bool,
   /// The recipe of a tab neither selected nor disabled, then selected, disabled, and both. The first is
   /// every other part's.
   recipes: [ResolvedRecipe; 4],
@@ -978,7 +1011,12 @@ impl TabsView {
     let entry = &self.tabs[index];
     let part = |part: TabsPart| self.tab_part(index, part);
     let select = entry.select.clone();
-    let mut tab = pressable(&part(TabsPart::Tab), self.disabled || entry.disabled)
+    let pressed = tab_stop(
+      pressable(&part(TabsPart::Tab), self.disabled || entry.disabled),
+      self.tab_stop,
+    );
+    // Ahead of the selection, which a press that asks for the tab aside does not reach.
+    let mut tab = opens_aside(pressed, &entry.aside)
       .focus_entry(entry.selected)
       .describe("a11y_role", "tab")
       .describe("a11y_name", entry.label.clone())
@@ -1144,7 +1182,7 @@ impl TabsView {
         (locale.common.more.clone(), locale.navigation.more_tabs.clone())
       }
     };
-    let mut button = pressable(&self.part(TabsPart::More), self.disabled)
+    let mut button = tab_stop(pressable(&self.part(TabsPart::More), self.disabled), self.tab_stop)
       .ref_element(overflow.anchor.clone())
       .describe("a11y_name", name)
       .describe("a11y_haspopup", "menu")
