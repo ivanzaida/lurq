@@ -8,14 +8,14 @@ use super::{
   Button, ButtonGroup, Fab, Link, Toggle, names,
   part_style::{Length, PartStyle},
   recipe::{Case, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
-  shared::Orientation,
+  shared::{Orientation, glyph},
   text_box::{self, Judgment},
   theme::{Themed, current_theme},
 };
 use crate::{
   app::{
     ctx::Ctx,
-    theme::{ControlSize, PaletteColor, Theme, TypographyStyle},
+    theme::{ControlSize, IconSize, PaletteColor, Theme, TypographyStyle},
   },
   components::{Column, Row, Stack, TextOverflow},
   core::{ElementRef, ElementRefMut},
@@ -165,6 +165,10 @@ pub enum FieldPart {
   Body,
   /// What the control is for, or what is wrong with what it holds, under it.
   Description,
+  /// The icon before the description of an invalid field: see [`Field::error_icon`].
+  Icon,
+  /// The label and the description, one over the other, where the control is at the row's end.
+  Text,
 }
 
 names!(FieldPart {
@@ -174,6 +178,8 @@ names!(FieldPart {
   Optional => "optional",
   Body => "body",
   Description => "description",
+  Icon => "icon",
+  Text => "text",
 });
 
 /// The states of a field a recipe styles.
@@ -195,6 +201,8 @@ pub enum FieldState {
   Disabled,
   /// Its label is inside its control's box, over what the control holds.
   Fluid,
+  /// Its label and its description are on the left, taking the row's room, and its control at the row's end.
+  ControlEnd,
 }
 
 names!(FieldState {
@@ -206,6 +214,7 @@ names!(FieldState {
   FullWidth => "full_width",
   Disabled => "disabled",
   Fluid => "fluid",
+  ControlEnd => "control_end",
 });
 
 /// What builds a field's nodes: a theme's in place of the default one.
@@ -258,6 +267,8 @@ pub struct Field {
   fluid: bool,
   /// Whether the control has a form for a fluid field.
   fluid_control: bool,
+  error_icon: Option<Name>,
+  control_end: bool,
   states: Vec<Name>,
   rules: Recipe,
   id: Option<Arc<str>>,
@@ -271,6 +282,8 @@ impl Field {
   pub fn new(label: &str, control: impl FieldControl + 'static) -> Self {
     Self {
       fluid: false,
+      error_icon: None,
+      control_end: false,
       fluid_control: control.has_fluid_form(),
       label: Arc::from(label),
       control: Box::new(move |field: &InField, ctx: Option<&mut Ctx>| match ctx {
@@ -304,6 +317,21 @@ impl Field {
   /// What is wrong with what the control holds, under it in place of the description. The field is invalid.
   pub fn error(mut self, error: &str) -> Self {
     self.error = Some(Arc::from(error));
+    self
+  }
+
+  /// An icon before the description while the field is invalid, by its name in the theme's set: the mark of an
+  /// error (`icons::ALERT_CIRCLE`), in the description's color. A field that is not invalid draws none.
+  pub fn error_icon(mut self, name: impl Into<Name>) -> Self {
+    self.error_icon = Some(name.into());
+    self
+  }
+
+  /// Whether the label and the description stand on the left, one over the other, taking the room of the row, and
+  /// the control at the row's end, in the middle of their height: a row of settings with its switch or its select.
+  /// Its orientation is not read; a fluid field is not drawn so.
+  pub fn control_end(mut self, control_end: bool) -> Self {
+    self.control_end = control_end;
     self
   }
 
@@ -462,7 +490,8 @@ impl Field {
     .state(FieldState::Vertical, self.orientation == Orientation::Vertical)
     .state(FieldState::FullWidth, self.full_width)
     .state(FieldState::Disabled, self.disabled)
-    .state(FieldState::Fluid, fluid);
+    .state(FieldState::Fluid, fluid)
+    .state(FieldState::ControlEnd, self.control_end && !fluid);
     let judgment = Judgment::of(invalid, warning, valid);
     let description = self.error.or(self.description);
     let control = (self.control)(
@@ -494,6 +523,8 @@ impl Field {
       info,
       orientation: self.orientation,
       fluid,
+      error_icon: self.error_icon.filter(|_| invalid),
+      control_end: self.control_end && !fluid,
       recipe: theme
         .resolve::<Field>(&case, Some(&self.rules))
         .owned_by(self.id.as_ref()),
@@ -535,6 +566,10 @@ pub struct FieldView {
   /// Whether the field is fluid, and its control has taken the fluid form: the label is drawn inside the control's
   /// box.
   pub fluid: bool,
+  /// The icon before the description, where the field is invalid and was given one.
+  pub error_icon: Option<Name>,
+  /// Whether the control is at the row's end, the label and the description on the left.
+  pub control_end: bool,
   /// The style of each part of this field.
   pub recipe: ResolvedRecipe,
   id: Option<Arc<str>>,
@@ -587,11 +622,66 @@ impl FieldView {
   pub fn description(&self) -> Option<Row> {
     let description = self.description.as_ref()?;
     let part = self.part(FieldPart::Description);
+    let Some(name) = self.error_icon else {
+      return Some(
+        Row::new()
+          .part(&part)
+          .child(part.text(description).width(Dimension::Pct(100.0))),
+      );
+    };
+    // The icon in the middle of the words, which take the room it leaves.
     Some(
       Row::new()
+        .align_items(Alignment::Center)
         .part(&part)
-        .child(part.text(description).width(Dimension::Pct(100.0))),
+        .child(
+          Row::new()
+            .flex_shrink(0.0)
+            .child(glyph(&self.part(FieldPart::Icon), name, false)),
+        )
+        .child(
+          part
+            .text(description)
+            .flex_full(1.0, 1.0, Some(0.0))
+            .min_width(Dimension::Px(0.0)),
+        ),
     )
+  }
+
+  /// How the default renderer builds a field whose control is at the row's end: the label and the description in
+  /// a column that takes the room, and the control after them, in the middle of their height.
+  fn render_control_end(self) -> Element {
+    let mut text = Column::new()
+      .align_items(Alignment::Stretch)
+      .flex_full(1.0, 1.0, Some(0.0))
+      .min_width(Dimension::Px(0.0))
+      .part(&self.part(FieldPart::Text));
+    if !self.label.is_empty() {
+      text = text.child(self.label());
+    }
+    if let Some(description) = self.description() {
+      text = text.child(description);
+    }
+    let root_part = self.part(FieldPart::Root);
+    // Keyed, as the row of any field's control is, so that the ref made anew in each build keeps its node.
+    let control = Row::new()
+      .key("control")
+      .flex_shrink(0.0)
+      .align_items(Alignment::Center)
+      .ref_element(self.focus.clone())
+      .child(self.control);
+    let mut root = Row::new()
+      .align_items(Alignment::Center)
+      .part(&root_part)
+      .child(text)
+      .child(control);
+    if let Some(id) = self.id {
+      root = root.id(id);
+    }
+    if let Some(key) = self.key {
+      root = root.key(key);
+    }
+    root.into()
   }
 
   /// The label of a fluid field, laid over the top of the control's box: on one line, cut with an ellipsis where
@@ -674,6 +764,9 @@ impl FieldView {
   pub fn render(self) -> Element {
     if self.fluid {
       return self.render_fluid();
+    }
+    if self.control_end {
+      return self.render_control_end();
     }
     let label = self.label();
     let description = self.description();
@@ -883,7 +976,7 @@ impl Themed for Field {
   /// muted foreground. Beside its control (Fieldset), the label is 110 wide,
   /// 12 from the control, and as high as a control.
   fn recipe() -> Recipe {
-    use FieldPart::{Body, Description, Label, Optional, Required, Root};
+    use FieldPart::{Body, Description, Icon, Label, Optional, Required, Root, Text};
     use PaletteColor::{Destructive, Foreground, MutedForeground, Success, Warning};
     Recipe::new()
       .base(Root, |s| s.width(260.0).max_width(Length::Fill).gap(6.0))
@@ -906,6 +999,13 @@ impl Themed for Field {
       .base(Description, |s| {
         s.typography(TypographyStyle::Caption).foreground(MutedForeground)
       })
+      // The icon of an error (lurq's, the board has none) is 14, 6 before the words.
+      .base(Description, |s| s.gap(6.0))
+      .base(Icon, |s| s.square(IconSize::Sm))
+      // The control at the row's end (lurq's): the field as wide as what holds it, the words 2 apart and 16 from
+      // the control.
+      .base(Text, |s| s.gap(2.0))
+      .state(FieldState::ControlEnd, Root, |s| s.width(Length::Fill).gap(16.0))
       .state(FieldState::Invalid, Description, |s| s.foreground(Destructive))
       .state(FieldState::Warning, Description, |s| s.foreground(Warning))
       .state(FieldState::Valid, Description, |s| s.foreground(Success))
