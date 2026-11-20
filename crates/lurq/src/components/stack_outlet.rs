@@ -657,6 +657,8 @@ pub(crate) struct NavigationSlot {
   /// Whether the screen has a toolbar, and whether it hides the bar of tabs: what it keeps clear of at the
   /// bottom follows.
   bottom: Signal<(bool, bool)>,
+  /// Whether the screen is the one in front, which it is given to read.
+  front: crate::app::ctx::InFront,
 }
 
 impl NavigationSlot {
@@ -841,6 +843,8 @@ struct LayerBar {
   under: Arc<AtomicBool>,
   /// See [`NavigationSlot`].
   bottom: Signal<(bool, bool)>,
+  /// The screen is the top of the stack: what it reads as being in front (`Ctx::is_in_front`).
+  front: Signal<bool>,
 }
 
 impl Default for LayerBar {
@@ -862,6 +866,7 @@ impl Default for LayerBar {
       top: Signal::new(0.0),
       under: Arc::default(),
       bottom: Signal::new((false, false)),
+      front: Signal::new(true),
     }
   }
 }
@@ -997,6 +1002,8 @@ impl Component for StackOutlet {
     let Some(navigator) = ctx.use_context::<Navigator>() else {
       return ctx.children().first().cloned().unwrap_or_else(Element::new);
     };
+    // What the stack is in, where that is a tab that is shown or not.
+    let around = ctx.use_context::<crate::app::ctx::InFront>();
     let history = ctx.history_runner();
     let go_back: GoBack = {
       let (history, screen) = (history.clone(), self.screen.clone());
@@ -1146,6 +1153,13 @@ impl Component for StackOutlet {
       if layer.bar.top.get_untracked() != before {
         layer.bar.top.set(before);
       }
+      // The screen at the end of the history is the one in front, from the moment it is: one pushed while
+      // it comes in, the one under a screen that goes back while that goes out, and not the one seen under
+      // a screen a finger drags, until the finger lets go and the history goes back.
+      let in_front = id == top;
+      if layer.bar.front.get_untracked() != in_front {
+        layer.bar.front.set(in_front);
+      }
       let content = ctx.mount_keyed_offstage::<StackLayer>(
         &layer.entry.id.to_string(),
         StackLayerProps {
@@ -1168,6 +1182,7 @@ impl Component for StackOutlet {
             under: layer.bar.under.clone(),
             toolbars: matches!(props.bar, Some(Bar::Standard(_))),
             bottom: layer.bar.bottom.clone(),
+            front: crate::app::ctx::InFront::new(layer.bar.front.clone(), around.clone()),
           },
         },
         id == front || id == back,
@@ -2528,6 +2543,7 @@ impl Component for StackLayer {
       // A screen that hides the bar of tabs has no bar over its content to keep clear of.
       ctx.provide_if_changed(crate::app::ctx::BottomBarInset::Over(0.0));
     }
+    ctx.provide(props.slot.front.clone());
     ctx.provide(props.slot.clone());
     match props.matches.get(props.depth) {
       Some(route_match) => render_route_match(ctx, route_match),

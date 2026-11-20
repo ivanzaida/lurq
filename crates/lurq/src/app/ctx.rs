@@ -1039,6 +1039,41 @@ impl FocusHandle {
   }
 }
 
+/// Whether a screen is the one in front, as the outlet that holds it says, and the same of what that outlet is
+/// in: what [`Ctx::is_in_front`] reads. An outlet that keeps screens that are not shown (a `StackOutlet`, a
+/// `TabOutlet`) gives each of them one.
+#[derive(Clone)]
+pub(crate) struct InFront {
+  own: Signal<bool>,
+  around: Option<Arc<InFront>>,
+}
+
+impl InFront {
+  /// Of a screen whose outlet sets `own`, in what `around` is of.
+  pub(crate) fn new(own: Signal<bool>, around: Option<InFront>) -> Self {
+    Self {
+      own,
+      around: around.map(Arc::new),
+    }
+  }
+
+  /// Whether it is in front, and what it is in is: every one of them is read, so that a change of any renders
+  /// what read it again.
+  fn get(&self) -> bool {
+    let own = self.own.get();
+    let around = self.around.as_ref().is_none_or(|around| around.get());
+    own && around
+  }
+}
+
+/// What DevTools shows of this context: whether the screen is in front.
+#[cfg(feature = "devtools")]
+impl crate::app::component::DevtoolsInspectable for InFront {
+  fn inspect(&self, formatter: &mut crate::app::component::DevtoolsFormatter<'_>) {
+    formatter.value_debug(&self.own.get_untracked());
+  }
+}
+
 /// What a component's descendants keep clear of at the bottom, more than the window's own bottom inset, for
 /// a bar the component draws over them there: [`Ctx::safe_area`] adds it.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -3043,6 +3078,36 @@ impl Ctx {
     std::mem::take(&mut self.element_requests.lock().scroll_states_to)
   }
 
+  /// Whether the screen this component is in is the one in front: the top screen of its stack
+  /// (`StackOutlet`) and, where that is in a set of tabs (`TabOutlet`), in the tab that is shown. `true` where
+  /// it is in neither. Read in `render`, it renders the component again when it changes, at any depth inside
+  /// the screen: what plays (a video, a sound) is paused with it and played on when the screen is in front
+  /// again.
+  ///
+  /// The top screen is the one at the end of the stack's history. A screen pushed over another is in front
+  /// from the moment it is pushed, and the one under it is not, though both are seen while the new one comes
+  /// in. While a finger from the edge drags the top screen aside, the top screen is still the one in front,
+  /// and the one seen under it is not; it is from the moment the finger lets go far enough for the stack to go
+  /// back. A screen that leaves the stage as it stops being in front (a tab that is no longer shown) is
+  /// rendered once more first, and hears it. A sheet, a dialog or another window over a screen does not
+  /// change it.
+  ///
+  /// ```no_run
+  /// # use lurq::{app::ctx::Ctx, node::Element, ui::VideoPlayer, core::Signal};
+  /// # fn clip() -> lurq::resources::Source { lurq::resources::Source::file("clip.mp4") }
+  /// fn render(playing: &Signal<bool>, ctx: &mut Ctx) -> Element {
+  ///   let playing = playing.clone();
+  ///   let plays = playing.get() && ctx.is_in_front();
+  ///   VideoPlayer::new()
+  ///     .source(&clip())
+  ///     .playing_controlled(plays, move |to| playing.set(to))
+  ///     .mount(ctx)
+  /// }
+  /// ```
+  pub fn is_in_front(&mut self) -> bool {
+    self.use_context::<InFront>().is_none_or(|front| front.get())
+  }
+
   /// How far in from each edge of the window this component's content stays clear of what is over it there:
   /// the window's [`safe_area`](crate::app::window::WindowInfo), and at the bottom also the bar a component
   /// around this one draws over its content, as a `TabOutlet` does. Content
@@ -3169,6 +3234,11 @@ impl Ctx {
   /// already running on Tokio keeps running and the results it produced while
   /// offstage are applied, in order, once the component is active again. A
   /// component removed while offstage unmounts and its tasks are cancelled.
+  /// A component that goes offstage in the pass in which a signal it reads
+  /// changed, or one a component below it reads, is rendered once more
+  /// first: what it does in its render is done (a player told to pause
+  /// because its screen is no longer in front, [`Self::is_in_front`]), and
+  /// what it renders goes to no tree.
   /// When it becomes active again, its output takes back the runtime state it
   /// had: scroll offsets (including those of scroll areas whose `ScrollState`
   /// the component does not hold), text-input carets and selections, open
@@ -3258,6 +3328,11 @@ impl Ctx {
         slot.ctx.set_props(props);
       }
       if !active {
+        // What it reads changed as it leaves the stage (its screen is no longer the one in front): it is
+        // rendered once more first, and what it mounts hears it. It is not rendered again until it is back.
+        if !slot.offstage && slot.rendered.is_some() && slot.ctx.any_dirty() {
+          slot.render_as_it_leaves();
+        }
         slot.offstage = true;
         slot.offstage_dirty = true;
         slot.ctx.clear_modal_entries_recursive();
@@ -4082,6 +4157,32 @@ impl ChildSlot {
 
   fn is_for_each_group(&self) -> bool {
     self.key.is_none() && self.component.type_name() == ForEachSlot::TYPE_NAME
+  }
+
+  /// Renders what is dirty of a component that is about to leave the stage, a last time: itself, or the
+  /// components below it that are. What it renders goes to no tree; it is what the component does in its
+  /// render that matters (a player told to pause), and what it keeps for when it is back.
+  fn render_as_it_leaves(&mut self) {
+    if !self.ctx.is_dirty() {
+      let _ = self.ctx.refresh_dirty_subtrees();
+      return;
+    }
+    let previous = self.rendered.take();
+    self.ctx.begin_render();
+    let mut element = self.component.render(&mut self.ctx);
+    self.ctx.end_render();
+    element.node = attach_component_metadata(
+      element.node,
+      self.component.tag_name(),
+      self.id,
+      self.key.as_deref(),
+      #[cfg(feature = "devtools")]
+      &self.ctx,
+    );
+    if let Some(previous) = previous.as_ref() {
+      element.node.preserve_runtime_state_from(previous);
+    }
+    self.keep_rendered(&element.node);
   }
 
   /// Keeps `node`, the output this slot's component just rendered, with

@@ -752,3 +752,76 @@ fn a_sourced_player_shows_how_far_its_media_is_fetched_and_not_its_whole_length(
   told.set(Some(12.0));
   assert_eq!(loaded(&mut stage), Some(12.0));
 }
+
+thread_local! {
+  /// The tabs of the test below, as its root made them.
+  static TABS: std::cell::RefCell<Option<lurq::components::Tabs>> = const { std::cell::RefCell::new(None) };
+}
+
+/// A screen with a player that plays while the screen is in front.
+struct Watching;
+
+impl lurq::app::component::Component for Watching {
+  type Props = ();
+
+  fn create(_ctx: &mut Ctx) -> Self {
+    Self
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let front = ctx.is_in_front();
+    VideoPlayer::new()
+      .source(&Source::file("clips/lake.mp4"))
+      .playing_controlled(front, |_| {})
+      .mount(ctx)
+  }
+}
+
+/// Two tabs: one with that screen, and another.
+struct Tabbed(lurq::components::Tabs);
+
+impl lurq::app::component::Component for Tabbed {
+  type Props = ();
+
+  fn create(ctx: &mut Ctx) -> Self {
+    use lurq::{components::TabItem, router::Routes};
+    let watch = ctx.router(Routes::new().route("/", |ctx| ctx.mount::<Watching>(())));
+    watch.replace("/");
+    let other = ctx.router(Routes::new().route("/", |_| lurq::components::Text::new("another tab").into()));
+    other.replace("/");
+    let tabs = lurq::components::Tabs::new();
+    tabs
+      .add("watch", TabItem::new("Watch"), watch)
+      .add("other", TabItem::new("Other"), other);
+    TABS.with(|kept| *kept.borrow_mut() = Some(tabs.clone()));
+    Self(tabs)
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    lurq::components::TabOutlet::mount(ctx, lurq::components::TabOutletProps::new(self.0.clone()))
+  }
+}
+
+#[test]
+fn a_player_that_plays_while_its_screen_is_in_front_is_paused_when_its_tab_is_no_longer_shown() {
+  let drive = drive_media();
+  let mut stage = stage(|ctx| ctx.mount::<Tabbed>(()));
+  let tabs = TABS.with(|kept| kept.borrow().clone()).expect("the root made its tabs");
+  let media = drive.last();
+  media.open(CLIP);
+  stage.pass();
+  assert!(media.playing(), "in front, it plays");
+
+  // Another tab is shown: the screen leaves the stage, and its player is told to pause as it does.
+  tabs.select("other");
+  stage.pass();
+  assert!(!media.playing(), "paused in the pass that took its tab away");
+  stage.pass();
+  assert!(!media.playing());
+
+  // Shown again, it plays on.
+  tabs.select("watch");
+  stage.pass();
+  assert!(media.playing());
+  assert_eq!(drive.count(), 1, "the same media, where it was");
+}

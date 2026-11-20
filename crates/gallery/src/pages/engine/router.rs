@@ -1202,6 +1202,7 @@ impl Component for RouterPage {
     let stacked = self.stacked(ctx);
     let traveled = self.traveled(ctx);
     let tabbed = self.tabbed(ctx);
+    let front = ctx.mount::<super::router_front::FrontDemo>(());
     self.frame.page(
       ctx,
       Header {
@@ -1325,6 +1326,32 @@ impl Component for RouterPage {
               "// in render",
               "TabOutlet::mount(ctx, TabOutletProps::new(self.tabs.clone()).bar(TabBar::new()))",
               "tabs.select(\"search\"); // what the segments above do",
+            ],
+          ),
+        ),
+        Section::new(
+          "The screen in front",
+          "A screen that is not shown is kept as it was, and what plays in it would play on. A screen, and what is \
+           mounted inside it, reads whether it is the one in front with ctx.is_in_front(): the top screen of its \
+           stack and, where the stack is in a set of tabs, in the tab that is shown. It is rendered again when that \
+           changes, and once more as it leaves for a tab that is no longer shown. Here each screen says what it \
+           read, and the first screen of Watch plays the gallery's clip while it is in front: push a screen over \
+           it or choose the other tab, and the clip stays where it was until Watch is in front again. While a \
+           finger from the edge drags a screen aside, that screen is still the one in front; the one under it is \
+           from the moment the finger lets go far enough. lurq's players do not stop by themselves: a music app \
+           plays on in another tab, and the app says.",
+          self.frame.demo(
+            4,
+            front,
+            "ctx.is_in_front()",
+            &[
+              "// in the render of a screen, or of anything mounted inside it",
+              "let playing = self.playing.clone();",
+              "let plays = playing.get() && ctx.is_in_front();",
+              "VideoPlayer::new()",
+              "    .source(&Source::url(address))",
+              "    .playing_controlled(plays, move |to| playing.set(to))",
+              "    .mount(ctx)",
             ],
           ),
         ),

@@ -110,6 +110,8 @@ struct Tab {
   bar_move: Signal<BarMove>,
   /// The tab's list was last scrolled down.
   scrolled: Signal<bool>,
+  /// The tab is the one shown: what its screens read as being in front (`Ctx::is_in_front`).
+  front: Signal<bool>,
 }
 
 /// How far out of view a tab's screens have the bar, from 0 to 1, and how it gets there: a stack of screens
@@ -186,6 +188,7 @@ pub struct TabEntry {
   pub active: bool,
   bar_move: Signal<BarMove>,
   scrolled: Signal<bool>,
+  front: Signal<bool>,
 }
 
 impl Tabs {
@@ -223,11 +226,13 @@ impl Tabs {
         router,
         bar_move: Signal::new(BarMove::SHOWN),
         scrolled: Signal::new(false),
+        front: Signal::new(false),
       };
       match tabs.iter().position(|tab| tab.key == key) {
         Some(at) => {
           tab.bar_move = tabs[at].bar_move.clone();
           tab.scrolled = tabs[at].scrolled.clone();
+          tab.front = tabs[at].front.clone();
           tabs[at] = tab;
         }
         None => {
@@ -353,6 +358,7 @@ impl Tabs {
         active: tab.key == active,
         bar_move: tab.bar_move.clone(),
         scrolled: tab.scrolled.clone(),
+        front: tab.front.clone(),
       })
       .collect()
   }
@@ -827,13 +833,21 @@ impl Component for TabOutlet {
     let mut screens = Stack::new().size(FILL, FILL);
     let mut moved = BarMove::SHOWN;
     let mut scrolled = false;
+    // What the set of tabs is in, where that is a screen that is in front or not.
+    let around = ctx.use_context::<crate::app::ctx::InFront>();
     for entry in &entries {
+      // The tab's screens are told before the tab is mounted: one that is no longer shown is rendered once
+      // more as it leaves, and hears it.
+      if entry.front.get_untracked() != entry.active {
+        entry.front.set(entry.active);
+      }
       let host = ctx.mount_keyed_offstage::<TabHost>(
         &entry.key,
         TabHostProps {
           router: entry.router.clone(),
           bar_move: entry.bar_move.clone(),
           scrolled: entry.scrolled.clone(),
+          front: crate::app::ctx::InFront::new(entry.front.clone(), around.clone()),
         },
         entry.active,
       );
@@ -1332,6 +1346,7 @@ struct TabHostProps {
   router: RouterHandle,
   bar_move: Signal<BarMove>,
   scrolled: Signal<bool>,
+  front: crate::app::ctx::InFront,
 }
 
 impl PartialEq for TabHostProps {
@@ -1354,7 +1369,9 @@ impl Component for TabHost {
   fn create(ctx: &mut Ctx) -> Self {
     let props = ctx.props::<TabHostProps>();
     let link = TabBarLink(props.bar_move.clone(), props.scrolled.clone());
+    let front = props.front.clone();
     ctx.provide(link);
+    ctx.provide(front);
     Self
   }
 
