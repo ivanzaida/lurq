@@ -1129,7 +1129,88 @@ A scroll container that has the focus itself (one given a `tab_index`, as a [`ui
 
 To what reads the tree (the [MCP server](../mcp/)'s `lurq_read_tree` and `lurq_inspect`), each bar of a scroll container whose content overflows is a scrollbar with its value: the attributes `scrollbar_vertical` and `scrollbar_horizontal`, how far the content is scrolled along that way, from 0 at its start to 100 at its end.
 
-`ScrollEvent` includes `x`, `y`, `delta_x`, `delta_y`, `phase`, and `target_id`.
+`ScrollEvent` includes `x`, `y`, `delta_x`, `delta_y`, `phase`, `source` and `target_id`.
+
+### What a scroll tells
+
+A container's handlers hear its content start to move, every move, and the content come to rest:
+
+```rust
+use lurq::app::events::{ScrollEvent, ScrollSource};
+
+ScrollVertical::new(feed)
+  .with_scroll_state(state.clone())
+  .on_scroll_start(|_: ScrollEvent| println!("it moves"))
+  .on_scroll({
+    let state = state.clone();
+    move |event: ScrollEvent| {
+      // An event with no delta comes after the content moved: the offset read here is what is drawn.
+      if (event.delta_x, event.delta_y) == (0.0, 0.0) {
+        println!("{} moved it to {}", event.source.as_str(), state.scroll_y());
+      }
+    }
+  })
+  .on_scroll_end(|event: ScrollEvent| println!("at rest, after {:?}", event.source))
+  .on_page_change(|page: usize| println!("page {page}"))
+```
+
+- **`on_scroll` after every move.** A wheel's, a touchpad's and a finger's event is heard once with its delta,
+  before anything moves, where a handler can prevent the scroll. A finger's is followed by an event with no
+  delta for the container that moved, once its content is where the finger took it. So is every step of what
+  goes on by itself: a wheel's notch drawn over several frames, a finger's momentum, a list on its way to a
+  page, a scroll to the top, a drag of the bar's thumb, an autoscroll. The last of them comes with the
+  content where it stays. A handler that reads `ScrollState::scroll_y()` reads it in the events with no
+  delta. A touchpad, and a wheel that is not animated, move the content at once and have the one event,
+  before the move: the offset after it is read at the next layout (`after_layout`, an element's observer).
+- **`on_scroll_end` at rest.** Called once, when nothing moves the content any more: after a finger lifted and
+  the momentum it left has stopped, the list has come to its page, and content pulled past an end has sprung
+  back; when a wheel's notch has brought the content where it sent it; when the bar's thumb is let go; when an
+  autoscroll ends. A finger that lifts with nothing left to do ends the scroll at the lift. A finger that
+  catches content on its way holds it: the scroll is not over until it lets go. Through 0.64 a finger's lift was
+  the end, with the momentum and the way to a page still to come, and the momentum was a scroll of its own
+  with a start and an end.
+- **`on_scroll_start`** is the other end of it: once for a finger and all it leaves the content doing.
+- **`event.source`** is what moves the content: `ScrollSource::Finger`, `Wheel` (a mouse's wheel and a
+  touchpad), `Momentum`, `Snap` (a list on its way to a page), `Scrollbar`, `Autoscroll`, and `Code` for what
+  the app asked for (`ctx.scroll_to_top_of`, `ctx.scroll_state_to`, a tap on a phone's status bar).
+  `source.as_str()` is its name in a log.
+- A touchpad and a wheel with no notches move the content at once and tell no end of their own, unless the
+  platform tells the gesture's (macOS). An offset the app sets (`set_scroll`, a scroll queued for the next
+  layout, an element brought into view), the keys of a focused container and a layout that holds the offset to
+  shorter content move it without any of the three events. The page follows them all: see below.
+
+**The page.** A page is as long as the container's viewport. `ScrollState::page()` is the page nearest the
+offset that is drawn, so it changes half way between two. An app that shows one page at a time, a feed whose
+current page plays its video, goes by the page the content came to rest on:
+
+```rust
+let state = ScrollState::new();
+state.set_paging(true); // a finger scrolls it a page at a time
+
+// In a render: rendered again when the content comes to rest on another page.
+let (_, page) = state.page_signal().get();
+
+// Or as an event, on the container.
+ScrollVertical::new(pages)
+  .with_scroll_state(state.clone())
+  .on_page_change(move |page: usize| current.set(page))
+```
+
+- `ScrollState::rested_page()` is the page the content last came to rest on, along each axis. It does not
+  change while a finger drags the content, during its momentum, on the way to a page or while a wheel's notch
+  is drawn: it changes when they are over, and at once for what moves the content at once (a touchpad, the
+  keys, `set_scroll`).
+- `ScrollState::page_signal()` is the same as a signal, for a render, and `on_page_change` is called when it
+  changes, with the page along the way the container scrolls (down, where it scrolls both ways). It follows
+  every source, the app's own `set_scroll` among them, and needs no paging: any container has pages.
+- `ScrollState::target_page()` is the page the content is going to: the one a list that scrolls by pages goes
+  on to once the finger lifted, known at the lift, before anything moved; the one a wheel's notch ends on; and
+  `page()` otherwise. A feed that wants its next video ready opens it when the target changes.
+- `ScrollState::moving()` says whether something moves the content or holds it.
+
+The `lurq::scroll` tracing target says, at debug, when a finger's scroll starts, the page a list is sent to at
+the lift (`snapping to page`), each change of the page, and where the content comes to rest, with what moved
+it.
 
 The default movement of a wheel or a trackpad scrolls one container on each axis, the innermost under the pointer that can still move that way: see [Scroll containers inside one another](../layout/#scroll-containers-inside-one-another).
 
@@ -1154,7 +1235,7 @@ app.theme().set_smooth_scroll(false);
 - While the content is on its way the window has a running animation: `Tree::has_active_timeline()` is true and the shell draws a frame at every refresh, and none once the content is where it was going.
 - Synthetic input's `wheel` ([`SyntheticInput::wheel`](../ctx/#synthetic-input), the MCP server's [`wheel`](../mcp/)) is a mouse's wheel and is animated too. A test that drives a `Tree` itself calls `Tree::wheel` for a notch and `Tree::scroll` for a touchpad's delta, which moves the content at once.
 
-Scroll handlers run before the default scroll movement. Call `prevent_default()` to observe a wheel/scroll event without moving the scroll container:
+The handlers of an event with a delta run before the default scroll movement. Call `prevent_default()` to observe a wheel/scroll event without moving the scroll container:
 
 ```rust
 use lurq::app::events::ScrollEvent;

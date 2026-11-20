@@ -483,6 +483,26 @@ where
   }
 }
 
+/// A handler of the page a scroll container came to rest on: `on_page_change`.
+pub trait IntoPageHandler {
+  fn into_event_handler(self) -> EventHandler<usize>;
+}
+
+impl IntoPageHandler for EventHandler<usize> {
+  fn into_event_handler(self) -> EventHandler<usize> {
+    self
+  }
+}
+
+impl<F> IntoPageHandler for F
+where
+  F: Fn(usize) + Send + Sync + 'static,
+{
+  fn into_event_handler(self) -> EventHandler<usize> {
+    EventHandler::from_event(self)
+  }
+}
+
 pub trait IntoTextInputEventHandler {
   fn into_event_handler(self) -> EventHandler<TextInputEvent>;
 }
@@ -753,6 +773,13 @@ pub(crate) trait NodeUpdate {
   fn off_scroll_reach_top(&mut self, f: impl IntoScrollEventHandler);
   fn on_scroll_reach_bottom(&mut self, f: impl IntoScrollEventHandler);
   fn off_scroll_reach_bottom(&mut self, f: impl IntoScrollEventHandler);
+  /// The scroll container came to rest on another page, a page being as long as its viewport: the handler is
+  /// given the page, counted from 0, along the way the container scrolls (down, where it scrolls both ways).
+  /// Called once when the content has stopped there, whatever took it: a finger and the snap after it
+  /// ([`ScrollState::set_paging`](crate::layout::layout_kind::ScrollState::set_paging)), a wheel, the keys, the
+  /// bar, an offset the app set. Not while the content is between two pages on its way.
+  fn on_page_change(&mut self, f: impl IntoPageHandler);
+  fn off_page_change(&mut self, f: impl IntoPageHandler);
   fn on_history_swipe(&mut self, f: impl IntoHistorySwipeEventHandler);
   fn off_history_swipe(&mut self, f: impl IntoHistorySwipeEventHandler);
   fn on_history_back(&mut self, f: impl IntoHistoryEventHandler);
@@ -1034,6 +1061,8 @@ pub struct EventHandlers {
   pub on_scroll_end: Vec<Callback<ScrollEvent>>,
   pub on_scroll_reach_top: Vec<Callback<ScrollEvent>>,
   pub on_scroll_reach_bottom: Vec<Callback<ScrollEvent>>,
+  /// The scroll container came to rest on another page: see `NodeUpdate::on_page_change`.
+  pub on_page_change: Vec<Callback<usize>>,
   pub on_history_swipe: Vec<Callback<HistorySwipeEvent>>,
   /// Going back on the focused element or one in it, or under the pointer: see `Node::on_history_back`.
   pub on_history_back: Vec<Callback<HistoryEvent>>,
@@ -2299,6 +2328,18 @@ impl NodeUpdate for Node {
     self
       .events
       .on_scroll_reach_bottom
+      .retain(|existing| !existing.same_handler(&handler));
+  }
+
+  fn on_page_change(&mut self, f: impl IntoPageHandler) {
+    self.events.on_page_change.push(f.into_event_handler());
+  }
+
+  fn off_page_change(&mut self, f: impl IntoPageHandler) {
+    let handler = f.into_event_handler();
+    self
+      .events
+      .on_page_change
       .retain(|existing| !existing.same_handler(&handler));
   }
 

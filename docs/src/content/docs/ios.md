@@ -202,7 +202,13 @@ One gesture scrolls one container, the innermost that has room in the finger's d
 - **By pages.** `ScrollState::set_paging(true)` has a finger scroll a list a page at a time, a page being as
   long as the list's viewport: let go, the list goes to the nearest page; thrown, to the next one that way,
   and never further than the page beside the one the finger started on. `ScrollState::page()` says which
-  page it is at. A wheel and a scroll bar scroll such a list as any other.
+  page the offset is nearest, `target_page()` the one the list is going to, known as the finger lifts, and
+  `on_page_change` and `page_signal()` the one it came to rest on: see
+  [What a scroll tells](../styling-events/#what-a-scroll-tells). A wheel and a scroll bar scroll such a list
+  as any other.
+- **The end of a scroll** is when the content is at rest: `on_scroll_end` is called once the momentum has
+  stopped, the list is on its page and content pulled past an end has sprung back, not when the finger
+  lifts. Every step on the way is an `on_scroll` event with no delta.
 
 `VirtualizedList` scrolls the same way.
 

@@ -1379,6 +1379,21 @@ macro_rules! impl_into_node {
         self
       }
 
+      /// The scroll container came to rest on another page, a page being as long as its viewport: the handler
+      /// is given the page, counted from 0, along the way the container scrolls (down, where it scrolls both
+      /// ways). Called once the content has stopped there, whatever took it, and not while it is on its way.
+      /// See [`ScrollState::page_signal`]($crate::layout::layout_kind::ScrollState::page_signal) for the same
+      /// in a render.
+      pub fn on_page_change(mut self, f: impl $crate::node::IntoPageHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::on_page_change(node, f));
+        self
+      }
+
+      pub fn off_page_change(mut self, f: impl $crate::node::IntoPageHandler) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::off_page_change(node, f));
+        self
+      }
+
       pub fn scrollbar(mut self, style: $crate::layout::scrollbar::ScrollBarStyle) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::scrollbar(node, style));
         self

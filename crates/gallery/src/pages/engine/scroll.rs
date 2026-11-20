@@ -1,7 +1,8 @@
 //! The page of the engine's scroll containers: `ScrollVertical`, `ScrollHorizontal` and `ScrollBoth`, their bars
 //! (`ScrollBarStyle`), and scrolling to a place with a `ScrollState`. Its playground scrolls content as its props
 //! say; its sections are the demo's Scroll page, the bars of the demo's shell, the ready-made bars, and the ways
-//! to scroll to a place. The design system's container is `ui::ScrollArea`, on a page of its own.
+//! to scroll to a place, and a strip that scrolls by pages with what it tells of its page and of its scroll. The
+//! design system's container is `ui::ScrollArea`, on a page of its own.
 
 use std::sync::{Arc, Mutex};
 
@@ -27,7 +28,7 @@ use lurq::{
 use super::kit::{controls, sample, samples};
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{FILL, line, mono, props_table, text},
+  kit::{FILL, line, mono, props_table, quiet, text},
   playground::{Playground, Shown, Spec, divider, flag, prop},
 };
 
@@ -534,6 +535,158 @@ fn ready() -> Row {
   all
 }
 
+/// How many pages the strip that scrolls by pages has, how wide and high one is, and how many lines of what it
+/// told are kept.
+const PAGES: usize = 5;
+const PAGE_WIDTH: f32 = 240.0;
+const PAGE_HEIGHT: f32 = 130.0;
+const PAGES_TOLD: usize = 7;
+
+/// A strip a finger scrolls a page at a time, with what its `ScrollState` says of its page beside it and what
+/// its container told last. A component of its own: what it tells changes at every frame of a scroll.
+struct Pages {
+  state: ScrollState,
+  /// What the container told, the newest last, and how many times in a row it told the last.
+  told: Signal<Vec<(String, usize)>>,
+  /// The page the strip is going to, and whether something moves it: read where the container tells.
+  going: Signal<usize>,
+  moving: Signal<bool>,
+}
+
+impl Pages {
+  /// A handler's way to say a line, and to read where the strip is going with it.
+  fn tell(&self) -> impl Fn(String) + Clone + Send + Sync + 'static {
+    let (told, going, moving, state) = (
+      self.told.clone(),
+      self.going.clone(),
+      self.moving.clone(),
+      self.state.clone(),
+    );
+    move |line: String| {
+      told.update(|told| match told.last_mut() {
+        Some((last, times)) if *last == line => *times += 1,
+        _ => {
+          told.push((line, 1));
+          if told.len() > PAGES_TOLD {
+            told.remove(0);
+          }
+        }
+      });
+      let (to, _) = state.target_page();
+      if going.get_untracked() != to {
+        going.set(to);
+      }
+      if moving.get_untracked() != state.moving() {
+        moving.set(state.moving());
+      }
+    }
+  }
+}
+
+impl Component for Pages {
+  type Props = ();
+
+  fn create(ctx: &mut Ctx) -> Self {
+    let state = ScrollState::new();
+    state.set_paging(true);
+    Self {
+      state,
+      told: ctx.signal(Vec::new()),
+      going: ctx.signal(0),
+      moving: ctx.signal(false),
+    }
+  }
+
+  fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
+    // Rendered again when the strip comes to rest on another page.
+    let (rested, _) = self.state.page_signal().get();
+    let pages = Row::new().with_children((0..PAGES).map(|page| {
+      Row::new()
+        .size(PAGE_WIDTH, PAGE_HEIGHT)
+        .align_items(Alignment::Center)
+        .justify(Justify::Center)
+        .background(if page.is_multiple_of(2) {
+          PaletteColor::Muted
+        } else {
+          PaletteColor::Background
+        })
+        .child(text(&format!("Page {page}"), 14.0, FontWeight::Bold))
+    }));
+    let (started, scrolled, ended, paged) = (self.tell(), self.tell(), self.tell(), self.tell());
+    let strip = ScrollHorizontal::new(pages)
+      .with_scroll_state(self.state.clone())
+      .scrollbar(ScrollBarStyle::hidden())
+      .on_scroll_start(move |_: ScrollEvent| started("on_scroll_start".to_owned()))
+      .on_scroll(move |event: ScrollEvent| {
+        // The events with no delta come after the content moved.
+        if (event.delta_x, event.delta_y) == (0.0, 0.0) {
+          scrolled(format!("on_scroll {}", event.source.as_str()));
+        }
+      })
+      .on_scroll_end(move |event: ScrollEvent| ended(format!("on_scroll_end {}", event.source.as_str())))
+      .on_page_change(move |page: usize| paged(format!("on_page_change {page}")))
+      .id("scroll-pages")
+      .size(PAGE_WIDTH, PAGE_HEIGHT)
+      .rounded(RadiusSize::Md)
+      .border(line());
+    let button = |label: &str, id: &str, to: usize| {
+      let state = self.state.clone();
+      Button::new(label)
+        .variant(ButtonVariant::Outline)
+        .size(ButtonSize::Sm)
+        .id(id)
+        .on_click(move |_| state.set_scroll(to as f32 * PAGE_WIDTH, 0.0))
+    };
+    let says = |name: &str, value: String, id: &str| {
+      Row::new()
+        .spacing(8.0)
+        .child(quiet(name, 12.0))
+        .child(mono(&value, 12.0).id(id))
+    };
+    let told = self.told.get();
+    let told = Column::new()
+      .width(220.0)
+      .max_width(FILL)
+      .spacing(2.0)
+      .id("scroll-pages-told")
+      .with_children(told.iter().map(|(line, times)| {
+        if *times > 1 {
+          quiet(&format!("{line} ×{times}"), 12.0)
+        } else {
+          quiet(line, 12.0)
+        }
+      }));
+    Column::new()
+      .width(FILL)
+      .spacing(16.0)
+      .child(
+        controls()
+          .child(button("set_scroll: first", "scroll-pages-first", 0))
+          .child(button(
+            "set_scroll: next",
+            "scroll-pages-next",
+            (rested + 1).min(PAGES - 1),
+          )),
+      )
+      .child(
+        samples()
+          .child(strip)
+          .child(
+            Column::new()
+              .spacing(6.0)
+              .child(says("page_signal()", rested.to_string(), "scroll-pages-rested"))
+              .child(says(
+                "target_page()",
+                self.going.get().to_string(),
+                "scroll-pages-going",
+              ))
+              .child(says("moving()", self.moving.get().to_string(), "scroll-pages-moving")),
+          )
+          .child(told),
+      )
+  }
+}
+
 /// How many rows the list that is scrolled to a place has, and the one a button scrolls to.
 const PLACES_ROWS: usize = 60;
 const PLACES_ROW: usize = 40;
@@ -706,6 +859,20 @@ impl Component for ScrollPage {
         "Hears the content move, and reach an end.",
       ),
       (
+        "on_scroll_start / on_scroll_end",
+        "Fn(ScrollEvent)",
+        "",
+        "Hears the content start to move, and come to rest: after a finger's momentum, the way to a page and the \
+         spring back from past an end, not at the finger's lift. event.source is what moved it.",
+      ),
+      (
+        "on_page_change",
+        "Fn(usize)",
+        "",
+        "Hears the page the content came to rest on, a page being as long as the view, whatever took it there. \
+         ScrollState::page_signal() is the same for a render, and target_page() where it is going.",
+      ),
+      (
         "scrollbars_clear_of_sticky",
         "bool",
         "false",
@@ -732,6 +899,7 @@ impl Component for ScrollPage {
     ];
     let playground = self.play(ctx);
     let places = ctx.mount::<Places>(());
+    let pages = ctx.mount::<Pages>(());
     self.frame.page(
       ctx,
       Header {
@@ -902,6 +1070,42 @@ impl Component for ScrollPage {
               "state.scroll_by(0.0, 100.0);          // anywhere, at once",
               "ctx.scroll_into_view(&row);           // the row's ElementRef",
               "state.scroll_to_bottom_pending();     // after the next layout",
+            ],
+          ),
+        ),
+        Section::new(
+          "By pages",
+          "A strip whose ScrollState pages: a finger scrolls it a page at a time (run the gallery with --device \
+           phone, and the mouse is a finger; a touchpad scrolls it sideways as any strip). Beside it, the page it \
+           came to rest on, the one it is going to, known as the finger lifts, and whether it moves; and what its \
+           container told: one start, an on_scroll for every step with what moved it, one end when it is at rest, \
+           and the page. An offset the app sets changes the page with no scroll told.",
+          self.frame.demo(
+            6,
+            pages,
+            "state.set_paging(true)",
+            &[
+              "// Kept by the component, from create.",
+              "let state = ScrollState::new();",
+              "state.set_paging(true);",
+              "",
+              "// In a render: rendered again when the strip rests on another page.",
+              "let (page, _) = state.page_signal().get();",
+              "",
+              "ScrollHorizontal::new(pages)",
+              "    .with_scroll_state(state.clone())",
+              "    .on_scroll_start(|_| println!(\"it moves\"))",
+              "    .on_scroll(|event| {",
+              "        // No delta: the content is where this step took it.",
+              "        if (event.delta_x, event.delta_y) == (0.0, 0.0) {",
+              "            println!(\"{} moved it\", event.source.as_str());",
+              "        }",
+              "    })",
+              "    .on_scroll_end(|event| println!(\"at rest after {}\", event.source.as_str()))",
+              "    .on_page_change(|page| println!(\"page {page}\"))",
+              "",
+              "let (going, _) = state.target_page();  // known at the lift",
+              "state.set_scroll(2.0 * 240.0, 0.0);    // the page follows, no scroll is told",
             ],
           ),
         ),

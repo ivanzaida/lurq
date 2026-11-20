@@ -70,6 +70,7 @@ mod room_before_paint;
 mod rounded_clip_hits;
 mod scroll_axis_dominance;
 mod scroll_handler_redraw;
+mod scroll_rest;
 mod scroll_state;
 mod scrollbar_hits;
 mod scrollbar_on_hover;
