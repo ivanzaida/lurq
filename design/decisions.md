@@ -9,6 +9,36 @@ them says so. Decisions about phones and tablets are in [mobile-decisions.md](mo
 Each entry: **the question**, **the decision**, **why**, and its **state** (decided, in work on a branch, built,
 dropped). When a decision is replaced, the old entry stays and says what replaced it.
 
+## 2026-11-21
+
+### A list item's detail between its title and its description
+
+- **Question.** A list item's `detail(element)` stands under the description. Orchester's setting rows (Settings ›
+  Browser › Program path) say the label, then the value on a line of its own (the program's path), then the hint,
+  and a link under the hint as well: one row with an element over its description and another under it. Can a list
+  item put an element between its title and its description?
+- **Decision (Ivan, 2026-11-21: "давай додай можливості в лурк ці").** `ListItem::subtitle(element)`: an element of
+  the app's on a line of its own under the title's line and over the description, after those given before, in a
+  part of its own, `subtitle` (`x-subtitle`, `x-subtitle-2`), whose presses are its own as a detail's are. The
+  details stay under the description, so a row has both.
+- **Why.** What Orchester's kit needs to build its `SettingRow` on `ui::ListItem` (its `detail` and its `link`). A
+  place of its own, not a switch of where every detail goes, since the row has one of each.
+- **State.** Decided; in work on `claude/k7-c-rows`.
+
+### A checkbox's, a radio's and a switch's label over several lines
+
+- **Question.** `ui::Checkbox`, `ui::Radio` and `ui::Switch` keep their label on one line. Orchester's kit has a
+  checkbox whose label may be long (one that names a folder) and wraps within the parent's width, the box beside
+  its first line, and draws it itself with lurq's box alone. Can lurq's controls wrap their label?
+- **Decision (Ivan, 2026-11-21: "давай додай можливості в лурк ці").** `Checkbox::label_wraps(true)`, and the same
+  on `Radio` and `Switch`, which draw their label alike: the label goes on to more lines within the width the
+  control is given, and the box (the mark, the track) stands beside its first line, centered on it. Not unless
+  told: a label on one line stays the default, as a control that grows to its parent's width would move layouts
+  that have one now.
+- **Why.** What Orchester's kit needs to drop its own wrapping checkbox (`Toggle::wrap_label`). The three controls
+  draw their label the same way, so they gain it together.
+- **State.** Decided; in work on `claude/k7-c-rows`.
+
 ## 2026-11-20
 
 ### The list of every open tab: the app's to know, its keys first, its rows, its place and its words
