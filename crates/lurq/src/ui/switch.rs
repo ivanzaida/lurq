@@ -14,7 +14,7 @@ use crate::{
   app::events::MouseEvent,
   app::theme::{BorderSize, MotionDuration, OpacityLevel, PaletteColor, RadiusSize, Theme, TypographyStyle},
   components::{self, Row},
-  core::Signal,
+  core::{ElementRef, Signal},
   layout::{Alignment, layout_kind::Justify},
   node::{CursorIcon, Element, dimension::Dimension},
 };
@@ -96,6 +96,7 @@ pub struct Switch {
   on_change: Vec<Arc<dyn Fn(bool) + Send + Sync>>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
+  element: Option<ElementRef>,
 }
 
 impl Switch {
@@ -114,6 +115,7 @@ impl Switch {
       on_change: Vec::new(),
       id: None,
       key: None,
+      element: None,
     }
   }
 
@@ -204,6 +206,14 @@ impl Switch {
     self
   }
 
+  /// Refers to what is pressed and focused once it is laid out: the track, or
+  /// the whole where it is [`whole`](Self::whole). What a screen moves the
+  /// focus to, or a popup hangs from.
+  pub fn element_ref(mut self, element: ElementRef) -> Self {
+    self.element = Some(element);
+    self
+  }
+
   /// What tells the switch apart from those beside it, where two have one label.
   pub fn key(mut self, key: impl Into<Arc<str>>) -> Self {
     self.key = Some(key.into());
@@ -243,6 +253,7 @@ impl Switch {
       on_change: self.on_change,
       id: self.id,
       key: self.key,
+      element: self.element,
     };
     match theme.renderer::<Switch>() {
       Some(renderer) => renderer(view),
@@ -273,6 +284,7 @@ pub struct SwitchView {
   on_change: Vec<Arc<dyn Fn(bool) + Send + Sync>>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
+  element: Option<ElementRef>,
 }
 
 impl SwitchView {
@@ -298,8 +310,8 @@ impl SwitchView {
   }
 
   /// The switch's behavior with the style of `part`: the element that is
-  /// pressed, focused and disabled, with nothing in it yet, its id and its
-  /// key. It is a switch to what reads the tree, called by its label, and
+  /// pressed, focused and disabled, with nothing in it yet, its id, its key
+  /// and its element ref. It is a switch to what reads the tree, called by its label, and
   /// says whether it is on. A press of it is its own: it does not reach what
   /// is around it.
   fn control(&self, part: SwitchPart) -> components::Button {
@@ -314,6 +326,9 @@ impl SwitchView {
     }
     if let Some(key) = &self.key {
       control = control.key(key.clone());
+    }
+    if let Some(element) = &self.element {
+      control = control.ref_element(element.clone());
     }
     control
   }

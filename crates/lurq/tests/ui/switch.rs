@@ -369,3 +369,33 @@ fn a_press_of_a_switch_does_not_reach_a_row_around_it() {
   stage.click("row");
   assert_eq!(*rows.lock().unwrap(), 1, "the row is pressed beside them");
 }
+
+#[test]
+fn a_switch_s_element_ref_is_on_what_is_pressed_and_follows_the_focus() {
+  use lurq::core::ElementRef;
+  let (track, whole) = (ElementRef::new(), ElementRef::new());
+  let (track_ref, whole_ref) = (track.clone(), whole.clone());
+  let mut stage = Stage::new(move |_| {
+    Column::new()
+      .padding(8.0)
+      .spacing(8.0)
+      .child(Switch::new("Dark mode").id("dark").element_ref(track_ref.clone()).on_change(|_| {}))
+      .child(
+        Switch::new("Sync in background")
+          .whole(true)
+          .id("sync")
+          .element_ref(whole_ref.clone())
+          .on_change(|_| {}),
+      )
+      .into()
+  });
+  let (_, _, track_width, _) = stage.bounds("dark");
+  assert_eq!(track.width(), track_width, "on the track");
+  let (_, _, whole_width, _) = stage.bounds("sync");
+  assert_eq!(whole.width(), whole_width, "on the whole");
+  assert!(whole.width() > track.width());
+  stage.key("Tab");
+  assert!(track.focused(), "the track has the focus");
+  stage.key("Tab");
+  assert!(whole.focused() && !track.focused(), "then the whole");
+}
