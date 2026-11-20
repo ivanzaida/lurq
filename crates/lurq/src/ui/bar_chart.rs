@@ -149,7 +149,9 @@ impl BarChart {
       .state(BarChartState::Stacked, self.stacked)
       .state(BarChartState::Horizontal, !self.orientation.is_vertical())
       .state(BarChartState::Vertical, self.orientation.is_vertical());
-    let recipe = theme.resolve::<BarChart>(&case, Some(&self.props.rules));
+    let recipe = theme
+      .resolve::<BarChart>(&case, Some(&self.props.rules))
+      .owned_by(self.props.id.as_ref());
     // The bands are as far apart as the names under them.
     let gap = recipe
       .part(super::ChartPart::Axis)

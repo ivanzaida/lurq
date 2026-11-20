@@ -354,7 +354,10 @@ impl InputOtp {
         .state(InputOtpState::Active, active)
         .state(InputOtpState::Filled, filled)
     };
-    let resolve = |case: &Case| theme.resolve::<InputOtp>(case, Some(&self.rules));
+    let recipe = theme
+      .resolve::<InputOtp>(&case, Some(&self.rules))
+      .owned_by(self.id.as_ref());
+    let resolve = |case: &Case| theme.resolve::<InputOtp>(case, Some(&self.rules)).owned_like(&recipe);
     let cells = [
       resolve(&cell_case(false, false)),
       resolve(&cell_case(false, true)),
@@ -403,7 +406,7 @@ impl InputOtp {
       invalid: self.boxed.judgment() == Some(Judgment::Invalid),
       read_only: self.boxed.read_only,
       disabled: self.boxed.disabled,
-      recipe: resolve(&case),
+      recipe,
       cells,
       cell_refs: (0..self.length).map(|_| ElementRef::new()).collect(),
       forced: self.forced,

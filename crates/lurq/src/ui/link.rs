@@ -183,7 +183,9 @@ impl Link {
         .or_else(|| self.external.then(|| Name::from(icons::ARROW_UP_RIGHT))),
       href: self.href,
       disabled: self.disabled,
-      recipe: theme.resolve::<Link>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<Link>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       forced: self.forced,
       on_click: self.on_click,
       id: self.id,

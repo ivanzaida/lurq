@@ -467,10 +467,12 @@ impl<V: FieldValue<Time>> TimePicker<V> {
       .case(self.states.clone())
       .state(TimePickerState::Open, is_open)
       .state(TimePickerState::FullWidth, self.full_width);
-    let recipe = theme.resolve::<TimePicker>(&case, Some(&self.rules));
+    let recipe = theme
+      .resolve::<TimePicker>(&case, Some(&self.rules))
+      .owned_by(self.id.as_ref());
     let resolve: Resolve = {
-      let (theme, rules) = (theme.clone(), self.rules.clone());
-      Arc::new(move |case: &Case| theme.resolve::<TimePicker>(case, Some(&rules)))
+      let (theme, rules, owner) = (theme.clone(), self.rules.clone(), recipe.clone());
+      Arc::new(move |case: &Case| theme.resolve::<TimePicker>(case, Some(&rules)).owned_like(&owner))
     };
     let model = Arc::new(Model {
       value: self.value.clone(),
@@ -931,7 +933,12 @@ impl TimePickerView {
   /// A column of items: a `listbox` called by what it holds, which scrolls, one stop of Tab whose Up and Down go from
   /// one item to the next. It opens with the item at `held` second from its top, the one before it above it.
   fn column(&self, column: ColumnKind, items: Vec<Element>, held: Option<usize>) -> Element {
-    let part = self.part(TimePickerPart::Column);
+    // Named by what it holds: `x-column-hour`.
+    let part = self.part(TimePickerPart::Column).keyed(match column {
+      ColumnKind::Hour => "hour",
+      ColumnKind::Minute => "minute",
+      ColumnKind::Period => "period",
+    });
     let label = self.locale.segment_label(match column {
       ColumnKind::Hour => crate::core::DateSegment::Hour,
       ColumnKind::Minute => crate::core::DateSegment::Minute,
@@ -1048,7 +1055,8 @@ impl TimePickerView {
         breakpoint: super::current_breakpoint(),
         ..Case::default()
       };
-      let recipe = self.theme().resolve::<Popover>(&case, Some(&rules));
+      // Named after the picker's panel, as the popover is.
+      let recipe = self.theme().resolve::<Popover>(&case, Some(&rules)).owned_by(None);
       let mut panel = Column::new()
         .align_items(Alignment::Stretch)
         .part(&recipe.part(PopoverPart::Panel))
@@ -1133,6 +1141,8 @@ impl<V: FieldValue<Time>> crate::ui::Styled for TimePicker<V> {
 
 impl<V: FieldValue<Time>> Themed for TimePicker<V> {
   const NAME: &'static str = "time_picker";
+  /// The id is the field's: the input's, which the control stands in.
+  const ROOT: &'static str = "control";
   type Renderer = TimePickerRenderer;
 
   fn parts() -> crate::ui::Declared {

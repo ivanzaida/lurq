@@ -351,7 +351,9 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SwatchPicker<T> {
     for state in &self.states {
       case = case.state(state.clone(), true);
     }
-    let recipe = theme.resolve::<SwatchPicker>(&case, Some(&self.rules));
+    let recipe = theme
+      .resolve::<SwatchPicker>(&case, Some(&self.rules))
+      .owned_by(self.id.as_ref());
     let swatch_rules = recipe.rules_for(SwatchPickerPart::Swatch, ColorSwatchPart::Root);
     let handlers: Arc<[ChangeHandler<T>]> = self.on_change.into();
     let items: Vec<SwatchItem> = self
@@ -372,7 +374,10 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SwatchPicker<T> {
           label: swatch.label.unwrap_or_else(|| Arc::from(swatch.color.to_hex_upper())),
           selected,
           disabled,
-          recipe: theme.resolve::<ColorSwatch>(&swatch_case, Some(&swatch_rules)),
+          // A swatch the app gave an id names its parts after it; another is named after the part: `x-swatch-2`.
+          recipe: theme
+            .resolve::<ColorSwatch>(&swatch_case, Some(&swatch_rules))
+            .owned_by(swatch.id.as_ref()),
           choose: self.chosen.picker(swatch.value, handlers.clone()),
           id: swatch.id,
           key: swatch.key.unwrap_or_else(|| Arc::from(format!("swatch-{index}"))),

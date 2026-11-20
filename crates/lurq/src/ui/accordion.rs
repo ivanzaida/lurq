@@ -379,6 +379,9 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> Accordio
     };
     let handlers: Arc<[Handler<V>]> = self.on_change.into();
     let tell = self.tell;
+    let recipe = theme
+      .resolve::<Accordion>(&case(false, self.disabled), Some(&self.rules))
+      .owned_by(self.id.as_ref());
     let items = self
       .items
       .into_iter()
@@ -396,7 +399,10 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> Accordio
           open,
           disabled,
           (if open { icons::CHEVRON_UP } else { icons::CHEVRON_DOWN }).into(),
-          theme.resolve::<Accordion>(&case(open, disabled), Some(&self.rules)),
+          theme
+            .resolve::<Accordion>(&case(open, disabled), Some(&self.rules))
+            .owned_like(&recipe)
+            .item(item.id.as_ref(), AccordionPart::Item),
           AccordionPart::Item.into(),
           press,
           self.forced.filter(|_| entry == Some(index)),
@@ -408,7 +414,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> Accordio
     let view = AccordionView {
       items,
       label: self.label,
-      recipe: theme.resolve::<Accordion>(&case(false, self.disabled), Some(&self.rules)),
+      recipe,
       id: self.id,
       key: self.key,
     };

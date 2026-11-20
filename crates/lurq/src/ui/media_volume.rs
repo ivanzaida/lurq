@@ -354,7 +354,9 @@ impl MediaVolume {
       mute_label: self.mute_label,
       unmute_label: self.unmute_label,
       disabled: self.disabled,
-      recipe: theme.resolve::<MediaVolume>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<MediaVolume>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       bound: self.volume.filter(|_| self.controlled.is_none()),
       on_change: self.on_change,
       on_change_end: self.on_change_end,
@@ -646,6 +648,7 @@ impl crate::ui::Styled for MediaVolume {
 
 impl Themed for MediaVolume {
   const NAME: &'static str = "media_volume";
+  const ROOT: &'static str = "button";
   type Renderer = MediaVolumeRenderer;
 
   fn parts() -> crate::ui::Declared {

@@ -353,7 +353,9 @@ impl Toggletip {
       open,
       disabled: self.disabled,
       aim: 0.0,
-      recipe: theme.resolve::<Toggletip>(&case, Some(&rules)),
+      recipe: theme
+        .resolve::<Toggletip>(&case, Some(&rules))
+        .owned_by(self.id.as_ref()),
       forced: self.forced,
       id: self.id.clone(),
       key: self.key.clone(),
@@ -465,9 +467,10 @@ impl ToggletipView {
   /// The panel: its text, its link and what it holds, one under another. A
   /// status to what reads the tree, which a screen reader reads as it opens.
   pub fn panel(&mut self) -> Column {
+    // What it shows is `x-panel` as a whole, on its root: the panel in it is not named apart.
     let mut panel = Column::new()
       .align_items(Alignment::Start)
-      .part(&self.part(ToggletipPart::Panel))
+      .part(&self.part(ToggletipPart::Panel).unnamed())
       .describe("a11y_role", "status");
     if let Some(text) = &self.text {
       let part = self.part(ToggletipPart::Label);

@@ -388,7 +388,9 @@ impl HoverCard {
       arrow: self.arrow,
       controls,
       aim: 0.0,
-      recipe: theme.resolve::<HoverCard>(&case, Some(&rules)),
+      recipe: theme
+        .resolve::<HoverCard>(&case, Some(&rules))
+        .owned_by(self.id.as_ref()),
       id: self.id.clone(),
       key: self.key.clone(),
     }

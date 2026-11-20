@@ -365,7 +365,9 @@ impl Dialog {
       dismiss_on_veil: self.dismiss_on_veil,
       dismiss_on_escape: self.dismiss_on_escape,
       inline: self.inline,
-      recipe: theme.resolve::<Dialog>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<Dialog>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       on_dismiss: self.on_dismiss,
       alert: self.alert,
       label: self.label,
@@ -655,6 +657,8 @@ impl crate::ui::Styled for Dialog {
 
 impl Themed for Dialog {
   const NAME: &'static str = "dialog";
+  /// The id is the panel's.
+  const ROOT: &'static str = "panel";
   type Renderer = DialogRenderer;
 
   fn parts() -> crate::ui::Declared {

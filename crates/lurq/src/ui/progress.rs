@@ -414,7 +414,9 @@ impl Progress {
       size: self.size,
       top_bar: self.top_bar,
       reduced_motion: theme.reduced_motion(),
-      recipe: theme.resolve::<Progress>(&case, Some(&rules)),
+      recipe: theme
+        .resolve::<Progress>(&case, Some(&rules))
+        .owned_by(self.id.as_ref()),
       amount: self.amount,
       id: self.id,
       key: self.key,
@@ -888,7 +890,9 @@ impl RingProgress {
       show_value: self.show_value,
       variant: self.variant,
       size: self.size,
-      recipe: theme.resolve::<RingProgress>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<RingProgress>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       amount: self.amount,
       id: self.id,
       key: self.key,

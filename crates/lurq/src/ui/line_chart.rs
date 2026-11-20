@@ -121,7 +121,9 @@ impl Lines {
       .case(ChartSize::Sm, empty)
       .state(LineChartState::Smooth, self.curve == LineCurve::Smooth)
       .state(LineChartState::Stacked, plot.stacked);
-    let recipe = theme.resolve::<C>(&case, Some(&props.rules));
+    let recipe = theme
+      .resolve::<C>(&case, Some(&props.rules))
+      .owned_by(props.id.as_ref());
     // The board draws the lines across the plot at its ticks.
     let mut props = props.clone();
     props.grid.get_or_insert(true);

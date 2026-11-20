@@ -278,7 +278,9 @@ impl Banner {
       role: self.role.unwrap_or_else(|| Arc::from(tone.role())),
       label: self.label,
       close_button: !self.on_close.is_empty(),
-      recipe: theme.resolve::<Banner>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<Banner>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       forced: self.forced,
       on_close: self.on_close,
       id: self.id,

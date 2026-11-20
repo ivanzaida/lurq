@@ -318,7 +318,9 @@ impl SettingsCard {
       opens,
       disabled: self.disabled,
       label: self.label.or(title),
-      recipe: theme.resolve::<SettingsCard>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<SettingsCard>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       header,
       items,
       density: self.density,
@@ -463,7 +465,10 @@ impl SettingsCardView {
     let items = std::mem::take(&mut self.items)
       .into_iter()
       .map(|item| item.state(ListItemState::Setting, true));
-    let mut list = List::new().separators(true).items(items);
+    let mut list = List::new()
+      .separators(true)
+      .items(items)
+      .rules(&self.recipe.lend("list"));
     if let Some(density) = self.density {
       list = list.density(density);
     }

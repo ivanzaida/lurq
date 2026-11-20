@@ -189,7 +189,9 @@ impl NavbarBrand {
       states: self.states.clone(),
     }
     .state(NavbarState::Interactive, !self.on_select.is_empty());
-    let recipe = theme.resolve::<Navbar>(&case, Some(&self.rules));
+    let recipe = theme
+      .resolve::<Navbar>(&case, Some(&self.rules))
+      .owned_by(self.id.as_ref());
     let part = |name: NavbarPart| recipe.part(name).forced(self.forced);
     let mark = match (self.media, self.icon) {
       (Some(media), _) => Some(media),
@@ -677,7 +679,9 @@ fn build(
     drawer,
     narrow,
     sticky: navbar.sticky,
-    recipe: theme.resolve::<Navbar>(&case, Some(&navbar.rules)),
+    recipe: theme
+      .resolve::<Navbar>(&case, Some(&navbar.rules))
+      .owned_by(navbar.id.as_ref()),
     id: navbar.id,
     key: navbar.key,
   };
@@ -760,7 +764,8 @@ impl NavbarView {
         .min_width(0.0)
         .align_items(Alignment::Center)
         .clip()
-        .part(&self.part(NavbarPart::Links))
+        // The links are `x-links`: the room they are in is not named apart.
+        .part(&self.part(NavbarPart::Links).unnamed())
         .with_children(self.links.take()),
     );
     let trailing = std::mem::take(&mut self.trailing);

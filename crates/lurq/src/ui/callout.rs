@@ -227,7 +227,9 @@ impl Callout {
       bar: self.bar,
       role: self.role.unwrap_or_else(|| Arc::from("note")),
       label: self.label,
-      recipe: theme.resolve::<Callout>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<Callout>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       id: self.id,
       key: self.key,
     };
@@ -340,7 +342,9 @@ impl CalloutView {
         Element::from(root)
       }};
     }
-    match self.header().filter(|_| self.bar) {
+    // The header is built only where it is drawn: a part built and dropped would take an id from the next.
+    let header = if self.bar { self.header() } else { None };
+    match header {
       Some(header) => {
         let text = self.text(false).flex(0.0).width(Dimension::Pct(100.0));
         dressed!(Column::new().child(header).child(text))

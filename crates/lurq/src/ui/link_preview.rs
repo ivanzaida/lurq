@@ -695,7 +695,9 @@ impl LinkPreview {
       label: self.label.clone(),
       remove_label: self.remove_label.clone().unwrap_or_else(|| words.link_remove.clone()),
       words,
-      recipe: theme.resolve::<LinkPreview>(&case, Some(&rules)),
+      recipe: theme
+        .resolve::<LinkPreview>(&case, Some(&rules))
+        .owned_by(self.id.as_ref()),
       forced: self.forced,
       hovered: live.map(|live| live.hovered.clone()),
       failed_image: live.map(|live| live.failed_image.clone()),
@@ -1093,6 +1095,7 @@ impl LinkPreviewView {
           .height(side)
           .decorative(true)
           .bare(true)
+          .rules(&self.recipe.lend(LinkPreviewPart::Icon))
           .style(PicturePart::Root, |s| s.radius(RadiusSize::Sm));
         if let Some(failed) = &self.failed_icon {
           let (failed, key) = (failed.clone(), self.icon_key);
@@ -1104,7 +1107,8 @@ impl LinkPreviewView {
             })
           });
         }
-        Row::new().part(&part).child(picture).into()
+        // The picture stands for the part, and has its id.
+        Row::new().part(&part.unnamed()).child(picture).into()
       }
       None => Row::new()
         .part(&part)
@@ -1316,8 +1320,13 @@ impl LinkPreviewView {
         }),
       _ => picture.width(Length::Fill).height(Length::Fill),
     };
-    let picture = self.video_marks().into_iter().fold(picture, Picture::child);
-    let mut media = Row::new().part(&part).overflow_visible();
+    let picture = self
+      .video_marks()
+      .into_iter()
+      .fold(picture, Picture::child)
+      .rules(&self.recipe.lend(LinkPreviewPart::Media));
+    // The picture stands for the part, and has its id.
+    let mut media = Row::new().part(&part.unnamed()).overflow_visible();
     if transparent && self.variant == LinkPreviewVariant::Card {
       media = media.aspect_ratio(CARD_PICTURE_RATIO);
     }

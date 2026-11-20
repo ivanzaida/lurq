@@ -378,7 +378,9 @@ impl AudioQueue {
   }
 
   fn view(self, theme: &Theme, mut ctx: Option<&mut Ctx>) -> AudioQueueView {
-    let recipe = theme.resolve::<AudioQueue>(&self.case(), Some(&self.rules));
+    let recipe = theme
+      .resolve::<AudioQueue>(&self.case(), Some(&self.rules))
+      .owned_by(self.id.as_ref());
     // Where Tab enters: the current row, or the first that can be played.
     let entry = self
       .current
@@ -398,11 +400,19 @@ impl AudioQueue {
           .state(AudioQueueState::Playing, current && self.playing)
           .state(AudioQueueState::Unavailable, item.disabled)
           .state(AudioQueueState::Media, item.media.is_some());
-        let recipe = theme.resolve::<AudioQueue>(&case, Some(&self.rules));
+        // A row is named by its id, its key (`x-item-<key>`) or its place, and its parts after it.
+        let in_case = theme
+          .resolve::<AudioQueue>(&case, Some(&self.rules))
+          .owned_like(&recipe);
+        let row_recipe = match (&item.id, &item.key) {
+          (None, Some(key)) => in_case.keyed_item(key, AudioQueuePart::Item),
+          (id, _) => in_case.item(id.as_ref(), AudioQueuePart::Item),
+        };
         let forced = self.forced.filter(|_| entry == Some(index));
         let more = (!item.on_more.is_empty()).then(|| {
           let commands = item.on_more.clone();
           let mut button = Button::new(&self.more_label)
+            .rules(&row_recipe.lend(AudioQueuePart::More))
             .icon(icons::MORE_HORIZONTAL)
             .icon_only(true)
             .variant(ButtonVariant::Ghost)
@@ -443,7 +453,7 @@ impl AudioQueue {
             }) as Command
           }),
           entry: entry == Some(index),
-          recipe,
+          recipe: row_recipe,
           forced,
           more,
           item,
@@ -656,8 +666,9 @@ impl AudioQueueView {
     }
     if let Some(more) = row.more.take() {
       root = root.child(
+        // The button in it is `x-more`: the room it stands in is not named apart.
         Row::new()
-          .part(&row.part(AudioQueuePart::More))
+          .part(&row.part(AudioQueuePart::More).unnamed())
           .flex_shrink(0.0)
           // The arrows move between the rows, not to the buttons in them.
           .focus_group(FocusGroup::none())

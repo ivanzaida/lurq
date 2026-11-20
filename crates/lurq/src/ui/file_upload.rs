@@ -546,6 +546,9 @@ impl FileUpload {
     .state(FileUploadState::Zone, self.zone_shown)
     .state(FileUploadState::Invalid, self.invalid)
     .state(FileUploadState::Disabled, self.disabled);
+    let recipe = theme
+      .resolve::<FileUpload>(&case, Some(&self.rules))
+      .owned_by(self.id.as_ref());
     let item_recipe = |file: &UploadFile| {
       let state = match file.state {
         UploadState::Waiting => FileUploadState::Waiting,
@@ -557,7 +560,14 @@ impl FileUpload {
         .clone()
         .state(state, true)
         .state(FileUploadState::Unavailable, file.disabled);
-      theme.resolve::<FileUpload>(&case, Some(&self.rules))
+      let item = theme
+        .resolve::<FileUpload>(&case, Some(&self.rules))
+        .owned_like(&recipe);
+      // A file's parts are named after its id, as the file is: `x-<file>-label`.
+      match &self.id {
+        Some(id) => item.item(Some(&Arc::from(format!("{id}-{}", file.id))), FileUploadPart::Item),
+        None => item.keyed_item(&file.id, FileUploadPart::Item),
+      }
     };
     let files = self.files.list();
     let items = files.iter().map(item_recipe).collect();
@@ -572,7 +582,7 @@ impl FileUpload {
       invalid: self.invalid,
       disabled: self.disabled,
       operated,
-      recipe: theme.resolve::<FileUpload>(&case, Some(&self.rules)),
+      recipe,
       items,
       change: self.change(),
       takes: self.takes_now(),
@@ -763,6 +773,7 @@ impl FileUploadView {
         // A list only shown draws its zone at rest: it takes nothing all the same.
         .disabled(self.disabled)
         .force(self.forced)
+        .rules(&self.recipe.lend(FileUploadPart::Trigger))
         .with_host(self.host.clone());
       // The zone's own count of files does not know the list: it takes what the upload takes.
       zone = zone
@@ -858,13 +869,21 @@ impl FileUploadView {
       .child(line);
     if file.state == UploadState::Uploading {
       let progress = Progress::new(file.progress)
+        .rules(
+          &self
+            .items
+            .get(index)
+            .unwrap_or(&self.recipe)
+            .lend(FileUploadPart::Progress),
+        )
         .size(ProgressSize::Sm)
         .label(file.file.name())
         .label_hidden(true);
       text = text.child(
         Row::new()
           .width(fill)
-          .part(&part(FileUploadPart::Progress))
+          // The bar stands for the part, and has its id.
+          .part(&part(FileUploadPart::Progress).unnamed())
           .child(progress),
       );
     }
@@ -996,14 +1015,14 @@ impl FileUploadView {
       return Row::new()
         .part(&style)
         .describe("a11y_name", name)
-        .child(glyph(&style, Name::from(icon), false))
+        .child(glyph(&style.clone().unnamed(), Name::from(icon), false))
         .into();
     }
     let mut control = pressable(&style, false)
       .describe("a11y_role", "button")
       .describe("a11y_name", name)
       .on_click(move |_| action())
-      .child(glyph(&style, Name::from(icon), false));
+      .child(glyph(&style.clone().unnamed(), Name::from(icon), false));
     // A failed file's first control is its retry: the focus that comes to the file comes there.
     let first = part == FileUploadPart::Retry || self.files[index].state != UploadState::Failed;
     if first && let Some(element) = self.focus_ref(&Refocus::Control(self.files[index].id.clone())) {

@@ -293,7 +293,9 @@ impl Avatar {
       shape: self.shape,
       presence: self.presence,
       presence_label: self.presence_label,
-      recipe: theme.resolve::<Avatar>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<Avatar>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       id: self.id,
       key: self.key,
     };
@@ -367,14 +369,22 @@ impl AvatarView {
       (None, true) => Some(Name::from(icons::USER)),
       (None, false) => None,
     };
-    let (icon_part, initials_part) = (self.part(AvatarPart::Icon), self.part(AvatarPart::Initials));
+    // Its id is taken once here, so that each time it is built again it is the same.
+    let (part, id) = match icon {
+      Some(_) => (AvatarPart::Icon, self.recipe.part_id(AvatarPart::Icon)),
+      None => (AvatarPart::Initials, self.recipe.part_id(AvatarPart::Initials)),
+    };
+    let part = self.part(part).unnamed();
     let initials = self.initials.clone();
-    move || match icon {
-      Some(icon) => glyph(&icon_part, icon, false),
-      None => Row::new()
-        .part(&initials_part)
-        .child(initials_part.text(&initials).nowrap())
-        .into(),
+    move || {
+      let element = match icon {
+        Some(icon) => glyph(&part, icon, false),
+        None => Row::new().part(&part).child(part.text(&initials).nowrap()).into(),
+      };
+      match &id {
+        Some(id) => element.id(id.clone()),
+        None => element,
+      }
     }
   }
 
@@ -621,7 +631,10 @@ impl Presence {
         s.border(Border::outside(0.0, PaletteColor::Background))
       })
       .extend(&self.rules);
-    let part = theme.resolve::<Avatar>(&case, Some(&rules)).part(AvatarPart::Presence);
+    let part = theme
+      .resolve::<Avatar>(&case, Some(&rules))
+      .owned_by(self.id.as_ref())
+      .part(AvatarPart::Presence);
     let label = self.label.unwrap_or_else(|| Arc::from(self.presence.as_str()));
     let mut dot = Row::new()
       .part(&part)
@@ -768,7 +781,9 @@ impl AvatarGroup {
     for state in &self.states {
       case = case.state(state.clone(), true);
     }
-    let recipe = theme.resolve::<AvatarGroup>(&case, Some(&self.rules));
+    let recipe = theme
+      .resolve::<AvatarGroup>(&case, Some(&self.rules))
+      .owned_by(self.id.as_ref());
     let shown = self.max_shown.unwrap_or(usize::MAX).min(self.avatars.len());
     let hidden = self.avatars.len() - shown;
     let label = self.label.map_or_else(
@@ -848,7 +863,9 @@ impl AvatarGroupView {
       let rules = self
         .recipe
         .rules_for(AvatarGroupPart::Item, AvatarPart::Face)
-        .extend(&self.recipe.rules_for(AvatarGroupPart::More, AvatarPart::Face));
+        .extend(&self.recipe.rules_for(AvatarGroupPart::More, AvatarPart::Face))
+        // It stands for the count, not for one more item.
+        .extend(&self.recipe.lend(AvatarGroupPart::More));
       Avatar::count(self.hidden).size(self.size).rules(&rules)
     })
   }

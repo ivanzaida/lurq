@@ -565,7 +565,9 @@ impl CommandPalette {
       dismiss_on_escape: self.dismiss_on_escape,
       dismiss_on_veil: self.dismiss_on_veil,
       highlighted,
-      recipe: theme.resolve::<CommandPalette>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<CommandPalette>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       groups: self.groups,
       shown,
       enabled,
@@ -931,8 +933,21 @@ impl CommandPaletteView {
       states: Vec::new(),
     }
     .state(MenuItemState::Disabled, command.disabled);
+    // The row is named after its command's id, its key (`x-row-<key>`) or its place (`x-row-2`), and its parts after
+    // the row.
+    let named = command.id.clone().or_else(|| match &command.key {
+      Some(key) => self
+        .recipe
+        .keyed_item(key, CommandPalettePart::Row)
+        .part_id(CommandPalettePart::Row),
+      None => self.recipe.part_id(CommandPalettePart::Row),
+    });
     let rules = self.recipe.rules_for(CommandPalettePart::Row, MenuItemPart::Root);
-    let item = self.theme().resolve::<MenuItem>(&case, Some(&rules));
+    let item = self
+      .theme()
+      .resolve::<MenuItem>(&case, Some(&rules))
+      .owned_like(&self.recipe)
+      .item(named.as_ref(), MenuItemPart::Root);
     let on = self.highlighted == Some(row);
     let forced = on.then_some(Interaction::FocusVisible);
     let part = |name: MenuItemPart| item.part(name).forced(forced);
@@ -962,7 +977,7 @@ impl CommandPaletteView {
     if let Some(at) = self.rows.get(row) {
       root = root.ref_element(at.clone());
     }
-    if let Some(id) = &command.id {
+    if let Some(id) = &named {
       root = root.id(id.clone());
     }
     if let Some(key) = &command.key {
@@ -984,7 +999,10 @@ impl CommandPaletteView {
         .child(label.text(&command.label).nowrap().text_overflow(TextOverflow::Elipsis)),
     );
     if let Some(detail) = &command.detail {
-      let part = self.part(CommandPalettePart::Detail);
+      let part = self
+        .recipe
+        .item(named.as_ref(), CommandPalettePart::Row)
+        .part(CommandPalettePart::Detail);
       start = start.child(
         Row::new()
           .flex_full(1.0, 1.0, Some(0.0))
@@ -1028,7 +1046,12 @@ impl CommandPaletteView {
       .align_items(Alignment::Center)
       .part(&part)
       .describe("a11y_role", "status")
-      .child(Spinner::new().decorative(true).build(self.theme()))
+      .child(
+        Spinner::new()
+          .decorative(true)
+          .rules(&self.recipe.lend("spinner"))
+          .build(self.theme()),
+      )
       .child(part.text(&self.loading_text).nowrap())
       .into()
   }
@@ -1084,7 +1107,11 @@ impl CommandPaletteView {
     };
     Column::new()
       .align_items(Alignment::Stretch)
-      .child(Separator::horizontal().build(self.theme()))
+      .child(
+        Separator::horizontal()
+          .rules(&self.recipe.lend("separator"))
+          .build(self.theme()),
+      )
       .child(
         Row::new()
           .align_items(Alignment::Center)
@@ -1158,6 +1185,7 @@ impl crate::ui::Styled for CommandPalette {
 
 impl Themed for CommandPalette {
   const NAME: &'static str = "command_palette";
+  const ROOT: &'static str = "panel";
   type Renderer = CommandPaletteRenderer;
 
   fn parts() -> crate::ui::Declared {

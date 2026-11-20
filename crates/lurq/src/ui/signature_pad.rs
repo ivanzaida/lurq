@@ -737,7 +737,9 @@ impl Core {
     .state(SignaturePadState::ReadOnly, self.read_only)
     .state(SignaturePadState::Invalid, self.invalid)
     .state(SignaturePadState::Disabled, self.disabled);
-    let recipe = theme.resolve::<SignaturePad>(&case, Some(&self.rules));
+    let recipe = theme
+      .resolve::<SignaturePad>(&case, Some(&self.rules))
+      .owned_by(self.id.as_ref());
     let view = SignaturePadView {
       signature: self.value.clone(),
       draft,

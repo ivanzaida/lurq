@@ -1863,7 +1863,9 @@ fn parts(player: &VideoPlayer, theme: &Theme, size: VideoPlayerSize) -> Resolved
     breakpoint: super::current_breakpoint(),
     states: player.states.clone(),
   };
-  theme.resolve::<VideoPlayer>(&case, Some(&player.rules))
+  theme
+    .resolve::<VideoPlayer>(&case, Some(&player.rules))
+    .owned_by(player.id.as_ref())
 }
 
 /// `player` as it stands where it was while it plays in its small window: no picture and no controls, what it
@@ -2062,8 +2064,12 @@ fn view(mut player: VideoPlayer, theme: &Theme, live: &Live, ctx: Option<&mut Ct
   .state(VideoPlayerState::Touch, player.is_touch())
   .state(VideoPlayerState::Landscape, landscape)
   .state(VideoPlayerState::Narrow, narrow);
-  let recipe = theme.resolve::<VideoPlayer>(&case, Some(&player.rules));
-  let on_recipe = theme.resolve::<VideoPlayer>(&case.clone().state(VideoPlayerState::On, true), Some(&player.rules));
+  let recipe = theme
+    .resolve::<VideoPlayer>(&case, Some(&player.rules))
+    .owned_by(player.id.as_ref());
+  let on_recipe = theme
+    .resolve::<VideoPlayer>(&case.clone().state(VideoPlayerState::On, true), Some(&player.rules))
+    .owned_like(&recipe);
   let mut make = Make {
     player: &player,
     recipe: &recipe,
@@ -2412,8 +2418,9 @@ impl Make<'_, '_> {
       }
       time.build(self.recipe.theme())
     };
+    // The time in it has the part's id.
     Row::new()
-      .part(&part)
+      .part(&part.unnamed())
       .align_items(Alignment::Center)
       .child(shown)
       .into()
@@ -3494,8 +3501,9 @@ impl VideoPlayerView {
   /// The middle of the picture, with the error's button under the error.
   pub fn center(&self) -> Option<Column> {
     let center = self.center.clone()?;
+    // What stands in the middle (the play button) has the part's id.
     let mut middle = Column::new()
-      .part(&self.part(VideoPlayerPart::Center))
+      .part(&self.part(VideoPlayerPart::Center).unnamed())
       .size(Dimension::Pct(100.0), Dimension::Pct(100.0))
       .align_items(Alignment::Center)
       .justify(Justify::Center)
@@ -3524,8 +3532,9 @@ impl VideoPlayerView {
       _ => 0.0,
     };
     Some(
+      // `x-captions` is the id of the button that turns them on: what holds the line is not named after its part.
       Column::new()
-        .part(&self.part(VideoPlayerPart::Captions))
+        .part(&self.part(VideoPlayerPart::Captions).unnamed())
         .width(Dimension::Pct(100.0))
         .align_items(Alignment::Center)
         .pointer_events_none()

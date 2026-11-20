@@ -128,7 +128,9 @@ impl ScatterChart {
       .props
       .case(ChartSize::Sm, empty)
       .state(ScatterChartState::Trend, self.trend);
-    let recipe = theme.resolve::<ScatterChart>(&case, Some(&self.props.rules));
+    let recipe = theme
+      .resolve::<ScatterChart>(&case, Some(&self.props.rules))
+      .owned_by(self.props.id.as_ref());
     // The board draws the lines across the plot at its ticks, and no legend.
     let mut props = self.props.clone();
     props.grid.get_or_insert(true);

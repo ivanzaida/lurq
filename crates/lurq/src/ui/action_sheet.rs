@@ -208,10 +208,17 @@ impl ActionSheet {
         None => case,
       }
     };
+    let recipe = theme
+      .resolve::<ActionSheet>(&case(None), Some(&self.rules))
+      .owned_by(self.id.as_ref());
     let view = ActionSheetView {
-      recipe: theme.resolve::<ActionSheet>(&case(None), Some(&self.rules)),
-      destructive: theme.resolve::<ActionSheet>(&case(Some(ActionSheetState::Destructive)), Some(&self.rules)),
-      disabled: theme.resolve::<ActionSheet>(&case(Some(ActionSheetState::Disabled)), Some(&self.rules)),
+      destructive: theme
+        .resolve::<ActionSheet>(&case(Some(ActionSheetState::Destructive)), Some(&self.rules))
+        .owned_like(&recipe),
+      disabled: theme
+        .resolve::<ActionSheet>(&case(Some(ActionSheetState::Disabled)), Some(&self.rules))
+        .owned_like(&recipe),
+      recipe,
       sheet: self,
     };
     match theme.renderer::<ActionSheet>() {
@@ -309,11 +316,12 @@ impl ActionSheetView {
     if let Some(title) = &self.sheet.title {
       let part = self.part(ActionSheetPart::Title);
       options = options.child(
-        Row::new()
-          .part(&part)
-          .width(full)
-          .justify(Justify::Center)
-          .child(part.text(title).text_align(TextAlign::Center).part(&part)),
+        Row::new().part(&part).width(full).justify(Justify::Center).child(
+          part
+            .text(title)
+            .text_align(TextAlign::Center)
+            .part(&part.clone().unnamed()),
+        ),
       );
     }
     for (at, item) in self.sheet.items.iter().enumerate() {
@@ -323,7 +331,9 @@ impl ActionSheetView {
         &self.destructive
       } else {
         &self.recipe
-      };
+      }
+      // An option, and its label, named by its place: `x-option-0`, `x-option-0-label`.
+      .keyed_item(&at.to_string(), ActionSheetPart::Option);
       let (part, label) = (
         recipe.part(ActionSheetPart::Option),
         recipe.part(ActionSheetPart::Label),

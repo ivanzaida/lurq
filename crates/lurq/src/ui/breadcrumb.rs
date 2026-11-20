@@ -580,8 +580,13 @@ impl Breadcrumb {
     .state(BreadcrumbState::Collapsed, hidden.is_some());
     // A disabled step is drawn in the state of a disabled breadcrumb, alone.
     let disabled = case.clone().state(BreadcrumbState::Disabled, true);
-    let disabled = theme.resolve::<Breadcrumb>(&disabled, Some(&self.rules));
     let case = case.state(BreadcrumbState::Disabled, self.disabled);
+    let recipe = theme
+      .resolve::<Breadcrumb>(&case, Some(&self.rules))
+      .owned_by(self.id.as_ref());
+    let disabled = theme
+      .resolve::<Breadcrumb>(&disabled, Some(&self.rules))
+      .owned_like(&recipe);
     let view = BreadcrumbView {
       steps: self.steps,
       hidden,
@@ -589,7 +594,7 @@ impl Breadcrumb {
       fold,
       separator: self.separator,
       disabled: self.disabled,
-      recipe: theme.resolve::<Breadcrumb>(&case, Some(&self.rules)),
+      recipe,
       disabled_recipe: disabled,
       label: self.label,
       more_label: self.more_label,
@@ -727,13 +732,23 @@ impl BreadcrumbView {
   }
 
   /// The style of a part of the step at `index`: disabled where the step is, and in the interaction forced where it
-  /// is the link Tab stops on first.
+  /// is the link Tab stops on first. Its parts are named after the step's id, or after its value.
   pub fn step_part(&self, index: usize, part: impl Into<Name>) -> ResolvedPart {
     let forced = self.forced.filter(|_| self.entry() == Some(index));
     let recipe = if self.is_disabled(index) {
       &self.disabled_recipe
     } else {
       &self.recipe
+    };
+    let step = &self.steps[index];
+    let root = if self.is_current(index) {
+      BreadcrumbPart::Page
+    } else {
+      BreadcrumbPart::Link
+    };
+    let recipe = match &step.id {
+      Some(id) => recipe.item(Some(id), root),
+      None => recipe.keyed_item(&step.value, root),
     };
     recipe.part(part).forced(forced)
   }
@@ -898,7 +913,9 @@ impl BreadcrumbView {
 
   /// The menu of the hidden steps: an item for each, which follows it.
   fn hidden_menu(&self, anchor: ElementRef, open: Signal<bool>) -> Menu {
-    let mut menu = Menu::new(open, anchor).placement(Placement::BottomStart);
+    let mut menu = Menu::new(open, anchor)
+      .placement(Placement::BottomStart)
+      .rules(&self.recipe.lend("menu"));
     for index in self.hidden.clone().unwrap_or(0..0) {
       let step = &self.steps[index];
       let mut item = MenuItem::new(&step.label).disabled(self.is_disabled(index));

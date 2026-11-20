@@ -486,7 +486,9 @@ impl<V: FieldColor> ColorField<V> {
       swatches: self.swatches,
       placement: self.placement,
       eyedropper: self.eyedropper && EyeDropper::is_supported(),
-      recipe: theme.resolve::<ColorField>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<ColorField>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       words: self.words,
       text: Signal::new(value.color().map(display).unwrap_or_default()),
       actions,
@@ -766,7 +768,11 @@ impl ColorFieldView {
   /// The swatch of the color at the box's start, or of none over the checkerboard: a press of it opens the picker. It
   /// takes no focus, since Down in the box opens the picker.
   pub fn swatch(&self) -> Element {
-    let rules = self.recipe.rules_for(ColorFieldPart::Swatch, ColorSwatchPart::Root);
+    // The button around it is `x-swatch`: the swatch in it is named after its own kind.
+    let rules = self
+      .recipe
+      .lend("color_swatch")
+      .extend(&self.recipe.rules_for(ColorFieldPart::Swatch, ColorSwatchPart::Root));
     let color = self.value.unwrap_or(Color::new(0, 0, 0, 0));
     let inner = ColorSwatch::new(color)
       .size(self.swatch_size())
@@ -932,6 +938,7 @@ impl crate::ui::Styled for ColorField {
 
 impl Themed for ColorField {
   const NAME: &'static str = "color_field";
+  const ROOT: &'static str = "control";
   type Renderer = ColorFieldRenderer;
 
   fn parts() -> crate::ui::Declared {

@@ -515,8 +515,9 @@ impl<V: Picked> Calendar<V> {
     self
   }
 
-  /// The id of its panel. Each day has it with `-` and the date after it: `due-2026-11-12`; the buttons have it with
-  /// `-previous` and `-next`.
+  /// The id of its panel. Each day has it with `-day-` and the date after it: `due-day-2026-11-12`; each weekday's
+  /// name with `-weekday-` and its English short name (`due-weekday-mon`); the buttons have it with `-nav-previous`
+  /// and `-nav-next`; its other parts with `-` and the part's name (`due-title`).
   pub fn id(mut self, id: impl Into<Arc<str>>) -> Self {
     self.id = Some(id.into());
     self
@@ -658,7 +659,9 @@ impl<V: Picked> Calendar<V> {
       week_numbers: self.week_numbers,
       outside_days: self.outside_days && self.months == 1,
       disabled: self.disabled,
-      recipe: theme.resolve::<Calendar>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<Calendar>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       days: Mutex::new(HashMap::new()),
       case,
       model: Model {
@@ -818,6 +821,19 @@ pub(crate) fn step_date(date: Date, event: &KeyboardEvent, first_day: Weekday) -
   })
 }
 
+/// The key of a weekday in the id of its name: its English short name in lower case.
+pub(crate) fn weekday_key(day: Weekday) -> &'static str {
+  match day {
+    Weekday::Monday => "mon",
+    Weekday::Tuesday => "tue",
+    Weekday::Wednesday => "wed",
+    Weekday::Thursday => "thu",
+    Weekday::Friday => "fri",
+    Weekday::Saturday => "sat",
+    Weekday::Sunday => "sun",
+  }
+}
+
 /// The key of a day of the month it is shown in: what the keys move the focus to.
 fn day_key(date: Date) -> String {
   format!("day-{date}")
@@ -925,7 +941,10 @@ impl CalendarView {
         let case = names
           .iter()
           .fold(self.case.clone(), |case, state| case.state(*state, true));
-        self.theme().resolve::<Calendar>(&case, Some(&self.rules))
+        self
+          .theme()
+          .resolve::<Calendar>(&case, Some(&self.rules))
+          .owned_like(&self.recipe)
       })
       .clone()
   }
@@ -942,11 +961,6 @@ impl CalendarView {
       .filter(|date| shown(*date))
       .or_else(|| shown(self.today).then_some(self.today))
       .unwrap_or_else(|| self.months[0].first())
-  }
-
-  /// The id of an element of the calendar: its own id with `suffix` after it.
-  fn id_of(&self, suffix: &str) -> Option<String> {
-    self.id.as_ref().map(|id| format!("{id}-{suffix}"))
   }
 
   /// A button that shows the month before (`by` -1) or after (1), in the design's dress: an outline button of an
@@ -992,7 +1006,8 @@ impl CalendarView {
       .disabled(self.disabled || out)
       .rules(&rules)
       .on_click(move |_: MouseEvent| month.set(month.get_untracked().add_months(by)));
-    if let Some(id) = self.id_of(suffix) {
+    // Named by its side, whether the calendar's id is its own or one it was lent.
+    if let Some(id) = self.recipe.keyed_id(CalendarPart::Nav, suffix) {
       button = button.id(id);
     }
     button.build(self.theme())
@@ -1036,7 +1051,6 @@ impl CalendarView {
 
   /// The row of the names of the days, from the first day, after a room for the week numbers where they are shown.
   pub fn weekdays(&self) -> Row {
-    let part = self.part(CalendarPart::Weekday);
     let mut row = Row::new()
       .part(&self.part(CalendarPart::Weekdays))
       .describe("a11y_role", "row");
@@ -1045,6 +1059,8 @@ impl CalendarView {
     }
     for index in 0..7 {
       let day = Weekday::from_monday(self.first_day as i64 + index);
+      // Named by the day's English short name, an identifier and not a word of the locale: `x-weekday-mon`.
+      let part = self.part(CalendarPart::Weekday).keyed(weekday_key(day));
       row = row.child(
         Row::new()
           .align_items(Alignment::Center)
@@ -1069,7 +1085,11 @@ impl CalendarView {
     let states = self.day_states(date, outside);
     let recipe = self.day_recipe(&states);
     let entry = !outside && date == self.entry();
-    let part = recipe.part(CalendarPart::Day).forced(self.forced.filter(|_| entry));
+    // A day is named by its date, not by its place: `x-day-2026-11-20`.
+    let part = recipe
+      .part(CalendarPart::Day)
+      .keyed(date)
+      .forced(self.forced.filter(|_| entry));
     let available = self.available(date);
     let selected = states.contains(&CalendarState::Selected) || states.contains(&CalendarState::InRange);
     let mut day = components::Button::empty()
@@ -1124,9 +1144,6 @@ impl CalendarView {
         })
         .on_mouse_enter(move || enter.point(date))
         .on_focus(move || focus.point(date));
-    }
-    if let Some(id) = self.id_of(&date.to_string()) {
-      day = day.id(id);
     }
     day.into()
   }

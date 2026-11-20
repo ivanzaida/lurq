@@ -154,7 +154,7 @@ fn the_week_is_the_boards() {
   .into_iter()
   .enumerate()
   {
-    let id = format!("team-2026-11-{number:02}");
+    let id = format!("team-day-2026-11-{number:02}");
     let (day_x, day_y, day_width, day_height) = stage.bounds(&id);
     assert!(
       (day_x - last_end).abs() < 0.01,
@@ -194,7 +194,7 @@ fn the_week_is_the_boards() {
     }
   }
   // The events: 6 from the day's sides and from its label, 4 apart, 21 high, with the small radius.
-  let (monday_x, ..) = stage.bounds("team-2026-11-09");
+  let (monday_x, ..) = stage.bounds("team-day-2026-11-09");
   let (x, y, width, height) = stage.bounds("standup");
   assert!((x - (monday_x + 6.0)).abs() < 0.01);
   assert_eq!(y, 32.0 + 6.0);
@@ -252,7 +252,7 @@ fn a_press_chooses_a_day_and_an_events_press_is_its_own() {
       .on_select(move |event: &&str| select.lock().unwrap().push(*event))
   });
   // A press in the room under a day's events chooses the day.
-  let (x, y, _, height) = stage.bounds("team-2026-11-10");
+  let (x, y, _, height) = stage.bounds("team-day-2026-11-10");
   stage.tree.mouse_move(x + 20.0, y + height - 10.0);
   stage
     .tree
@@ -270,7 +270,7 @@ fn a_press_chooses_a_day_and_an_events_press_is_its_own() {
   assert_eq!(*selected.lock().unwrap(), ["review"]);
   assert_eq!(value.get(), Some(day(10)));
   // A press of the chosen day tells nothing.
-  stage.click("team-2026-11-10");
+  stage.click("team-day-2026-11-10");
   assert_eq!(changed.lock().unwrap().len(), 1);
   // The app sets the value: it is shown chosen, and nothing is told.
   value.set(Some(day(13)));
@@ -292,7 +292,7 @@ fn a_controlled_calendar_tells_and_does_not_choose() {
     .header(false)
     .id("team")
   });
-  stage.click("team-2026-11-11");
+  stage.click("team-day-2026-11-11");
   assert_eq!(*told.lock().unwrap(), [day(11)]);
   assert_eq!(
     stage.text("Mon 9").0,
@@ -310,35 +310,35 @@ fn the_keys_are_a_calendars_and_show_the_week_they_leave_for() {
   stage.key("Tab");
   assert_eq!(
     focused(&stage).as_deref(),
-    Some("team-2026-11-12"),
+    Some("team-day-2026-11-12"),
     "Tab enters at today"
   );
   assert!(stage.has_ring(light(PaletteColor::Ring)));
   stage.key("ArrowRight");
-  assert_eq!(focused(&stage).as_deref(), Some("team-2026-11-13"));
+  assert_eq!(focused(&stage).as_deref(), Some("team-day-2026-11-13"));
   // Past the weekend the calendar hides, into the week after, which is then shown.
   stage.key("ArrowRight");
-  assert_eq!(focused(&stage).as_deref(), Some("team-2026-11-16"));
+  assert_eq!(focused(&stage).as_deref(), Some("team-day-2026-11-16"));
   assert!(stage.paints("Mon 16") && !stage.paints("Fri 13"));
   stage.key("ArrowLeft");
-  assert_eq!(focused(&stage).as_deref(), Some("team-2026-11-13"));
+  assert_eq!(focused(&stage).as_deref(), Some("team-day-2026-11-13"));
   stage.key("Home");
-  assert_eq!(focused(&stage).as_deref(), Some("team-2026-11-09"));
+  assert_eq!(focused(&stage).as_deref(), Some("team-day-2026-11-09"));
   // End is the Sunday, which is hidden: the Friday before it.
   stage.key("End");
-  assert_eq!(focused(&stage).as_deref(), Some("team-2026-11-13"));
+  assert_eq!(focused(&stage).as_deref(), Some("team-day-2026-11-13"));
   stage.key("ArrowUp");
-  assert_eq!(focused(&stage).as_deref(), Some("team-2026-11-06"));
+  assert_eq!(focused(&stage).as_deref(), Some("team-day-2026-11-06"));
   stage.key("PageDown");
   assert_eq!(
     focused(&stage).as_deref(),
-    Some("team-2026-12-07"),
+    Some("team-day-2026-12-07"),
     "a month on, off the Sunday"
   );
   shift_key(&mut stage, "PageUp");
   assert_eq!(
     focused(&stage).as_deref(),
-    Some("team-2025-12-05"),
+    Some("team-day-2025-12-05"),
     "a year back, off the Sunday"
   );
   // Enter chooses the focused day.
@@ -358,7 +358,7 @@ fn tab_goes_from_a_day_into_its_events_and_then_out() {
   stage.key("Tab");
   assert_eq!(
     focused(&stage).as_deref(),
-    Some("team-2026-11-10"),
+    Some("team-day-2026-11-10"),
     "Tab enters at the chosen day"
   );
   stage.key("Tab");
@@ -382,13 +382,13 @@ fn the_header_names_the_period_and_its_buttons_show_another() {
   let bound = value.clone();
   let mut stage = staged(move || board(&bound).header(true));
   // A header of 44 over the days.
-  let (_, monday_y, ..) = stage.bounds("team-2026-11-09");
+  let (_, monday_y, ..) = stage.bounds("team-day-2026-11-09");
   assert_eq!(monday_y, 44.0);
   assert!(stage.paints("Nov 9 – Nov 13, 2026"), "the days of the week shown");
-  stage.click("team-next");
+  stage.click("team-nav-next");
   assert!(stage.paints("Mon 16") && stage.paints("Nov 16 – Nov 20, 2026"));
-  stage.click("team-previous");
-  stage.click("team-previous");
+  stage.click("team-nav-previous");
+  stage.click("team-nav-previous");
   assert!(stage.paints("Mon 2"));
   assert_eq!(value.get(), None, "showing another week chooses nothing");
   // Today brings the week today is in back.
@@ -399,7 +399,7 @@ fn the_header_names_the_period_and_its_buttons_show_another() {
   {
     let name = stage
       .tree
-      .get_element_by_id_mut("team-next")
+      .get_element_by_id_mut("team-nav-next")
       .and_then(|element| element.description("a11y_name"));
     assert_eq!(name.as_deref(), Some("Next week"));
   }
@@ -411,7 +411,7 @@ fn the_apps_date_is_the_period_shown_and_the_chosen_day_is_followed() {
   let (value, shown) = (Signal::new(None), Signal::new(day(12)));
   let (bound, seen) = (value.clone(), shown.clone());
   let mut stage = staged(move || board(&bound).header(true).shown(seen.clone()));
-  stage.click("team-next");
+  stage.click("team-nav-next");
   assert_eq!(shown.get(), day(19));
   shown.set(day(2));
   stage.pass();
@@ -442,11 +442,11 @@ fn a_month_is_a_calendars_grid_of_days_with_their_events() {
   let (monday, sunday) = (text_of(&stage, "Mon"), text_of(&stage, "Sun"));
   assert!(monday.x < sunday.x);
   // Six weeks of seven days: the grid of a calendar's month, from Monday the 26th of October.
-  let (first_x, first_y, first_width, first_height) = stage.bounds("team-2026-10-26");
+  let (first_x, first_y, first_width, first_height) = stage.bounds("team-day-2026-10-26");
   assert_eq!((first_x, first_y), (0.0, 44.0 + 32.0));
   assert_eq!(first_width, 80.0);
   assert!(first_height >= 115.0);
-  let (_, last_y, ..) = stage.bounds("team-2026-12-06");
+  let (_, last_y, ..) = stage.bounds("team-day-2026-12-06");
   assert!((last_y - (first_y + 5.0 * first_height)).abs() < 0.6, "the sixth week");
   // A day says its number; one of the month beside is dimmed, and a press of it shows its month.
   assert!(
@@ -456,18 +456,18 @@ fn a_month_is_a_calendars_grid_of_days_with_their_events() {
   assert_eq!(stage.text("12").0, light(PaletteColor::Foreground), "today");
   // In a day of 80 a longer title is cut.
   assert!(stage.paints("Standup") && stage.cut_text_quad("Deploy freeze").is_some());
-  stage.click("team-2026-12-03");
+  stage.click("team-day-2026-12-03");
   assert_eq!(value.get(), Date::new(2026, 12, 3));
   assert!(stage.paints("December 2026"));
-  assert_eq!(focused(&stage).as_deref(), Some("team-2026-12-03"));
+  assert_eq!(focused(&stage).as_deref(), Some("team-day-2026-12-03"));
   // The buttons and the keys go a month.
-  stage.click("team-previous");
+  stage.click("team-nav-previous");
   assert!(stage.paints("November 2026"));
   #[cfg(any(feature = "mcp", feature = "devtools"))]
   {
     let name = stage
       .tree
-      .get_element_by_id_mut("team-previous")
+      .get_element_by_id_mut("team-nav-previous")
       .and_then(|element| element.description("a11y_name"));
     assert_eq!(name.as_deref(), Some("Previous month"));
   }
@@ -494,8 +494,8 @@ fn a_day_with_more_events_than_it_shows_says_how_many_more() {
   assert!(!stage.paints("Lunch") && !stage.paints("Retro"));
   assert_eq!(stage.text("+3 more"), (light(PaletteColor::MutedForeground), 11.0));
   // It is as high as an event, and does not make its day higher than the days beside it.
-  let (_, _, _, crowded) = stage.bounds("team-2026-11-10");
-  let (_, _, _, empty) = stage.bounds("team-2026-11-11");
+  let (_, _, _, crowded) = stage.bounds("team-day-2026-11-10");
+  let (_, _, _, empty) = stage.bounds("team-day-2026-11-11");
   assert_eq!(crowded, empty);
   // Pressed, it chooses the day and tells the app.
   stage.click("team-more-2026-11-10");
@@ -542,7 +542,7 @@ fn its_words_are_the_locales() {
   let value = Signal::new(None);
   let bound = value.clone();
   let mut stage = staged(move || board(&bound).weekends(true).first_day(Weekday::Sunday));
-  let (sunday_x, ..) = stage.bounds("team-2026-11-08");
+  let (sunday_x, ..) = stage.bounds("team-day-2026-11-08");
   assert_eq!(sunday_x, 0.0, "Sunday the 8th is the first column");
 }
 
@@ -598,8 +598,8 @@ fn a_disabled_calendar_and_a_disabled_event_take_nothing() {
   let value = Signal::new(None);
   let bound = value.clone();
   let mut stage = staged(move || board(&bound).header(true).disabled(true));
-  stage.click("team-2026-11-10");
-  stage.click("team-next");
+  stage.click("team-day-2026-11-10");
+  stage.click("team-nav-next");
   stage.click("standup");
   assert_eq!(value.get(), None);
   assert!(stage.paints("Thu 12"));
@@ -646,14 +646,14 @@ fn to_tooling_the_days_are_a_grid_of_cells_and_an_event_is_a_button() {
   };
   assert_eq!(said("team", "a11y_role").as_deref(), Some("group"));
   assert_eq!(said("team", "a11y_name").as_deref(), Some("Team calendar"));
-  assert_eq!(said("team-2026-11-10", "a11y_role").as_deref(), Some("gridcell"));
+  assert_eq!(said("team-day-2026-11-10", "a11y_role").as_deref(), Some("gridcell"));
   assert_eq!(
-    said("team-2026-11-10", "a11y_name").as_deref(),
+    said("team-day-2026-11-10", "a11y_name").as_deref(),
     Some("Tuesday, Nov 10, 2026")
   );
-  assert_eq!(said("team-2026-11-10", "a11y_selected").as_deref(), Some("true"));
-  assert_eq!(said("team-2026-11-12", "a11y_selected").as_deref(), Some("false"));
-  assert_eq!(said("team-2026-11-12", "a11y_current").as_deref(), Some("date"));
+  assert_eq!(said("team-day-2026-11-10", "a11y_selected").as_deref(), Some("true"));
+  assert_eq!(said("team-day-2026-11-12", "a11y_selected").as_deref(), Some("false"));
+  assert_eq!(said("team-day-2026-11-12", "a11y_current").as_deref(), Some("date"));
   assert_eq!(said("release", "a11y_role").as_deref(), Some("button"));
   assert_eq!(said("release", "a11y_name").as_deref(), Some("Release 0.60"));
 }
@@ -682,7 +682,7 @@ fn a_week_keeps_its_days_least_width_and_scrolls_them_under_its_header() {
   let value = Signal::new(None);
   let bound = value.clone();
   let mut stage = in_room(900.0, move || week(&bound));
-  let (_, _, width, _) = stage.bounds("team-2026-11-09");
+  let (_, _, width, _) = stage.bounds("team-day-2026-11-09");
   assert!((width - 900.0 / 7.0).abs() < 0.6, "a seventh of the room: {width}");
   assert!(stage.paints("Sun 15"));
 
@@ -691,23 +691,23 @@ fn a_week_keeps_its_days_least_width_and_scrolls_them_under_its_header() {
   let bound = value.clone();
   let mut stage = in_room(520.0, move || week(&bound));
   assert_eq!(stage.bounds("team").2, 520.0, "the calendar is as wide as its room");
-  let (monday, _, width, _) = stage.bounds("team-2026-11-09");
+  let (monday, _, width, _) = stage.bounds("team-day-2026-11-09");
   assert_eq!(width, EventCalendar::WEEK_DAY_LEAST);
   let title = text_of(&stage, "Nov 9 – Nov 15, 2026");
-  let (_, day_y, ..) = stage.bounds("team-2026-11-09");
+  let (_, day_y, ..) = stage.bounds("team-day-2026-11-09");
   stage
     .tree
     .scroll(260.0, day_y + 40.0, -300.0, 0.0, lurq::app::events::ScrollPhase::Scroll);
   stage.pass();
-  let (moved, ..) = stage.bounds("team-2026-11-09");
+  let (moved, ..) = stage.bounds("team-day-2026-11-09");
   assert!(moved < monday - 100.0, "the days scrolled: {monday} to {moved}");
   let still = text_of(&stage, "Nov 9 – Nov 15, 2026");
   assert_eq!((still.x, still.y), (title.x, title.y), "the header stands still");
   // A press and the keys are as ever.
-  stage.click("team-2026-11-13");
+  stage.click("team-day-2026-11-13");
   assert_eq!(value.get(), Some(day(13)));
   stage.key("ArrowRight");
-  assert_eq!(focused(&stage).as_deref(), Some("team-2026-11-14"));
+  assert_eq!(focused(&stage).as_deref(), Some("team-day-2026-11-14"));
 }
 
 #[test]
@@ -726,21 +726,21 @@ fn a_week_under_the_room_of_a_few_days_shows_one_day_with_the_keys_and_the_choic
   );
   assert!(stage.paints("Thu 12") && stage.paints("Design review"));
   assert!(!stage.paints("Mon 9") && !stage.paints("Fri 13"));
-  assert_eq!(stage.bounds("team-2026-11-12").2, 300.0);
+  assert_eq!(stage.bounds("team-day-2026-11-12").2, 300.0);
   // Its buttons go a day.
-  stage.click("team-next");
+  stage.click("team-nav-next");
   assert!(stage.paints("Fri 13") && stage.paints("Deploy freeze"));
-  stage.click("team-previous");
+  stage.click("team-nav-previous");
   // The keys: Tab on to the day, Right to the next, which is shown; Enter chooses it.
   for _ in 0..3 {
-    if focused(&stage).as_deref() == Some("team-2026-11-12") {
+    if focused(&stage).as_deref() == Some("team-day-2026-11-12") {
       break;
     }
     stage.key("Tab");
   }
-  assert_eq!(focused(&stage).as_deref(), Some("team-2026-11-12"));
+  assert_eq!(focused(&stage).as_deref(), Some("team-day-2026-11-12"));
   stage.key("ArrowRight");
-  assert_eq!(focused(&stage).as_deref(), Some("team-2026-11-13"));
+  assert_eq!(focused(&stage).as_deref(), Some("team-day-2026-11-13"));
   assert!(stage.cut_text_quad("Friday, Nov 13, 2026").is_some());
   assert_eq!(value.get(), None, "a key moves the focus and chooses nothing");
   stage.key("Enter");
@@ -769,7 +769,7 @@ fn a_month_under_seven_days_room_shows_its_events_as_dots_and_a_press_of_a_day_t
     assert!(!stage.paints("Standup"), "{width}: no titles");
     assert!(stage.paints("November 2026"), "{width}");
     // A dot of 6 for each event, in the ink of its kind, under the number of its day.
-    let (x, y, day_width, height) = stage.bounds("team-2026-11-10");
+    let (x, y, day_width, height) = stage.bounds("team-day-2026-11-10");
     assert!(x + day_width <= width + 0.5, "{width}: the days fit");
     let dots: Vec<Quad> = stage
       .quads()
@@ -799,7 +799,7 @@ fn a_month_under_seven_days_room_shows_its_events_as_dots_and_a_press_of_a_day_t
       "{width}: the release's ink"
     );
     // A press of a day chooses it and tells the app to show what is on it.
-    stage.click("team-2026-11-10");
+    stage.click("team-day-2026-11-10");
     assert_eq!(value.get(), Some(day(10)));
     assert_eq!(*told.lock().unwrap(), [day(10)], "{width}");
   }

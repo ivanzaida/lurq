@@ -300,7 +300,9 @@ impl Kbd {
       size: self.size,
       separator_text: self.separator_text,
       label: self.label,
-      recipe: theme.resolve::<Kbd>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<Kbd>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       id: self.id,
       key: self.key,
     };
@@ -748,7 +750,9 @@ impl InlineCode {
       text: self.text,
       language: self.language,
       tokens: colored.then_some(tokens),
-      recipe: theme.resolve::<InlineCode>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<InlineCode>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       id: self.id,
       key: self.key,
     };

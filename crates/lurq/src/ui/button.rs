@@ -422,7 +422,9 @@ impl Button {
     .state(ButtonState::IconOnly, self.icon_only)
     .state(ButtonState::Pill, self.shape == ButtonShape::Pill)
     .state(ButtonState::Description, self.description.is_some());
-    let recipe = theme.resolve::<Button>(&case, Some(&self.rules));
+    let recipe = theme
+      .resolve::<Button>(&case, Some(&self.rules))
+      .owned_by(self.id.as_ref());
     let view = ButtonView {
       label: self.label,
       description: self.description,
@@ -610,8 +612,13 @@ impl ButtonView {
     let side = part.rest().width.unwrap_or(Length::Icon(IconSize::Md));
     let spinner = super::Spinner::new()
       .decorative(true)
+      .rules(&self.recipe.lend(ButtonPart::Spinner))
       .style(super::SpinnerPart::Indicator, |s| s.square(side));
-    Row::new().part(&part).child(spinner.build(self.theme())).into()
+    // The spinner stands for the part, and has its id.
+    Row::new()
+      .part(&part.unnamed())
+      .child(spinner.build(self.theme()))
+      .into()
   }
 
   /// How the default renderer builds a button: the root, with what is before

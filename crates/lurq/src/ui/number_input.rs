@@ -909,7 +909,9 @@ impl NumberInput {
       disabled: self.boxed.disabled,
       at_min,
       at_max,
-      recipe: theme.resolve::<NumberInput>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<NumberInput>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       forced: self.forced,
       model,
       increase_label: self.increase_label,

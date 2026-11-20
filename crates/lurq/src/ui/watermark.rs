@@ -213,7 +213,9 @@ impl Watermark {
       offset: self.offset,
       stagger: self.stagger,
       children: self.children,
-      recipe: theme.resolve::<Watermark>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<Watermark>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       id: self.id,
       key: self.key,
     };

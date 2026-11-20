@@ -26,6 +26,10 @@ pub trait Themed: 'static {
   /// The name the theme keeps the component's recipe and renderer under.
   const NAME: &'static str;
 
+  /// The part the component puts its id on, which [`ResolvedRecipe::owned_by`] names no other node after: `"root"`
+  /// unless the component says another (an overlay's `"panel"`).
+  const ROOT: &'static str = super::recipe::ROOT;
+
   /// What builds the component's nodes: usually
   /// `Arc<dyn Fn(&View) -> Element + Send + Sync>` for the component's view.
   type Renderer: Clone + Send + Sync + 'static;
@@ -356,9 +360,10 @@ impl Theme {
     let layers = self.with_ui(|ui| ui.layers::<C>());
     let case = &case.in_theme(self);
     let mut recipes: Vec<&Recipe> = layers.iter().map(|layer| &**layer).collect();
+    let lent = instance.and_then(|rules| rules.lent()).cloned();
     if let Some(instance) = instance.filter(|rules| !rules.is_empty()) {
       recipes.push(instance);
-      return ResolvedRecipe::new(self, Arc::new(resolve_styles(&recipes, case)));
+      return ResolvedRecipe::new(self, Arc::new(resolve_styles(&recipes, case)), C::ROOT, lent);
     }
     let key = (Name::new(C::NAME), case.clone());
     let version = self.version();
@@ -372,7 +377,7 @@ impl Theme {
       .entry(key)
       .or_insert_with(|| Arc::new(resolve_styles(&recipes, case)))
       .clone();
-    ResolvedRecipe::new(self, styles)
+    ResolvedRecipe::new(self, styles, C::ROOT, lent)
   }
 
   /// The renderer the theme gives a component in place of its default one.
@@ -452,11 +457,22 @@ struct Surroundings {
   pointer: Option<crate::app::pointer::AppPointer>,
   /// The window what is being built is in.
   window: Option<crate::app::window::Window>,
+  /// Which render of a component on this thread it is, one number for each: what the ids of parts are counted in
+  /// (`ui::part_ids`).
+  render: u64,
 }
 
 thread_local! {
   /// The surroundings of the components being rendered on this thread, innermost last.
   static RENDERING_IN: RefCell<Vec<Surroundings>> = const { RefCell::new(Vec::new()) };
+  /// The number of the last render of a component on this thread.
+  static RENDERS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// Which render of a component on this thread is going on, a number no other render has had: 0 outside one. A
+/// subtree in a theme of its own is in the render around it.
+pub(crate) fn current_render() -> u64 {
+  RENDERING_IN.with(|rendering| rendering.borrow().last().map_or(0, |surroundings| surroundings.render))
 }
 
 /// The theme of what is being built: that of the component being rendered,
@@ -533,6 +549,10 @@ pub(crate) fn enter_theme(
   pointer: Option<crate::app::pointer::AppPointer>,
   window: Option<crate::app::window::Window>,
 ) {
+  let render = RENDERS.with(|renders| {
+    renders.set(renders.get() + 1);
+    renders.get()
+  });
   RENDERING_IN.with(|rendering| {
     rendering.borrow_mut().push(Surroundings {
       theme,
@@ -541,6 +561,7 @@ pub(crate) fn enter_theme(
       locale,
       pointer,
       window,
+      render,
     })
   });
 }
@@ -615,7 +636,16 @@ pub fn in_theme<R>(theme: &Theme, build: impl FnOnce() -> R) -> R {
         )
       })
   });
+  let render = current_render();
   enter_theme(theme.clone(), breakpoint, dates, locale, pointer, window);
+  // The subtree is built in the render around it.
+  if render != 0 {
+    RENDERING_IN.with(|rendering| {
+      if let Some(surroundings) = rendering.borrow_mut().last_mut() {
+        surroundings.render = render;
+      }
+    });
+  }
   let _leave = Leave;
   build()
 }

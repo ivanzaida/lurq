@@ -481,7 +481,9 @@ impl WindowChrome {
       inactive,
       maximized,
       tabbed,
-      recipe: theme.resolve::<WindowChrome>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<WindowChrome>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       forced: self.forced,
       window,
       id: self.id,
@@ -773,7 +775,8 @@ impl WindowChromeView {
   /// The app's icon, where it has one.
   #[allow(deprecated)]
   pub fn icon(&self) -> Option<Element> {
-    let part = self.part(WindowChromePart::Icon);
+    // The column around it has the part's id.
+    let part = self.part(WindowChromePart::Icon).unnamed();
     let drawn = match self.icon.clone()? {
       WindowChromeIcon::Glyph(name) => glyph(&part, name, false),
       #[cfg(feature = "raster")]
@@ -801,7 +804,8 @@ impl WindowChromeView {
   /// The title, on one line, ending with an ellipsis where it has no room; centred where the platform centres it.
   pub fn title(&self) -> Option<Element> {
     let title = self.title.as_ref()?;
-    let part = self.part(WindowChromePart::Title);
+    // The row around it has the part's id.
+    let part = self.part(WindowChromePart::Title).unnamed();
     let centred = self.platform != WindowPlatform::Windows;
     let mut row = Row::new()
       .flex_full(1.0, 1.0, Some(0.0))
@@ -821,7 +825,8 @@ impl WindowChromeView {
   pub fn tab_lead(&mut self, with_icon: bool) -> Option<Element> {
     let icon = if with_icon { self.icon() } else { None };
     let title = self.title.clone().map(|title| {
-      let part = self.part(WindowChromePart::Title);
+      // The row around it has the part's id.
+      let part = self.part(WindowChromePart::Title).unnamed();
       let mut row = Row::new()
         .flex_shrink(1.0)
         .min_width(0.0)

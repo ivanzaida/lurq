@@ -63,7 +63,7 @@ fn a_month_picker_is_the_panel_and_the_grid_of_the_design() {
   );
   assert_eq!(stage.fill_color("mp"), Some(light(PaletteColor::Popover)));
   assert_eq!(stage.text("2026"), (light(PaletteColor::Foreground), 14.0));
-  let (cx, cy, cwidth, cheight) = stage.bounds("mp-2026-01");
+  let (cx, cy, cwidth, cheight) = stage.bounds("mp-cell-2026-01");
   assert_eq!((cx, cheight), (x + 12.0, 34.0));
   assert!(
     (cwidth - (252.0 - 24.0 - 12.0) / 4.0).abs() < 0.5,
@@ -72,11 +72,14 @@ fn a_month_picker_is_the_panel_and_the_grid_of_the_design() {
   assert!((cy - (y + 12.0 + 28.0 + 8.0)).abs() < 0.5);
   assert_eq!(stage.text("Jan"), (light(PaletteColor::Foreground), 13.0));
   // The chosen month on the primary fill, this month on the highlight.
-  assert_eq!(stage.fill_color("mp-2026-11"), Some(light(PaletteColor::Primary)));
+  assert_eq!(stage.fill_color("mp-cell-2026-11"), Some(light(PaletteColor::Primary)));
   assert_eq!(stage.text("Nov").0, light(PaletteColor::PrimaryForeground));
-  assert_eq!(stage.fill_color("mp-2026-03"), Some(light(PaletteColor::Highlight)));
-  assert_eq!(stage.fill_color("mp-2026-04"), None);
-  let (nx, _, nwidth, _) = stage.bounds("mp-next");
+  assert_eq!(
+    stage.fill_color("mp-cell-2026-03"),
+    Some(light(PaletteColor::Highlight))
+  );
+  assert_eq!(stage.fill_color("mp-cell-2026-04"), None);
+  let (nx, _, nwidth, _) = stage.bounds("mp-nav-next");
   assert_eq!((nx + nwidth, nwidth), (x + 240.0, 16.0));
 }
 
@@ -89,14 +92,14 @@ fn a_press_chooses_a_month_and_the_buttons_show_another_year() {
     let heard = heard.clone();
     picker.on_change(move |chosen| heard.lock().unwrap().push(chosen))
   });
-  stage.click("mp-2026-11");
+  stage.click("mp-cell-2026-11");
   assert!(told.lock().unwrap().is_empty(), "chosen already");
-  stage.click("mp-2026-02");
+  stage.click("mp-cell-2026-02");
   assert_eq!(value.get_untracked(), month(2026, 2));
-  stage.click("mp-next");
+  stage.click("mp-nav-next");
   assert!(stage.paints("2027"));
   assert_eq!(value.get_untracked(), month(2026, 2), "the year shown is not the value");
-  stage.click("mp-2027-05");
+  stage.click("mp-cell-2027-05");
   assert_eq!(*told.lock().unwrap(), vec![month(2026, 2), month(2027, 5)]);
 }
 
@@ -109,17 +112,17 @@ fn the_keys_move_by_a_month_a_row_and_a_year() {
   stage.key("Tab");
   assert_eq!(
     focused(&stage).as_deref(),
-    Some("mp-2026-11"),
+    Some("mp-cell-2026-11"),
     "Tab enters at the chosen month"
   );
   stage.key("ArrowUp");
-  assert_eq!(focused(&stage).as_deref(), Some("mp-2026-07"));
+  assert_eq!(focused(&stage).as_deref(), Some("mp-cell-2026-07"));
   stage.key("End");
-  assert_eq!(focused(&stage).as_deref(), Some("mp-2026-08"));
+  assert_eq!(focused(&stage).as_deref(), Some("mp-cell-2026-08"));
   stage.key("ArrowRight");
-  assert_eq!(focused(&stage).as_deref(), Some("mp-2026-09"));
+  assert_eq!(focused(&stage).as_deref(), Some("mp-cell-2026-09"));
   stage.key("PageDown");
-  assert_eq!(focused(&stage).as_deref(), Some("mp-2027-09"));
+  assert_eq!(focused(&stage).as_deref(), Some("mp-cell-2027-09"));
   assert!(stage.paints("2027"));
   stage.key("Enter");
   assert_eq!(value.get_untracked(), month(2027, 9));
@@ -129,14 +132,14 @@ fn the_keys_move_by_a_month_a_row_and_a_year() {
 fn a_month_out_of_the_range_cannot_be_chosen() {
   let value = Signal::new(month(2026, 11));
   let mut stage = months(&value, |picker| picker.min(month(2026, 6)).max(month(2026, 12)));
-  stage.click("mp-2026-02");
+  stage.click("mp-cell-2026-02");
   assert_eq!(value.get_untracked(), month(2026, 11));
   assert_eq!(
     stage.text("Feb").0,
     light(PaletteColor::MutedForeground),
     "muted, and at half opacity"
   );
-  stage.click("mp-next");
+  stage.click("mp-nav-next");
   assert!(stage.paints("2026"), "no year after the greatest month's");
 }
 
@@ -157,7 +160,7 @@ fn an_optional_month_picker_holds_none_until_a_choice() {
       .into()
   });
   assert!(stage.paints("Бер"));
-  stage.click("mp-2026-04");
+  stage.click("mp-cell-2026-04");
   assert_eq!(value.get_untracked(), Some(month(2026, 4)));
 }
 
@@ -172,16 +175,16 @@ fn a_year_picker_shows_twelve_years_from_a_decade() {
   });
   assert!(stage.paints("2020 – 2031"));
   assert_eq!(stage.bounds("yp").2, 252.0);
-  assert_eq!(stage.fill_color("yp-2026"), Some(light(PaletteColor::Primary)));
-  assert_eq!(stage.fill_color("yp-2024"), Some(light(PaletteColor::Highlight)));
-  stage.bounds("yp-2031");
-  stage.click("yp-next");
+  assert_eq!(stage.fill_color("yp-cell-2026"), Some(light(PaletteColor::Primary)));
+  assert_eq!(stage.fill_color("yp-cell-2024"), Some(light(PaletteColor::Highlight)));
+  stage.bounds("yp-cell-2031");
+  stage.click("yp-nav-next");
   assert!(stage.paints("2030 – 2041"));
-  stage.click("yp-2035");
+  stage.click("yp-cell-2035");
   assert_eq!(value.get_untracked(), 2035);
   // PageUp goes ten years.
   stage.key("PageUp");
-  assert_eq!(focused(&stage).as_deref(), Some("yp-2025"));
+  assert_eq!(focused(&stage).as_deref(), Some("yp-cell-2025"));
   assert!(stage.paints("2020 – 2031"));
   assert_eq!(*told.lock().unwrap(), vec![2035]);
 }
@@ -198,12 +201,24 @@ fn tooling_reads_a_grid_of_months() {
       .and_then(|element| element.description(name))
   };
   assert_eq!(said(&mut stage, "mp", "a11y_name").as_deref(), Some("Report month"));
-  assert_eq!(said(&mut stage, "mp-2026-11", "a11y_role").as_deref(), Some("gridcell"));
   assert_eq!(
-    said(&mut stage, "mp-2026-11", "a11y_name").as_deref(),
+    said(&mut stage, "mp-cell-2026-11", "a11y_role").as_deref(),
+    Some("gridcell")
+  );
+  assert_eq!(
+    said(&mut stage, "mp-cell-2026-11", "a11y_name").as_deref(),
     Some("November 2026")
   );
-  assert_eq!(said(&mut stage, "mp-2026-11", "a11y_selected").as_deref(), Some("true"));
-  assert_eq!(said(&mut stage, "mp-2026-03", "a11y_current").as_deref(), Some("date"));
-  assert_eq!(said(&mut stage, "mp-next", "a11y_name").as_deref(), Some("Next year"));
+  assert_eq!(
+    said(&mut stage, "mp-cell-2026-11", "a11y_selected").as_deref(),
+    Some("true")
+  );
+  assert_eq!(
+    said(&mut stage, "mp-cell-2026-03", "a11y_current").as_deref(),
+    Some("date")
+  );
+  assert_eq!(
+    said(&mut stage, "mp-nav-next", "a11y_name").as_deref(),
+    Some("Next year")
+  );
 }

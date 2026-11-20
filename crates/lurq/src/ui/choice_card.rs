@@ -151,7 +151,8 @@ impl Content {
     let recipe = match kind {
       ChoiceCardKind::Checkbox => theme.resolve::<CheckboxCard>(&case, Some(&self.rules)),
       ChoiceCardKind::Radio => theme.resolve::<RadioCard>(&case, Some(&self.rules)),
-    };
+    }
+    .owned_by(self.id.as_ref());
     ChoiceCardView {
       kind,
       title: self.title,
@@ -162,8 +163,10 @@ impl Content {
       selected,
       invalid: self.invalid,
       disabled: self.disabled,
-      recipe,
-      indicator: theme.resolve::<C>(&indicator.breakpoint(super::current_breakpoint()), None),
+      recipe: recipe.clone(),
+      indicator: theme
+        .resolve::<C>(&indicator.breakpoint(super::current_breakpoint()), None)
+        .owned_like(&recipe),
       forced: self.forced,
       press: press.filter(|_| !self.disabled),
       id: self.id,
@@ -775,7 +778,8 @@ impl Group {
     }
     .state(ChoiceCardGroupState::Horizontal, !vertical)
     .state(ChoiceCardGroupState::Vertical, vertical);
-    let recipe = theme.resolve::<C>(&case, Some(&self.rules));
+    let recipe = theme.resolve::<C>(&case, Some(&self.rules)).owned_by(self.id.as_ref());
+    // Each card, given no id of its own, is named after the group's: `x-item`, `x-item-2`.
     let item = recipe.rules_for(ChoiceCardGroupPart::Item, ChoiceCardPart::Root);
     (recipe, item)
   }

@@ -144,6 +144,8 @@ impl crate::ui::Styled for DateRangePicker {
 
 impl Themed for DateRangePicker {
   const NAME: &'static str = "date_range_picker";
+  /// The id is the field's: the input's, which the control stands in.
+  const ROOT: &'static str = "control";
   type Renderer = DateRangePickerRenderer;
 
   /// The design's date range picker (`pencil/lurq-design-system.pen`, Date Range Picker): the date picker's field,

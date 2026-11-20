@@ -776,7 +776,10 @@ impl Prepared {
       ..Case::new()
     }
     .state(DocumentTabsState::Overflowing, overflowing);
-    let recipe = theme.resolve::<DocumentTabs>(&case, Some(&self.rules));
+    let recipe = theme
+      .resolve::<DocumentTabs>(&case, Some(&self.rules))
+      .owned_by(self.id.as_ref());
+    let recipe_of_bar = &recipe;
     let tab_recipes = self
       .tabs
       .iter()
@@ -786,7 +789,7 @@ impl Prepared {
           Some(drag) => drop_place(&self.tabs, drag, index),
           None => (false, false),
         };
-        theme.resolve::<DocumentTabs>(
+        let recipe = theme.resolve::<DocumentTabs>(
           &case
             .clone()
             .state(DocumentTabsState::Selected, tab.selected)
@@ -798,7 +801,13 @@ impl Prepared {
             .state(DocumentTabsState::DropBefore, before)
             .state(DocumentTabsState::DropAfter, after),
           Some(&self.rules),
-        )
+        );
+        // A tab with an id names its parts after it, one without after the bar's id and its key.
+        let recipe = recipe.owned_like(recipe_of_bar);
+        match &tab.id {
+          Some(id) => recipe.item(Some(id), DocumentTabsPart::Tab),
+          None => recipe.keyed_item(&tab.key, DocumentTabsPart::Tab),
+        }
       })
       .collect();
     let refs = kept.as_ref().map(|kept| kept.refs(count)).unwrap_or_default();

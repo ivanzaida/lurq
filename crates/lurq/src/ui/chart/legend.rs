@@ -266,9 +266,12 @@ impl ChartLegend {
       .state(ChartLegendState::Vertical, self.orientation.is_vertical())
       .state(ChartLegendState::Pressable, self.write_hidden.is_some());
     case.states.extend(self.states.iter().copied());
-    let recipe = theme.resolve::<ChartLegend>(&case, Some(&self.rules));
-    let hidden_recipe =
-      theme.resolve::<ChartLegend>(&case.clone().state(ChartLegendState::Hidden, true), Some(&self.rules));
+    let recipe = theme
+      .resolve::<ChartLegend>(&case, Some(&self.rules))
+      .owned_by(self.id.as_ref());
+    let hidden_recipe = theme
+      .resolve::<ChartLegend>(&case.clone().state(ChartLegendState::Hidden, true), Some(&self.rules))
+      .owned_like(&recipe);
     let view = ChartLegendView {
       items: self.items,
       hidden: self.hidden,
@@ -328,6 +331,8 @@ impl ChartLegendView {
   pub fn item(&self, place: usize, item: &ChartLegendItem) -> Element {
     let hidden = self.hidden.iter().any(|name| **name == *item.name);
     let recipe = if hidden { &self.hidden_recipe } else { &self.recipe };
+    // The item is named by its place, as its id is, and its parts after it.
+    let recipe = recipe.keyed_item(&place.to_string(), ChartLegendPart::Item);
     let part = |name: ChartLegendPart| recipe.part(name).forced(self.forced);
     let key = Row::new()
       .part(&part(ChartLegendPart::Key))

@@ -487,7 +487,9 @@ impl DropZone {
       rejected,
       invalid: self.invalid,
       disabled: self.disabled,
-      recipe: theme.resolve::<DropZone>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<DropZone>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       forced: self.forced,
       takes: self.takes,
       on_files: self.on_files,

@@ -419,7 +419,9 @@ impl SeekBar {
       size: self.size,
       hovered,
       room,
-      recipe: theme.resolve::<SeekBar>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<SeekBar>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       bound: self.controlled.is_none().then_some(self.position),
       on_change: self.on_change,
       on_change_end: self.on_change_end,
@@ -982,6 +984,7 @@ impl crate::ui::Styled for SeekBar {
 
 impl Themed for SeekBar {
   const NAME: &'static str = "seek_bar";
+  const ROOT: &'static str = "control";
   type Renderer = SeekBarRenderer;
 
   fn parts() -> crate::ui::Declared {

@@ -300,11 +300,14 @@ impl SearchField {
       .case(self.states.clone())
       .state(SearchFieldState::Filled, filled)
       .state(SearchFieldState::FullWidth, self.full_width);
-    let recipe = theme.resolve::<SearchField>(&case, Some(&self.rules));
+    // The id is the input's: a part lent to the field is lent on to it, and the field's own parts are counted
+    // with the input's.
+    let recipe = theme.resolve::<SearchField>(&case, Some(&self.rules)).owned_by(None);
     let of_input = recipe
       .rules_for(SearchFieldPart::Root, InputPart::Root)
       .extend(&recipe.rules_for(SearchFieldPart::Control, InputPart::Control));
-    let input = self.input.rules(&of_input).rules(&self.input_rules);
+    let input = self.input.rules(&of_input).rules(&self.input_rules).view(theme);
+    let recipe = recipe.owned_like(&input.recipe);
     let view = SearchFieldView {
       filled,
       shortcut: self.shortcut,
@@ -314,7 +317,7 @@ impl SearchField {
       recipe,
       forced: self.forced,
       element_ref: self.element_ref,
-      input: input.view(theme),
+      input,
     };
     match theme.renderer::<SearchField>() {
       Some(renderer) => renderer(view),

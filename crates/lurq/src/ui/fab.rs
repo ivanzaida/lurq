@@ -182,7 +182,9 @@ impl Fab {
     for state in &self.states {
       case = case.state(state.clone(), true);
     }
-    let recipe = theme.resolve::<Fab>(&case, Some(&self.rules));
+    let recipe = theme
+      .resolve::<Fab>(&case, Some(&self.rules))
+      .owned_by(self.id.as_ref());
     // What the recipe says of each part is laid over the theme's for that part of a button.
     let rules = recipe
       .rules_for(FabPart::Root, ButtonPart::Root)

@@ -607,7 +607,9 @@ impl<K: GalleryKey> Component for GalleryHost<K> {
     .state(GalleryState::Selectable, gallery.selectable)
     .state(GalleryState::Disabled, gallery.disabled);
     let view = GalleryView {
-      recipe: theme.resolve::<Gallery<K>>(&case, Some(&gallery.rules)),
+      recipe: theme
+        .resolve::<Gallery<K>>(&case, Some(&gallery.rules))
+        .owned_by(gallery.id.as_ref()),
       cells,
       viewer,
       columns: in_a_row,

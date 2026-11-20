@@ -231,7 +231,9 @@ impl InfoLabel {
       info: self.info.clone(),
       info_label: self.info_label.clone(),
       icon: self.icon,
-      recipe: theme.resolve::<InfoLabel>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<InfoLabel>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       forced: self.forced,
       id: self.id.clone(),
       key: self.key.clone(),
@@ -253,6 +255,11 @@ impl InfoLabel {
       .collision(self.collision)
       .arrow(self.arrow)
       .force_open(self.force_open);
+    // The tooltip is named after the label, as a part of it would be.
+    let tooltip = match &self.id {
+      Some(id) => tooltip.id(format!("{id}-tooltip")),
+      None => tooltip,
+    };
     match self.offset {
       Some(offset) => tooltip.offset(offset),
       None => tooltip,

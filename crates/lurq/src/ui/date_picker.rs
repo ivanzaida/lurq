@@ -341,7 +341,9 @@ impl<V: Picked> Picker<V> {
       .state(DatePickerState::Open, open)
       .state(DatePickerState::Disabled, disabled)
       .state(DatePickerState::FullWidth, self.full_width);
-    let recipe = theme.resolve::<V::Picker>(&case, Some(&self.rules));
+    let recipe = theme
+      .resolve::<V::Picker>(&case, Some(&self.rules))
+      .owned_by(self.id.as_ref());
     let calendar_rules = &self.calendar;
     let model = Model {
       value: self.value.clone(),
@@ -932,7 +934,8 @@ impl<V: Picked> PickerView<V> {
         breakpoint: super::current_breakpoint(),
         ..Case::default()
       };
-      let recipe = self.theme().resolve::<Popover>(&case, Some(&rules));
+      // Named after the picker's panel, as the popover is.
+      let recipe = self.theme().resolve::<Popover>(&case, Some(&rules)).owned_by(None);
       let mut panel = Column::new()
         .align_items(Alignment::Stretch)
         .part(&recipe.part(PopoverPart::Panel))
@@ -1314,8 +1317,8 @@ macro_rules! picker_methods {
     }
 
     /// The id of the field: what is typed in and focused. The button at its start has it with `-trigger` after it,
-    /// the one at its end `-clear`, the panel `-panel`, and the calendar `-calendar`, whose days have that with `-`
-    /// and the date after it.
+    /// the one at its end `-clear`, the panel `-panel`, and the calendar `-calendar`, whose days have that with
+    /// `-day-` and the date after it.
     pub fn id(mut self, id: impl Into<Arc<str>>) -> Self {
       let id = id.into();
       self.core.calendar = self.core.calendar.id(format!("{id}-calendar"));
@@ -1401,6 +1404,8 @@ impl crate::ui::Styled for DatePicker {
 
 impl Themed for DatePicker {
   const NAME: &'static str = "date_picker";
+  /// The id is the field's: the input's, which the control stands in.
+  const ROOT: &'static str = "control";
   type Renderer = DatePickerRenderer;
 
   fn parts() -> crate::ui::Declared {

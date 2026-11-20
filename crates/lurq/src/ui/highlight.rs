@@ -216,7 +216,9 @@ impl Highlight {
       marks: self.marks,
       current: self.current,
       keep_weight: self.keep_weight,
-      recipe: theme.resolve::<Highlight>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<Highlight>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       text_ref,
       id: self.id,
       key: self.key,

@@ -2185,7 +2185,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
   /// The table as a renderer sees it, with the rows of `window` where it builds some of them.
   fn view(&self, theme: &Theme, tracks: ColumnTracks, window: Option<Window>) -> TableView {
     let case = self.case();
-    let recipe = self.resolve(theme, &case);
+    let recipe = self.resolve(theme, &case).owned_by(self.id.as_ref());
     let geometry = Geometry::of(&recipe);
     let selectable = self.selectable();
     let checkboxes = self.with_checkboxes();
@@ -2208,7 +2208,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
             .state(TableState::Selected, selected)
             .state(TableState::Last, last)
             .state(TableState::Pinned, sticky);
-          self.resolve(theme, &case)
+          self.resolve(theme, &case).owned_like(&recipe)
         })
         .clone()
     };
@@ -2229,7 +2229,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
             .state(TableState::RangeStart, marked(|mark| mark.start))
             .state(TableState::RangeEnd, marked(|mark| mark.end));
           case.states.extend(self.columns[column].kinds.iter().copied());
-          self.resolve(theme, &case)
+          self.resolve(theme, &case).owned_like(&recipe)
         })
         .clone()
     };
@@ -2413,6 +2413,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
           .find(|column| column.id == line.column)
           .map_or_else(|| line.column.clone(), |column| column.title.clone());
         let (toggle, key) = (toggle.clone(), line.key.clone());
+        let id = id_of(&format!("group-{position}"));
         Some(TableGroup {
           position,
           key: line.key.clone(),
@@ -2420,7 +2421,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
           count: line.count,
           open: line.open,
           entry: entry == Some(position),
-          recipe: group_recipe.clone(),
+          recipe: group_recipe.item(id.as_ref(), TablePart::GroupRow),
           toggle: Arc::new(move |open| toggle(&key, open)),
           element: window
             .as_ref()
@@ -2438,7 +2439,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
               }
             }
           },
-          id: id_of(&format!("group-{position}")),
+          id,
         })
       })
       .collect();
@@ -2496,43 +2497,47 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
       kept.insert(key, values.clone());
       values
     };
-    let summary_of = |values: &[Said], id: Option<Arc<str>>, position: Option<usize>| TableSummary {
-      position,
-      cells: self
-        .columns
-        .iter()
-        .enumerate()
-        .filter(|(column_index, _)| built(*column_index))
-        .map(|(column_index, column)| TableCell {
-          column: column_index,
-          content: summary_content(&summary_recipe, &values[column_index], &self.words.summary),
-          grid: None,
-          part: summary_recipe.part(TablePart::Cell),
-          align: column.align,
-          pinned: sticky_of(column_index),
-          fill: sticky_of(column_index).and(summary_fill.clone()),
-          controls: false,
-          last: cell_ends(column_index),
-          gap: geometry.gap,
-          lead: if column_index == 0 && sticky && !checkboxes && !numbered {
-            geometry.padding_start
-          } else {
-            0.0
-          },
-          trail: trail_of(column_index),
-        })
-        .collect(),
-      recipe: summary_recipe.clone(),
-      tracks: tracks.clone(),
-      columns_built: columns_built.clone(),
-      geometry,
-      checkbox: checkboxes,
-      number_lead,
-      pinned_start: sticky,
-      pinned_end: end_pins > 0,
-      fill: summary_fill.clone(),
-      name: self.words.summary.row.clone(),
-      id,
+    let summary_of = |values: &[Said], id: Option<Arc<str>>, position: Option<usize>| {
+      // Its cells are named after the summary, each by its column: `x-summary-cell-size`.
+      let summary_recipe = summary_recipe.item(id.as_ref(), TablePart::Summary);
+      TableSummary {
+        position,
+        cells: self
+          .columns
+          .iter()
+          .enumerate()
+          .filter(|(column_index, _)| built(*column_index))
+          .map(|(column_index, column)| TableCell {
+            column: column_index,
+            content: summary_content(&summary_recipe, &values[column_index], &self.words.summary),
+            grid: None,
+            part: summary_recipe.part(TablePart::Cell).keyed(&column.id),
+            align: column.align,
+            pinned: sticky_of(column_index),
+            fill: sticky_of(column_index).and(summary_fill.clone()),
+            controls: false,
+            last: cell_ends(column_index),
+            gap: geometry.gap,
+            lead: if column_index == 0 && sticky && !checkboxes && !numbered {
+              geometry.padding_start
+            } else {
+              0.0
+            },
+            trail: trail_of(column_index),
+          })
+          .collect(),
+        recipe: summary_recipe.clone(),
+        tracks: tracks.clone(),
+        columns_built: columns_built.clone(),
+        geometry,
+        checkbox: checkboxes,
+        number_lead,
+        pinned_start: sticky,
+        pinned_end: end_pins > 0,
+        fill: summary_fill.clone(),
+        name: self.words.summary.row.clone(),
+        id,
+      }
     };
     // Every open group's summary is computed with the others, built or not, so a scroll that brings one into view
     // finds it.
@@ -2637,7 +2642,9 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
         let first_built = (0..self.columns.len()).find(|column| built(*column));
         let selected = selectable && held_now.contains(&keys.at(index));
         let last = position + 1 == line_count && !footer;
-        let recipe = row_recipe(selected, last);
+        // The row's parts are named after its id, `x-row-<index>`.
+        let row_id = id_of(&format!("row-{index}"));
+        let recipe = row_recipe(selected, last).item(row_id.as_ref(), TablePart::Row);
         // A cell that stays covers what scrolls under it, in the row's fill, or the table's.
         let stuck_fill: BackgroundColor = recipe
           .part(TablePart::Row)
@@ -2652,8 +2659,10 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
           .filter(|(column_index, _)| built(*column_index))
           .map(|(column_index, column)| {
             let mark = span.and_then(|span| span.mark(rank, column_index));
+            // A cell is named by its row and its column, as a grid's is: `x-cell-<row>-<column>`.
             let part = cell_recipe(column_index, selected, mark)
               .part(TablePart::Cell)
+              .keyed(format!("{index}-{column_index}"))
               .forced(self.forced);
             let content = match (&column.content, column.editor.as_ref().map(|editor| &editor.kind)) {
               // A text that wraps takes the room of its cell, and its lines as many as they need.
@@ -2707,7 +2716,15 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
             // The first column's cell of a row of a tree: its level's indent, and the chevron that opens and closes
             // the rows under it (room for one where there are none); of a row with a detail, the detail's chevron.
             let content = match opener(rank, index).filter(|_| column_index == 0) {
-              Some((level, open, toggle)) => tree_cell(&toggle_part, level, open, rank, toggle, content, column.wrap),
+              Some((level, open, toggle)) => tree_cell(
+                &toggle_part.clone().keyed(index),
+                level,
+                open,
+                rank,
+                toggle,
+                content,
+                column.wrap,
+              ),
               None => content,
             };
             let grid = grid_model.as_ref().map(|grid| {
@@ -2835,7 +2852,7 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
             .as_ref()
             .and_then(|window| window.refs.get(&position).cloned())
             .unwrap_or_default(),
-          id: id_of(&format!("row-{index}")),
+          id: row_id,
         }
       })
       .collect();
@@ -3198,7 +3215,10 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
             0.0
           },
           trail: trail_of(column_index),
-          recipe: self.resolve(theme, &header_case),
+          recipe: self
+            .resolve(theme, &header_case)
+            .owned_like(&recipe)
+            .item(id_of(&format!("header-{}", column.id)).as_ref(), TablePart::HeaderCell),
           press,
           resize,
           element: header_refs.get(&column_index).cloned(),
@@ -4890,6 +4910,7 @@ impl TableRow {
   pub fn checkbox(&self) -> Element {
     let part = self.part(TablePart::Select);
     let checkbox = Checkbox::new(&self.select_label)
+      .rules(&self.recipe.lend("checkbox"))
       .label_hidden(true)
       .checked(self.selected)
       .disabled(self.disabled)

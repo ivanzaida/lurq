@@ -447,6 +447,16 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SortableList<T> {
         Some(&self.rules),
       )
     };
+    let recipe = resolve(false, false, self.disabled).owned_by(self.id.as_ref());
+    // A row's parts are named after its id, or its key, or counted with the list's.
+    let of_row = |item: &SortableItem<T>, row: ResolvedRecipe| {
+      let row = row.owned_like(&recipe);
+      match (&item.id, &item.key) {
+        (Some(id), _) => row.item(Some(id), SortableListPart::Item),
+        (None, Some(key)) => row.keyed_item(key, SortableListPart::Item),
+        (None, None) => row,
+      }
+    };
     let drag = kept.drawn();
     let count = self.items.len();
     let enabled: Vec<bool> = self.items.iter().map(|item| !self.disabled && !item.disabled).collect();
@@ -544,8 +554,8 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SortableList<T> {
           entry: entry == Some(index),
           index,
           count,
-          recipe: resolve(is_selected[index], false, !enabled[index]),
-          lifted: dragged.then(|| resolve(is_selected[index], true, false)),
+          recipe: of_row(item, resolve(is_selected[index], false, !enabled[index])),
+          lifted: dragged.then(|| of_row(item, resolve(is_selected[index], true, false))),
           forced: self.forced.filter(|_| entry == Some(index)),
           pick: selection.clone().filter(|_| enabled[index]).map(|selection| {
             Arc::new(move |pick: Pick| selection.pick(index, pick)) as Arc<dyn Fn(Pick) + Send + Sync>
@@ -568,7 +578,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SortableList<T> {
       label: self.label.clone(),
       selects,
       disabled: self.disabled,
-      recipe: resolve(false, false, self.disabled),
+      recipe,
       drag,
       kept,
       id: self.id.clone(),

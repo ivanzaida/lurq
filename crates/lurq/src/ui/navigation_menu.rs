@@ -1037,7 +1037,7 @@ fn build(
     dropped,
     open,
     disabled: menu.disabled,
-    recipe: menu.resolve(&theme, &case),
+    recipe: menu.resolve(&theme, &case).owned_by(menu.id.as_ref()),
     case,
     rules: menu.rules.clone(),
     forced: menu.forced,
@@ -1103,7 +1103,10 @@ impl NavigationMenuView {
     for (state, on) in states {
       case = case.state(*state, *on);
     }
-    self.theme().resolve::<NavigationMenu>(&case, Some(&self.rules))
+    self
+      .theme()
+      .resolve::<NavigationMenu>(&case, Some(&self.rules))
+      .owned_like(&self.recipe)
   }
 
   /// The style of a part of the item `index`, in its states: open, current, disabled.
@@ -1115,6 +1118,7 @@ impl NavigationMenuView {
         (NavigationMenuState::Current, current),
         (NavigationMenuState::Disabled, self.is_disabled(index)),
       ])
+      .item(self.item_id(index).as_ref(), NavigationMenuPart::Item)
       .part(part)
       .forced(self.forced)
   }
@@ -1336,10 +1340,16 @@ impl NavigationMenuView {
   /// A link of the panel of the item `index`, the `at`th of its links: its icon, its title over its description.
   /// The first that can be chosen is where the focus goes as the panel opens from the keyboard.
   fn link(&self, index: usize, at: usize, link: &NavLink, first: Option<&ElementRef>) -> Element {
-    let recipe = self.recipe_in(&[
-      (NavigationMenuState::Current, link.current),
-      (NavigationMenuState::Disabled, link.disabled),
-    ]);
+    let id = link
+      .id
+      .clone()
+      .or_else(|| self.id.as_ref().map(|id| Arc::from(format!("{id}-{index}-{at}"))));
+    let recipe = self
+      .recipe_in(&[
+        (NavigationMenuState::Current, link.current),
+        (NavigationMenuState::Disabled, link.disabled),
+      ])
+      .item(id.as_ref(), NavigationMenuPart::Link);
     let part = |name: NavigationMenuPart| recipe.part(name).forced(self.forced);
     let fill = Dimension::Pct(100.0);
     let mut button = pressable(&part(NavigationMenuPart::Link), link.disabled)
@@ -1359,10 +1369,6 @@ impl NavigationMenuView {
     if let Some(first) = first {
       button = button.ref_element(first.clone()).autofocus(true);
     }
-    let id = link
-      .id
-      .clone()
-      .or_else(|| self.id.as_ref().map(|id| Arc::from(format!("{id}-{index}-{at}"))));
     if let Some(id) = id {
       button = button.id(id);
     }
@@ -1406,6 +1412,10 @@ impl NavigationMenuView {
     // What has no room beside the column before it goes under it: in a window narrower than its columns the
     // panel is one column, no wider than the window lets it be.
     let fill = Dimension::Pct(100.0);
+    // What the panel holds is named after the panel, where the menu has an id.
+    let named = self.id.as_ref().map(|_| self.panel_id(index));
+    let inner = self.recipe.item(named.as_ref(), NavigationMenuPart::Panel);
+    let inner = |part: NavigationMenuPart| inner.part(part).forced(self.forced);
     let mut row = Row::new()
       .wrap()
       .max_width(fill)
@@ -1418,7 +1428,7 @@ impl NavigationMenuView {
       row = row.child(
         Column::new()
           .align_items(Alignment::Stretch)
-          .part(&self.part(NavigationMenuPart::Featured))
+          .part(&inner(NavigationMenuPart::Featured))
           .max_width(fill)
           .focus_group(FocusGroup::none())
           .child(featured),
@@ -1429,7 +1439,7 @@ impl NavigationMenuView {
       let mut column = Column::new()
         .align_items(Alignment::Stretch)
         .overflow_visible()
-        .part(&self.part(NavigationMenuPart::Column))
+        .part(&inner(NavigationMenuPart::Column))
         .max_width(fill);
       for (in_column, link) in links.iter().enumerate() {
         let at = column_at * per + in_column;
@@ -1540,11 +1550,14 @@ impl NavigationMenuView {
     let current = (0..self.items.len())
       .filter(went)
       .any(|index| self.items[index].holds_current());
-    let recipe = self.recipe_in(&[
-      (NavigationMenuState::Open, open),
-      (NavigationMenuState::Current, current),
-      (NavigationMenuState::Disabled, self.disabled),
-    ]);
+    let more_id = self.id.as_ref().map(|id| Arc::<str>::from(format!("{id}-more")));
+    let recipe = self
+      .recipe_in(&[
+        (NavigationMenuState::Open, open),
+        (NavigationMenuState::Current, current),
+        (NavigationMenuState::Disabled, self.disabled),
+      ])
+      .item(more_id.as_ref(), NavigationMenuPart::Item);
     let label = recipe.part(NavigationMenuPart::Label);
     let (press, keys) = (shared.more_open.clone(), shared.more_open.clone());
     let mut button = pressable(&recipe.part(NavigationMenuPart::Item), self.disabled)
@@ -1571,8 +1584,8 @@ impl NavigationMenuView {
         Name::new(if open { icons::CHEVRON_UP } else { icons::CHEVRON_DOWN }),
         false,
       ));
-    if let Some(id) = &self.id {
-      button = button.id(format!("{id}-more"));
+    if let Some(id) = more_id {
+      button = button.id(id);
     }
     let mut menu = Menu::new(shared.more_open.clone(), shared.more.clone())
       .label(&self.more_label)
@@ -1669,6 +1682,7 @@ impl crate::ui::Styled for NavigationMenu {
 
 impl Themed for NavigationMenu {
   const NAME: &'static str = "navigation-menu";
+  const ROOT: &'static str = "bar";
   type Renderer = NavigationMenuRenderer;
 
   fn parts() -> crate::ui::Declared {

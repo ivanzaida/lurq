@@ -328,7 +328,9 @@ impl ContextMenu {
       offset: self.offset,
       collision: self.collision,
       point: if self.open.get() { point.get() } else { None },
-      recipe: theme.resolve::<ContextMenu>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<ContextMenu>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       target: Some(target),
       anchor,
       open: self.open,
@@ -490,11 +492,16 @@ impl ContextMenuView {
       panel = match entry {
         MenuEntry::Item(item) => panel.child(
           item
+            .named_by(&self.recipe, ContextMenuPart::BarItem)
             .rules(&item_rules)
             .in_menu(vec![close.clone()], Vec::new())
             .build(self.theme()),
         ),
-        MenuEntry::Separator => panel.child(Separator::vertical().build(self.theme())),
+        MenuEntry::Separator => panel.child(
+          Separator::vertical()
+            .rules(&self.recipe.lend("separator"))
+            .build(self.theme()),
+        ),
         MenuEntry::Heading(_) => panel,
       };
     }
@@ -616,6 +623,7 @@ impl crate::ui::Styled for ContextMenu {
 
 impl Themed for ContextMenu {
   const NAME: &'static str = "context_menu";
+  const ROOT: &'static str = "bar";
   type Renderer = ContextMenuRenderer;
 
   fn parts() -> crate::ui::Declared {

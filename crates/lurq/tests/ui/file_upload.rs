@@ -258,8 +258,8 @@ fn shown_and_not_operated_nothing_is_added_or_removed() {
   assert!(
     stage
       .tree
-      .get_element_by_id_mut("upload-screenshot.png-remove")
-      .is_none(),
+      .get_element_by_id("upload-screenshot.png-remove")
+      .is_none_or(|element| element.tag_name() != "Button"),
     "no control is pressed"
   );
 }
@@ -336,7 +336,13 @@ fn a_disabled_upload_takes_no_drop_and_removes_nothing() {
   stage.tree.file_drop(dragged(&["b.png"]), x, y);
   stage.pass();
   assert_eq!(names(&files.get()), ["a.png"]);
-  assert!(stage.tree.get_element_by_id_mut("upload-a.png-remove").is_none());
+  assert!(
+    stage
+      .tree
+      .get_element_by_id("upload-a.png-remove")
+      .is_none_or(|element| element.tag_name() != "Button"),
+    "no control is pressed"
+  );
 }
 
 #[test]
@@ -493,5 +499,11 @@ fn a_file_sent_that_is_not_removed_has_its_check_alone() {
       .id("upload")
       .into()
   });
-  assert!(stage.tree.get_element_by_id_mut("upload-a.png-remove").is_none());
+  assert!(
+    stage
+      .tree
+      .get_element_by_id("upload-a.png-remove")
+      .is_none_or(|element| element.tag_name() != "Button"),
+    "no control is pressed"
+  );
 }

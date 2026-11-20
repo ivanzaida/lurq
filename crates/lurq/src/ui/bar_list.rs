@@ -344,7 +344,9 @@ impl BarList {
       states: self.states.clone(),
     }
     .state(BarListState::Framed, self.framed);
-    let recipe = theme.resolve::<BarList>(&base, Some(&self.rules));
+    let recipe = theme
+      .resolve::<BarList>(&base, Some(&self.rules))
+      .owned_by(self.id.as_ref());
     let max = self
       .max
       .unwrap_or_else(|| round_up(self.items.iter().map(|item| item.value).fold(0.0, f64::max)));
@@ -382,6 +384,12 @@ impl BarList {
         } else {
           0.0
         };
+        // A row with an id names its parts after it; one with a key only, after the list's id and the key.
+        let row = theme.resolve::<BarList>(&case, Some(&self.rules)).owned_like(&recipe);
+        let row = match (&item.id, &item.key) {
+          (None, Some(key)) => row.keyed_item(key, BarListPart::Row),
+          (id, _) => row.item(id.as_ref(), BarListPart::Row),
+        };
         BarListRow {
           value_text: text(item.value),
           name: item.name,
@@ -391,7 +399,7 @@ impl BarList {
           on_select: handlers,
           disabled: item.disabled,
           forced: if forced_at == Some(index) { self.forced } else { None },
-          recipe: theme.resolve::<BarList>(&case, Some(&self.rules)),
+          recipe: row,
           id: item.id,
           key: item.key,
         }

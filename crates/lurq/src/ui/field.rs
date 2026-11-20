@@ -494,7 +494,9 @@ impl Field {
       info,
       orientation: self.orientation,
       fluid,
-      recipe: theme.resolve::<Field>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<Field>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       id: self.id,
       key: self.key,
     };

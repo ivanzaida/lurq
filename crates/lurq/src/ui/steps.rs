@@ -543,6 +543,9 @@ impl Steps {
         && (index < current || self.ahead)
         && !steps_of.get(index).is_some_and(|step| step.disabled)
     };
+    let recipe = theme
+      .resolve::<Steps>(&self.case(None), Some(&self.rules))
+      .owned_by(self.id.as_ref());
     let steps: Vec<StepView> = self
       .steps
       .iter()
@@ -550,16 +553,24 @@ impl Steps {
       .map(|(index, step)| {
         let status = status_of(index, current);
         let pressable = pressable(index);
+        // A step names its parts after its id, or after the steps' id and its index, as its holder is named.
+        let id = step
+          .id
+          .clone()
+          .or_else(|| self.id.as_ref().map(|id| Arc::from(format!("{id}-{index}"))));
         StepView {
           step: step.clone(),
           status,
           pressable,
-          recipe: theme.resolve::<Steps>(&self.case(Some((step, status, pressable))), Some(&self.rules)),
+          recipe: theme
+            .resolve::<Steps>(&self.case(Some((step, status, pressable))), Some(&self.rules))
+            .owned_like(&recipe)
+            .item(id.as_ref(), StepsPart::Step),
         }
       })
       .collect();
     let view = StepsView {
-      recipe: theme.resolve::<Steps>(&self.case(None), Some(&self.rules)),
+      recipe,
       steps,
       current,
       orientation: self.orientation,

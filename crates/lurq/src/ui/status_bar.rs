@@ -352,7 +352,9 @@ impl StatusBar {
       states: self.states.clone(),
       ..Case::new()
     };
-    let recipe = theme.resolve::<StatusBar>(&case, Some(&self.rules));
+    let recipe = theme
+      .resolve::<StatusBar>(&case, Some(&self.rules))
+      .owned_by(self.id.as_ref());
     let bar_variant = self.variant;
     let leading_first = self.drops_first == StatusRegion::Leading;
     let items: Vec<(StatusItem, bool)> = self
@@ -377,7 +379,14 @@ impl StatusBar {
         .state(StatusBarState::Pressable, pressable)
         .state(StatusBarState::Progress, item.progress.is_some())
         .state(StatusBarState::Disabled, item.disabled);
-        let recipe = theme.resolve::<StatusBar>(&item_case, Some(&self.rules));
+        let recipe = theme
+          .resolve::<StatusBar>(&item_case, Some(&self.rules))
+          .owned_like(&recipe);
+        // An item names its parts after its id, else after its key, where the app gave it one.
+        let recipe = match &item.key {
+          Some(key) if item.id.is_none() => recipe.keyed_item(key, StatusBarPart::Item),
+          _ => recipe.item(item.id.as_ref(), StatusBarPart::Item),
+        };
         // The end that gives way first is in the lower order; the lower priority gives way before the higher.
         let first = leading == leading_first;
         let order = item.priority.saturating_mul(2).saturating_add(i32::from(!first));

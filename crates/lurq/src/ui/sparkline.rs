@@ -240,7 +240,9 @@ impl Sparkline {
       values,
       label: self.label,
       summary,
-      recipe: theme.resolve::<Sparkline>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<Sparkline>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       id: self.id,
       key: self.key,
     }

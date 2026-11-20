@@ -390,7 +390,9 @@ impl Editable {
       read_only: self.read_only,
       disabled: self.disabled,
       full_width: self.full_width,
-      recipe: theme.resolve::<Editable>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<Editable>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       held: self.value,
       on_change: self.on_change,
       on_cancel: self.on_cancel,

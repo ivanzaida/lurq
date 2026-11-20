@@ -657,7 +657,9 @@ impl FindBar {
       open,
       replacing,
       count_text,
-      recipe: theme.resolve::<FindBar>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<FindBar>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       next: all(self.on_next),
       previous: all(self.on_previous),
       dismiss,
@@ -958,8 +960,9 @@ impl FindBarView {
       }
       menu = menu.item(item);
     }
+    // The button is `x-options`: the row around it is not named apart.
     Row::new()
-      .part(&self.part(FindBarPart::Options))
+      .part(&self.part(FindBarPart::Options).unnamed())
       .child(button)
       .child(menu.build(self.theme()))
   }
@@ -991,13 +994,12 @@ impl FindBarView {
     if options.is_empty() {
       return None;
     }
-    Some(
-      options
+    Some(options
         .into_iter()
-        .fold(Row::new().part(&self.part(FindBarPart::Options)), |row, option| {
+        // `x-options` is the button the options are behind where the field has no room: the row is not named.
+        .fold(Row::new().part(&self.part(FindBarPart::Options).unnamed()), |row, option| {
           row.child(option)
-        }),
-    )
+        }))
   }
 
   /// The width the options take over the end of the field.
@@ -1301,6 +1303,7 @@ impl crate::ui::Styled for FindBar {
 
 impl Themed for FindBar {
   const NAME: &'static str = "find_bar";
+  const ROOT: &'static str = "bar";
   type Renderer = FindBarRenderer;
 
   fn parts() -> crate::ui::Declared {

@@ -210,7 +210,9 @@ impl Separator {
       orientation: self.orientation,
       label: self.label,
       decorative: self.decorative,
-      recipe: theme.resolve::<Separator>(&case, Some(&rules)),
+      recipe: theme
+        .resolve::<Separator>(&case, Some(&rules))
+        .owned_by(self.id.as_ref()),
       id: self.id,
       key: self.key,
     };

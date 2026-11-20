@@ -23,7 +23,7 @@ fn day(month: u8, day: u8) -> Date {
 
 /// The id of a day of the picker's calendar.
 fn cell(month: u8, number: u8) -> String {
-  format!("rp-calendar-{}", day(month, number))
+  format!("rp-calendar-day-{}", day(month, number))
 }
 
 /// A range picker with the id `rp`, mounted at the top of a window of 640 by 500, with today the 9th of November.

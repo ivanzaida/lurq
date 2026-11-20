@@ -221,7 +221,9 @@ impl Fieldset {
       description: self.description,
       children: self.children,
       disabled: self.disabled,
-      recipe: theme.resolve::<Fieldset>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<Fieldset>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       id: self.id,
       key: self.key,
     };
@@ -664,7 +666,9 @@ impl ErrorSummary {
     let view = ErrorSummaryView {
       title,
       errors: self.errors,
-      recipe: theme.resolve::<ErrorSummary>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<ErrorSummary>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       forced: self.forced,
       id: self.id,
       key: self.key,
@@ -728,9 +732,17 @@ impl ErrorSummaryView {
   }
 
   fn line(&self, error: &FieldError) -> Element {
-    let part = self.part(ErrorSummaryPart::Item);
-    let bullet = Row::new().part(&self.part(ErrorSummaryPart::Bullet));
-    let message = self.part(ErrorSummaryPart::Error);
+    // A line the app gave an id names its parts after it, one it gave a key after the summary's id and the key.
+    let recipe = match (&error.id, &error.key) {
+      (None, Some(key)) => self.recipe.keyed_item(key, ErrorSummaryPart::Item),
+      (id, _) => self.recipe.item(id.as_ref(), ErrorSummaryPart::Item),
+    };
+    let part = |part: ErrorSummaryPart| recipe.part(part).forced(self.forced);
+    let message = part(ErrorSummaryPart::Error);
+    let (part, bullet) = (
+      part(ErrorSummaryPart::Item),
+      Row::new().part(&part(ErrorSummaryPart::Bullet)),
+    );
     match &error.focus {
       Some(field) => pressable(&part, false)
         .justify(Justify::Start)

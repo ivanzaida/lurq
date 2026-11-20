@@ -395,7 +395,9 @@ impl Menu {
       inline: self.inline,
       submenu: self.submenu,
       label: self.label,
-      recipe: theme.resolve::<Menu>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<Menu>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       anchor: self.anchor,
       open: self.open,
       offset: self.offset,
@@ -647,7 +649,8 @@ impl MenuView {
   fn back_row(&self, item: &MenuItem, index: usize) -> Element {
     let rules = self
       .recipe
-      .rules_for(MenuPart::PageTitle, MenuItemPart::Label)
+      .lend("back")
+      .extend(&self.recipe.rules_for(MenuPart::PageTitle, MenuItemPart::Label))
       .extend(&self.recipe.rules_for(MenuPart::PageIcon, MenuItemPart::Icon));
     let page = self.page.clone();
     let mut back = MenuItem::new(&item.label)
@@ -668,8 +671,14 @@ impl MenuView {
 
   /// An item as this menu draws it, in its theme: choosing it closes the
   /// menu, and the pointer on it closes the submenu of any other item.
+  ///
+  /// An item with no id of its own is named after the menu's: `x-item-<key>` where it has a key, `x-item`, `x-item-2`
+  /// … where it has none.
   pub fn item(&self, item: MenuItem) -> Element {
-    item.in_menu(self.closes(), self.submenus.clone()).build(self.theme())
+    item
+      .named_by(&self.recipe, "item")
+      .in_menu(self.closes(), self.submenus.clone())
+      .build(self.theme())
   }
 
   /// How far the panel stands from its anchor: along the axis it opens on, its `offset` or the design's 4, and
@@ -790,6 +799,7 @@ impl crate::ui::Styled for Menu {
 
 impl Themed for Menu {
   const NAME: &'static str = "menu";
+  const ROOT: &'static str = "panel";
   type Renderer = MenuRenderer;
 
   fn parts() -> crate::ui::Declared {
@@ -1078,6 +1088,17 @@ impl MenuItem {
     self
   }
 
+  /// The item, given no id of its own, named after the id of `recipe`'s component as its `part`:
+  /// `x-<part>-<key>` where it has a key, and by its place among the others where it has none.
+  pub(crate) fn named_by(self, recipe: &ResolvedRecipe, part: impl Into<Name>) -> Self {
+    let part = part.into();
+    let lent = match &self.key {
+      Some(key) => recipe.keyed_item(key, part).lend(part),
+      None => recipe.lend(part),
+    };
+    self.rules(&lent)
+  }
+
   /// Draws the item as it is under the pointer, held down or focused from the
   /// keyboard, with nothing pointing at it: for a gallery or a test.
   pub fn force(mut self, interaction: Option<Interaction>) -> Self {
@@ -1143,7 +1164,9 @@ impl MenuItem {
       destructive: self.destructive,
       disabled: self.disabled,
       open,
-      recipe: theme.resolve::<MenuItem>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<MenuItem>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       submenu: self.submenu,
       page: self.page.is_some(),
       stays: self.stays,
@@ -1382,7 +1405,12 @@ impl MenuItemView {
   /// of its items closes it and the menus the item is in.
   pub fn submenu(&mut self) -> Option<Element> {
     let menu = self.submenu.take()?;
-    Some(menu.nested(self.closes.clone()).build(self.theme()))
+    Some(
+      menu
+        .nested(self.closes.clone())
+        .rules(&self.recipe.lend("menu"))
+        .build(self.theme()),
+    )
   }
 
   /// How the default renderer builds an item: the root, with its icon and

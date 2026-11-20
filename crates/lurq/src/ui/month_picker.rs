@@ -276,10 +276,10 @@ impl<U: Unit, V: FieldValue<U>> Periods<U, V> {
     }
     .state(MonthPickerState::Disabled, self.disabled)
     .state(TextBoxState::Invalid, self.invalid);
-    let recipe = theme.resolve::<C>(&case, Some(&self.rules));
+    let recipe = theme.resolve::<C>(&case, Some(&self.rules)).owned_by(self.id.as_ref());
     let resolve: Resolve = {
-      let (theme, rules) = (theme.clone(), self.rules.clone());
-      Arc::new(move |case: &Case| theme.resolve::<C>(case, Some(&rules)))
+      let (theme, rules, owner) = (theme.clone(), self.rules.clone(), recipe.clone());
+      Arc::new(move |case: &Case| theme.resolve::<C>(case, Some(&rules)).owned_like(&owner))
     };
     let available = |cell: U| self.min.is_none_or(|min| cell >= min) && self.max.is_none_or(|max| cell <= max);
     let cells: Vec<U> = U::cells(shown);
@@ -491,10 +491,6 @@ impl PeriodsView {
     self.recipe.theme()
   }
 
-  fn id_of(&self, suffix: &str) -> Option<String> {
-    self.id.as_ref().map(|id| format!("{id}-{suffix}"))
-  }
-
   /// A button of the heading: the page before (`by` -1) or after (1), a bare glyph in the design.
   pub fn nav(&self, by: i32) -> Element {
     let (label, icon, suffix, there) = if by < 0 {
@@ -515,7 +511,8 @@ impl PeriodsView {
       .disabled(self.disabled || !there)
       .rules(&rules)
       .on_click(move |_: MouseEvent| model.turn(by));
-    if let Some(id) = self.id_of(suffix) {
+    // Named by its side, whether the id is the component's own or one it was lent.
+    if let Some(id) = self.recipe.keyed_id(MonthPickerPart::Nav, suffix) {
       button = button.id(id);
     }
     button.build(self.theme())
@@ -542,8 +539,10 @@ impl PeriodsView {
       .state(MonthPickerState::Selected, shown.selected)
       .state(MonthPickerState::Current, shown.current)
       .state(MonthPickerState::Unavailable, shown.unavailable);
+    // A cell is named by its month or year, not by its place: `x-cell-2026-11`.
     (self.resolve)(&case)
       .part(MonthPickerPart::Cell)
+      .keyed(&shown.tag)
       .forced(self.forced.filter(|_| shown.entry))
   }
 
@@ -569,9 +568,6 @@ impl PeriodsView {
       cell = cell.describe("a11y_disabled", "true");
     } else if !self.disabled {
       cell = cell.on_click(move |_: MouseEvent| press.choose(index));
-    }
-    if let Some(id) = self.id_of(&shown.tag) {
-      cell = cell.id(id);
     }
     cell.flex(1.0).into()
   }
@@ -793,8 +789,8 @@ macro_rules! period_methods {
       self
     }
 
-    /// The id of the panel. Each cell has it with `-` and its own after it (`due-2026-11`, `founded-2026`); the
-    /// buttons have it with `-previous` and `-next`.
+    /// The id of the panel. Each cell has it with `-cell-` and its month or year after it (`due-cell-2026-11`,
+    /// `founded-cell-2026`); the buttons have it with `-nav-previous` and `-nav-next`.
     pub fn id(mut self, id: impl Into<std::sync::Arc<str>>) -> Self {
       self.core.id = Some(id.into());
       self

@@ -190,7 +190,9 @@ impl Chip {
       icon: self.icon,
       selected: self.selected,
       disabled: self.disabled,
-      recipe: theme.resolve::<Chip>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<Chip>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       forced: self.forced,
       on_change: self.on_change,
       id: self.id,
@@ -568,7 +570,9 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> ChipGrou
     for state in &self.states {
       case = case.state(state.clone(), true);
     }
-    let recipe = theme.resolve::<ChipGroup>(&case, Some(&self.rules));
+    let recipe = theme
+      .resolve::<ChipGroup>(&case, Some(&self.rules))
+      .owned_by(self.id.as_ref());
     let item = recipe.rules_for(ChipGroupPart::Item, ChipPart::Root);
     let mut root = Row::new()
       .wrap()

@@ -290,7 +290,9 @@ impl ExpandableTile {
       disabled: self.disabled,
       icon,
       label: self.label,
-      recipe: theme.resolve::<ExpandableTile>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<ExpandableTile>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       detail: Some(self.detail),
       body: self.body,
       forced: self.forced,

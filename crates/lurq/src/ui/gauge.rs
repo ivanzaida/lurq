@@ -284,7 +284,9 @@ impl Gauge {
       min_text: bound(self.min),
       max_text: bound(self.max),
       label: self.label.clone(),
-      recipe: theme.resolve::<Gauge>(&case, Some(&self.rules)),
+      recipe: theme
+        .resolve::<Gauge>(&case, Some(&self.rules))
+        .owned_by(self.id.as_ref()),
       id: self.id,
       key: self.key,
     }
@@ -327,8 +329,7 @@ impl GaugeView {
   }
 
   /// A text of `part`, in the color of its part.
-  fn text(&self, part: GaugePart, content: &str) -> Row {
-    let part = self.part(part);
+  fn text(&self, part: ResolvedPart, content: &str) -> Row {
     Row::new().part(&part).child(part.text(content).nowrap())
   }
 
@@ -407,11 +408,11 @@ impl GaugeView {
       .justify(Justify::SpaceBetween)
       .align_items(Alignment::Center)
       .part(&self.part(GaugePart::Range))
-      .child(self.text(GaugePart::Bound, &self.min_text));
+      .child(self.text(self.part(GaugePart::Bound).keyed("min"), &self.min_text));
     if let Some(label) = &self.label {
-      range = range.child(self.text(GaugePart::Label, label));
+      range = range.child(self.text(self.part(GaugePart::Label), label));
     }
-    range.child(self.text(GaugePart::Bound, &self.max_text))
+    range.child(self.text(self.part(GaugePart::Bound).keyed("max"), &self.max_text))
   }
 
   /// The root in the style of its part, a `meter` to tooling with its value, its range and its reading, holding

@@ -585,14 +585,18 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> Cascader
       .case(self.states.clone())
       .state(SelectState::Open, is_open && !self.inline)
       .state(SelectState::FullWidth, self.full_width);
-    let recipe = theme.resolve::<Cascader<T, V>>(&case, Some(&self.rules));
+    let recipe = theme
+      .resolve::<Cascader<T, V>>(&case, Some(&self.rules))
+      .owned_by(self.id.as_ref());
     // The words it was not told: its own locale's, else the app's, read where it is built.
     let words = match &self.locale {
       Some(words) => words.clone(),
       None => super::current_locale().input.clone(),
     };
     let told = |word: &Option<Arc<str>>, default: &Arc<str>| word.clone().unwrap_or_else(|| default.clone());
-    let on_path = theme.resolve::<Cascader<T, V>>(&case.clone().state(SelectState::Selected, true), Some(&self.rules));
+    let on_path = theme
+      .resolve::<Cascader<T, V>>(&case.clone().state(SelectState::Selected, true), Some(&self.rules))
+      .owned_like(&recipe);
 
     // The path to what is chosen: its values and its labels, from the top.
     let chosen_path = self
@@ -1087,6 +1091,8 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> crate::u
 /// Every cascader has the one recipe and renderer, whatever its values are and whatever form it is of.
 impl<T: Send + Sync + 'static, V: ?Sized + 'static> Themed for Cascader<T, V> {
   const NAME: &'static str = "cascader";
+  /// Its id is on the trigger: the box that is pressed.
+  const ROOT: &'static str = "trigger";
   type Renderer = CascaderRenderer;
 
   fn parts() -> crate::ui::Declared {

@@ -462,6 +462,12 @@ impl Pagination {
         ),
       })
     });
+    let recipe = theme
+      .resolve::<Pagination>(&case, Some(&self.rules))
+      .owned_by(self.id.as_ref());
+    let current_recipe = theme
+      .resolve::<Pagination>(&case.clone().state(PaginationState::Current, true), Some(&self.rules))
+      .owned_like(&recipe);
     PaginationView {
       current,
       pages: self.pages,
@@ -471,9 +477,8 @@ impl Pagination {
       label: self.label,
       summary,
       summarized: compact || self.summary_text.is_some(),
-      recipe: theme.resolve::<Pagination>(&case, Some(&self.rules)),
-      current_recipe: theme
-        .resolve::<Pagination>(&case.clone().state(PaginationState::Current, true), Some(&self.rules)),
+      recipe,
+      current_recipe,
       previous_label: self.previous_label,
       next_label: self.next_label,
       page_label: self.page_label,
@@ -781,7 +786,7 @@ impl PaginationView {
   /// What stands where pages are left out: the `index`th of the row's, for its key.
   pub fn ellipsis(&self, index: usize) -> Element {
     Row::new()
-      .part(&self.part(PaginationPart::Ellipsis))
+      .part(&self.part(PaginationPart::Ellipsis).keyed(index))
       .justify(Justify::Center)
       .align_items(Alignment::Center)
       .key(format!("ellipsis-{index}"))
