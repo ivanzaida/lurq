@@ -316,7 +316,7 @@ fn a_breadcrumb_off_tab_is_passed_by_and_a_step_asked_for_aside_is_not_followed(
     Breadcrumb::new([
       BreadcrumbStep::new("Home")
         .id("home")
-        .on_select(move || follow())
+        .on_select(follow)
         .on_open_aside(move |_| aside()),
       BreadcrumbStep::new("Report"),
     ])
@@ -344,7 +344,7 @@ fn a_tags_remove_button_off_tab_is_passed_by_and_still_takes_the_tag_away() {
   let mut stage = with_field(move || {
     let remove = remove.clone();
     Row::new()
-      .child(Tag::new("rust").id("rust").tab_stop(false).on_remove(move || remove()))
+      .child(Tag::new("rust").id("rust").tab_stop(false).on_remove(remove))
       .into()
   });
   tab_passes_by(&mut stage);
