@@ -677,9 +677,16 @@ fn a_notch_to_the_end_goes_on_to_an_end_that_moves() {
   stage.settle(32);
   assert_eq!(state.scroll_y(), NOTCH + 25.0, "it ends at the end, where it was going");
 
-  // And it stays at the end from then on, as any offset at the end does.
+  // At the end the person brought it to, it stays where it is as the content grows, as a page's does; a
+  // container that sticks to its end, a chat's, follows the end.
   stage.tree.set_root(longer(60.0));
   stage.settle(LATER);
+  assert_eq!(state.scroll_y(), NOTCH + 25.0);
+  state.set_sticks_to_end(true);
+  stage.tree.set_root(longer(25.0));
+  stage.settle(LATER + 100);
+  stage.tree.set_root(longer(60.0));
+  stage.settle(LATER + 200);
   assert_eq!(state.scroll_y(), NOTCH + 60.0);
 }
 

@@ -286,6 +286,12 @@ struct ScrollStateInner {
   scroll_dirty: bool,
   layout_subscribers: crate::core::layout_dirty::LayoutSubscribers,
   equal_overflow_scroll_probe_enabled: bool,
+  /// See [`ScrollState::set_sticks_to_end`].
+  sticks_to_end: bool,
+  /// The app asked for an end (`scroll_to_bottom_pending`, a stick to it) and the offset has been there since:
+  /// it stays there as the content grows, as rows measured one by one make it grow, until it is moved away.
+  held_at_end_x: bool,
+  held_at_end_y: bool,
   /// Vertical scroll requests that took effect: `set_scroll` calls and
   /// pending requests (see [`PendingScroll::is_request`]) resolved by a
   /// layout pass. Lets a scroll anchor captured earlier tell that it stands
@@ -449,6 +455,9 @@ impl ScrollState {
         scroll_dirty: false,
         layout_subscribers: Default::default(),
         equal_overflow_scroll_probe_enabled: false,
+        sticks_to_end: false,
+        held_at_end_x: false,
+        held_at_end_y: false,
         scroll_y_requests: 0,
       })),
     }
@@ -468,6 +477,19 @@ impl ScrollState {
 
   pub fn scrolls_to_top(&self) -> bool {
     self.inner.lock().unwrap().scrolls_to_top
+  }
+
+  /// Whether an offset at an end of the content stays at that end when the content grows: a chat's or a log's
+  /// list, whose newest line is at its bottom, follows what is added there while the person reads the end, and
+  /// stays where it is once they scrolled up. Off unless set, as a `UIScrollView` and a page have it: a list that
+  /// loads more when it reaches its end leaves the offset where it is when the next page comes below. A scroll
+  /// that is to stick once, wherever it is, asks [`stick_to_bottom_if_near_end`](Self::stick_to_bottom_if_near_end).
+  pub fn set_sticks_to_end(&self, sticks: bool) {
+    self.inner.lock().unwrap().sticks_to_end = sticks;
+  }
+
+  pub fn sticks_to_end(&self) -> bool {
+    self.inner.lock().unwrap().sticks_to_end
   }
 
   /// Whether a finger that starts to scroll this container puts a phone's on-screen keyboard away, by taking
@@ -675,13 +697,15 @@ impl ScrollState {
   /// The vertical offset the next layout measurement settles on when it
   /// measures `content_height` of content in the current viewport, as
   /// [`Self::update_layout_with_container`] resolves it: a pending scroll
-  /// lands, an offset at the bottom stays at the bottom, any other keeps its
-  /// place within the new range.
+  /// lands, an offset at the bottom stays at the bottom where it sticks there (see
+  /// [`Self::set_sticks_to_end`]), any other keeps its place within the new range.
   pub(crate) fn next_layout_scroll_y(&self, content_height: f32) -> f32 {
     let inner = self.inner.lock().unwrap();
     let max_scroll = (content_height - inner.viewport_height).max(0.0);
-    let was_at_bottom =
-      inner.max_scroll_y > 0.0 && inner.max_scroll_y - inner.scroll_y <= SCROLL_END_EPSILON && inner.wheel_y.is_none();
+    let was_at_bottom = (inner.sticks_to_end || inner.held_at_end_y)
+      && inner.max_scroll_y > 0.0
+      && inner.max_scroll_y - inner.scroll_y <= SCROLL_END_EPSILON
+      && inner.wheel_y.is_none();
     let target = match inner.pending_scroll_y {
       Some(pending) => resolve_pending_scroll(
         pending,
@@ -1252,12 +1276,32 @@ impl ScrollState {
       max_scroll_y: inner.max_scroll_y,
     });
     inner.pass_start = Some(start);
-    // An offset at the end stays at the end when the content grows. One a wheel's scroll is moving is the
-    // scroll's: near the end it is leaving it, or on its way to it (`WheelScroll::to_end`).
-    let was_at_right =
-      start.max_scroll_x > 0.0 && start.max_scroll_x - start.scroll_x <= SCROLL_END_EPSILON && inner.wheel_x.is_none();
-    let was_at_bottom =
-      start.max_scroll_y > 0.0 && start.max_scroll_y - start.scroll_y <= SCROLL_END_EPSILON && inner.wheel_y.is_none();
+    // An offset at the end stays at the end when the content grows where the container sticks to its end
+    // (`set_sticks_to_end`), or where the app asked for the end and the offset has not left it since: rows
+    // measured one by one under it, or a viewport that changes. One the person brought to the end stays where
+    // it is, as a page's: a list that loads more at its end is not carried down to what came. One a wheel's
+    // scroll is moving is the scroll's: near the end it is leaving it, or on its way to it
+    // (`WheelScroll::to_end`).
+    let at_right = start.max_scroll_x > 0.0 && start.max_scroll_x - start.scroll_x <= SCROLL_END_EPSILON;
+    let at_bottom = start.max_scroll_y > 0.0 && start.max_scroll_y - start.scroll_y <= SCROLL_END_EPSILON;
+    if start.max_scroll_x > 0.0 && !at_right && inner.wheel_x.is_none() {
+      inner.held_at_end_x = false;
+    }
+    if start.max_scroll_y > 0.0 && !at_bottom && inner.wheel_y.is_none() {
+      inner.held_at_end_y = false;
+    }
+    let was_at_right = at_right && (inner.sticks_to_end || inner.held_at_end_x) && inner.wheel_x.is_none();
+    let was_at_bottom = at_bottom && (inner.sticks_to_end || inner.held_at_end_y) && inner.wheel_y.is_none();
+    match inner.pending_scroll_x {
+      Some(PendingScroll::End) => inner.held_at_end_x = true,
+      Some(pending) if pending.is_request() => inner.held_at_end_x = false,
+      _ => {}
+    }
+    match inner.pending_scroll_y {
+      Some(PendingScroll::End) => inner.held_at_end_y = true,
+      Some(pending) if pending.is_request() => inner.held_at_end_y = false,
+      _ => {}
+    }
 
     inner.content_width = content_w;
     inner.content_height = content_h;

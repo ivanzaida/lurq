@@ -2,7 +2,13 @@
 
 ## Unreleased
 
+Breaking:
+
+- **An offset at the end of a scroll stays where it is when the content grows.** Every container at its bottom (or its right end) followed the end as the content grew, so a list that loads its next page in `on_scroll_reach_bottom` was carried down to the page that came, reached the bottom again and loaded the next, racing down by itself while the person sat at the end. It stays where it is now, as a page's and a `UIScrollView`'s does. A container that is to follow its end, a chat's or a log's list, says so: `ScrollState::set_sticks_to_end(true)` (see Added). A container the app sent to its end (`scroll_to_bottom_pending`, `stick_to_bottom_if_near_end`) stays there as it grows, until the person moves it away, as before. See [Scroll](docs/src/content/docs/styling-events.md#scroll).
+
 Added:
+
+- `ScrollState::set_sticks_to_end(bool)` and `sticks_to_end()`: an offset at an end of the content follows that end as the content grows, while it is there. Off unless set.
 
 - **The loader reads an address in parts.** `Loader::open` gives a `Reader` of an address, where it failed with `LoadError::Unsupported`: ranges of 1 MiB as they are read, two fetched ahead and sixteen kept, with the headers and the loader's timeout on each request. It asks for the first range before it returns, so a server that refuses fails it there with what it answered (`LoadError::Status(403)`, `NotFound`), and blocks: call it off the UI thread. A read that fails later gives an `io::Error` that `LoadError::from` turns into the same. What the cache on the disk keeps of the address is read from its file. It needs the feature `http`, and is not built in a browser. See [Loading](docs/src/content/docs/resources-media.md#loading).
 - `Reader::content_type`: the type a server said its answer is (`video/mp4`), `None` by default.

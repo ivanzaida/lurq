@@ -849,3 +849,77 @@ fn a_horizontal_scroll_that_fills_its_width_lets_its_items_share_the_viewport() 
     );
   }
 }
+
+/// A list 300 high of `rows` rows of 100, on `state`.
+fn rows_of(state: &ScrollState, rows: usize) -> ScrollVertical {
+  let mut column = Column::new().width(300.0);
+  for _ in 0..rows {
+    column = column.child(Spacer::new().width(300.0).height(100.0));
+  }
+  ScrollVertical::new(column)
+    .with_scroll_state(state.clone())
+    .size(300.0, 300.0)
+}
+
+#[test]
+fn a_list_brought_to_its_end_stays_where_it_is_when_more_comes_below() {
+  let mut tree = rt();
+  tree.resize(300, 300);
+  let state = ScrollState::new();
+  tree.set_root(rows_of(&state, 10));
+  run_pass(&mut tree);
+  // The person scrolls to the end, and the list loads its next page there.
+  state.set_scroll(0.0, 700.0);
+  run_pass(&mut tree);
+  assert_eq!(state.scroll_y(), 700.0);
+  tree.set_root(rows_of(&state, 20));
+  run_pass(&mut tree);
+  run_pass(&mut tree);
+  assert_eq!(
+    state.scroll_y(),
+    700.0,
+    "the page came below, and the list did not go down to it"
+  );
+}
+
+#[test]
+fn a_list_that_sticks_to_its_end_or_was_sent_there_follows_it() {
+  // A chat's list: it sticks to its end while the person reads the end.
+  let mut tree = rt();
+  tree.resize(300, 300);
+  let state = ScrollState::new();
+  state.set_sticks_to_end(true);
+  tree.set_root(rows_of(&state, 10));
+  run_pass(&mut tree);
+  state.set_scroll(0.0, 700.0);
+  run_pass(&mut tree);
+  tree.set_root(rows_of(&state, 12));
+  run_pass(&mut tree);
+  run_pass(&mut tree);
+  assert_eq!(state.scroll_y(), 900.0);
+
+  // A list the app sent to its end stays there as it grows, until it is moved away.
+  let mut tree = rt();
+  tree.resize(300, 300);
+  let state = ScrollState::new();
+  tree.set_root(rows_of(&state, 10));
+  run_pass(&mut tree);
+  state.scroll_to_bottom_pending();
+  run_pass(&mut tree);
+  tree.set_root(rows_of(&state, 12));
+  run_pass(&mut tree);
+  run_pass(&mut tree);
+  assert_eq!(state.scroll_y(), 900.0, "sent to the end, it follows it");
+  state.set_scroll(0.0, 400.0);
+  run_pass(&mut tree);
+  state.set_scroll(0.0, 900.0);
+  run_pass(&mut tree);
+  tree.set_root(rows_of(&state, 14));
+  run_pass(&mut tree);
+  run_pass(&mut tree);
+  assert_eq!(
+    state.scroll_y(),
+    900.0,
+    "moved away and back by the person, it is the person's"
+  );
+}
