@@ -26,7 +26,8 @@ dropped). When a decision is replaced, the old entry stays and says what replace
 - **Why.** What Orchester's kit (`ui/breadcrumb.rs`, `Crumb::to` and `Crumb::here` in any place) needs to move onto
   `ui::Breadcrumb`; a trail that ends at a parent of the page (an editor's form under its record) and one that starts
   at a place that cannot be opened are common to apps.
-- **State.** Decided; in work on `claude/k7-a-navigation`.
+- **State.** Built on `claude/k7-a-navigation` (2026-11-21): `BreadcrumbStep::link`, `Breadcrumb::current`,
+  `BreadcrumbView::is_link`, the part `BreadcrumbPart::Text`; the gallery's "Links and plain steps".
 
 ### A tab's own state, its tooltip, and a press of the selected tab
 
@@ -42,7 +43,8 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   the same); off unless told.
 - **Why.** What Orchester's kit (`ui/tabs.rs`, `PageTab::count(_, waits)`, `explanation`, `PageTab::to(.., current,
   ..)`) needs to move onto `ui::Tabs`.
-- **State.** Decided; in work on `claude/k7-a-navigation`.
+- **State.** Built on `claude/k7-a-navigation` (2026-11-21): `Tab::state`, `Tab::tooltip`, `Tab::hint`,
+  `Tabs::reselect`, `TabEntry::states`; the gallery's "A tab's state, its tooltip, a press of the selected tab".
 
 ### The list of every open tab opens with no tab hidden
 
@@ -54,7 +56,8 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   `list_clear_of` names), its end at the end of the tabs, inside the window's edges as before. A press on a tab while
   it so hangs is not outside it.
 - **Why.** Orchester's title bar opens the list by Ctrl/Cmd+Shift+A and from its own button whatever the strip shows.
-- **State.** Decided; in work on `claude/k7-a-navigation`.
+- **State.** Built on `claude/k7-a-navigation` (2026-11-21): the list hangs from the list of tabs (`BottomEnd`) while
+  none is hidden; the gallery's "Every open tab in a list" opens it by `menu_open` from a button.
 
 ## 2026-11-20
 
