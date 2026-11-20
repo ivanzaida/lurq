@@ -355,3 +355,34 @@ pub fn a_clip_waits_for_what_the_network_has_not_given_yet_and_fails_with_what_t
   assert_eq!(state.error, Some(MediaError::Server(403)));
   assert!(!state.playing && !state.waiting);
 }
+
+/// On Windows, where the app's loader reads what a media plays.
+pub fn a_clip_whose_reads_ahead_come_in_time_does_not_wait_while_it_plays() {
+  let pages = serve_to_its_pages(std::fs::read(clip()).expect("the clip"));
+  // Blocks of 16 KiB, more of them than are kept, each a moment late: less than what the decoder has ahead of
+  // the picture, which it reads ahead of.
+  pages.slow.store(60, Ordering::SeqCst);
+  let loader = Loader::new();
+  loader.read_block(16 * 1024);
+  let media = quiet_with(&loader, &Source::url(&pages.address).header("Referer", PAGES));
+  until(&media, "opened", |state| !state.waiting && state.error.is_none());
+  media.play();
+  // Its first samples need blocks from the server one after another, with nothing else to show: it may wait.
+  until(&media, "playing past its start", |state| {
+    !state.waiting && state.position > 0.5
+  });
+  let started = Instant::now();
+  let mut waited = Vec::new();
+  while started.elapsed() < Duration::from_secs(3) {
+    let state = media.state();
+    if state.waiting {
+      waited.push(state.position);
+    }
+    std::thread::sleep(Duration::from_millis(2));
+  }
+  assert!(
+    waited.is_empty(),
+    "it plays on while it reads ahead; it waited at {waited:?}"
+  );
+  assert!(media.state().position > 3.0, "{}", media.state().position);
+}

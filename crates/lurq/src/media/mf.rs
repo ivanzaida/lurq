@@ -1245,7 +1245,9 @@ unsafe fn play(
       {
         worked = true;
         let (mut flags, mut ticks, mut sample) = (0_u32, 0_i64, None);
+        let decoding = shared.decoding();
         reader.ReadSample(VIDEO, 0, None, Some(&mut flags), Some(&mut ticks), Some(&mut sample))?;
+        drop(decoding);
         if flags & MF_SOURCE_READERF_CURRENTMEDIATYPECHANGED.0 as u32 != 0 {
           let next = Shape::of(&reader)?;
           if (next.width, next.height) != (picture.shape.width, picture.shape.height) {
@@ -1281,7 +1283,9 @@ unsafe fn play(
       {
         worked = true;
         let (mut flags, mut ticks, mut sample) = (0_u32, 0_i64, None);
+        let decoding = shared.decoding();
         reader.ReadSample(AUDIO, 0, None, Some(&mut flags), Some(&mut ticks), Some(&mut sample))?;
+        drop(decoding);
         if flags & MF_SOURCE_READERF_CURRENTMEDIATYPECHANGED.0 as u32 != 0 {
           let next = Samples::of(&reader)?;
           if next.rate != sound.samples.rate {

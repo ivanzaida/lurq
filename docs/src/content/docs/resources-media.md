@@ -281,8 +281,9 @@ What a video or a sound reads as it plays:
 
 - **Windows**: the app's loader reads every address (`loader.open`, below) and gives Media Foundation the stream,
   which only decodes: so the headers, `allow`, the proxy, the timeout and the cache on the disk hold for it as for a
-  picture. While a part the decoder asked for is on its way, the media waits (`on_waiting_change`) and its clock
-  stands; a read the server refuses on the way fails the media with what it answered (`MediaError::Server(403)`). It
+  picture. Where it has nothing left to show and the part it needs is still on the network a quarter of a second
+  on, the media waits (`on_waiting_change`) and its clock stands; a part the decoder reads ahead while it plays is no
+  waiting. A read the server refuses on the way fails the media with what it answered (`MediaError::Server(403)`). It
   needs the feature `http`; a build without it has Media Foundation read the address itself, with no header.
 - **macOS and iOS**: the system's player reads the address, given the headers (`AVURLAssetHTTPHeaderFieldsKey`, a key
   AVFoundation reads that is not in its headers). Reading it through the loader, as Windows does, is still to come.
