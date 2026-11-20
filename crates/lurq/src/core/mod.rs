@@ -26,6 +26,7 @@ pub mod signal;
 pub mod store;
 pub mod time;
 pub mod tracking;
+pub(crate) mod visibility;
 
 pub use cell_ref::Ref;
 pub use common_words::CommonWords;
@@ -39,7 +40,8 @@ pub use date_locale::{
 pub use display_words::DisplayWords;
 pub use editing_words::EditingWords;
 pub use effect::Effect;
-pub use element_ref::{ElementRect, ElementRef, ElementRefMut, RectObserver};
+pub use element_ref::{ElementRect, ElementRef, ElementRefMut, RectObserver, VisibilityObserver};
+pub use visibility::{Visibility, VisibilityOptions};
 pub use field_words::FieldWords;
 pub use guard::Guard;
 pub use id_gen::{IdGenerator, NodeId};

@@ -706,6 +706,72 @@ let added: Vec<RectObserver> = sections
 *self.watching.lock().unwrap() = added; // those of the render before are removed here
 ```
 
+### How much of an element shows
+
+`ElementRef::observe_visibility` tells an observer how much of an element shows, as a browser's
+`IntersectionObserver` does: the page of a feed that fills the viewport is the current one, a thumbnail near the
+viewport loads its picture, a mark at the end of a list loads the next page.
+
+```rust
+use lurq::core::{ElementRef, Visibility, VisibilityObserver, VisibilityOptions};
+
+// In `create`: the ref and the observer are kept on the component, `current` is `ctx.signal(false)`.
+let page = ElementRef::new();
+let watching: VisibilityObserver = page.observe_visibility(VisibilityOptions::new().thresholds([0.99]), {
+  let current = current.clone();
+  move |seen: Visibility| current.set(seen.ratio >= 0.99)
+});
+// In `render`: `.ref_element(page.clone())` on the page.
+```
+
+- **What is told.** A `Visibility`: `ratio`, the share of the element's box that is inside its root, from 0 to 1;
+  `visible`, whether any of it is; `visible_rect`, the part that is, and `rect`, the element's box, both in the
+  window's logical pixels with `relative_x` and `relative_y` from the root's corner; and `root_rect`, the box it was
+  measured against. An element of no size, a mark at the end of a list, has a ratio of 1 where it lies inside the
+  root.
+- **When.** At the first layout after the observer was added, and then each time the share crosses one of its
+  thresholds, either way: `thresholds([0.99])` tells when the element all but fills its room and when it no longer
+  does, `thresholds([0.0, 0.5, 1.0])` when it comes in, is half in and is all in. With no threshold the observer is
+  told when the element comes into view and when it leaves. Between two thresholds nothing is told, however the
+  share changes. The observer is called after layout, as `observe_rect`'s is: a signal it writes is rendered in the
+  next frame.
+- **Against what.** The scroll container nearest around the element, as much of its viewport as the containers
+  around that one and the window show: a card in a strip that scrolls across, inside a page that scrolls down, shows
+  where both show it. An element nothing scrolls is measured against the window. `.root(&element_ref)` measures
+  against the box of an element around it instead, taken whole.
+- **A margin** grows the root before the element is measured, as `rootMargin` does: `.margin(200.0)` counts an
+  element as showing from 200 logical pixels before it scrolls into view, which is how a grid loads the pictures
+  near its viewport and no others. `.margins(across, down)` grows the two ways apart: a feed that scrolls down opens
+  the video of the page under the one shown with `.margins(0.0, page_height)`. A negative margin shrinks the root.
+- **Whatever moved the content.** The share is reckoned from the layout at every pass, not from scroll events: a
+  finger, its momentum, a list on its way to a page, a wheel, the keys, the bar, the app's own `set_scroll`, content
+  that came in above, a window that was resized.
+- **The observer lives as long as its handle.** `observe_visibility` gives a `VisibilityObserver`; the observer is
+  removed when that is dropped. A component keeps it in a field beside the ref, from `create`; one that adds
+  observers in a render keeps those of its last render and drops the ones before, as with `RectObserver` above. An
+  observer added after the element was laid out asks for a pass and is told in it.
+- The boxes are the layout's: a transform (`translate`, `scale`) does not move them, and an element cut by a
+  `.clip()` that does not scroll counts as showing. An element taken out of the tree is told of no more; one its row
+  or column dropped for want of room is told that none of it shows.
+
+A list that loads its next page when its end comes within a screen of the viewport:
+
+```rust
+// In `create`: `pages` is `ctx.signal(1usize)`, how many pages of rows the list shows.
+let end = ElementRef::new();
+let watching = end.observe_visibility(VisibilityOptions::new().margins(0.0, 600.0), {
+  let pages = pages.clone();
+  move |seen| {
+    // Told once as the end comes near, and again only after it went away and came back.
+    if seen.visible {
+      pages.update(|pages| *pages += 1);
+    }
+  }
+});
+// In `render`: the mark is the last child of the list's content.
+ScrollVertical::new(Column::new().with_children(rows).child(Spacer::new().height(0.0).ref_element(end.clone())))
+```
+
 ## Scroll
 
 ```rust
