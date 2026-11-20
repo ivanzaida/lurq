@@ -119,6 +119,24 @@ fn a_clip_waits_for_what_the_network_has_not_given_yet_and_fails_with_what_the_s
   video::a_clip_waits_for_what_the_network_has_not_given_yet_and_fails_with_what_the_server_answered_on_the_way();
 }
 
+#[cfg(all(windows, feature = "http"))]
+#[test]
+fn a_clip_whose_reads_ahead_come_in_time_does_not_wait_while_it_plays() {
+  video::a_clip_whose_reads_ahead_come_in_time_does_not_wait_while_it_plays();
+}
+
+#[cfg(windows)]
+#[test]
+fn a_looped_clip_goes_on_from_its_start_at_its_end_and_does_not_stop() {
+  video::a_looped_clip_goes_on_from_its_start_at_its_end_and_does_not_stop();
+}
+
+#[cfg(all(windows, feature = "http"))]
+#[test]
+fn a_looped_clip_at_an_address_asks_the_server_for_nothing_again() {
+  video::a_looped_clip_at_an_address_asks_the_server_for_nothing_again();
+}
+
 #[test]
 fn a_sound_plays_from_a_file_and_from_bytes_to_its_end_and_again() {
   let wav = tone(1.2);

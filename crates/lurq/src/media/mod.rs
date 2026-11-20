@@ -23,9 +23,10 @@
 //!
 //! The headers of a source at an address (the loader's [rule](Loader::headers), then [`Source::header`]) are on
 //! every request of what is read as it plays. On Windows the app's loader reads every address
-//! ([`Loader::open`], by ranges, the feature `http`) and the decoder only decodes: while a part it asked for is on
-//! its way the media waits, and a read the server refuses is why the media fails. On macOS and iOS the system's
-//! player reads it, given the headers. A browser's `<audio>` cannot send them.
+//! ([`Loader::open`], by ranges, the feature `http`) and the decoder only decodes: where it has nothing left to
+//! show while the part it needs is on the network, the media waits (and not while it reads ahead), and a read the
+//! server refuses is why the media fails. On macOS and iOS the system's player reads it, given the headers. A
+//! browser's `<audio>` cannot send them.
 //!
 //! On Windows, where the `wgpu` renderer draws on Direct3D 12, a frame stays on the graphics card from the
 //! decoder to the screen: decoded there, copied there once, drawn there. Elsewhere it is copied through memory
@@ -140,6 +141,12 @@ pub(crate) struct Shared {
   listening: std::sync::OnceLock<Arc<events::Listening>>,
   /// Why a read of what it plays failed, where the app's loader reads it.
   read_failed: Mutex<Option<LoadError>>,
+  /// Since when its thread waits for the decoder's next sample, while it does.
+  decoding_since: Mutex<Option<Instant>>,
+  /// The reads of what the app's loader reads that wait for the network.
+  reads_waiting: std::sync::atomic::AtomicUsize,
+  /// It waits because its decoder waited on the network with nothing left to show: until the sample comes.
+  starved: std::sync::atomic::AtomicBool,
 }
 
 /// The state of a media, and the clock it is read from: where it was at `since`, going at `rate` while it plays.
@@ -157,6 +164,10 @@ pub(crate) struct Inner {
   pub ended: bool,
   pub error: Option<MediaError>,
   pub rate: f64,
+  /// At its end it goes on from its start, in what it has open: see [`Media::set_looped`].
+  pub looped: bool,
+  /// How many times it went on from its start at its end, looped: each is told as an end ([`Media::on_ended`]).
+  pub rounds: u64,
   pub at: f64,
   pub since: Instant,
   /// How many times it was sent somewhere ([`Media::seek`]). The thread counts the ones it has done, and does
@@ -203,6 +214,8 @@ impl Shared {
         ended: false,
         error: None,
         rate: 1.0,
+        looped: false,
+        rounds: 0,
         at: 0.0,
         since: Instant::now(),
         sent: 0,
@@ -213,6 +226,9 @@ impl Shared {
       wakers: Mutex::new(Vec::new()),
       listening: std::sync::OnceLock::new(),
       read_failed: Mutex::new(None),
+      decoding_since: Mutex::new(None),
+      reads_waiting: std::sync::atomic::AtomicUsize::new(0),
+      starved: std::sync::atomic::AtomicBool::new(false),
     })
   }
 
@@ -269,8 +285,33 @@ impl Shared {
     self.wake();
   }
 
-  /// Whether a read the decoder asked for waits for the network: once it opened, the media waits while one
-  /// does, and its clock stands.
+  /// The media's thread waits for its decoder's next sample, which it asks for only when it has nothing else to
+  /// show or to give the output, until what this gives is dropped. Where that takes longer than
+  /// [`STARVED_AFTER`] while a read waits for the network, the media waits: it is starved, and not merely reading
+  /// ahead.
+  #[cfg_attr(not(windows), allow(dead_code))]
+  pub(crate) fn decoding(&self) -> Decoding<'_> {
+    *self
+      .decoding_since
+      .lock()
+      .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(Instant::now());
+    Decoding(self)
+  }
+
+  /// Whether its decoder has waited for a sample longer than [`STARVED_AFTER`] while a read waits for the
+  /// network.
+  #[cfg_attr(not(windows), allow(dead_code))]
+  fn is_starved(&self) -> bool {
+    let since = *self
+      .decoding_since
+      .lock()
+      .unwrap_or_else(|poisoned| poisoned.into_inner());
+    since.is_some_and(|since| since.elapsed() >= STARVED_AFTER)
+      && self.reads_waiting.load(std::sync::atomic::Ordering::Acquire) > 0
+  }
+
+  /// Whether it waits for what it plays: once it opened, the media waits while it is starved, and its clock
+  /// stands.
   #[cfg_attr(not(windows), allow(dead_code))]
   fn set_reading(&self, waits: bool) {
     {
@@ -399,23 +440,63 @@ fn stream(shared: &Arc<Shared>, loader: &Loader, source: &Source, address: Arc<s
   Some(Opened::Url(address, Arc::from(loader.headers_of(source))))
 }
 
-/// A reader of what a media plays: while a read the decoder asked for waits for the network, the media waits, and
-/// the reason a read failed is the reason the media fails.
+/// A reader of what a media plays: it counts the reads that wait for the network, from which the media tells it is
+/// starved, and the reason a read failed is the reason the media fails.
 #[cfg_attr(not(windows), allow(dead_code))]
 struct Watched {
   reader: Arc<dyn Reader>,
   shared: std::sync::Weak<Shared>,
-  /// The reads on their way that wait for the network.
-  waiting: std::sync::atomic::AtomicUsize,
 }
 
 #[cfg_attr(not(windows), allow(dead_code))]
 impl Watched {
   fn new(reader: Arc<dyn Reader>, shared: &Arc<Shared>) -> Self {
+    watch_for_starving(shared);
     Self {
       reader,
       shared: Arc::downgrade(shared),
-      waiting: std::sync::atomic::AtomicUsize::new(0),
+    }
+  }
+}
+
+/// How long the decoder may wait for its next sample while a read waits for the network before the media says it
+/// waits: a block that comes at once shows no spinner.
+const STARVED_AFTER: Duration = Duration::from_millis(250);
+
+/// Looks a few times a second, for as long as the media lives, whether it is starved: its thread has waited for
+/// the decoder's next sample longer than [`STARVED_AFTER`] while a read waits for the network. Then it waits, and
+/// its clock stands, until the sample comes.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn watch_for_starving(shared: &Arc<Shared>) {
+  use std::sync::atomic::Ordering;
+  let shared = Arc::downgrade(shared);
+  let _ = std::thread::Builder::new()
+    .name("lurq-media-starving".to_owned())
+    .spawn(move || {
+      loop {
+        std::thread::sleep(std::time::Duration::from_millis(40));
+        let Some(shared) = shared.upgrade() else {
+          return;
+        };
+        if shared.is_starved() && !shared.starved.swap(true, Ordering::AcqRel) {
+          shared.set_reading(true);
+        }
+      }
+    });
+}
+
+/// The media's thread waits for the decoder's next sample while this lives: see [`Shared::decoding`].
+pub(crate) struct Decoding<'a>(&'a Shared);
+
+impl Drop for Decoding<'_> {
+  fn drop(&mut self) {
+    *self
+      .0
+      .decoding_since
+      .lock()
+      .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+    if self.0.starved.swap(false, std::sync::atomic::Ordering::AcqRel) {
+      self.0.set_reading(false);
     }
   }
 }
@@ -437,15 +518,14 @@ impl Reader for Watched {
     use std::sync::atomic::Ordering;
     let there = self.reader.buffered().iter().any(|range| range.contains(&offset));
     let shared = self.shared.upgrade();
+    // A read on the network is counted, and no more: the decoder reads ahead of what plays, and only one it
+    // waits for while it has nothing to show makes the media wait (`Shared::decoding`).
     if !there && let Some(shared) = &shared {
-      self.waiting.fetch_add(1, Ordering::AcqRel);
-      shared.set_reading(true);
+      shared.reads_waiting.fetch_add(1, Ordering::AcqRel);
     }
     let read = self.reader.read_at(offset, buf);
     if !there && let Some(shared) = &shared {
-      if self.waiting.fetch_sub(1, Ordering::AcqRel) == 1 {
-        shared.set_reading(false);
-      }
+      shared.reads_waiting.fetch_sub(1, Ordering::AcqRel);
     }
     read.map_err(|error| {
       let why = LoadError::from(error);
@@ -783,6 +863,19 @@ impl Media {
     self.shared().tell(Command::Muted(muted));
   }
 
+  /// Whether it goes on from its start at its end, as a clip in a feed does: it is sent to its start in what it
+  /// has open, and nothing is opened or read again that it holds. Each time round `on_ended` is told, as at any
+  /// end, and it plays on: its state does not say it ended, and it is not told it stopped playing. Off unless
+  /// told.
+  pub fn set_looped(&self, looped: bool) {
+    self.shared().inner().looped = looped;
+    self.shared().told.notify_all();
+  }
+
+  pub fn looped(&self) -> bool {
+    self.shared().inner().looped
+  }
+
   /// Calls `wake` when the media changes in a way its clock does not tell: it opened, it ended, it failed, it
   /// went to another time. From the media's own thread.
   pub fn on_change(&self, wake: impl Fn() + Send + Sync + 'static) {
@@ -833,5 +926,54 @@ impl Media {
 
   fn listening(&self) -> &Arc<events::Listening> {
     events::Listening::of(&self.0.shared)
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use std::sync::atomic::Ordering;
+
+  use super::*;
+
+  fn opened() -> Arc<Shared> {
+    let shared = Shared::new();
+    shared.inner().opened = true;
+    shared.inner().waiting = false;
+    shared
+  }
+
+  fn after(millis: u64) {
+    std::thread::sleep(std::time::Duration::from_millis(millis));
+  }
+
+  #[test]
+  fn a_read_ahead_on_the_network_while_there_is_something_to_show_is_no_waiting() {
+    let shared = opened();
+    watch_for_starving(&shared);
+    // The decoder reads ahead, and its thread asks for nothing.
+    shared.reads_waiting.fetch_add(1, Ordering::AcqRel);
+    after(400);
+    assert!(!shared.inner().waiting);
+    // Its thread waits for a sample that takes long to decode, with nothing on the network.
+    shared.reads_waiting.fetch_sub(1, Ordering::AcqRel);
+    let decoding = shared.decoding();
+    after(400);
+    assert!(!shared.inner().waiting);
+    drop(decoding);
+  }
+
+  #[test]
+  fn waiting_for_the_next_sample_while_its_read_is_on_the_network_is_waiting_after_a_moment() {
+    let shared = opened();
+    watch_for_starving(&shared);
+    shared.reads_waiting.fetch_add(1, Ordering::AcqRel);
+    let decoding = shared.decoding();
+    after(100);
+    assert!(!shared.inner().waiting, "a block that comes at once shows nothing");
+    after(400);
+    assert!(shared.inner().waiting, "starved, it waits");
+    shared.reads_waiting.fetch_sub(1, Ordering::AcqRel);
+    drop(decoding);
+    assert!(!shared.inner().waiting, "and goes on as the sample comes");
   }
 }

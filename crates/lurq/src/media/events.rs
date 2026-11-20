@@ -47,6 +47,8 @@ pub(crate) struct Told {
   playing: bool,
   waiting: bool,
   ended: bool,
+  /// How many of the times a looped media went on from its start were told as ends.
+  rounds: u64,
 }
 
 impl Told {
@@ -74,6 +76,13 @@ impl Told {
       self.playing = playing;
       news.push(MediaEvent::Playing(playing));
     }
+    // A looped media came to its end and went on from its start: an end each time, with no stop of its playing.
+    if self.loaded {
+      for _ in self.rounds..inner.rounds {
+        news.push(MediaEvent::Ended);
+      }
+    }
+    self.rounds = inner.rounds;
     let ended = self.loaded && inner.ended;
     if ended != self.ended {
       self.ended = ended;
@@ -234,6 +243,8 @@ mod tests {
       ended: false,
       error: None,
       rate: 1.0,
+      looped: false,
+      rounds: 0,
       at: 0.0,
       since: crate::time::Instant::now(),
       sent: 0,

@@ -213,6 +213,16 @@ fn play(shared: &Shared, player: &AVAudioPlayer) {
         let at = player.currentTime();
         let clock = inner.position();
         let over = duration.is_none_or(|duration| at <= 0.05 || at.max(clock) >= duration - 0.3);
+        if over && inner.looped {
+          // Looped: it plays on from its start, in the player it has.
+          player.setCurrentTime(0.0);
+          player.play();
+          inner.at = 0.0;
+          inner.rounds += 1;
+          inner.since = Instant::now();
+          starting = Some(Instant::now());
+          continue;
+        }
         inner.at = match (over, inner.duration) {
           (true, Some(duration)) => duration,
           _ => at,

@@ -1245,7 +1245,9 @@ unsafe fn play(
       {
         worked = true;
         let (mut flags, mut ticks, mut sample) = (0_u32, 0_i64, None);
+        let decoding = shared.decoding();
         reader.ReadSample(VIDEO, 0, None, Some(&mut flags), Some(&mut ticks), Some(&mut sample))?;
+        drop(decoding);
         if flags & MF_SOURCE_READERF_CURRENTMEDIATYPECHANGED.0 as u32 != 0 {
           let next = Shape::of(&reader)?;
           if (next.width, next.height) != (picture.shape.width, picture.shape.height) {
@@ -1281,7 +1283,9 @@ unsafe fn play(
       {
         worked = true;
         let (mut flags, mut ticks, mut sample) = (0_u32, 0_i64, None);
+        let decoding = shared.decoding();
         reader.ReadSample(AUDIO, 0, None, Some(&mut flags), Some(&mut ticks), Some(&mut sample))?;
+        drop(decoding);
         if flags & MF_SOURCE_READERF_CURRENTMEDIATYPECHANGED.0 as u32 != 0 {
           let next = Samples::of(&reader)?;
           if next.rate != sound.samples.rate {
@@ -1385,7 +1389,26 @@ unsafe fn play(
       let timed = picture.is_some()
         || sound.as_ref().is_some_and(|sound| sound.output.is_some())
         || (playing && duration.is_none_or(|duration| shared.inner().position() >= duration));
-      if !ended && seen && listened && timed {
+      let looped = playing && shared.inner().looped;
+      if !ended && seen && listened && timed && looped {
+        // It goes on from its start in the reader it has open, as a seek there does: nothing is opened again,
+        // what the reader holds is not read again, and it does not stop: the end is told, and it plays on.
+        go(&reader, 0.0)?;
+        if let Some(picture) = &mut picture {
+          picture.sent(Some(0.0));
+        }
+        if let Some(sound) = &mut sound {
+          sound.sent(Some(0.0));
+        }
+        {
+          let mut inner = shared.inner();
+          inner.at = 0.0;
+          inner.rounds += 1;
+          inner.since = Instant::now();
+        }
+        worked = true;
+        shared.wake();
+      } else if !ended && seen && listened && timed {
         {
           let mut inner = shared.inner();
           inner.hold();

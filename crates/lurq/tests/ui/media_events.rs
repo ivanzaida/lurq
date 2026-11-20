@@ -367,3 +367,27 @@ fn an_audio_player_tells_its_sources_events_and_each_end_of_a_track_it_repeats()
   assert_eq!(log.take(), ["playing false", "error Server error 503"]);
   assert!(stage.paints("Server error 503"));
 }
+
+#[test]
+fn a_looped_video_player_tells_each_end_and_goes_on_playing() {
+  let drive = drive_media();
+  let log = Log::default();
+  let made = log.clone();
+  let mut stage = stage(move |ctx| video(&made).looped(true).mount(ctx));
+  let media = drive.last();
+  media.open(CLIP);
+  stage.pass();
+  log.take();
+  stage.click("v-play");
+  assert_eq!(log.take(), ["playing true"]);
+  stage.pass();
+
+  media.end();
+  stage.pass();
+  stage.pass();
+  assert_eq!(log.take(), ["ended"], "the end is told, and it did not stop playing");
+  media.end();
+  stage.pass();
+  assert_eq!(log.take(), ["ended"], "and each time round");
+  assert_eq!(drive.count(), 1, "nothing is opened again");
+}

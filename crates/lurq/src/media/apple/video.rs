@@ -782,6 +782,18 @@ fn play(shared: &Arc<Shared>, place: Place, picture: bool) {
       // The player stopped by itself. At the end of what it plays it ended; anywhere else the system stopped it
       // (a call, another app's sound, the headphones pulled out), and it is paused there.
       let over = inner.duration.is_none_or(|duration| seen.at >= duration - 0.3);
+      if over && inner.looped && inner.playing {
+        // Looped: the player is sent to its start in the item it has, and plays on; it never ends.
+        inner.at = 0.0;
+        inner.rounds += 1;
+        inner.since = Instant::now();
+        inner.sent += 1;
+        drop(inner);
+        shared.tell(Command::Seek(0.0));
+        shared.tell(Command::Play);
+        shared.wake();
+        continue;
+      }
       inner.at = match (over, inner.duration) {
         (true, Some(duration)) => duration,
         _ => seen.at,

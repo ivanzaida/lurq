@@ -469,6 +469,11 @@ pub struct VideoPlayerPage {
   poster: Signal<bool>,
   controls: Signal<bool>,
   overlay: Signal<bool>,
+  /// Whether the player is given its track of captions, and whether their button and the settings' are drawn.
+  has_captions: Signal<bool>,
+  captions_button: Signal<bool>,
+  settings_button: Signal<bool>,
+  looped: Signal<bool>,
   feed_playing: Signal<bool>,
   feed_muted: Signal<bool>,
   /// What the playground's player plays, of [`SOURCES`], and the path and the address typed for the last two.
@@ -526,6 +531,12 @@ impl VideoPlayerPage {
     let width = WIDTHS[self.width.get().min(WIDTHS.len() - 1)].1;
     let (waiting, ended, live, error) = (self.waiting.get(), self.ended.get(), self.live.get(), self.error.get());
     let (poster_on, controls, overlay) = (self.poster.get(), self.controls.get(), self.overlay.get());
+    let (has_captions, captions_button, settings_button, looped) = (
+      self.has_captions.get(),
+      self.captions_button.get(),
+      self.settings_button.get(),
+      self.looped.get(),
+    );
     // What it really plays, where a source is chosen: its picture, its length and where it is are then the
     // video's own.
     let chosen = self.source.get().min(SOURCES.len() - 1);
@@ -586,13 +597,20 @@ impl VideoPlayerPage {
           .volume(volume.clone())
           .muted(muted.clone())
           .rate(rate.clone())
-          .captions(captions.clone())
-          .caption_cues(&Self::captions())
-          .captions_track("English")
           .qualities(&["1080p", "720p", "480p"])
           .quality(quality.clone())
           .fullscreen(fullscreen.clone())
-          .picture_in_picture(pip.clone());
+          .picture_in_picture(pip.clone())
+          .captions_button(captions_button)
+          .settings_button(settings_button)
+          .looped(looped);
+        // A video with no captions is given none: no track, and nothing held of whether they show.
+        if has_captions {
+          player = player
+            .captions(captions.clone())
+            .caption_cues(&Self::captions())
+            .captions_track("English");
+        }
         if let Some(size) = size {
           player = player.size(size);
         }
@@ -667,6 +685,10 @@ impl VideoPlayerPage {
         if room > 0.0 {
           player = player.max_width(room);
         }
+        // A player that is told when its captions change is one that has them: with no track it is not told.
+        if has_captions {
+          player = player.on_captions_change(move |to| c(to.to_string()));
+        }
         player
           .force(forced)
           .on_playing_change(move |to| p(to.to_string()))
@@ -675,7 +697,6 @@ impl VideoPlayerPage {
           .on_volume_change(move |to| v(format!("{to:.2}")))
           .on_muted_change(move |to| m(to.to_string()))
           .on_rate_change(move |to| r(to.to_string()))
-          .on_captions_change(move |to| c(to.to_string()))
           .on_quality_change(move |to| q(format!("{to:?}")))
           .on_fullscreen_change(move |to| f(to.to_string()))
           .on_picture_in_picture_change(move |to| i(to.to_string()))
@@ -711,6 +732,11 @@ impl VideoPlayerPage {
       (poster_on, "    .poster(poster)"),
       (error, "    .error(\"This video can't be played\")"),
       (overlay, "    .child(your_layer)"),
+      (has_captions, "    .captions(captions)"),
+      (has_captions, "    .caption_cues(&track)"),
+      (!captions_button, "    .captions_button(false)"),
+      (!settings_button, "    .settings_button(false)"),
+      (looped, "    .looped(true)"),
     ] {
       if on {
         code.push(line.to_owned());
@@ -723,8 +749,6 @@ impl VideoPlayerPage {
         "    .volume(volume)",
         "    .muted(muted)",
         "    .rate(rate)",
-        "    .captions(captions)",
-        "    .caption_cues(&track)",
         "    .qualities(&[\"1080p\", \"720p\", \"480p\"])",
         "    .quality(quality)",
         "    .fullscreen(fullscreen)",
@@ -773,8 +797,15 @@ impl VideoPlayerPage {
           self.live.clone(),
           self.error.clone(),
           self.overlay.clone(),
+          self.looped.clone(),
         ],
-        [self.poster.clone(), self.controls.clone()],
+        [
+          self.poster.clone(),
+          self.controls.clone(),
+          self.has_captions.clone(),
+          self.captions_button.clone(),
+          self.settings_button.clone(),
+        ],
         (
           self.position.clone(),
           self.volume.clone(),
@@ -798,6 +829,10 @@ impl VideoPlayerPage {
         flag("picture_in_picture", &self.picture_in_picture),
         flag("controls", &self.controls),
         flag("child: your layer", &self.overlay),
+        flag("caption_cues: a track", &self.has_captions),
+        flag("captions_button", &self.captions_button),
+        flag("settings_button", &self.settings_button),
+        flag("looped", &self.looped),
       ]
     });
     let mut controls_list = crate::kit::apart(|| {
@@ -897,6 +932,10 @@ impl VideoPlayerPage {
           self.picture_in_picture.get(),
           !controls,
           overlay,
+          !has_captions,
+          !captions_button,
+          !settings_button,
+          looped,
         ]
         .into_iter()
         .filter(|changed| *changed)
@@ -1169,6 +1208,10 @@ impl Component for VideoPlayerPage {
       poster: ctx.signal(true),
       controls: ctx.signal(true),
       overlay: ctx.signal(false),
+      has_captions: ctx.signal(true),
+      captions_button: ctx.signal(true),
+      settings_button: ctx.signal(true),
+      looped: ctx.signal(false),
       feed_playing: ctx.signal(false),
       feed_muted: ctx.signal(true),
       source,
@@ -1429,6 +1472,18 @@ impl Component for VideoPlayerPage {
         "&str",
         "",
         "The line to show now, and the track's name the settings say.",
+      ),
+      (
+        "captions_button / settings_button",
+        "bool",
+        "true",
+        "Whether the captions' button (with their row in the menus and the key C) and the settings' button (with its menu) are drawn. The captions' is drawn only where the player has captions, whatever this says.",
+      ),
+      (
+        "looped",
+        "bool",
+        "false",
+        "Its source goes on from its start at its end, in what it has open: on_ended is told each time round, and it does not stop playing.",
       ),
       (
         "source",

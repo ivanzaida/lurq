@@ -556,6 +556,9 @@ struct Places {
   asked: Signal<usize>,
   asks: Signal<usize>,
   handled: Mutex<usize>,
+  /// How many rows were added at the end, and whether the list sticks to its end as they come.
+  added: Signal<usize>,
+  sticks: Signal<bool>,
 }
 
 impl Places {
@@ -579,6 +582,8 @@ impl Component for Places {
       asked: ctx.signal(0),
       asks: ctx.signal(0),
       handled: Mutex::new(0),
+      added: ctx.signal(0),
+      sticks: ctx.signal(false),
     }
   }
 
@@ -604,10 +609,14 @@ impl Component for Places {
     let (by, bottom) = (self.state.clone(), self.state.clone());
     let offset = self.offset.clone();
     let state = self.state.clone();
+    // A list at its end stays where it is as rows come below, unless it sticks to its end, as a chat's does.
+    let (added, sticks) = (self.added.get(), self.sticks.get());
+    self.state.set_sticks_to_end(sticks);
+    let (more, stick) = (self.added.clone(), self.sticks.clone());
     let rows = Column::new()
       .width(FILL)
       .spacing(4.0)
-      .with_children((1..=PLACES_ROWS).map(|index| {
+      .with_children((1..=PLACES_ROWS + added).map(|index| {
         let row = item(index);
         if index == PLACES_ROW {
           row.background(PaletteColor::Chart2).ref_element(self.row.clone())
@@ -629,6 +638,15 @@ impl Component for Places {
           .child(button(
             "To the bottom",
             Box::new(move || bottom.scroll_to_bottom_pending()),
+          ))
+          .child(button("Add 5 rows", Box::new(move || more.update(|count| *count += 5))))
+          .child(button(
+            if sticks {
+              "Sticks to end: on"
+            } else {
+              "Sticks to end: off"
+            },
+            Box::new(move || stick.update(|on| *on = !*on)),
           ))
           .child(mono(&format!("scroll_y {}", self.offset.get()), 12.0).color(PaletteColor::MutedForeground)),
       )
@@ -902,6 +920,7 @@ impl Component for ScrollPage {
               "state.scroll_by(0.0, 100.0);          // anywhere, at once",
               "ctx.scroll_into_view(&row);           // the row's ElementRef",
               "state.scroll_to_bottom_pending();     // after the next layout",
+              "state.set_sticks_to_end(true);        // a chat: at its end, it follows what is added",
             ],
           ),
         ),

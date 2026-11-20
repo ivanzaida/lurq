@@ -96,16 +96,21 @@ impl MediaDriver {
     self.0.wake();
   }
 
-  /// It played to its end.
+  /// It played to its end: it ended, or where it is looped and plays, it goes on from its start.
   pub fn end(&self) {
     {
       let mut inner = self.0.inner();
       inner.hold();
-      if let Some(duration) = inner.duration {
-        inner.at = duration;
+      if inner.looped && inner.playing {
+        inner.at = 0.0;
+        inner.rounds += 1;
+      } else {
+        if let Some(duration) = inner.duration {
+          inner.at = duration;
+        }
+        inner.ended = true;
+        inner.playing = false;
       }
-      inner.ended = true;
-      inner.playing = false;
     }
     self.0.wake();
   }
