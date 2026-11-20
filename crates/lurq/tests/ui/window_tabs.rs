@@ -29,12 +29,12 @@ use lurq::{
 
 use super::stage::Stage;
 
-fn light(role: PaletteColor) -> Color {
+pub(super) fn light(role: PaletteColor) -> Color {
   ThemePalette::light().get(role)
 }
 
 /// The board's three tabs: blur.rs, theme.rs with unsaved changes, canvas.rs; ids `blur`, `theme`, `canvas`.
-fn files() -> [WindowTab<u8>; 3] {
+pub(super) fn files() -> [WindowTab<u8>; 3] {
   [
     WindowTab::new(0, "blur.rs").icon(icons::FILE_CODE).id("blur"),
     WindowTab::new(1, "theme.rs")
@@ -46,12 +46,12 @@ fn files() -> [WindowTab<u8>; 3] {
 }
 
 /// The board's strip: its three tabs, the first selected, and the add button.
-fn board() -> WindowTabs<u8> {
+pub(super) fn board() -> WindowTabs<u8> {
   WindowTabs::controlled(0, files(), |_| {}).on_add(|| {}).id("strip")
 }
 
 /// A window of 800 by 300 that renders `scene`: room for the board's strip.
-fn wide(scene: impl Fn(&mut lurq::app::ctx::Ctx) -> Element + Send + Sync + 'static) -> Stage {
+pub(super) fn wide(scene: impl Fn(&mut lurq::app::ctx::Ctx) -> Element + Send + Sync + 'static) -> Stage {
   let mut stage = Stage::new(scene);
   stage
     .tree
@@ -61,14 +61,14 @@ fn wide(scene: impl Fn(&mut lurq::app::ctx::Ctx) -> Element + Send + Sync + 'sta
 }
 
 /// A stage of `tabs` 8 in from its corner, as a title bar holds them.
-fn staged<T: Clone + PartialEq + Send + Sync + 'static>(
+pub(super) fn staged<T: Clone + PartialEq + Send + Sync + 'static>(
   tabs: impl Fn() -> WindowTabs<T> + Send + Sync + 'static,
 ) -> Stage {
   wide(move |_| Row::new().padding(8.0).child(tabs()).into())
 }
 
 /// The filled rectangles of `color` that are `width` by `height`.
-fn filled(stage: &Stage, color: Color, width: f32, height: f32) -> Vec<Quad> {
+pub(super) fn filled(stage: &Stage, color: Color, width: f32, height: f32) -> Vec<Quad> {
   stage
     .quads()
     .into_iter()
@@ -80,19 +80,19 @@ fn filled(stage: &Stage, color: Color, width: f32, height: f32) -> Vec<Quad> {
     .collect()
 }
 
-fn close_to(a: f32, b: f32) -> bool {
+pub(super) fn close_to(a: f32, b: f32) -> bool {
   (a - b).abs() < 0.5
 }
 
 /// A key with Shift, Ctrl or both, pressed with the focus wherever it is.
-fn key_with(stage: &mut Stage, key: &str, shift: bool, ctrl: bool) {
+pub(super) fn key_with(stage: &mut Stage, key: &str, shift: bool, ctrl: bool) {
   stage.tree.key_down(key.to_owned(), key.to_owned(), shift, ctrl, false);
   stage.tree.key_up(key.to_owned(), key.to_owned(), shift, ctrl, false);
   stage.pass();
 }
 
 /// The window's close shortcut: Cmd+W on macOS, Ctrl+W elsewhere.
-fn close_shortcut(stage: &mut Stage) {
+pub(super) fn close_shortcut(stage: &mut Stage) {
   let mac = cfg!(target_os = "macos");
   let key = "w".to_owned();
   stage
@@ -103,7 +103,7 @@ fn close_shortcut(stage: &mut Stage) {
 }
 
 /// A press at the middle of `id`, a move of `by` to the side and `down` down in small steps, and the release.
-fn drag(stage: &mut Stage, id: &str, by: f32, down: f32) {
+pub(super) fn drag(stage: &mut Stage, id: &str, by: f32, down: f32) {
   let (x, y) = stage.center(id);
   stage.tree.mouse_move(x, y);
   stage.tree.mouse_down(x, y, MouseButton::Left);
@@ -357,6 +357,7 @@ fn a_close_tells_the_tab_and_the_strip_and_selects_nothing() {
           .id("canvas")
           .on_close(move || own.lock().unwrap().push("tab".to_owned())),
         WindowTab::new(2, "pinned.rs").id("pinned").close_button(false),
+        WindowTab::new(3, "home").id("home").closable(false),
       ],
       move |value| change.lock().unwrap().push(format!("change {value}")),
     )
@@ -376,9 +377,17 @@ fn a_close_tells_the_tab_and_the_strip_and_selects_nothing() {
   assert_eq!(*order.lock().unwrap(), ["strip 0"]);
   order.lock().unwrap().clear();
 
-  // A tab without a close button has none, and is not closed by the keys.
+  // A tab without a close button has none, and is still closed by the keys.
   assert!(stage.tree.get_element_by_id_mut("pinned-close").is_none());
   stage.click("pinned");
+  order.lock().unwrap().clear();
+  stage.key("Delete");
+  assert_eq!(*order.lock().unwrap(), ["strip 2"]);
+  order.lock().unwrap().clear();
+
+  // A tab that is not closable has no close button, and nothing closes it.
+  assert!(stage.tree.get_element_by_id_mut("home-close").is_none());
+  stage.click("home");
   order.lock().unwrap().clear();
   stage.key("Delete");
   assert!(order.lock().unwrap().is_empty());

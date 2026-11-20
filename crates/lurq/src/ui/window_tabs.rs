@@ -14,7 +14,7 @@ use super::{
   icons, names,
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
   select::px,
-  shared::{fading, glyph, pressable},
+  shared::{fading, glyph, one_line, pressable, tab_stop},
   theme::{Themed, current_theme},
 };
 use crate::{
@@ -31,10 +31,10 @@ use crate::{
     layout_kind::{Justify, ScrollState},
     scrollbar::ScrollBarStyle,
   },
-  node::{
-    CursorIcon, Element, FocusGroup, color::Color, dimension::Dimension, node_kind::TextOverflow, outline::Outline,
-  },
+  node::{CursorIcon, Element, FocusGroup, color::Color, dimension::Dimension, outline::Outline},
 };
+
+mod list;
 
 /// How far a press on a tab moves before it is a drag: the distance past which the engine clicks nothing on the
 /// release either.
@@ -53,6 +53,11 @@ pub enum WindowTabsPart {
   Icon,
   /// The text of a tab.
   Label,
+  /// The label of a tab with what stands right after it: the dot of unsaved changes where it is after the label,
+  /// and the app's marks. It takes the room the icon and the close slot leave.
+  Title,
+  /// The app's elements after a tab's label ([`WindowTab::trailing`]).
+  Marks,
   /// The slot at the end of a tab: its close button, or the dot of a tab with unsaved changes.
   Close,
   /// The x in the close slot.
@@ -65,6 +70,13 @@ pub enum WindowTabsPart {
   Add,
   /// The plus of the add button.
   AddIcon,
+  /// Of a strip whose tabs leave it where they do not fit ([`WindowTabsOverflow::List`]): the button at the end
+  /// of its tabs that says how many left and opens the menu of them.
+  More,
+  /// How many tabs the More button holds.
+  MoreLabel,
+  /// The chevron of the More button.
+  MoreIcon,
 }
 
 names!(WindowTabsPart {
@@ -73,12 +85,17 @@ names!(WindowTabsPart {
   Tab => "tab",
   Icon => "icon",
   Label => "label",
+  Title => "title",
+  Marks => "marks",
   Close => "close",
   CloseIcon => "close_icon",
   Dot => "dot",
   Separator => "separator",
   Add => "add",
   AddIcon => "add_icon",
+  More => "more",
+  MoreLabel => "more_label",
+  MoreIcon => "more_icon",
 });
 
 /// The states of window tabs a recipe styles, besides what the pointer and the keyboard do to them.
@@ -92,6 +109,10 @@ pub enum WindowTabsState {
   Dragged,
   /// Of a tab: it cannot be selected, closed or dragged. Of the strip: nothing in it can.
   Disabled,
+  /// Of a tab: it shows its icon alone ([`WindowTab::icon_only`]).
+  IconOnly,
+  /// Of the strip: some of its tabs did not fit and are in the menu of its More button.
+  Overflowing,
 }
 
 names!(WindowTabsState {
@@ -99,7 +120,31 @@ names!(WindowTabsState {
   Dirty => "dirty",
   Dragged => "dragged",
   Disabled => "disabled",
+  IconOnly => "icon_only",
+  Overflowing => "overflowing",
 });
+
+/// What window tabs do where they have less room than their tabs at their most: what
+/// [`WindowTabs::overflow`] takes.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum WindowTabsOverflow {
+  /// The tabs share the room down to their least width, and past that the strip scrolls sideways. The default.
+  #[default]
+  Scroll,
+  /// The tabs keep their width, and those that do not fit leave the strip, the last first and never the selected
+  /// one, into the menu of a button at the end of the tabs that shows how many left. Choosing one there selects it.
+  List,
+}
+
+/// Where the dot of a tab with unsaved changes stands: what [`WindowTabs::dirty_mark`] takes.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum WindowTabsDirtyMark {
+  /// In the close slot, the x in its place while the pointer is on the tab. The default.
+  #[default]
+  InCloseSlot,
+  /// Right after the label, the close button in its own slot and shown as a clean tab's: both at once.
+  AfterLabel,
+}
 
 /// What builds window tabs' nodes: a theme's in place of the default one.
 pub type WindowTabsRenderer = Arc<dyn Fn(WindowTabsView) -> Element + Send + Sync>;
@@ -133,11 +178,20 @@ pub struct WindowTab<T> {
   icon: Option<Name>,
   dirty: bool,
   close_button: bool,
+  closable: bool,
   on_close: Vec<Heard>,
   disabled: bool,
+  icon_only: bool,
+  width: Option<f32>,
+  max_width: Option<f32>,
+  trailing: Vec<Element>,
+  descriptions: Vec<Description>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
+
+/// What a tab says of itself to tooling, under a name.
+type Description = (Arc<str>, Arc<str>);
 
 impl<T> WindowTab<T> {
   /// A tab of `value`, called `label`.
@@ -148,8 +202,14 @@ impl<T> WindowTab<T> {
       icon: None,
       dirty: false,
       close_button: true,
+      closable: true,
       on_close: Vec::new(),
       disabled: false,
+      icon_only: false,
+      width: None,
+      max_width: None,
+      trailing: Vec::new(),
+      descriptions: Vec::new(),
       id: None,
       key: None,
     }
@@ -161,17 +221,26 @@ impl<T> WindowTab<T> {
     self
   }
 
-  /// Whether what the tab holds has changes that are not saved: its close slot shows a dot, and the x in its place
-  /// while the pointer is on the tab.
+  /// Whether what the tab holds has changes that are not saved: a dot, in its close slot with the x in its place
+  /// while the pointer is on the tab, or after its label where the strip says so
+  /// ([`dirty_mark`](WindowTabs::dirty_mark)).
   pub fn dirty(mut self, dirty: bool) -> Self {
     self.dirty = dirty;
     self
   }
 
-  /// Whether the tab has a close button: shown unless told otherwise. A tab without one is not closed by a person,
-  /// by the keys either.
+  /// Whether the tab shows a close button: shown unless told otherwise. A tab without one is still closed by a
+  /// person in the other ways (the middle button, Delete, the window's shortcut) where it is
+  /// [`closable`](Self::closable).
   pub fn close_button(mut self, shown: bool) -> Self {
     self.close_button = shown;
+    self
+  }
+
+  /// Whether a person may close the tab: they may unless told otherwise. A tab that may not (a home tab) is closed
+  /// by nothing a person does, and shows no close button.
+  pub fn closable(mut self, closable: bool) -> Self {
+    self.closable = closable;
     self
   }
 
@@ -189,7 +258,45 @@ impl<T> WindowTab<T> {
     self
   }
 
-  /// The id of the tab: what is pressed. Its close button has this id with `-close` after it.
+  /// Whether the tab shows its icon alone, as a home tab does: no label, no close slot, and the width of the
+  /// recipe's tab of an icon alone (28). The label is still its name to what reads the tree.
+  pub fn icon_only(mut self, icon_only: bool) -> Self {
+    self.icon_only = icon_only;
+    self
+  }
+
+  /// The width of this tab, in place of what the recipe and the room give it: it neither grows nor gives way.
+  pub fn width(mut self, width: f32) -> Self {
+    self.width = Some(width);
+    self
+  }
+
+  /// The most this tab is wide, under the recipe's most: a cap of the app's on a long label, which ends in an
+  /// ellipsis there.
+  pub fn max_width(mut self, width: f32) -> Self {
+    self.max_width = Some(width);
+    self
+  }
+
+  /// An element of the app's after the label (a count, a mark that something waits, with its tooltip), in the
+  /// tab's `marks` part; a second one after the first. It keeps its width, and the label gives way first.
+  pub fn trailing(mut self, element: impl Into<Element>) -> Self {
+    self.trailing.push(element.into());
+    self
+  }
+
+  /// Says `value` of the tab under `name` to tooling that reads the tree, the DevTools and the MCP tree, as
+  /// [`Styled::describe`](super::Styled::describe) does of a component: the state and the route an app's tests and
+  /// an agent read of it. It is said on the tab's node before what the strip says of the tab, so a reader that
+  /// takes the first value of a name takes the app's. It says nothing unless a tooling feature (`devtools`, `mcp`)
+  /// is on.
+  pub fn describe(mut self, name: impl Into<Arc<str>>, value: impl Into<Arc<str>>) -> Self {
+    self.descriptions.push((name.into(), value.into()));
+    self
+  }
+
+  /// The id of the tab: what is pressed. Its close button has this id with `-close` after it, and the parts in it
+  /// are named after it: `{id}-title`, `{id}-marks`.
   pub fn id(mut self, id: impl Into<Arc<str>>) -> Self {
     self.id = Some(id.into());
     self
@@ -211,8 +318,14 @@ impl<T> WindowTab<T> {
       icon: self.icon,
       dirty: self.dirty,
       close_button: self.close_button,
+      closable: self.closable,
       on_close: self.on_close,
       disabled: self.disabled,
+      icon_only: self.icon_only,
+      width: self.width,
+      max_width: self.max_width,
+      trailing: self.trailing,
+      descriptions: self.descriptions,
       id: self.id,
       key: self.key,
     }
@@ -240,7 +353,16 @@ pub struct WindowTabEntry {
   pub icon: Option<Name>,
   pub dirty: bool,
   pub close_button: bool,
+  pub closable: bool,
   pub disabled: bool,
+  pub icon_only: bool,
+  /// The tab's own width and most width, over the recipe's.
+  pub width: Option<f32>,
+  pub max_width: Option<f32>,
+  /// The app's elements after the label.
+  pub trailing: Vec<Element>,
+  /// What the app says of the tab to tooling, said before what the strip says.
+  pub descriptions: Vec<(Arc<str>, Arc<str>)>,
   pub selected: bool,
   select: Heard,
   close: Heard,
@@ -254,6 +376,7 @@ pub struct WindowTabEntry {
 struct Words {
   add: Arc<str>,
   close: Arc<str>,
+  more: Arc<str>,
 }
 
 /// Window tabs: the tabs of a desktop app's title bar, as a browser or an
@@ -305,6 +428,9 @@ pub struct WindowTabs<T = ()> {
   on_detach: Vec<Handler<T>>,
   shortcuts: bool,
   disabled: bool,
+  overflow: WindowTabsOverflow,
+  dirty_mark: WindowTabsDirtyMark,
+  tab_stop: bool,
   label: Option<Arc<str>>,
   words: Words,
   states: Vec<Name>,
@@ -371,10 +497,14 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> WindowTabs<T> {
       on_detach: Vec::new(),
       shortcuts: true,
       disabled: false,
+      overflow: WindowTabsOverflow::Scroll,
+      dirty_mark: WindowTabsDirtyMark::InCloseSlot,
+      tab_stop: true,
       label: None,
       words: Words {
         add: super::current_locale().navigation.new_tab.clone(),
         close: super::current_locale().common.close.clone(),
+        more: super::current_locale().navigation.show_hidden_tabs.clone(),
       },
       states: Vec::new(),
       rules: Recipe::new(),
@@ -461,6 +591,32 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> WindowTabs<T> {
     self
   }
 
+  /// What the tabs do where the strip has less room than they need at their most: share it and then scroll
+  /// ([`WindowTabsOverflow::Scroll`], the default), or keep their width and leave the strip into the menu of a
+  /// button at its end ([`WindowTabsOverflow::List`]). The list needs the tabs [`mount`](Self::mount)ed, which
+  /// learns which left; converted into an element on their own they are cut at the strip's end.
+  pub fn overflow(mut self, overflow: WindowTabsOverflow) -> Self {
+    self.overflow = overflow;
+    self
+  }
+
+  /// Where the dot of a tab with unsaved changes stands: in the close slot, the x in its place under the pointer
+  /// ([`WindowTabsDirtyMark::InCloseSlot`], the default), or right after the label, beside a close button that
+  /// stays ([`WindowTabsDirtyMark::AfterLabel`]).
+  pub fn dirty_mark(mut self, mark: WindowTabsDirtyMark) -> Self {
+    self.dirty_mark = mark;
+    self
+  }
+
+  /// Whether Tab stops in the strip; it does unless told otherwise. `false` is a strip the pointer and the app's
+  /// own shortcuts reach: Tab passes its tabs, its add button and its More button by, and a press of one leaves the
+  /// focus where it was. A tab the app focuses still takes Left, Right and Delete, and the window's keys work as
+  /// before; what reads the tree sees the same tabs.
+  pub fn tab_stop(mut self, stops: bool) -> Self {
+    self.tab_stop = stops;
+    self
+  }
+
   /// What the list of tabs is called, to what reads the tree: "Open files".
   pub fn label(mut self, label: &str) -> Self {
     self.label = Some(Arc::from(label));
@@ -477,6 +633,13 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> WindowTabs<T> {
   /// makes "Close blur.rs".
   pub fn close_label(mut self, label: &str) -> Self {
     self.words.close = Arc::from(label);
+    self
+  }
+
+  /// What the More button of [`WindowTabsOverflow::List`] is called, to what reads the tree, and its menu: "Show
+  /// the hidden tabs" unless told otherwise. It shows how many tabs it holds.
+  pub fn more_label(mut self, label: &str) -> Self {
+    self.words.more = Arc::from(label);
     self
   }
 
@@ -509,7 +672,8 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> WindowTabs<T> {
     self
   }
 
-  /// The id of the strip. Its list of tabs has this id with `-list` after it, and its add button with `-add`.
+  /// The id of the strip. Its list of tabs has this id with `-list` after it, its add button `-add`, and its More
+  /// button `-more`; a tab chosen in the More button's menu is the tab's id with `-item` after it.
   pub fn id(mut self, id: impl Into<Arc<str>>) -> Self {
     self.id = Some(id.into());
     self
@@ -570,7 +734,13 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> WindowTabs<T> {
           icon: tab.icon,
           dirty: tab.dirty,
           close_button: tab.close_button,
+          closable: tab.closable,
           disabled: tab.disabled,
+          icon_only: tab.icon_only,
+          width: tab.width,
+          max_width: tab.max_width,
+          trailing: tab.trailing,
+          descriptions: tab.descriptions,
           selected: chosen,
           select,
           close,
@@ -602,6 +772,9 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> WindowTabs<T> {
       reorder,
       shortcuts: self.shortcuts,
       disabled: self.disabled,
+      overflow: self.overflow,
+      dirty_mark: self.dirty_mark,
+      tab_stop: self.tab_stop,
       label: self.label,
       words: self.words,
       states: self.states,
@@ -650,7 +823,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> From<WindowTabs<T>> for Eleme
 struct Drag {
   /// The place of the tab dragged.
   from: usize,
-  /// How many tabs there are.
+  /// How many tabs are in the strip: all of them, but those that left it for the More button's menu.
   count: usize,
   /// Where the tab was from the start of the list when it was pressed, and how wide and high it is.
   start: f32,
@@ -686,7 +859,7 @@ impl Drag {
     (self.start + self.moved).clamp(0.0, (self.span - self.width).max(0.0))
   }
 
-  /// The place the tab is let go at: that of the tab whose room it is over most.
+  /// The place among the tabs in the strip the tab is let go at: that of the tab whose room it is over most.
   fn target(&self) -> usize {
     if self.count <= 1 {
       return 0;
@@ -716,6 +889,11 @@ struct Kept {
   list: ElementRef,
   root: ElementRef,
   scroll: ScrollState,
+  /// Of [`WindowTabsOverflow::List`]: which tabs the last layout left out of the strip, by index.
+  dropped: Arc<Mutex<Vec<bool>>>,
+  /// Whether the menu of the More button is open, and the button it hangs from.
+  open: Signal<bool>,
+  anchor: ElementRef,
 }
 
 impl Kept {
@@ -731,6 +909,9 @@ impl Kept {
       list: ElementRef::new(),
       root: ElementRef::new(),
       scroll: ScrollState::new(),
+      dropped: Arc::new(Mutex::new(Vec::new())),
+      open: Signal::new(false),
+      anchor: ElementRef::new(),
     }
   }
 
@@ -770,6 +951,9 @@ struct Prepared {
   reorder: Moved,
   shortcuts: bool,
   disabled: bool,
+  overflow: WindowTabsOverflow,
+  dirty_mark: WindowTabsDirtyMark,
+  tab_stop: bool,
   label: Option<Arc<str>>,
   words: Words,
   states: Vec<Name>,
@@ -782,6 +966,7 @@ struct Prepared {
 impl Prepared {
   /// The tabs in `theme`, with what `kept` keeps.
   fn build(self, theme: &Theme, kept: Kept) -> Element {
+    let hidden = self.hidden(&kept);
     let case = Case {
       variant: None,
       size: None,
@@ -789,7 +974,8 @@ impl Prepared {
       breakpoint: super::current_breakpoint(),
       states: self.states.clone(),
     }
-    .state(WindowTabsState::Disabled, self.disabled);
+    .state(WindowTabsState::Disabled, self.disabled)
+    .state(WindowTabsState::Overflowing, hidden.contains(&true));
     let owner = theme
       .resolve::<WindowTabs>(&case, Some(&self.rules))
       .owned_by(self.id.as_ref());
@@ -797,6 +983,10 @@ impl Prepared {
       tabs: self.tabs,
       disabled: self.disabled,
       shortcuts: self.shortcuts,
+      overflow: self.overflow,
+      dirty_mark: self.dirty_mark,
+      tab_stop: self.tab_stop,
+      hidden,
       label: self.label,
       theme: theme.clone(),
       case,
@@ -816,6 +1006,23 @@ impl Prepared {
       Some(renderer) => renderer(view),
       None => view.render(),
     }
+  }
+
+  /// Which tabs are out of the strip, by index: of mounted tabs that leave it where they do not fit, those the last
+  /// layout left out, but the selected one, which stays. None of the others.
+  fn hidden(&self, kept: &Kept) -> Vec<bool> {
+    let mut dropped = kept.dropped.lock();
+    if self.overflow != WindowTabsOverflow::List || kept.revision.is_none() {
+      dropped.clear();
+      return vec![false; self.tabs.len()];
+    }
+    dropped.resize(self.tabs.len(), false);
+    self
+      .tabs
+      .iter()
+      .zip(dropped.iter())
+      .map(|(tab, dropped)| *dropped && !tab.selected)
+      .collect()
   }
 }
 
@@ -884,12 +1091,18 @@ pub struct WindowTabsView {
   pub tabs: Vec<WindowTabEntry>,
   pub disabled: bool,
   pub shortcuts: bool,
+  pub overflow: WindowTabsOverflow,
+  pub dirty_mark: WindowTabsDirtyMark,
+  /// Whether Tab stops in the strip.
+  pub tab_stop: bool,
+  /// Which tabs left the strip for the More button's menu, by index.
+  pub hidden: Vec<bool>,
   pub label: Option<Arc<str>>,
   theme: Theme,
   case: Case,
   rules: Recipe,
   /// The recipe of a tab in each mix of its own states, resolved when it is first asked for.
-  recipes: [OnceCell<ResolvedRecipe>; 16],
+  recipes: [OnceCell<ResolvedRecipe>; 32],
   /// What the recipes name their parts after, and count them with.
   owner: ResolvedRecipe,
   add: Option<Heard>,
@@ -904,9 +1117,12 @@ pub struct WindowTabsView {
 }
 
 impl WindowTabsView {
-  fn recipe(&self, selected: bool, dirty: bool, dragged: bool, disabled: bool) -> &ResolvedRecipe {
-    let index =
-      usize::from(selected) | usize::from(dirty) << 1 | usize::from(dragged) << 2 | usize::from(disabled) << 3;
+  fn recipe(&self, selected: bool, dirty: bool, dragged: bool, disabled: bool, icon_only: bool) -> &ResolvedRecipe {
+    let index = usize::from(selected)
+      | usize::from(dirty) << 1
+      | usize::from(dragged) << 2
+      | usize::from(disabled) << 3
+      | usize::from(icon_only) << 4;
     self.recipes[index].get_or_init(|| {
       self
         .theme
@@ -917,7 +1133,8 @@ impl WindowTabsView {
             .state(WindowTabsState::Selected, selected)
             .state(WindowTabsState::Dirty, dirty)
             .state(WindowTabsState::Dragged, dragged)
-            .state(WindowTabsState::Disabled, disabled),
+            .state(WindowTabsState::Disabled, disabled)
+            .state(WindowTabsState::IconOnly, icon_only),
           Some(&self.rules),
         )
         .owned_like(&self.owner)
@@ -926,16 +1143,28 @@ impl WindowTabsView {
 
   /// The style of a part that is no tab's, as these tabs are to be drawn.
   pub fn part(&self, part: impl Into<Name>) -> ResolvedPart {
-    self.recipe(false, false, false, self.disabled).part(part)
+    self.recipe(false, false, false, self.disabled, false).part(part)
   }
 
   /// The style of a part of the tab at `index`: in the states of that tab, and in the interaction forced where
   /// it is the tab Tab stops on.
   pub fn tab_part(&self, index: usize, part: impl Into<Name>) -> ResolvedPart {
+    self.tab_part_as(index, part, self.tabs[index].dirty)
+  }
+
+  /// [`tab_part`](Self::tab_part) with the tab dirty or not: the close slot of a tab whose dot stands after its
+  /// label is drawn as a clean tab's.
+  fn tab_part_as(&self, index: usize, part: impl Into<Name>, dirty: bool) -> ResolvedPart {
     let tab = &self.tabs[index];
     let dragged = self.drag.is_some_and(|drag| drag.from == index);
     let forced = self.forced.filter(|_| self.entry() == Some(index));
-    let recipe = self.recipe(tab.selected, tab.dirty, dragged, self.disabled || tab.disabled);
+    let recipe = self.recipe(
+      tab.selected,
+      dirty,
+      dragged,
+      self.disabled || tab.disabled,
+      tab.icon_only,
+    );
     // A tab with an id names its parts after it; one with a key only, after the tabs' id and the key.
     let recipe = match (&tab.id, &tab.key) {
       (None, Some(key)) => recipe.keyed_item(key, WindowTabsPart::Tab),
@@ -971,20 +1200,41 @@ impl WindowTabsView {
     self.drag.map(|drag| drag.from)
   }
 
-  /// Whether a tab can be closed by a person: it has a close button, and neither it nor the strip is disabled.
+  /// Whether a tab can be closed by a person: it is closable, and neither it nor the strip is disabled. Whether it
+  /// shows its close button does not matter: the middle button, Delete and the window's shortcut close it.
   fn closable(&self, index: usize) -> bool {
     let tab = &self.tabs[index];
-    tab.close_button && !tab.disabled && !self.disabled
+    tab.closable && !tab.disabled && !self.disabled
+  }
+
+  /// Whether the dot of the tab at `index` stands after its label, not in its close slot.
+  fn dot_after_label(&self, index: usize) -> bool {
+    self.tabs[index].dirty && self.dirty_mark == WindowTabsDirtyMark::AfterLabel
+  }
+
+  /// The dot of unsaved changes of the tab at `index`, in the recipe of a tab `dirty` or not: the dot after a label
+  /// is drawn as a clean tab's, so that the pointer does not swap it for the x.
+  fn dot(&self, index: usize, dirty: bool) -> Element {
+    Row::new()
+      .part(&self.tab_part_as(index, WindowTabsPart::Dot, dirty))
+      .into()
   }
 
   /// The close slot of the tab at `index`: its close button, which shows the
   /// dot of unsaved changes until the pointer is on the tab; or the dot
-  /// alone where the tab has no close button. None where it has neither.
-  /// The button is for the pointer, called "Close" and the tab's label to
-  /// what reads the tree: the keyboard closes the tab with Delete.
+  /// alone where the tab shows no close button. None where it has neither,
+  /// and for a tab of its icon alone. Where the dot stands after the label
+  /// the button is drawn as a clean tab's, and so is the dot: both show, and
+  /// the pointer swaps nothing. The button is for the pointer,
+  /// called "Close" and the tab's label to what reads the tree: the keyboard
+  /// closes the tab with Delete.
   pub fn close(&self, index: usize) -> Option<Element> {
     let entry = &self.tabs[index];
-    let part = |part: WindowTabsPart| self.tab_part(index, part);
+    if entry.icon_only {
+      return None;
+    }
+    let in_slot = entry.dirty && !self.dot_after_label(index);
+    let part = |part: WindowTabsPart| self.tab_part_as(index, part, in_slot);
     let centred = |child: Element| -> Element {
       Row::new()
         .size(Dimension::Pct(100.0), Dimension::Pct(100.0))
@@ -993,11 +1243,10 @@ impl WindowTabsView {
         .child(child)
         .into()
     };
-    let dot = || centred(Row::new().part(&part(WindowTabsPart::Dot)).into());
     // A tab drawn as under the pointer is not its close slot under the pointer: the slot keeps its own state.
     let slot_part = part(WindowTabsPart::Close).forced(None);
-    if !entry.close_button {
-      if !entry.dirty {
+    if !(entry.close_button && entry.closable) {
+      if !in_slot {
         return None;
       }
       return Some(
@@ -1005,16 +1254,16 @@ impl WindowTabsView {
           .part(&slot_part)
           .justify(Justify::Center)
           .align_items(Alignment::Center)
-          .child(dot())
+          .child(centred(self.dot(index, true)))
           .into(),
       );
     }
     let x = centred(glyph(&part(WindowTabsPart::CloseIcon), Name::new(icons::CLOSE), false));
-    let slot: Element = if entry.dirty {
+    let slot: Element = if in_slot {
       Stack::new()
         .size(Dimension::Pct(100.0), Dimension::Pct(100.0))
         .child(x)
-        .child(dot())
+        .child(centred(self.dot(index, true)))
         .into()
     } else {
       x
@@ -1043,18 +1292,98 @@ impl WindowTabsView {
     Some(button.into())
   }
 
-  /// The tab at `index`: what is pressed, with its icon, label and close
-  /// slot. It is a tab to what reads the tree, called by its label, and says
-  /// whether it is the selected one; the list's arrow keys move to it unless
-  /// it is disabled, and Delete on it closes it. A press goes no further than
-  /// it, and a drag moves it along the strip or out of it.
+  /// The label of the tab at `index` with what stands right after it: the
+  /// dot where it is after the label, and the app's marks. It takes the room
+  /// the icon and the close slot leave; the label gives way first, and ends
+  /// in an ellipsis where it is not enough.
+  fn title(&self, index: usize) -> Element {
+    let entry = &self.tabs[index];
+    let mut title = Row::new()
+      .part(&self.tab_part(index, WindowTabsPart::Title))
+      .align_items(Alignment::Center)
+      .flex_full(1.0, 1.0, Some(0.0))
+      .min_width(0.0)
+      .child(one_line(&self.tab_part(index, WindowTabsPart::Label), &entry.label));
+    if self.dot_after_label(index) {
+      title = title.child(self.dot(index, false));
+    }
+    if !entry.trailing.is_empty() {
+      title = title.child(
+        Row::new()
+          .part(&self.tab_part(index, WindowTabsPart::Marks))
+          .align_items(Alignment::Center)
+          .with_children(entry.trailing.iter().cloned()),
+      );
+    }
+    title.into()
+  }
+
+  /// What the keys do on a tab that is not disabled: Escape puts it back where it is being dragged, and Delete
+  /// closes it where a person may close it.
+  fn keys(&self, index: usize) -> impl Fn(KeyboardEvent) + Send + Sync + 'static {
+    let closable = self.closable(index);
+    let (close, kept) = (self.tabs[index].close.clone(), self.kept.clone());
+    move |event: KeyboardEvent| {
+      // Escape puts a dragged tab back where it was: its release tells nothing.
+      if event.key == "Escape" {
+        let mut drag = kept.drag.lock();
+        if drag.is_some_and(|drag| drag.from == index && drag.begun) {
+          *drag = None;
+          drop(drag);
+          event.prevent_default();
+          kept.moved();
+        }
+        return;
+      }
+      let plain = !(event.ctrl || event.alt || event.meta || event.shift);
+      if closable && event.focus_within && event.key == "Delete" && plain {
+        event.prevent_default();
+        kept.refocus.store(true, Ordering::Relaxed);
+        close();
+      }
+    }
+  }
+
+  /// A press of the middle button on the tab at `index`, let go on it, closes it.
+  fn middle(&self, index: usize, tab: components::Button) -> components::Button {
+    let (pressed, released) = (self.kept.middle.clone(), self.kept.middle.clone());
+    let close = self.tabs[index].close.clone();
+    tab
+      .on_mouse_down(move |event: MouseEvent| {
+        if event.button == MouseButton::Middle {
+          *pressed.lock() = Some(index);
+        }
+      })
+      .on_mouse_up(move |event: MouseEvent| {
+        if event.button == MouseButton::Middle && released.lock().take() == Some(index) {
+          event.stop_propagation();
+          close();
+        }
+      })
+  }
+
+  /// The tab at `index`: what is pressed, with its icon, its label with what
+  /// stands after it, and its close slot; a tab of its icon alone has the
+  /// icon only. It is a tab to what reads the tree, called by its label, and
+  /// says whether it is the selected one, after what the app says of it; the
+  /// list's arrow keys move to it unless it is disabled, and Delete on it
+  /// closes it. A press goes no further than it, a press of the middle button
+  /// closes it, and a drag moves it along the strip or out of it.
   pub fn tab(&self, index: usize) -> components::Button {
     let entry = &self.tabs[index];
     let part = |part: WindowTabsPart| self.tab_part(index, part);
     let disabled = self.disabled || entry.disabled;
     let (select, kept) = (entry.select.clone(), self.kept.clone());
-    let mut tab = pressable(&part(WindowTabsPart::Tab), disabled)
-      .justify(Justify::Start)
+    let mut tab = tab_stop(pressable(&part(WindowTabsPart::Tab), disabled), self.tab_stop);
+    for (name, value) in &entry.descriptions {
+      tab = tab.describe(name.clone(), value.clone());
+    }
+    tab = tab
+      .justify(if entry.icon_only {
+        Justify::Center
+      } else {
+        Justify::Start
+      })
       .align_items(Alignment::Center)
       .interaction_group(true)
       .focus_entry(entry.selected)
@@ -1069,61 +1398,24 @@ impl WindowTabsView {
           select();
         }
       });
+    if self.overflow == WindowTabsOverflow::List {
+      // Some of the tabs may be in the More button's menu: each says where it is among them all.
+      tab = tab
+        .describe("a11y_posinset", (index + 1).to_string())
+        .describe("a11y_setsize", self.tabs.len().to_string());
+    }
     if !disabled {
-      tab = self.draggable(index, tab);
-      let closable = self.closable(index);
-      let (close, kept) = (entry.close.clone(), self.kept.clone());
-      tab = tab.on_key_down(move |event: KeyboardEvent| {
-        // Escape puts a dragged tab back where it was: its release tells nothing.
-        if event.key == "Escape" {
-          let mut drag = kept.drag.lock();
-          if drag.is_some_and(|drag| drag.from == index && drag.begun) {
-            *drag = None;
-            drop(drag);
-            event.prevent_default();
-            kept.moved();
-          }
-          return;
-        }
-        let plain = !(event.ctrl || event.alt || event.meta || event.shift);
-        if closable && event.focus_within && event.key == "Delete" && plain {
-          event.prevent_default();
-          kept.refocus.store(true, Ordering::Relaxed);
-          close();
-        }
-      });
-      if closable {
-        // A press of the middle button on the tab, let go on it, closes it.
-        let (pressed, released) = (self.kept.middle.clone(), self.kept.middle.clone());
-        let close = entry.close.clone();
-        tab = tab
-          .on_mouse_down(move |event: MouseEvent| {
-            if event.button == MouseButton::Middle {
-              *pressed.lock() = Some(index);
-            }
-          })
-          .on_mouse_up(move |event: MouseEvent| {
-            if event.button == MouseButton::Middle && released.lock().take() == Some(index) {
-              event.stop_propagation();
-              close();
-            }
-          });
+      tab = self.draggable(index, tab).on_key_down(self.keys(index));
+      if self.closable(index) {
+        tab = self.middle(index, tab);
       }
     }
     if let Some(name) = entry.icon {
       tab = tab.child(glyph(&part(WindowTabsPart::Icon), name, false));
     }
-    let label = part(WindowTabsPart::Label);
-    // The label takes the room the icon and the close slot leave, and ends in an ellipsis where it is not enough.
-    tab = tab.child(
-      Row::new().flex_full(1.0, 1.0, Some(0.0)).min_width(0.0).child(
-        label
-          .text(&entry.label)
-          .nowrap()
-          .text_overflow(TextOverflow::Elipsis)
-          .part(&label),
-      ),
-    );
+    if !entry.icon_only {
+      tab = tab.child(self.title(index));
+    }
     if let Some(close) = self.close(index) {
       tab = tab.child(close);
     }
@@ -1133,42 +1425,74 @@ impl WindowTabsView {
     if let Some(key) = &entry.key {
       tab = tab.key(key.clone());
     }
-    // It shares the room of the list with the other tabs: from its least width, growing alike with them to its
-    // most.
-    tab.flex_full(1.0, 0.0, Some(self.widths().0))
+    let (least, most) = self.widths(index);
+    if entry.width.is_some() || self.overflow == WindowTabsOverflow::List {
+      // A tab of a width of its own, or one that leaves the strip rather than give way, is as wide as it is.
+      return tab
+        .flex_full(0.0, 0.0, Some(most))
+        .width(most)
+        .min_width(most)
+        .max_width(most);
+    }
+    // It shares the room of the list with the other tabs: from its least width, growing to its most by as much as
+    // it can grow, so that every tab is at its most when the strip has room for all of them so.
+    tab
+      .flex_full(most - least, 0.0, Some(least))
+      .min_width(least)
+      .max_width(most)
   }
 
-  /// The widths of a tab in the recipe: the least, and the most, which is what a tab is with room enough.
-  fn widths(&self) -> (f32, f32) {
-    let tab = self.part(WindowTabsPart::Tab).rest();
-    let most = px(tab.max_width, &self.theme).or_else(|| px(tab.width, &self.theme));
-    let least = px(tab.min_width, &self.theme).unwrap_or(0.0);
+  /// The widths of the tab at `index`: the least, and the most, which is what it is with room enough. The
+  /// recipe's for a tab in its states, under the tab's own most width; both the tab's own width where it has one.
+  fn widths(&self, index: usize) -> (f32, f32) {
+    let entry = &self.tabs[index];
+    let (least, most) = self.recipe_widths(self.tab_part(index, WindowTabsPart::Tab).rest());
+    if let Some(width) = entry.width {
+      return (width, width);
+    }
+    match entry.max_width {
+      Some(cap) => (least.min(cap), most.min(cap)),
+      None => (least, most),
+    }
+  }
+
+  /// The least and the most width of a tab in the recipe's `style`.
+  fn recipe_widths(&self, style: super::PartStyle) -> (f32, f32) {
+    let most = px(style.max_width, &self.theme).or_else(|| px(style.width, &self.theme));
+    let least = px(style.min_width, &self.theme).unwrap_or(0.0);
     (least, most.unwrap_or(least).max(least))
   }
 
+  /// The tabs in the strip, by index: all of them, but those that left it for the More button's menu.
+  fn shown(&self) -> Vec<usize> {
+    (0..self.tabs.len()).filter(|index| !self.hidden[*index]).collect()
+  }
+
   /// What a press and a move of the tab at `index` do: past a few pixels it is a drag, which selects the tab and
-  /// draws it under the pointer where the tabs are mounted; let go, it tells where the tab went.
+  /// draws it under the pointer where the tabs are mounted; let go, it tells where the tab went among the tabs in
+  /// the strip.
   fn draggable(&self, index: usize, tab: components::Button) -> components::Button {
-    let count = self.tabs.len();
+    let shown: Arc<[usize]> = self.shown().into();
     let kept = self.kept.clone();
     let (start, moved, end) = (kept.clone(), kept.clone(), kept);
     let select = self.tabs[index].select.clone();
     let detach = self.tabs[index].detach.clone();
     let reorder = self.reorder.clone();
+    let (starting, ending) = (shown.clone(), shown);
     tab
       .start_drag_buttons(MouseButtonMask::LEFT)
       .on_drag_start(move |_: DragEvent| {
         start.dragged.store(false, Ordering::Relaxed);
         let at = start.tab_ref(index);
-        let refs = start.tab_refs.lock();
         let list_x = start.list.x();
-        let span = refs
-          .get(count.saturating_sub(1))
+        let span = starting
+          .last()
+          .map(|last| start.tab_ref(*last))
           .map(|last| last.x() + last.width() - list_x)
           .unwrap_or(0.0);
         *start.drag.lock() = Some(Drag {
           from: index,
-          count,
+          count: starting.len(),
           start: at.x() - list_x,
           width: at.width(),
           height: at.height(),
@@ -1217,11 +1541,13 @@ impl WindowTabsView {
           detach();
           return;
         }
-        let to = Drag {
+        let at = Drag {
           moved: event.total_delta_x,
           ..drag
         }
         .target();
+        // The place of the tab in the strip whose room it took: where it goes among them all.
+        let to = ending.get(at).copied().unwrap_or(drag.from);
         if to != drag.from {
           reorder(drag.from, to);
         }
@@ -1237,7 +1563,7 @@ impl WindowTabsView {
   /// the strip's `add_label` to what reads the tree. A press of it goes no further than it.
   pub fn add(&self) -> Option<components::Button> {
     let add = self.add.clone()?;
-    let mut button = pressable(&self.part(WindowTabsPart::Add), self.disabled)
+    let mut button = tab_stop(pressable(&self.part(WindowTabsPart::Add), self.disabled), self.tab_stop)
       .describe("a11y_name", self.words.add.clone())
       .align_items(Alignment::Center)
       .on_mouse_down(|event: MouseEvent| event.stop_propagation())
@@ -1254,14 +1580,30 @@ impl WindowTabsView {
   }
 
   /// What stands in the list in order: the tabs, and while a tab is dragged the others with the room it would be
-  /// let go into among them.
+  /// let go into among them, before the tab in the strip whose place it takes.
   fn places(&self) -> Vec<Place> {
     let mut places: Vec<Place> = (0..self.tabs.len()).map(Place::Tab).collect();
     if let Some(drag) = self.drag {
       places.retain(|place| *place != Place::Tab(drag.from));
-      places.insert(drag.target().min(places.len()), Place::Room);
+      let others: Vec<usize> = self.shown().into_iter().filter(|index| *index != drag.from).collect();
+      let at = match others.get(drag.target()) {
+        Some(before) => places.iter().position(|place| *place == Place::Tab(*before)),
+        None => others
+          .last()
+          .and_then(|last| places.iter().position(|place| *place == Place::Tab(*last)))
+          .map(|last| last + 1),
+      };
+      places.insert(at.unwrap_or(0).min(places.len()), Place::Room);
     }
     places
+  }
+
+  /// Whether `place` is in the strip, and not in the More button's menu.
+  fn in_strip(&self, place: Place) -> bool {
+    match place {
+      Place::Tab(index) => !self.hidden[index],
+      Place::Room => true,
+    }
   }
 
   /// Whether a separator stands beside `place`: one stands between two tabs that are not the selected one, and
@@ -1273,12 +1615,32 @@ impl WindowTabsView {
     }
   }
 
+  /// Of each place, whether a separator stands before it: between it and the place in the strip before it, both
+  /// tabs that are not the selected one.
+  fn separated(&self, places: &[Place]) -> Vec<bool> {
+    let mut before: Option<Place> = None;
+    places
+      .iter()
+      .map(|place| {
+        if !self.in_strip(*place) {
+          return false;
+        }
+        let separated = before.is_some_and(|before| self.plain(before)) && self.plain(*place);
+        before = Some(*place);
+        separated
+      })
+      .collect()
+  }
+
   /// The list of the tabs with the separators between them: one stop of Tab,
   /// at the selected tab, whose Left and Right select. It is a tab list to
   /// what reads the tree. While a tab is dragged, the others make room for it
   /// where it would be let go, and it is drawn over them under the pointer.
+  /// Where the tabs leave the strip into a list, each but the selected one
+  /// leaves it with the separator before it, and the More button follows them.
   pub fn list(&self) -> Element {
     let places = self.places();
+    let separated = self.separated(&places);
     let mut row = Row::new()
       .part(&self.part(WindowTabsPart::List))
       .align_items(Alignment::Center)
@@ -1291,20 +1653,32 @@ impl WindowTabsView {
       row = row.id(format!("{id}-list"));
     }
     for (at, place) in places.iter().enumerate() {
-      if at > 0 && self.plain(places[at - 1]) && self.plain(*place) {
-        row = row.child(self.separator());
-      }
-      row = match place {
-        Place::Tab(index) => row.child(self.tab(*index)),
-        Place::Room => row.child(Row::new().part(&self.part(WindowTabsPart::Tab)).flex_full(
-          1.0,
-          0.0,
-          Some(self.widths().0),
-        )),
+      let separator = separated[at].then(|| self.separator());
+      let element: Element = match place {
+        Place::Tab(index) => self.tab(*index).into(),
+        Place::Room => {
+          let width = self.drag.map_or(0.0, |drag| drag.width);
+          Row::new()
+            .part(&self.part(WindowTabsPart::Tab))
+            .flex_full(0.0, 0.0, Some(width))
+            .width(width)
+            .into()
+        }
+      };
+      row = match (place, self.leaves(*place)) {
+        (Place::Tab(index), true) => row.child(self.leaving(*index, separator, element)),
+        _ => row.with_children(separator).child(element),
       };
     }
+    if let Some(more) = self.more() {
+      row = row.child(more);
+    }
     let Some(drag) = self.drag else {
-      return row.into();
+      return match self.overflow {
+        WindowTabsOverflow::Scroll => row.into(),
+        // The list is as wide as the room the strip gives it, and its tabs leave it where they do not fit.
+        WindowTabsOverflow::List => row.width(Dimension::Pct(100.0)).min_width(0.0).into(),
+      };
     };
     // The dragged tab is drawn over the others, as wide as it was, where the pointer has it; the list keeps the
     // width it had.
@@ -1388,50 +1762,69 @@ impl WindowTabsView {
     }
   }
 
-  /// How the default renderer builds window tabs: the list, which scrolls
-  /// sideways where its tabs do not fit at their least width, and the add
-  /// button after it, with a separator before it where the last tab is not
-  /// the selected one. The window's keys are heard on the strip.
-  pub fn render(self) -> Element {
-    // The tabs share the room the strip is given, down to their least width, and past that the list scrolls.
-    // A wheel turned up and down over it scrolls it sideways, as a browser's strip of tabs.
-    let scroll = ScrollBoth::new(self.list())
-      .fill_width(true)
-      .wheel_across(true)
-      .with_scroll_state(self.kept.scroll.clone())
-      .scrollbar(ScrollBarStyle::hidden())
-      .flex_full(1.0, 1.0, Some(0.0))
-      .min_width(0.0);
-    // The strip is as wide as its tabs at their most and the add button, and gives way where it has less room.
+  /// How wide the strip is with room enough: its tabs at their most, the separators between them, and the add
+  /// button with the separator before it.
+  fn full_width(&self) -> f32 {
+    if let Some(drag) = self.drag {
+      return drag.strip_width;
+    }
     let places = self.places();
     let separator = px(self.part(WindowTabsPart::Separator).rest().width, &self.theme).unwrap_or(0.0);
-    let separators = (1..places.len())
-      .filter(|at| self.plain(places[at - 1]) && self.plain(places[*at]))
+    let separators = self
+      .separated(&places)
+      .into_iter()
+      .filter(|separated| *separated)
       .count();
+    let tabs: f32 = (0..self.tabs.len()).map(|index| self.widths(index).1).sum();
     let add = self.add.as_ref().map_or(0.0, |_| {
-      let before = if self.tabs.last().is_some_and(|tab| !tab.selected) {
-        separator
-      } else {
-        0.0
-      };
+      let before = if self.last_plain() { separator } else { 0.0 };
       before + px(self.part(WindowTabsPart::Add).rest().width, &self.theme).unwrap_or(0.0)
     });
-    let full = match self.drag {
-      Some(drag) => drag.strip_width,
-      None => places.len() as f32 * self.widths().1 + separators as f32 * separator + add,
+    tabs + separators as f32 * separator + add
+  }
+
+  /// Whether the last tab in the strip is not the selected one: a separator stands between it and the add button.
+  fn last_plain(&self) -> bool {
+    self.shown().last().is_some_and(|last| !self.tabs[*last].selected)
+  }
+
+  /// How the default renderer builds window tabs: the list, which scrolls
+  /// sideways where its tabs do not fit at their least width, or which they
+  /// leave for the More button's menu ([`WindowTabsOverflow::List`]); and the
+  /// add button after it, with a separator before it where the last tab is
+  /// not the selected one. The window's keys are heard on the strip.
+  pub fn render(self) -> Element {
+    let list: Element = match self.overflow {
+      // The tabs share the room the strip is given, down to their least width, and past that the list scrolls.
+      // A wheel turned up and down over it scrolls it sideways, as a browser's strip of tabs.
+      WindowTabsOverflow::Scroll => ScrollBoth::new(self.list())
+        .fill_width(true)
+        .wheel_across(true)
+        .with_scroll_state(self.kept.scroll.clone())
+        .scrollbar(ScrollBarStyle::hidden())
+        .flex_full(1.0, 1.0, Some(0.0))
+        .min_width(0.0)
+        .into(),
+      WindowTabsOverflow::List => Row::new()
+        .align_items(Alignment::Center)
+        .flex_full(1.0, 1.0, Some(0.0))
+        .min_width(0.0)
+        .child(self.list())
+        .into(),
     };
+    // The strip is as wide as its tabs at their most and the add button, and gives way where it has less room.
     let mut root = Row::new()
       .part(&self.part(WindowTabsPart::Root))
       .align_items(Alignment::Center)
-      .width(full)
+      .width(self.full_width())
       .flex_shrink(1.0)
       .min_width(0.0)
       // Never wider than what holds it: a row gives way by the shrink, a column by this.
       .max_width(Dimension::Pct(100.0))
       .ref_element(self.kept.root.clone())
-      .child(scroll);
+      .child(list);
     if let Some(add) = self.add() {
-      if self.tabs.last().is_some_and(|tab| !tab.selected) {
+      if self.last_plain() {
         root = root.child(self.separator());
       }
       root = root.child(add);
@@ -1490,11 +1883,17 @@ impl<T: Send + Sync + 'static> Themed for WindowTabs<T> {
   ///   button. The add button is 30 by 28, round by the small radius, with a plus of 14 in the foreground.
   /// - Where the board is silent: a tab is at least 72 wide (the icon and the close slot); the close slot and the add
   ///   button under the pointer are filled (muted, and the secondary hover); the ring of the focus is inside a tab and
-  ///   the add button; a disabled tab is dimmed.
+  ///   the add button; a disabled tab is dimmed. A tab of its icon alone is 28 wide with no padding; the dot after a
+  ///   label and the app's marks are 6 from the label, the marks 4 apart. The More button of the list mode is 28 high,
+  ///   padded 8 across, its count 12 and a chevron of 12, 4 apart, in the muted foreground, the foreground and the
+  ///   secondary hover under the pointer.
   fn recipe() -> Recipe {
     use PaletteColor::{Background, Foreground, Muted, MutedForeground, Ring, SecondaryHover};
-    use WindowTabsPart::{Add, AddIcon, Close, CloseIcon, Dot, Icon, Label, List, Root, Separator, Tab};
-    use WindowTabsState::{Dirty, Disabled, Selected};
+    use WindowTabsPart::{
+      Add, AddIcon, Close, CloseIcon, Dot, Icon, Label, List, Marks, More, MoreIcon, MoreLabel, Root, Separator, Tab,
+      Title,
+    };
+    use WindowTabsState::{Dirty, Disabled, IconOnly, Selected};
     let inside = || Outline::new(BorderSize::Md, Ring).offset(-2.0);
     let clear = Color::new(0, 0, 0, 0);
     let edge = || crate::node::border::Border::inside(BorderSize::Sm, PaletteColor::Border);
@@ -1516,6 +1915,8 @@ impl<T: Send + Sync + 'static> Themed for WindowTabs<T> {
       })
       .base(Icon, |s| s.square(IconSize::Sm))
       .base(Label, |s| s.typography(TypographyStyle::Caption))
+      .base(Title, |s| s.gap(6.0))
+      .base(Marks, |s| s.gap(4.0))
       .base(Close, |s| {
         fading(s.square(18.0).radius(RadiusSize::Sm).cursor(CursorIcon::Default))
       })
@@ -1523,7 +1924,9 @@ impl<T: Send + Sync + 'static> Themed for WindowTabs<T> {
         s.square(IconSize::Xs).foreground(MutedForeground).opacity(0.6)
       })
       .base(Dot, |s| s.square(7.0).radius(RadiusSize::Full).background(Foreground))
-      .base(Separator, |s| s.width(1.0).height(16.0).background(PaletteColor::Border))
+      .base(Separator, |s| {
+        s.width(1.0).height(16.0).background(PaletteColor::Border)
+      })
       .base(Add, |s| {
         fading(
           s.width(30.0)
@@ -1534,11 +1937,33 @@ impl<T: Send + Sync + 'static> Themed for WindowTabs<T> {
         )
       })
       .base(AddIcon, |s| s.square(IconSize::Sm))
+      .base(More, |s| {
+        fading(
+          s.height(28.0)
+            .padding_x(8.0)
+            .gap(4.0)
+            .radius(RadiusSize::Sm)
+            .foreground(MutedForeground)
+            .cursor(CursorIcon::Default),
+        )
+      })
+      .base(MoreLabel, |s| s.typography(TypographyStyle::Caption))
+      .base(MoreIcon, |s| s.square(IconSize::Xs))
       .hovered(Tab, |s| s.background(SecondaryHover))
       .hovered(Close, |s| s.background(Muted))
       .hovered(Add, |s| s.background(SecondaryHover))
+      .hovered(More, |s| s.background(SecondaryHover).foreground(Foreground))
       .focus_visible(Tab, |s| s.outline(inside()))
       .focus_visible(Add, |s| s.outline(inside()))
+      .focus_visible(More, |s| s.outline(inside()))
+      // A tab of its icon alone is as wide as a square of the strip's height less its corners, the icon in its middle.
+      .state(IconOnly, Tab, |s| {
+        s.width(28.0)
+          .min_width(28.0)
+          .max_width(28.0)
+          .padding_start(0.0)
+          .padding_end(0.0)
+      })
       .within_hovered(CloseIcon, |s| s.opacity(1.0))
       // The selected tab is open to the content under it and edged on its other sides by a line of the border: on a
       // bar of the background's white (the light palette's `Bar`) its fill alone would not tell it apart.
@@ -1549,16 +1974,26 @@ impl<T: Send + Sync + 'static> Themed for WindowTabs<T> {
           .start_line(edge())
           .end_line(edge())
       })
-      .when(Selector::new().state(Selected).hovered(), Tab, |s| s.background(Background))
+      .when(Selector::new().state(Selected).hovered(), Tab, |s| {
+        s.background(Background)
+      })
       .state(Selected, CloseIcon, |s| s.opacity(1.0))
       // A tab with unsaved changes shows its dot, and the x in its place under the pointer.
       .state(Dirty, CloseIcon, |s| s.opacity(0.0))
-      .when(Selector::new().state(Dirty).within().hovered(), CloseIcon, |s| s.opacity(1.0))
+      .when(Selector::new().state(Dirty).within().hovered(), CloseIcon, |s| {
+        s.opacity(1.0)
+      })
       .when(Selector::new().state(Dirty).within().hovered(), Dot, |s| s.opacity(0.0))
       .state(Disabled, Tab, |s| s.opacity(OpacityLevel::Disabled))
       .when(Selector::new().state(Disabled).hovered(), Tab, |s| s.background(clear))
-      .when(Selector::new().state(Selected).state(Disabled).hovered(), Tab, |s| s.background(Background))
+      .when(Selector::new().state(Selected).state(Disabled).hovered(), Tab, |s| {
+        s.background(Background)
+      })
       .state(Disabled, Add, |s| s.opacity(OpacityLevel::Disabled))
       .when(Selector::new().state(Disabled).hovered(), Add, |s| s.background(clear))
+      .state(Disabled, More, |s| s.opacity(OpacityLevel::Disabled))
+      .when(Selector::new().state(Disabled).hovered(), More, |s| {
+        s.background(clear).foreground(MutedForeground)
+      })
   }
 }

@@ -665,7 +665,8 @@ pub use window_chrome::{
   WindowControl, WindowControls, WindowPlatform,
 };
 pub use window_tabs::{
-  WindowTab, WindowTabEntry, WindowTabs, WindowTabsPart, WindowTabsRenderer, WindowTabsState, WindowTabsView,
+  WindowTab, WindowTabEntry, WindowTabs, WindowTabsDirtyMark, WindowTabsOverflow, WindowTabsPart, WindowTabsRenderer,
+  WindowTabsState, WindowTabsView,
 };
 pub use year_picker::{YearPicker, YearPickerRenderer, YearPickerView};
 

@@ -40,6 +40,8 @@ pub struct NavigationWords {
   pub new_tab: Arc<str>,
   pub show_hidden_tabs: Arc<str>,
   pub more_tabs: Arc<str>,
+  /// How many tabs a button holds that did not fit: "3 hidden tabs".
+  pub hidden_tabs: Plural,
   pub scroll_back: Arc<str>,
   pub scroll_on: Arc<str>,
   /// What a dock layout is called, and what is done with its panels.
@@ -140,6 +142,7 @@ impl NavigationWords {
       new_tab: "New tab".into(),
       show_hidden_tabs: "Show the hidden tabs".into(),
       more_tabs: "More tabs".into(),
+      hidden_tabs: Plural::two("{count} hidden tab", "{count} hidden tabs"),
       scroll_back: "Scroll back".into(),
       scroll_on: "Scroll on".into(),
       dock_layout: "Dock layout".into(),
@@ -225,6 +228,11 @@ impl NavigationWords {
         new_tab: "Нова вкладка".into(),
         show_hidden_tabs: "Показати приховані вкладки".into(),
         more_tabs: "Інші вкладки".into(),
+        hidden_tabs: Plural::three(
+          "{count} прихована вкладка",
+          "{count} приховані вкладки",
+          "{count} прихованих вкладок",
+        ),
         scroll_back: "Прокрутити назад".into(),
         scroll_on: "Прокрутити далі".into(),
         dock_layout: "Розкладка панелей".into(),
@@ -309,6 +317,7 @@ impl NavigationWords {
         new_tab: "Neuer Tab".into(),
         show_hidden_tabs: "Ausgeblendete Tabs anzeigen".into(),
         more_tabs: "Weitere Tabs".into(),
+        hidden_tabs: Plural::two("{count} ausgeblendeter Tab", "{count} ausgeblendete Tabs"),
         scroll_back: "Zurückscrollen".into(),
         scroll_on: "Weiterscrollen".into(),
         dock_layout: "Andockbereich".into(),
@@ -392,6 +401,7 @@ impl NavigationWords {
         new_tab: "Nouvel onglet".into(),
         show_hidden_tabs: "Afficher les onglets masqués".into(),
         more_tabs: "Plus d’onglets".into(),
+        hidden_tabs: Plural::two("{count} onglet masqué", "{count} onglets masqués"),
         scroll_back: "Défiler vers l’arrière".into(),
         scroll_on: "Défiler vers l’avant".into(),
         dock_layout: "Disposition des panneaux".into(),
@@ -475,6 +485,7 @@ impl NavigationWords {
         new_tab: "Nueva pestaña".into(),
         show_hidden_tabs: "Mostrar las pestañas ocultas".into(),
         more_tabs: "Más pestañas".into(),
+        hidden_tabs: Plural::two("{count} pestaña oculta", "{count} pestañas ocultas"),
         scroll_back: "Desplazar atrás".into(),
         scroll_on: "Desplazar adelante".into(),
         dock_layout: "Diseño de paneles".into(),
@@ -558,6 +569,7 @@ impl NavigationWords {
         new_tab: "Nowa karta".into(),
         show_hidden_tabs: "Pokaż ukryte karty".into(),
         more_tabs: "Więcej kart".into(),
+        hidden_tabs: Plural::three("{count} ukryta karta", "{count} ukryte karty", "{count} ukrytych kart"),
         scroll_back: "Przewiń wstecz".into(),
         scroll_on: "Przewiń dalej".into(),
         dock_layout: "Układ paneli".into(),
@@ -654,6 +666,10 @@ mod tests {
       assert!(words.hide_app.contains("{app}"), "{language}");
       assert!(
         words.steps_done.forms().iter().all(|form| form.contains("{count}")),
+        "{language}"
+      );
+      assert!(
+        words.hidden_tabs.forms().iter().all(|form| form.contains("{count}")),
         "{language}"
       );
       assert!(!words.main.is_empty() && !words.show_all.is_empty(), "{language}");
