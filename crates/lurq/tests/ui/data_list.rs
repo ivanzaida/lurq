@@ -204,7 +204,7 @@ fn wrapping(align: Option<Alignment>) -> DataList {
 #[test]
 fn a_term_is_centered_on_a_value_that_wraps_or_at_its_top_when_told() {
   let top = |align: Option<Alignment>| {
-    let mut stage = Stage::new(move |_| Column::new().width(240.0).child(wrapping(align)).into());
+    let stage = Stage::new(move |_| Column::new().width(240.0).child(wrapping(align)).into());
     let term = stage.text_quad("Prompt").expect("the term is painted").y;
     let value = stage
       .quads()
