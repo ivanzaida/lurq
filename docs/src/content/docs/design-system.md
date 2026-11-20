@@ -2017,7 +2017,7 @@ use lurq::ui::{StatusLabel, StatusLabelSize, StatusLabelVariant, icons};
 StatusLabel::new("Completed").icon(icons::CHECK_CIRCLE).variant(StatusLabelVariant::Success);
 // Its icon turns while what it says is under way.
 StatusLabel::new("Running · 03 Implement").icon(icons::SPINNER).spin(true);
-StatusLabel::new("Queued").icon(icons::CLOCK).variant(StatusLabelVariant::Muted).size(StatusLabelSize::Sm);
+StatusLabel::new("Queued").icon(icons::HOURGLASS).variant(StatusLabelVariant::Muted).size(StatusLabelSize::Sm);
 ```
 
 | Builder | |
