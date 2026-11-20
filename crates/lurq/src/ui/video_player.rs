@@ -583,6 +583,10 @@ pub struct VideoPlayer {
   said_source: Option<Arc<str>>,
   /// Its source has shown no frame yet: it opens, or its first frame is to come.
   opening: bool,
+  /// The poster stands only until its source has a frame to show.
+  poster_until_frame: bool,
+  /// Whether its source has shown a frame: `None` for a player without a source.
+  framed: Option<bool>,
   controls: bool,
   playing: Held<bool>,
   position: Held<f64>,
@@ -693,6 +697,8 @@ impl VideoPlayer {
       layers: Vec::new(),
       said_source: None,
       opening: false,
+      poster_until_frame: false,
+      framed: None,
       controls: true,
       playing: Held::new(false),
       position: Held::new(0.0),
@@ -756,9 +762,25 @@ impl VideoPlayer {
   }
 
   /// What is drawn over the picture before the first play, with the length at its bottom end: until it plays, is
-  /// somewhere past the start, waits or has ended.
+  /// somewhere past the start, waits or has ended. See [`poster_until_frame`](Self::poster_until_frame) for a
+  /// poster that gives way to the video's first frame.
   pub fn poster(mut self, poster: impl Into<Element>) -> Self {
     self.poster = Some(poster.into());
+    self
+  }
+
+  /// Whether the poster stands only until its [`source`](Self::source) has a frame of its own to show, also
+  /// where it has not played yet. `false` unless told: the poster is the picture of a player that was never
+  /// played, as a player with a play button on its poster wants.
+  ///
+  /// A video opened ahead and left paused decodes its first frame, and a feed that slides such a player in under
+  /// a finger shows that frame with this, where it showed the poster: when it is then told to play, it goes on
+  /// from the very picture that was seen, and not from another moment of the video the poster was made of. The
+  /// poster stays until that frame is decoded (the box is never the black a media opens with), and for good
+  /// over a source with no picture, a sound. A player without a source has no frame to wait for: this says
+  /// nothing to it.
+  pub fn poster_until_frame(mut self, until_frame: bool) -> Self {
+    self.poster_until_frame = until_frame;
     self
   }
 
@@ -1348,12 +1370,15 @@ impl VideoPlayer {
   }
 
   /// Whether it shows the poster: given one, before it first plays, and for as long as its source has shown no
-  /// frame, whether or not it was told to play already.
+  /// frame, whether or not it was told to play already. Told that the poster stands only until a frame
+  /// ([`poster_until_frame`](Self::poster_until_frame)), a player with a source shows it for as long as the
+  /// source has shown none, and no longer.
   fn shows_poster(&self) -> bool {
-    self.poster.is_some()
-      && !self.ended
-      && self.error.is_none()
-      && (self.opening || (!self.playing.value && self.position.value <= 0.0 && !self.waiting))
+    let standing = match (self.poster_until_frame, self.framed) {
+      (true, Some(framed)) => !framed,
+      _ => self.opening || (!self.playing.value && self.position.value <= 0.0 && !self.waiting),
+    };
+    self.poster.is_some() && !self.ended && self.error.is_none() && standing
   }
 
   /// Builds a still picture of the player in `theme`, for a test or a screenshot: its controls shown, its menus
@@ -2028,6 +2053,7 @@ fn playing(mut player: VideoPlayer, live: &Live, ctx: &mut Ctx) -> VideoPlayer {
   // Its picture is there once its first frame is: until then its image is black, and is not drawn. What has
   // no picture (a sound) has nothing to wait for.
   let pictured = media.has_frame();
+  player.framed = Some(pictured);
   player.opening = state.error.is_none() && (!media.is_open() || (state.size.is_some() && !pictured));
   if let Some(image) = media.frame().filter(|_| pictured) {
     player.media = Some(

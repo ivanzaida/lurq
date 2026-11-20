@@ -825,3 +825,77 @@ fn a_player_that_plays_while_its_screen_is_in_front_is_paused_when_its_tab_is_no
   assert!(media.playing());
   assert_eq!(drive.count(), 1, "the same media, where it was");
 }
+
+#[test]
+fn a_poster_told_to_stand_until_the_first_frame_gives_way_to_it_while_the_player_is_paused() {
+  let drive = drive_media();
+  let log = Log::default();
+  let made = log.clone();
+  let playing = Signal::new(false);
+  let told = playing.clone();
+  let mut stage = stage(move |ctx| {
+    video(&made)
+      .poster(poster())
+      .poster_until_frame(true)
+      .controls(false)
+      .playing(told.clone())
+      .mount(ctx)
+  });
+  let media = drive.last();
+  assert!(has(&mut stage, "poster"), "while it opens");
+
+  // Opened ahead and left paused, with its first frame still to come: the poster, and not a black box.
+  media.open(CLIP);
+  stage.pass();
+  stage.pass();
+  assert!(has(&mut stage, "poster"), "open, with no frame of it yet");
+  assert!(!media.playing());
+
+  // Its first frame is decoded: that is its picture, though it never played.
+  media.present();
+  stage.pass();
+  stage.pass();
+  assert!(!has(&mut stage, "poster"), "its first frame is there");
+  assert!(!media.playing(), "and it is still paused at its start");
+
+  // Told to play, it goes on from the picture that was seen: no poster comes back.
+  playing.set(true);
+  stage.pass();
+  stage.pass();
+  assert!(media.playing());
+  assert!(!has(&mut stage, "poster"));
+}
+
+#[test]
+fn a_poster_told_to_stand_until_the_first_frame_stays_over_a_source_with_no_picture() {
+  let drive = drive_media();
+  let log = Log::default();
+  let made = log.clone();
+  let mut stage = stage(move |ctx| {
+    video(&made)
+      .poster(poster())
+      .poster_until_frame(true)
+      .playing_controlled(true, |_| {})
+      .mount(ctx)
+  });
+  let media = drive.last();
+  media.open(SONG);
+  media.present();
+  stage.pass();
+  stage.pass();
+  assert!(has(&mut stage, "poster"), "a sound has no frame to give way to");
+}
+
+#[test]
+fn a_player_without_a_source_keeps_its_poster_as_before_whatever_it_is_told_of_frames() {
+  let mut stage = stage(|ctx| {
+    VideoPlayer::new()
+      .media(Column::new().id("picture"))
+      .poster(poster())
+      .poster_until_frame(true)
+      .mount(ctx)
+  });
+  stage.pass();
+  assert!(has(&mut stage, "poster"), "never played, at its start");
+  assert!(!has(&mut stage, "picture"));
+}

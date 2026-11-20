@@ -645,6 +645,7 @@ pub struct VideoPlayerPage {
   live: Signal<bool>,
   error: Signal<bool>,
   poster: Signal<bool>,
+  poster_until_frame: Signal<bool>,
   controls: Signal<bool>,
   overlay: Signal<bool>,
   /// Whether the player is given its track of captions, and whether their button and the settings' are drawn.
@@ -709,6 +710,7 @@ impl VideoPlayerPage {
     let width = WIDTHS[self.width.get().min(WIDTHS.len() - 1)].1;
     let (waiting, ended, live, error) = (self.waiting.get(), self.ended.get(), self.live.get(), self.error.get());
     let (poster_on, controls, overlay) = (self.poster.get(), self.controls.get(), self.overlay.get());
+    let until_frame = self.poster_until_frame.get();
     let (has_captions, captions_button, settings_button, looped) = (
       self.has_captions.get(),
       self.captions_button.get(),
@@ -794,7 +796,7 @@ impl VideoPlayerPage {
           player = player.size(size);
         }
         if poster_on {
-          player = player.poster(poster());
+          player = player.poster(poster()).poster_until_frame(until_frame);
         }
         if error {
           player = player
@@ -911,6 +913,7 @@ impl VideoPlayerPage {
       (ended, "    .ended(true)"),
       (!controls, "    .controls(false)"),
       (poster_on, "    .poster(poster)"),
+      (poster_on && until_frame, "    .poster_until_frame(true)"),
       (error, "    .error(\"This video can't be played\")"),
       (overlay, "    .child(your_layer)"),
       (has_captions, "    .captions(captions)"),
@@ -979,6 +982,7 @@ impl VideoPlayerPage {
           self.error.clone(),
           self.overlay.clone(),
           self.looped.clone(),
+          self.poster_until_frame.clone(),
         ],
         [
           self.poster.clone(),
@@ -1004,6 +1008,7 @@ impl VideoPlayerPage {
         flag("live", &self.live),
         flag("error", &self.error),
         flag("poster", &self.poster),
+        flag("poster_until_frame", &self.poster_until_frame),
         flag("muted", &self.muted),
         flag("captions", &self.captions),
         flag("fullscreen", &self.fullscreen),
@@ -1107,6 +1112,7 @@ impl VideoPlayerPage {
           live,
           error,
           !poster_on,
+          until_frame,
           self.muted.get(),
           self.captions.get(),
           self.fullscreen.get(),
@@ -1455,6 +1461,7 @@ impl Component for VideoPlayerPage {
       live: ctx.signal(false),
       error,
       poster: ctx.signal(true),
+      poster_until_frame: ctx.signal(false),
       controls: ctx.signal(true),
       overlay: ctx.signal(false),
       has_captions: ctx.signal(true),
@@ -1644,6 +1651,37 @@ impl Component for VideoPlayerPage {
     let own = items().child(item(feed, "your own controls in the overlay"));
     #[cfg(not(target_arch = "wasm32"))]
     let behind = Self::behind(ctx);
+    // Two players of the same clip, opened and left paused: one keeps its poster, the other its first frame.
+    #[cfg(not(target_arch = "wasm32"))]
+    let posters: Element = items()
+      .child(item(
+        VideoPlayer::new()
+          .source(&clip())
+          .poster(poster())
+          .controls(false)
+          .width(300.0)
+          .max_width(Length::Fill)
+          .id("poster-until-played")
+          .key("poster-until-played")
+          .mount(ctx),
+        "the poster, until it plays",
+      ))
+      .child(item(
+        VideoPlayer::new()
+          .source(&clip())
+          .poster(poster())
+          .poster_until_frame(true)
+          .controls(false)
+          .width(300.0)
+          .max_width(Length::Fill)
+          .id("poster-until-frame")
+          .key("poster-until-frame")
+          .mount(ctx),
+        ".poster_until_frame(true): its first frame, once it is decoded",
+      ))
+      .into();
+    #[cfg(target_arch = "wasm32")]
+    let posters: Element = quiet("A video is not decoded in a browser build yet.", 13.0).into();
     #[cfg(not(target_arch = "wasm32"))]
     let slow = ctx.mount::<SlowClip>(());
     let rows = [
@@ -1658,6 +1696,13 @@ impl Component for VideoPlayerPage {
         "impl Into<Element>",
         "",
         "Drawn over the picture before the first play, with the length at its end.",
+      ),
+      (
+        "poster_until_frame",
+        "bool",
+        "false",
+        "The poster stands only until the source has a frame of its own, also where it never played: a video \
+         opened ahead shows its first frame.",
       ),
       (
         "child / children",
@@ -2096,6 +2141,33 @@ impl Component for VideoPlayerPage {
           ),
           Section::new("Props", "", props_table(&rows, &[], self.frame.room())),
         ];
+        sections.insert(
+          sections.len() - 1,
+          Section::new(
+            "A poster until the first frame",
+            "A poster is the picture of a player until it plays: under it the video is open, and has its first \
+             frame. A feed keeps the player of the next video open and paused, and slides it in under a finger: with \
+             its poster it shows one picture while it comes and another when it plays, since a poster is seldom the \
+             video's first frame. Told that the poster stands only until a frame, a paused player shows the frame \
+             it will play on from, and the poster only while that frame is still to come. Both players here are \
+             open and were never played.",
+            self.frame.demo(
+              8,
+              posters,
+              ".poster_until_frame(true)",
+              &[
+                "// The next video of a feed, opened ahead and left paused.",
+                "VideoPlayer::new()",
+                "    .source(&Source::url(address))",
+                "    .poster(still)",
+                "    .poster_until_frame(true)",
+                "    .controls(false)",
+                "    .playing(playing)",
+                "    .mount(ctx)",
+              ],
+            ),
+          ),
+        );
         #[cfg(not(target_arch = "wasm32"))]
         sections.insert(
           sections.len() - 1,
