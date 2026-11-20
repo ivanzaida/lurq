@@ -9,6 +9,7 @@ use std::{
 };
 
 use super::{
+  icon::SpinMotion,
   part_style::PartStyle,
   recipe::{Case, Name, Recipe, ResolvedRecipe, ResolvedStyles, resolve_styles},
 };
@@ -194,6 +195,7 @@ pub struct UiDefinition {
   renderers: HashMap<Name, Stored>,
   part_renderers: HashMap<(Name, Name), Stored>,
   bare: bool,
+  spin_motion: SpinMotion,
 }
 
 impl UiDefinition {
@@ -238,6 +240,17 @@ impl UiDefinition {
   /// definition has none for them.
   pub fn is_bare(&self) -> bool {
     self.bare
+  }
+
+  /// How every spinning icon and spinner moves that is not told its own motion: see [`SpinMotion`].
+  pub fn set_spin_motion(&mut self, motion: SpinMotion) -> &mut Self {
+    self.spin_motion = motion;
+    self
+  }
+
+  /// How every spinning icon and spinner moves that is not told its own motion: smooth unless set.
+  pub fn spin_motion(&self) -> SpinMotion {
+    self.spin_motion
   }
 
   /// Gives a component a recipe in place of the design's, all of it: nothing
@@ -397,6 +410,25 @@ impl Theme {
     // An instance with no rules may still describe its root.
     recipes.extend(instance);
     ResolvedRecipe::new(self, styles, C::ROOT, lent).described(&recipes)
+  }
+
+  /// How every spinning icon and spinner moves that is not told its own motion ([`Icon::spin_motion`],
+  /// [`Spinner::motion`]): smooth unless set. See [`SpinMotion`].
+  ///
+  /// [`Icon::spin_motion`]: super::Icon::spin_motion
+  /// [`Spinner::motion`]: super::Spinner::motion
+  pub fn spin_motion(&self) -> SpinMotion {
+    self.track_access();
+    self.with_ui(UiDefinition::spin_motion)
+  }
+
+  /// Gives every spinning icon and spinner that is not told its own motion `motion`, the ring of a loading button
+  /// too: `SpinMotion::stepped(24).still_when_reduced(true)` for an app whose loaders turn in 24 poses a second and
+  /// stand still where motion is reduced.
+  pub fn set_spin_motion(&self, motion: SpinMotion) {
+    self.update_ui(|ui| {
+      ui.set_spin_motion(motion);
+    });
   }
 
   /// The renderer the theme gives a component in place of its default one.

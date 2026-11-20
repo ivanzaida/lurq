@@ -366,7 +366,7 @@ pub use heatmap::{Heatmap, HeatmapPart};
 pub(crate) use highlight::fill_of;
 pub use highlight::{FindError, FindOptions, Highlight, HighlightPart, HighlightRenderer, HighlightView, find_matches};
 pub use hover_card::{HoverCard, HoverCardPart, HoverCardRenderer, HoverCardState, HoverCardView};
-pub use icon::{Icon, SPIN, SPIN_PERIOD};
+pub use icon::{Icon, SPIN, SPIN_PERIOD, SpinMotion};
 pub use info_label::{InfoLabel, InfoLabelPart, InfoLabelRenderer, InfoLabelState, InfoLabelView};
 pub use input::{Input, InputPart, InputRenderer, InputSize, InputState, InputView};
 pub use input_group::{

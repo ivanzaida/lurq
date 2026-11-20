@@ -4,7 +4,7 @@ use std::{sync::Arc, time::Duration};
 
 use super::{part_style::Length, recipe::Name, theme::current_theme};
 use crate::{
-  animation::{Animation, AnimationIterationCount, Easing, KeyframesId},
+  animation::{Animation, AnimationIterationCount, Easing, KeyframesId, StepPosition},
   app::theme::{IconSize, Theme},
   components::{Rect, Text},
   layout::text_style::{TextAlign, TextStyle},
@@ -19,6 +19,107 @@ pub const SPIN: KeyframesId = KeyframesId::new(0xFF00);
 
 /// How long a spinning icon takes to turn once.
 pub const SPIN_PERIOD: Duration = Duration::from_millis(1000);
+
+/// How a spinning icon and a [`Spinner`](super::Spinner) move: smoothly, or in steps, and whether they stand still
+/// where motion is reduced.
+///
+/// ```
+/// use lurq::ui::{Icon, SpinMotion, Spinner, SpinnerKind, icons};
+///
+/// // 24 poses a second, none drawn between, and still where the system asks for reduced motion.
+/// let motion = SpinMotion::stepped(24).still_when_reduced(true);
+/// let loader = Icon::new(icons::SPINNER).spin(true).spin_motion(motion);
+/// let typing = Spinner::new().kind(SpinnerKind::Dots).motion(motion);
+/// ```
+///
+/// Smooth, a window draws every frame while one moves; stepped, it draws a frame when the pose changes and none
+/// between, `per_second` frames a second whatever the number of spinners, for they all move on one clock. A theme
+/// gives the motion of every spinner that is not told its own ([`Theme::set_spin_motion`]), the ring of a loading
+/// button too. Spinners move under reduced motion unless told to stand still: one that stood still would say
+/// nothing, where nothing else says that something is under way.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct SpinMotion {
+  /// The poses a second, or `None` for a smooth motion.
+  steps_per_second: Option<u32>,
+  still_when_reduced: bool,
+}
+
+impl SpinMotion {
+  /// A smooth motion, also under reduced motion: what a spinner does unless told otherwise.
+  pub const SMOOTH: Self = Self {
+    steps_per_second: None,
+    still_when_reduced: false,
+  };
+
+  /// A motion in `per_second` poses a second, each held until the next: a ring of 24 turns 15 degrees at each
+  /// step of its turn of a second. A period that is no whole number of steps is taken in the nearest number of
+  /// them, and the dots and the bars of a spinner start on a step, so that all of them change at the same moment.
+  /// Fewer than one a second is one.
+  pub const fn stepped(per_second: u32) -> Self {
+    Self {
+      steps_per_second: Some(if per_second == 0 { 1 } else { per_second }),
+      still_when_reduced: false,
+    }
+  }
+
+  /// Whether it stands still where motion is reduced ([`Theme::reduced_motion`]): the ring at rest, the dots and
+  /// the bars as the design draws them still.
+  pub const fn still_when_reduced(mut self, still: bool) -> Self {
+    self.still_when_reduced = still;
+    self
+  }
+
+  /// The poses a second; `None` where it is smooth.
+  pub const fn steps_per_second(&self) -> Option<u32> {
+    self.steps_per_second
+  }
+
+  /// Whether it stands still where motion is reduced.
+  pub const fn is_still_when_reduced(&self) -> bool {
+    self.still_when_reduced
+  }
+
+  /// Whether it stands still in `theme`.
+  pub(crate) fn is_still(&self, theme: &Theme) -> bool {
+    self.still_when_reduced && theme.reduced_motion()
+  }
+
+  /// How many steps a span of `span` takes: `None` where it is smooth.
+  fn steps_in(&self, span: Duration) -> Option<u32> {
+    let per_second = self.steps_per_second?;
+    let steps = (span.as_secs_f64() * f64::from(per_second)).round();
+    // `as` saturates: a span of years in steps of a second is the most there are.
+    Some((steps as u32).max(1))
+  }
+
+  /// The easing of a run of `period` whose keyframes are `segments` spans of equal length: in its steps, each pose
+  /// held from its start, or `smooth`. An easing eases each span between two keyframes, so the steps are counted
+  /// in one span.
+  pub(crate) fn easing(&self, period: Duration, segments: u32, smooth: Easing) -> Easing {
+    match self.steps_in(period / segments.max(1)) {
+      Some(count) => Easing::Steps {
+        count,
+        position: StepPosition::JumpEnd,
+      },
+      None => smooth,
+    }
+  }
+
+  /// `delay`, of a run of `period` in `segments` spans that starts a little after another, put on the nearest of
+  /// the run's steps, so that both change at the same moments.
+  pub(crate) fn delay(&self, period: Duration, segments: u32, delay: Duration) -> Duration {
+    let span = period / segments.max(1);
+    let Some(count) = self.steps_in(span) else {
+      return delay;
+    };
+    let step = span / count;
+    if step.is_zero() {
+      return delay;
+    }
+    let steps = (delay.as_secs_f64() / step.as_secs_f64()).round();
+    step * steps as u32
+  }
+}
 
 /// An icon.
 ///
@@ -50,6 +151,7 @@ pub struct Icon {
   size: Length,
   color: Option<TextColor>,
   spin: bool,
+  motion: Option<SpinMotion>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
@@ -62,6 +164,7 @@ impl Icon {
       size: Length::Icon(IconSize::Md),
       color: None,
       spin: false,
+      motion: None,
       id: None,
       key: None,
     }
@@ -81,9 +184,16 @@ impl Icon {
     self
   }
 
-  /// Whether the icon turns, once in [`SPIN_PERIOD`]: a spinner.
+  /// Whether the icon turns, once in [`SPIN_PERIOD`]: a spinner. It turns as its [`spin_motion`](Self::spin_motion)
+  /// says, or the theme's ([`Theme::spin_motion`]).
   pub fn spin(mut self, spin: bool) -> Self {
     self.spin = spin;
+    self
+  }
+
+  /// How the icon turns where it spins, in place of the theme's motion: in steps, still where motion is reduced.
+  pub fn spin_motion(mut self, motion: SpinMotion) -> Self {
+    self.motion = Some(motion);
     self
   }
 
@@ -137,11 +247,12 @@ impl Icon {
     if let Some(color) = self.color {
       icon = icon.color(color);
     }
-    if self.spin {
+    let motion = self.motion.unwrap_or_else(|| theme.spin_motion());
+    if self.spin && !motion.is_still(theme) {
       icon = icon.animation(
         Animation::new(SPIN)
           .duration(SPIN_PERIOD)
-          .easing(Easing::Linear)
+          .easing(motion.easing(SPIN_PERIOD, 1, Easing::Linear))
           .iteration_count(AnimationIterationCount::Infinite),
       );
     }
