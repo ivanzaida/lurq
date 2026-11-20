@@ -1999,6 +1999,7 @@ Badge::count(3)
 | `max(usize)` | The most a count shows: past it the maximum and a plus. 99 unless told |
 | `show_zero(bool)` | Whether a count of 0 is drawn. It is nothing unless told |
 | `label(&str)` | On a count, what it counts, which tooling is told with the number |
+| `truncate(bool)` | Gives way where it has less room than its word, down to its dot, its icon and its padding, the word ending in an ellipsis; what reads the tree is told the whole word. Off unless told: a badge keeps its width |
 | `on(element)` | Puts the badge on the top end corner of `element` |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them. `id` is the badge's own, not the element's it is on |
 

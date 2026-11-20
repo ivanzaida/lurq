@@ -11,7 +11,7 @@ use super::{
 };
 use crate::{
   app::theme::{BorderSize, IconSize, PaletteColor, RadiusSize, Theme, TypographyStyle},
-  components::{Row, Stack},
+  components::{Row, Stack, TextOverflow},
   layout::{Alignment, StackAlignment, layout_kind::Justify, text_style::FontWeight},
   node::{Element, border::Border as Line, dimension::Dimension, outline::Outline},
 };
@@ -154,6 +154,7 @@ pub struct Badge {
   count: Option<usize>,
   max: usize,
   show_zero: bool,
+  truncate: bool,
   on: Option<Element>,
   states: Vec<Name>,
   rules: Recipe,
@@ -175,6 +176,7 @@ impl Badge {
       count: None,
       max: 99,
       show_zero: false,
+      truncate: false,
       on: None,
       states: Vec::new(),
       rules: Recipe::new(),
@@ -242,6 +244,14 @@ impl Badge {
   /// Whether a count of 0 is drawn. It is not, unless told.
   pub fn show_zero(mut self, show: bool) -> Self {
     self.show_zero = show;
+    self
+  }
+
+  /// Whether the badge gives way where it has less room than its word: down to its dot, its icon and its padding,
+  /// its word ending in an ellipsis. What reads the tree is still told the whole word. Off unless told: a badge
+  /// keeps its width.
+  pub fn truncate(mut self, truncate: bool) -> Self {
+    self.truncate = truncate;
     self
   }
 
@@ -326,6 +336,7 @@ impl Badge {
       dot_only: self.dot_only,
       count: self.count,
       shown: self.count.is_none_or(|n| n > 0 || self.show_zero),
+      truncate: self.truncate,
       recipe: theme
         .resolve::<Badge>(&case, Some(&self.rules))
         .owned_by(self.id.as_ref()),
@@ -363,6 +374,8 @@ pub struct BadgeView {
   pub count: Option<usize>,
   /// Whether the badge is drawn: a count of 0 is not, unless told.
   pub shown: bool,
+  /// Whether it gives way where it has less room, its word cut with an ellipsis.
+  pub truncate: bool,
   /// The style of each part of this badge.
   pub recipe: ResolvedRecipe,
   /// The element the badge is on, if it is on one.
@@ -422,7 +435,20 @@ impl BadgeView {
       root = root.child(glyph(&self.part(BadgePart::Icon), name, false));
     }
     let part = self.part(BadgePart::Label);
-    root.child(Row::new().part(&part).child(part.text(&self.text).nowrap()))
+    if !self.truncate {
+      return root.child(Row::new().part(&part).child(part.text(&self.text).nowrap()));
+    }
+    // The word gives way, and the badge with it: its dot, its icon and its padding stay.
+    let word = part
+      .text(&self.text)
+      .nowrap()
+      .text_overflow(TextOverflow::Elipsis)
+      .flex_shrink(1.0)
+      .min_width(0.0);
+    root
+      .flex_shrink(1.0)
+      .min_width(0.0)
+      .child(Row::new().part(&part).flex_shrink(1.0).min_width(0.0).child(word))
   }
 
   /// How far in from the top end corner of the element the middle of the badge is, along each side: half the

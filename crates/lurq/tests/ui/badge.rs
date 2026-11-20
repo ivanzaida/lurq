@@ -395,3 +395,37 @@ fn a_theme_restyles_a_badge_and_draws_another() {
   assert!(!stage.paints("Beta"));
   assert_eq!(stage.fill_color("beta"), Some(light(PaletteColor::Primary)));
 }
+
+#[test]
+fn a_badge_that_truncates_cuts_its_word_where_it_has_less_room() {
+  const WORD: &str = "Waiting for a review";
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .padding(24.0)
+      .spacing(16.0)
+      .child(Row::new().width(80.0).child(Badge::new(WORD).id("cut").icon(lurq::ui::icons::CHECK).truncate(true)))
+      .child(Row::new().width(400.0).child(Badge::new("Whole").id("whole").truncate(true)))
+      .child(Row::new().width(80.0).child(Badge::new("Kept wide").id("kept")))
+      .into()
+  });
+  let (_, _, width, _) = stage.bounds("cut");
+  assert!(width <= 80.0 + 0.5, "it gives way: {width}");
+  let cut = stage.cut_text_quad(WORD).expect("the word is painted");
+  assert!(
+    matches!(&cut.content, QuadContent::Text { text, .. } if text.ends_with('…')),
+    "cut with an ellipsis"
+  );
+  assert!(stage.paints("Whole"), "a word with room enough is whole");
+  assert!(stage.bounds("kept").2 > 0.0);
+  assert!(stage.paints("Kept wide"), "a badge that does not truncate keeps its word");
+  #[cfg(any(feature = "mcp", feature = "devtools"))]
+  assert_eq!(
+    stage
+      .tree
+      .get_element_by_id_mut("cut")
+      .and_then(|element| element.description("a11y_name"))
+      .as_deref(),
+    Some(WORD),
+    "called by the whole word"
+  );
+}
