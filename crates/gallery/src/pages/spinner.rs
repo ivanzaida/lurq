@@ -1,6 +1,6 @@
 //! The page of the spinner: its playground, the ring, the dots and the bars,
-//! its sizes, a spinner beside the text that says what is being done, the
-//! overlay that lays one over a part of the page while it loads, and the
+//! its sizes, a spinner beside the text that says what is being done, one that
+//! moves in steps, the overlay that lays one over a part of the page while it loads, and the
 //! loader that stands for a whole page.
 
 use std::sync::Arc;
@@ -12,7 +12,8 @@ use lurq::{
   layout::{Alignment, text_style::FontWeight},
   node::Element,
   ui::{
-    Button, ButtonVariant, LoadingOverlay, PageLoader, Skeleton, Spinner, SpinnerKind, SpinnerSize, SpinnerVariant,
+    Button, ButtonVariant, LoadingOverlay, PageLoader, Skeleton, SpinMotion, Spinner, SpinnerKind, SpinnerSize,
+    SpinnerVariant,
   },
 };
 
@@ -340,6 +341,17 @@ impl Component for SpinnerPage {
         Button::new("Loading").variant(ButtonVariant::Outline).loading(true),
         "button loading outline",
       ));
+    let stepped = SpinMotion::stepped(12).still_when_reduced(true);
+    let motions = items()
+      .child(item(Spinner::new().motion(stepped), "ring · 12 a second"))
+      .child(item(
+        Spinner::new().kind(SpinnerKind::Dots).motion(stepped),
+        "dots · 12 a second",
+      ))
+      .child(item(
+        Spinner::new().kind(SpinnerKind::Bars).motion(stepped),
+        "bars · 12 a second",
+      ));
     let refreshing = self.refreshing.clone();
     let overlay = Column::new()
       .spacing(16.0)
@@ -492,6 +504,23 @@ impl Component for SpinnerPage {
               "Spinner::new().label(\"Loading results…\")",
               "Button::new(\"Saving…\").loading(true)",
               "Button::new(\"Loading\").variant(ButtonVariant::Outline).loading(true)",
+            ],
+          ),
+        ),
+        Section::new(
+          "In steps",
+          "A spinner may hold each pose until the next and draw no frame between: here 12 a second, so the window \
+           draws 12 frames a second while they are shown. Told so, it stands still where the system asks for \
+           reduced motion. A theme gives every spinner its motion with Theme::set_spin_motion.",
+          self.frame.demo(
+            6,
+            motions,
+            ".motion(SpinMotion::stepped(12))",
+            &[
+              "let stepped = SpinMotion::stepped(12).still_when_reduced(true);",
+              "Spinner::new().motion(stepped)",
+              "Spinner::new().kind(SpinnerKind::Dots).motion(stepped)",
+              "Spinner::new().kind(SpinnerKind::Bars).motion(stepped)",
             ],
           ),
         ),

@@ -25,7 +25,7 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   tooling that reads one value of a name reads the app's.
 - **Why.** The kit's elements keep the state their tests and an agent read when they become `lurq::ui` components,
   without a method on each of nearly two hundred builders.
-- **State.** In work on `claude/k4-b-describe-avatar-spinner`.
+- **State.** Built on `claude/k4-b-describe-avatar-spinner`.
 
 ### An avatar takes the letters it shows from the app
 
@@ -37,7 +37,7 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   `Avatar::initials(letters)` puts the app's letters on the face in place of those taken from the name; the name
   stays what tooling calls the avatar. Empty letters show the icon of a person, as a name with no letters does.
 - **Why.** How a name becomes letters is the app's (its languages, its design); who the avatar is, is the name.
-- **State.** In work on `claude/k4-b-describe-avatar-spinner`.
+- **State.** Built on `claude/k4-b-describe-avatar-spinner`.
 
 ### A spinner may turn in steps, and stand still where motion is reduced
 
@@ -54,7 +54,7 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   under reduced motion unless it is told otherwise.
 - **Why.** A window with a loader shown draws as few frames as its poses need, and an app whose design holds its
   loaders still for reduced motion can say so once, for lurq's spinners and its own.
-- **State.** In work on `claude/k4-b-describe-avatar-spinner`.
+- **State.** Built on `claude/k4-b-describe-avatar-spinner`.
 
 ## 2026-11-19
 

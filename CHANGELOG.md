@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+Added:
+
+- **Any component says a state of the app's to tooling.** `Styled::describe(name, value)`, which every builder of `lurq::ui` has, says it on the node of the component's root, where its id is, to what reads the tree (DevTools, the MCP tree, a test): `Callout::new(..).describe("tone", "warning")`, `Progress::new(0.4).describe("share", "40")`. It comes before what the component says of itself there, so a reader that takes the first value of a name (`a11y_name`) takes the app's, and a theme's renderer says it too. The instance's recipe carries it (`Recipe::describe`, `Recipe::descriptions`). As an element's `describe`, it says nothing without a tooling feature. See [the design system](docs/src/content/docs/design-system.md#one-instance-one-place-one-subtree).
+- `Avatar::initials(&str)`: the letters the face shows, the app's in place of those lurq takes from the name, which stays what tooling calls the avatar. Empty letters show the icon of a person.
+- **A spinner may move in steps, and stand still where motion is reduced.** A `SpinMotion` says how a spinning icon and a `Spinner` (its ring, dots and bars) move: `SpinMotion::SMOOTH`, as before, or `SpinMotion::stepped(per_second)`, each pose held until the next and no frame asked for between, the dots' and the bars' offsets put on the steps so that they change at the same moment; and `.still_when_reduced(true)`, which leaves them at rest where motion is reduced. `Icon::spin_motion` and `Spinner::motion` give one its own, and `Theme::set_spin_motion` (`UiDefinition::set_spin_motion`) every one given none, the ring of a loading button too. A spinner moves under reduced motion unless told otherwise. `SpinnerView` has a field more, `motion`. See [spin motion](docs/src/content/docs/design-system.md#spin-motion).
+
 ## 0.63.1 — 2026-11-20
 
 Breaking:
