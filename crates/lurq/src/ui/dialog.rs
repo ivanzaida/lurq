@@ -6,7 +6,9 @@ use std::sync::Arc;
 use super::{
   alert::wrapping,
   button::{Button, ButtonPart, ButtonSize, ButtonVariant},
-  icons, names,
+  icons,
+  kbd::{Kbd, KeyPlatform},
+  names,
   part_style::Length,
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe},
   shared::glyph,
@@ -20,7 +22,7 @@ use crate::{
   components::{Column, Modal, Root, Row, ScrollVertical},
   core::Signal,
   layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
-  node::{Element, border::Border as Edge, dimension::Dimension},
+  node::{Element, HitTestBehavior, border::Border as Edge, dimension::Dimension},
 };
 
 /// The parts of a dialog a recipe styles.
@@ -55,6 +57,8 @@ pub enum DialogPart {
   Note,
   /// The icon before the note's words.
   NoteIcon,
+  /// A key cap in the note and the words of what the key does after it: the room before them and between them.
+  NoteKey,
 }
 
 names!(DialogPart {
@@ -72,6 +76,7 @@ names!(DialogPart {
   Icon => "icon",
   Note => "note",
   NoteIcon => "note_icon",
+  NoteKey => "note_key",
 });
 
 /// The states of a dialog a recipe styles.
@@ -165,6 +170,8 @@ pub struct Dialog {
   media: Option<Element>,
   note: Option<Arc<str>>,
   note_icon: Option<Name>,
+  note_pieces: Vec<NotePiece>,
+  inset_top: f32,
   on_confirm: Vec<Confirm>,
   body: Vec<Element>,
   footer: Vec<Element>,
@@ -186,6 +193,15 @@ pub struct Dialog {
   key: Option<Arc<str>>,
 }
 
+/// What stands in a dialog's note after its words, in the order the app gave it.
+#[derive(Clone)]
+enum NotePiece {
+  /// A key cap of these keys, and the words of what the key does.
+  Key(Arc<str>, Arc<str>),
+  /// An element of the app's.
+  Element(Element),
+}
+
 /// What runs as the dialog is dismissed.
 type Dismiss = Arc<dyn Fn() + Send + Sync>;
 
@@ -203,6 +219,8 @@ impl Dialog {
       media: None,
       note: None,
       note_icon: None,
+      note_pieces: Vec::new(),
+      inset_top: 0.0,
       on_confirm: Vec::new(),
       body: Vec::new(),
       footer: Vec::new(),
@@ -261,6 +279,30 @@ impl Dialog {
   /// An icon before the note's words, by its name in the theme's set.
   pub fn note_icon(mut self, name: impl Into<Name>) -> Self {
     self.note_icon = Some(name.into());
+    self
+  }
+
+  /// A key cap and the words of what the key does, in the note after its words and what was added before: "Enter"
+  /// and "Delete", "Esc" and "cancels". `keys` is written as [`Kbd::shortcut`](super::Kbd::shortcut) writes it, for
+  /// the platform the app runs on ("Mod+Enter"); the words are in the note's type. A note of keys alone is a note,
+  /// with no words of its own. An empty `words` is the key cap alone.
+  pub fn note_key(mut self, keys: &str, words: &str) -> Self {
+    self.note_pieces.push(NotePiece::Key(Arc::from(keys), Arc::from(words)));
+    self
+  }
+
+  /// An element of the app's in the note, after its words and what was added before: a link, a mark of its own.
+  pub fn note_child(mut self, element: impl Into<Element>) -> Self {
+    self.note_pieces.push(NotePiece::Element(element.into()));
+    self
+  }
+
+  /// How much of the top of the window the veil leaves to what is under it, in logical pixels, over the title bar
+  /// of a [`WindowChrome`](super::WindowChrome), which it leaves without being told: a bar the app draws itself.
+  /// What is under that band takes the pointer as while no dialog is open (the bar's buttons, its drag), and the
+  /// panel stands in the middle of the rest. Keys are the dialog's wherever the band is. 0 unless told.
+  pub fn inset_top(mut self, inset: f32) -> Self {
+    self.inset_top = inset.max(0.0);
     self
   }
 
@@ -439,7 +481,7 @@ impl Dialog {
     }
     .state(DialogState::Scrollable, self.scrollable)
     .state(DialogState::Mark, self.icon.is_some() || self.media.is_some())
-    .state(DialogState::Note, self.note.is_some());
+    .state(DialogState::Note, self.note.is_some() || !self.note_pieces.is_empty());
     let view = DialogView {
       title: self.title,
       description: self.description,
@@ -447,6 +489,8 @@ impl Dialog {
       media: self.media,
       note: self.note,
       note_icon: self.note_icon,
+      note_pieces: self.note_pieces,
+      inset_top: self.inset_top,
       on_confirm: self.on_confirm,
       body: self.body,
       footer: self.footer,
@@ -494,6 +538,10 @@ pub struct DialogView {
   pub note: Option<Arc<str>>,
   /// The icon before the note's words.
   pub note_icon: Option<Name>,
+  /// The key caps and the app's elements after the note's words.
+  note_pieces: Vec<NotePiece>,
+  /// How much of the top of the window the veil leaves to what is under it.
+  pub inset_top: f32,
   on_confirm: Vec<Confirm>,
   /// What the app put in the body.
   pub body: Vec<Element>,
@@ -625,9 +673,12 @@ impl DialogView {
   }
 
   /// The note at the start of the footer: its icon and its words, which take the room the buttons leave and go on
-  /// to the next line in it. `None` for a dialog with none.
+  /// to the next line in it, then its key caps with their words and the app's elements, each kept whole. `None` for
+  /// a dialog with none.
   pub fn note(&self) -> Option<Row> {
-    let note = self.note.as_ref()?;
+    if self.note.is_none() && self.note_pieces.is_empty() {
+      return None;
+    }
     let part = self.part(DialogPart::Note);
     let mut row = Row::new()
       .align_items(Alignment::Center)
@@ -637,14 +688,63 @@ impl DialogView {
     if let Some(name) = self.note_icon {
       row = row.child(glyph(&self.part(DialogPart::NoteIcon), name, false));
     }
-    Some(
-      row.child(
+    if let Some(note) = &self.note {
+      row = row.child(
         part
           .text(note)
           .flex_full(1.0, 1.0, Some(0.0))
           .min_width(Dimension::Px(0.0)),
-      ),
-    )
+      );
+    }
+    // The room before a key cap is from what is before it: the first thing in the note has none.
+    let mut first = self.note_icon.is_none() && self.note.is_none();
+    // Key caps and the app's elements go on to the next line where the note is short.
+    if !self.note_pieces.is_empty() {
+      row = row.wrap();
+    }
+    for piece in &self.note_pieces {
+      let leads = std::mem::take(&mut first);
+      row = row.child(match piece {
+        NotePiece::Key(keys, words) => self.note_key(keys, words, leads),
+        NotePiece::Element(element) => Row::new()
+          .flex_shrink(0.0)
+          .align_items(Alignment::Center)
+          .child(element.clone())
+          .into(),
+      });
+    }
+    Some(row)
+  }
+
+  /// A key cap of `keys` in the note and the words of what it does after it, in the note's type: in the style of
+  /// [`DialogPart::NoteKey`], the cap a [`Kbd`] in the style of the theme's.
+  /// The pair that `leads` the note has no room before it.
+  fn note_key(&self, keys: &str, words: &str, leads: bool) -> Element {
+    let cap = Kbd::shortcut(keys).platform(KeyPlatform::current()).build(self.theme());
+    // A pair is whole on its line where it can be; in a note narrower than it its words are cut.
+    let mut pair = Row::new()
+      .flex_shrink(1.0)
+      .min_width(Dimension::Px(0.0))
+      // Never wider than the note, a line of it that wraps included, where nothing shrinks.
+      .max_width(Dimension::Pct(100.0))
+      .align_items(Alignment::Center)
+      .part(&self.part(DialogPart::NoteKey));
+    if leads {
+      pair = pair.padding_left(0.0);
+    }
+    let mut pair = pair.child(cap);
+    if !words.is_empty() {
+      pair = pair.child(
+        self
+          .part(DialogPart::Note)
+          .text(words)
+          .nowrap()
+          .text_overflow(crate::components::TextOverflow::Elipsis)
+          .flex_shrink(1.0)
+          .min_width(Dimension::Px(0.0)),
+      );
+    }
+    pair.into()
   }
 
   /// The title and the description, one over the other: `None` for a dialog
@@ -781,7 +881,18 @@ impl DialogView {
   /// goes to its first control as it opens and back to what had it as it
   /// closes.
   pub fn modal(&self, panel: impl Into<Element>) -> Element {
-    let mut modal = Modal::new(self.veil(panel))
+    let veil: Element = if self.inset_top > 0.0 {
+      // The band at the top is no part of the veil: the pointer passes through it to what is under it.
+      Column::new()
+        .size(Dimension::Pct(100.0), Dimension::Pct(100.0))
+        .padding_top(self.inset_top)
+        .hit_test(HitTestBehavior::ContentOnly)
+        .child(self.veil(panel).flex(1.0).height(Dimension::Auto))
+        .into()
+    } else {
+      self.veil(panel).into()
+    };
+    let mut modal = Modal::new(veil)
       .open(self.open.clone())
       .target(Root)
       .dismiss_on_escape(self.dismiss_on_escape)
@@ -859,7 +970,8 @@ impl Themed for Dialog {
   /// between them. The close button is 28, its icon 16.
   fn recipe() -> Recipe {
     use DialogPart::{
-      Body, Close, Description, Footer, Header, Icon, Mark, Note, NoteIcon, Panel, Separator, Text, Title, Veil,
+      Body, Close, Description, Footer, Header, Icon, Mark, Note, NoteIcon, NoteKey, Panel, Separator, Text, Title,
+      Veil,
     };
     use DialogState::Scrollable;
     use PaletteColor::*;
@@ -906,6 +1018,8 @@ impl Themed for Dialog {
           .foreground(MutedForeground)
       })
       .base(NoteIcon, |s| s.square(IconSize::Sm))
+      // A key cap in the note (lurq's): its words 6 after it, and the pair 12 after what is before it.
+      .base(NoteKey, |s| s.gap(6.0).padding_start(6.0))
       .size(DialogSize::Sm, Panel, |s| s.width(360.0))
       .size(DialogSize::Md, Panel, |s| s.width(480.0))
       .size(DialogSize::Lg, Panel, |s| s.width(640.0))

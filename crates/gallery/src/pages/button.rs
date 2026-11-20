@@ -732,6 +732,34 @@ impl ButtonPage {
           .into(),
         "on a filled button",
       ))
+      .child(captioned(
+        Column::new()
+          .width(200.0)
+          .child(
+            Button::new("Main branch")
+              .variant(ButtonVariant::Outline)
+              .trailing_icon(icons::CHEVRON_DOWN)
+              .fill_label(true)
+              .full_width(true),
+          )
+          .into(),
+        "fill_label(true)",
+      ))
+      .child(captioned(
+        Column::new()
+          .width(220.0)
+          .child(
+            Button::new("Send back")
+              .variant(ButtonVariant::Outline)
+              .icon(icons::SEND)
+              .description("Moves the task back to the queue and tells who asked for it")
+              .description_wraps(true)
+              .fill_label(true)
+              .full_width(true),
+          )
+          .into(),
+        "description_wraps(true)",
+      ))
       .child(captioned(raised(Fab::new("Compose", icons::PLUS)), "Fab::new(..)"))
       .child(captioned(
         raised(Fab::new("Compose", icons::COMPOSE).extended(true)),
@@ -748,6 +776,17 @@ impl ButtonPage {
         "    .description(\"Pick a date and time\")",
         "Button::new(\"Deploy\").icon(icons::SEND).description(\"To production, at once\")",
         "",
+        "// The label takes the room, the chevron at the end: a select's trigger.",
+        "Button::new(\"Main branch\")",
+        "    .variant(ButtonVariant::Outline)",
+        "    .trailing_icon(icons::CHEVRON_DOWN)",
+        "    .fill_label(true)",
+        "    .full_width(true)",
+        "// The description in the lines it takes.",
+        "Button::new(\"Send back\")",
+        "    .description(\"Moves the task back to the queue and tells who asked for it\")",
+        "    .description_wraps(true)",
+        "",
         "// A floating button is raised, and a container clips what is in it:",
         "// what holds one shows what is outside it, for the shadow.",
         "Row::new().overflow_visible().child(Fab::new(\"Compose\", icons::PLUS))",
@@ -757,7 +796,7 @@ impl ButtonPage {
   }
 
   fn table(&self) -> Element {
-    let rows: [(&str, &str, &str, &str); 15] = [
+    let rows: [(&str, &str, &str, &str); 18] = [
       (
         "label",
         "&str",
@@ -842,6 +881,24 @@ impl ButtonPage {
         "",
         "",
         "One instance over the theme; the rules of the place it is in; a state drawn with nothing pointing at it.",
+      ),
+      (
+        "fill_label",
+        "bool",
+        "false",
+        "The label takes the room the button has: what is after it stands at the end, as a select's chevron.",
+      ),
+      (
+        "description_wraps",
+        "bool",
+        "false",
+        "The description goes on to the next lines in the button's room, in place of one line cut short.",
+      ),
+      (
+        "on_focus",
+        "Fn()",
+        "",
+        "Called as the button takes the focus: Tab, the arrows of a group, the app. A second is called after.",
       ),
     ];
     props_table(&rows, &["label"], self.frame.room())

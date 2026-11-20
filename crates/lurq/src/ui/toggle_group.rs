@@ -486,7 +486,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> super::F
   /// Called by the field's label unless it has a name of its own, invalid where the field is, and disabled
   /// where the field is. Each toggle is called by its own label.
   fn in_field(mut self, field: &super::InField) -> Element {
-    if self.toggles.label.is_none() {
+    if self.toggles.label.is_none() && !field.label.is_empty() {
       self.toggles.label = Some(field.label.clone());
     }
     self.toggles.invalid |= field.judgment == Some(super::Judgment::Invalid);

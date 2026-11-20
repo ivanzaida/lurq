@@ -86,14 +86,15 @@ fn delete_workspace(open: &Signal<bool>) -> Dialog {
     )
 }
 
-/// A dialog with a mark before its title, a note at its footer's start, and Enter that deletes.
+/// A dialog with a mark before its title, the key caps of Enter and Esc at its footer's start, and Enter that deletes.
 fn marked(open: &Signal<bool>) -> Dialog {
   let (cancel, delete, confirm) = (open.clone(), open.clone(), open.clone());
   Dialog::new(open.clone())
     .icon(icons::TRASH)
     .title("Delete connection?")
     .description("The agents that use it stop reaching the server.")
-    .note("Enter deletes · Esc cancels")
+    .note_key("Enter", "deletes")
+    .note_key("Esc", "cancels")
     .on_confirm(move || confirm.set(false))
     .footer(
       Button::new("Cancel")
@@ -420,6 +421,20 @@ impl Component for DialogPage {
         "Runs after a person closed it by the veil, the close button or Escape; not after a button of the app's. A second handler runs after the first.",
       ),
       (
+        "note_key",
+        "(&str, &str)",
+        "",
+        "A key cap and the words of what the key does, in the note at the footer's start. note_child puts any \
+         element there.",
+      ),
+      (
+        "inset_top",
+        "f32",
+        "0",
+        "How much of the window's top the veil leaves to what is under it, over a window chrome's bar: a bar the \
+         app draws itself, which keeps the pointer.",
+      ),
+      (
         "inline",
         "bool",
         "false",
@@ -495,7 +510,8 @@ impl Component for DialogPage {
               "Dialog::new(open.clone())",
               "    .icon(icons::TRASH)",
               "    .title(\"Delete connection?\")",
-              "    .note(\"Enter deletes · Esc cancels\")",
+              "    .note_key(\"Enter\", \"deletes\")",
+              "    .note_key(\"Esc\", \"cancels\")",
               "    .on_confirm(move || delete())",
               "    .footer(..)",
               "    .inline(true)",

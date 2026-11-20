@@ -1357,7 +1357,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> super::FieldControl for Check
   /// Called by the field's label unless it has a name of its own, every card invalid where the field is, and
   /// disabled where the field is.
   fn in_field(mut self, field: &super::InField) -> Element {
-    if self.group.label.is_none() {
+    if self.group.label.is_none() && !field.label.is_empty() {
       self.group.label = Some(field.label.clone());
     }
     self.group.invalid |= field.judgment == Some(super::Judgment::Invalid);
@@ -1370,7 +1370,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> super::FieldControl for Radio
   /// Called by the field's label unless it has a name of its own, every card invalid where the field is, and
   /// disabled where the field is.
   fn in_field(mut self, field: &super::InField) -> Element {
-    if self.group.label.is_none() {
+    if self.group.label.is_none() && !field.label.is_empty() {
       self.group.label = Some(field.label.clone());
     }
     self.group.invalid |= field.judgment == Some(super::Judgment::Invalid);

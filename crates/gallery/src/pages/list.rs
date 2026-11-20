@@ -1,22 +1,28 @@
 //! The page of the list and its items: its playground, the board's list of people, the contained list, settings
-//! rows with their values and switches, the rows under a finger, and the states of a row.
+//! rows with their values and switches, rows with tags, an (i), details and what they say under themselves, the rows
+//! under a finger, and the states of a row.
 
 use std::sync::Arc;
 
 use lurq::{
-  app::{component::Component, ctx::Ctx, theme::Density},
+  app::{
+    component::Component,
+    ctx::Ctx,
+    theme::{Density, TypographyStyle},
+  },
   components::{Column, Row},
   core::Signal,
   layout::Alignment,
   node::Element,
   ui::{
-    Avatar, Badge, Button, ButtonSize, ButtonVariant, Interaction, Length, List, ListItem, ListPart, Switch, icons,
+    Avatar, Badge, Button, ButtonSize, ButtonVariant, Interaction, Length, Link, List, ListItem, ListPart, Switch, Tag,
+    icons,
   },
 };
 
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{FILL, props_table, quiet, segmented_fill},
+  kit::{FILL, muted, props_table, quiet, segmented_fill},
   playground::{Playground, Shown, Spec, divider, flag, prop},
 };
 
@@ -497,6 +503,31 @@ impl Component for ListPage {
       ))
       .child(item(state(None, false, true), "disabled"));
 
+    // Settings rows that say more by their title and under themselves.
+    let said = List::new()
+      .contained(true)
+      .item(
+        ListItem::new("Theme")
+          .description("Light, dark, or as the system is")
+          .tag(Tag::new("Default"))
+          .info("The app follows the system unless a theme is chosen here.")
+          .value("System"),
+      )
+      .item(
+        ListItem::new("Access token")
+          .description("Read and write on the repository")
+          .detail(Link::new("What it can reach"))
+          .below(muted(
+            "The token expired on 18 November: pull requests are not opened.",
+            TypographyStyle::Description,
+          ))
+          .trailing(
+            Button::new("Renew")
+              .variant(ButtonVariant::Outline)
+              .size(ButtonSize::Sm),
+          ),
+      );
+
     let rows = [
       (
         "ListItem::new",
@@ -504,6 +535,13 @@ impl Component for ListPage {
         "",
         "A row that says its title: `description`, `leading`, `icon`, `checkbox`, `radio`, `value`, `meta`, \
          `trailing`, `shortcut`, `chevron`.",
+      ),
+      (
+        "tag / info / detail / below",
+        "impl Into<Element> / &str",
+        "",
+        "Elements after the title, an (i) with its words in a tooltip after them, elements under the description, \
+         and what the row says under itself, under its line, which a press of the row does not reach.",
       ),
       (
         "on_click",
@@ -648,6 +686,34 @@ impl Component for ListPage {
               "    )",
               "    .item(ListItem::new(\"Language\").description(..).value(\"English\").chevron(true).on_click(..))",
               "    .item(ListItem::new(\"New window\").shortcut(\"Mod+Shift+N\").on_click(..))",
+            ],
+          ),
+        ),
+        Section::new(
+          "Saying more",
+          "Tags and an (i) after the title, a link under the description, and what the row says under itself: a \
+           problem, a code to copy. It stands under the row's line, and a press of it is not the row's.",
+          self.frame.demo(
+            5,
+            said,
+            ".tag(..).info(..).detail(..).below(..)",
+            &[
+              "List::new()",
+              "    .contained(true)",
+              "    .item(",
+              "        ListItem::new(\"Theme\")",
+              "            .description(\"Light, dark, or as the system is\")",
+              "            .tag(Tag::new(\"Default\"))",
+              "            .info(\"The app follows the system unless a theme is chosen here.\")",
+              "            .value(\"System\"),",
+              "    )",
+              "    .item(",
+              "        ListItem::new(\"Access token\")",
+              "            .description(\"Read and write on the repository\")",
+              "            .detail(Link::new(\"What it can reach\"))",
+              "            .below(muted(\"The token expired on 18 November: pull requests are not opened.\", ..))",
+              "            .trailing(Button::new(\"Renew\").variant(ButtonVariant::Outline).size(ButtonSize::Sm)),",
+              "    )",
             ],
           ),
         ),

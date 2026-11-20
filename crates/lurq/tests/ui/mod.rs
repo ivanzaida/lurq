@@ -135,6 +135,7 @@ mod radar_chart;
 mod radio;
 mod rating;
 mod reopened_layers;
+mod rows_and_forms;
 #[cfg(feature = "markdown")]
 mod rich_text_editor;
 #[cfg(feature = "canvas")]

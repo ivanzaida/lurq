@@ -591,7 +591,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> super::F
   /// Called by the field's label unless it has a name of its own, judged wrong where the field is unless the app
   /// judged it itself, disabled where the field is, and described by what is under the field.
   fn in_field(mut self, field: &super::InField) -> Element {
-    if self.label.is_none() {
+    if self.label.is_none() && !field.label.is_empty() {
       self.label = Some(field.label.clone());
     }
     self.invalid |= field.judgment == Some(super::Judgment::Invalid);
@@ -604,7 +604,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> super::F
 
   /// Told what the field says, as in `in_field`, and mounted: the same control as outside a field.
   fn mount_in_field(mut self, field: &super::InField, ctx: &mut Ctx) -> Element {
-    if self.label.is_none() {
+    if self.label.is_none() && !field.label.is_empty() {
       self.label = Some(field.label.clone());
     }
     self.invalid |= field.judgment == Some(super::Judgment::Invalid);
