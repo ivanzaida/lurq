@@ -9,12 +9,13 @@ use super::{
   icons, names,
   part_style::Length,
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe},
+  shared::glyph,
   theme::{Themed, current_theme},
 };
 use crate::{
   app::{
-    events::MouseEvent,
-    theme::{BorderSize, PaletteColor, RadiusSize, ShadowStyle, Theme, TypographyStyle},
+    events::{KeyboardEvent, MouseEvent},
+    theme::{BorderSize, IconSize, PaletteColor, RadiusSize, ShadowStyle, Theme, TypographyStyle},
   },
   components::{Column, Modal, Root, Row, ScrollVertical},
   core::Signal,
@@ -46,6 +47,14 @@ pub enum DialogPart {
   /// The line between the header and the body, and between the body and the
   /// footer, of a dialog whose body scrolls.
   Separator,
+  /// The well before the title that holds the dialog's icon, or the app's element in its place.
+  Mark,
+  /// The icon in the mark.
+  Icon,
+  /// Quiet words at the start of the footer, before its buttons: why the action cannot be taken, what a key does.
+  Note,
+  /// The icon before the note's words.
+  NoteIcon,
 }
 
 names!(DialogPart {
@@ -59,6 +68,10 @@ names!(DialogPart {
   Footer => "footer",
   Close => "close",
   Separator => "separator",
+  Mark => "mark",
+  Icon => "icon",
+  Note => "note",
+  NoteIcon => "note_icon",
 });
 
 /// The states of a dialog a recipe styles.
@@ -67,10 +80,16 @@ pub enum DialogState {
   /// Its body scrolls between a header and a footer that stay, each set off
   /// by a line.
   Scrollable,
+  /// It has a mark before its title: an icon in its well, or the app's element.
+  Mark,
+  /// Its footer has a note at its start.
+  Note,
 }
 
 names!(DialogState {
   Scrollable => "scrollable",
+  Mark => "mark",
+  Note => "note",
 });
 
 /// How wide a dialog is, in the design's steps. A dialog given none is as
@@ -122,10 +141,31 @@ pub type DialogRenderer = Arc<dyn Fn(DialogView) -> Element + Send + Sync>;
 /// nothing under the veil takes the pointer, and Tab and Shift+Tab go round
 /// the dialog's own controls. It is declared where the app renders it,
 /// taking no room there, and covers the whole window.
+///
+/// A dialog may have a mark before its title ([`icon`](Self::icon), or the app's [`media`](Self::media)), quiet
+/// words at its footer's start ([`note`](Self::note)), and an action Enter runs ([`on_confirm`](Self::on_confirm)):
+///
+/// ```
+/// use lurq::{core::Signal, ui::{Button, ButtonVariant, Dialog, icons}};
+///
+/// let open = Signal::new(true);
+/// let close = open.clone();
+/// let dialog = Dialog::new(open.clone())
+///   .title("Delete connection?")
+///   .icon(icons::TRASH)
+///   .note("Esc cancels")
+///   .on_confirm(move || close.set(false))
+///   .footer(Button::new("Delete").variant(ButtonVariant::Destructive));
+/// ```
 pub struct Dialog {
   open: Signal<bool>,
   title: Option<Arc<str>>,
   description: Option<Arc<str>>,
+  icon: Option<Name>,
+  media: Option<Element>,
+  note: Option<Arc<str>>,
+  note_icon: Option<Name>,
+  on_confirm: Vec<Confirm>,
   body: Vec<Element>,
   footer: Vec<Element>,
   size: Option<Name>,
@@ -149,6 +189,9 @@ pub struct Dialog {
 /// What runs as the dialog is dismissed.
 type Dismiss = Arc<dyn Fn() + Send + Sync>;
 
+/// What runs as Enter confirms the dialog.
+type Confirm = Arc<dyn Fn() + Send + Sync>;
+
 impl Dialog {
   /// A dialog shown while `open` holds `true`.
   pub fn new(open: Signal<bool>) -> Self {
@@ -156,6 +199,11 @@ impl Dialog {
       open,
       title: None,
       description: None,
+      icon: None,
+      media: None,
+      note: None,
+      note_icon: None,
+      on_confirm: Vec::new(),
       body: Vec::new(),
       footer: Vec::new(),
       size: None,
@@ -187,6 +235,41 @@ impl Dialog {
   /// More of it, under the title, in the muted color.
   pub fn description(mut self, description: &str) -> Self {
     self.description = Some(Arc::from(description));
+    self
+  }
+
+  /// An icon before the title, in its well (the part `mark`), by its name in the theme's set: what the dialog
+  /// is about, a warning, a deletion.
+  pub fn icon(mut self, name: impl Into<Name>) -> Self {
+    self.icon = Some(name.into());
+    self
+  }
+
+  /// An element of the app's before the title, in the well in place of the icon: a tile of its own, an avatar.
+  pub fn media(mut self, media: impl Into<Element>) -> Self {
+    self.media = Some(media.into());
+    self
+  }
+
+  /// Quiet words at the start of the footer, the buttons at its end: why the action cannot be taken yet, what a
+  /// key does. An empty text is none.
+  pub fn note(mut self, note: &str) -> Self {
+    self.note = (!note.is_empty()).then(|| Arc::from(note));
+    self
+  }
+
+  /// An icon before the note's words, by its name in the theme's set.
+  pub fn note_icon(mut self, name: impl Into<Name>) -> Self {
+    self.note_icon = Some(name.into());
+    self
+  }
+
+  /// Called when Enter is pressed while the dialog is open: its main action, which the app runs (and closes the
+  /// dialog after, where it should). Not where the focus is on something Enter does a thing of its own with (a
+  /// button, which Enter presses, a link, a select, a text input of several lines), nor for an Enter an input
+  /// method composes, nor with Ctrl, Alt or Cmd held. A second handler is called after the first.
+  pub fn on_confirm(mut self, handler: impl Fn() + Send + Sync + 'static) -> Self {
+    self.on_confirm.push(Arc::new(handler));
     self
   }
 
@@ -354,10 +437,17 @@ impl Dialog {
       breakpoint: super::current_breakpoint(),
       states: self.states.clone(),
     }
-    .state(DialogState::Scrollable, self.scrollable);
+    .state(DialogState::Scrollable, self.scrollable)
+    .state(DialogState::Mark, self.icon.is_some() || self.media.is_some())
+    .state(DialogState::Note, self.note.is_some());
     let view = DialogView {
       title: self.title,
       description: self.description,
+      icon: self.icon,
+      media: self.media,
+      note: self.note,
+      note_icon: self.note_icon,
+      on_confirm: self.on_confirm,
       body: self.body,
       footer: self.footer,
       scrollable: self.scrollable,
@@ -396,6 +486,15 @@ impl From<Dialog> for Element {
 pub struct DialogView {
   pub title: Option<Arc<str>>,
   pub description: Option<Arc<str>>,
+  /// The icon in the mark before the title.
+  pub icon: Option<Name>,
+  /// The app's element in the mark, in place of the icon.
+  pub media: Option<Element>,
+  /// The words at the start of the footer.
+  pub note: Option<Arc<str>>,
+  /// The icon before the note's words.
+  pub note_icon: Option<Name>,
+  on_confirm: Vec<Confirm>,
   /// What the app put in the body.
   pub body: Vec<Element>,
   /// What the app put in the footer.
@@ -454,9 +553,29 @@ impl DialogView {
     }
   }
 
+  /// What Enter runs, as [`Dialog::on_confirm`] says: `None` for a dialog given no handler.
+  pub fn confirmer(&self) -> Option<impl Fn(KeyboardEvent) + Send + Sync + Clone + 'static> {
+    if self.on_confirm.is_empty() {
+      return None;
+    }
+    let (handlers, modal) = (self.on_confirm.clone(), !self.inline);
+    Some(move |event: KeyboardEvent| {
+      let enter = event.key == "Enter" || event.code == "Enter" || event.code == "NumpadEnter";
+      // A dialog over the window has every key while it is open; one drawn in place only those of its own focus.
+      let ours = modal || event.focus_within;
+      if !enter || !ours || event.composing || event.focus_takes_enter || event.ctrl || event.alt || event.meta {
+        return;
+      }
+      event.prevent_default();
+      for handler in &handlers {
+        handler();
+      }
+    })
+  }
+
   /// The panel in the style of its part, with nothing in it yet: a dialog to
   /// what reads the tree, called by its title. A press on it goes no further,
-  /// so that it never reaches the veil.
+  /// so that it never reaches the veil. Enter runs what the dialog confirms with, where it has one.
   pub fn panel(&self) -> Column {
     let mut panel = Column::new()
       .part(&self.part(DialogPart::Panel))
@@ -474,7 +593,58 @@ impl DialogView {
     if let Some(id) = &self.id {
       panel = panel.id(id.clone());
     }
+    if let Some(confirm) = self.confirmer() {
+      panel = panel.on_key_down(confirm);
+    }
     panel
+  }
+
+  /// The mark before the title: the app's element as it is (the well's look is not laid on it), or the icon in its
+  /// well. `None` for a dialog with neither.
+  pub fn mark(&self) -> Option<Row> {
+    if let Some(media) = &self.media {
+      let mut holder = Row::new()
+        .align_items(Alignment::Center)
+        .flex_shrink(0.0)
+        .child(media.clone());
+      if let Some(id) = self.recipe.part_id(DialogPart::Mark) {
+        holder = holder.id(id);
+      }
+      return Some(holder);
+    }
+    let part = self.part(DialogPart::Mark);
+    let name = self.icon?;
+    Some(
+      Row::new()
+        .align_items(Alignment::Center)
+        .justify(Justify::Center)
+        .flex_shrink(0.0)
+        .part(&part)
+        .child(glyph(&self.part(DialogPart::Icon), name, false)),
+    )
+  }
+
+  /// The note at the start of the footer: its icon and its words, which take the room the buttons leave and go on
+  /// to the next line in it. `None` for a dialog with none.
+  pub fn note(&self) -> Option<Row> {
+    let note = self.note.as_ref()?;
+    let part = self.part(DialogPart::Note);
+    let mut row = Row::new()
+      .align_items(Alignment::Center)
+      .flex_full(1.0, 1.0, Some(0.0))
+      .min_width(Dimension::Px(0.0))
+      .part(&part);
+    if let Some(name) = self.note_icon {
+      row = row.child(glyph(&self.part(DialogPart::NoteIcon), name, false));
+    }
+    Some(
+      row.child(
+        part
+          .text(note)
+          .flex_full(1.0, 1.0, Some(0.0))
+          .min_width(Dimension::Px(0.0)),
+      ),
+    )
   }
 
   /// The title and the description, one over the other: `None` for a dialog
@@ -514,18 +684,23 @@ impl DialogView {
   /// The header: the text, and the close button at its end. `None` for a
   /// dialog with neither.
   pub fn header(&self) -> Option<Row> {
+    let mark = self.mark();
     let text = self.text();
-    if text.is_none() && !self.close_button {
+    if mark.is_none() && text.is_none() && !self.close_button {
       return None;
     }
     let mut header = Row::new()
       .width(Dimension::Pct(100.0))
-      .align_items(if self.scrollable {
+      // A title beside a mark stands level with its middle.
+      .align_items(if self.scrollable || mark.is_some() {
         Alignment::Center
       } else {
         Alignment::Start
       })
       .part(&self.part(DialogPart::Header));
+    if let Some(mark) = mark {
+      header = header.child(mark);
+    }
     if let Some(text) = text {
       header = header.child(text);
     }
@@ -541,10 +716,11 @@ impl DialogView {
     Row::new().part(&self.part(DialogPart::Separator))
   }
 
-  /// The footer: a row at the end of the panel with what the app put there.
-  /// `None` for a dialog with nothing in it.
+  /// The footer: a row at the end of the panel with the note at its start, where there is one, and what the app
+  /// put there at its end. `None` for a dialog with neither.
   pub fn footer(&mut self) -> Option<Row> {
-    if self.footer.is_empty() {
+    let note = self.note();
+    if self.footer.is_empty() && note.is_none() {
       return None;
     }
     Some(
@@ -553,6 +729,7 @@ impl DialogView {
         .align_items(Alignment::Center)
         .justify(Justify::End)
         .part(&self.part(DialogPart::Footer))
+        .with_children(note)
         .with_children(std::mem::take(&mut self.footer)),
     )
   }
@@ -681,7 +858,9 @@ impl Themed for Dialog {
   /// footer of 60, each set off by a line, and the body padded 20 and 16
   /// between them. The close button is 28, its icon 16.
   fn recipe() -> Recipe {
-    use DialogPart::{Body, Close, Description, Footer, Header, Panel, Separator, Text, Title, Veil};
+    use DialogPart::{
+      Body, Close, Description, Footer, Header, Icon, Mark, Note, NoteIcon, Panel, Separator, Text, Title, Veil,
+    };
     use DialogState::Scrollable;
     use PaletteColor::*;
     Recipe::new()
@@ -714,6 +893,19 @@ impl Themed for Dialog {
       .base(Footer, |s| s.gap(8.0).padding_x(4.0).padding_y(4.0))
       .base(Close, |s| s.square(28.0).radius(RadiusSize::Md))
       .base(Separator, |s| s.width(Length::Fill).height(1.0).background(PaletteColor::Border))
+      // A mark (lurq's, the board has none): a well of 32 in the muted fill, its icon 16 in the foreground, 12 before
+      // the title, which stands level with its middle.
+      .base(Mark, |s| s.square(32.0).radius(RadiusSize::Lg).background(Muted).foreground(Foreground))
+      .base(Icon, |s| s.square(IconSize::Md))
+      .state(DialogState::Mark, Header, |s| s.gap(12.0))
+      // A note: 12 in the muted foreground at the footer's start, its icon 14, 6 apart; 12 before the buttons.
+      .base(Note, |s| {
+        s.gap(6.0)
+          .padding_end(4.0)
+          .typography(TypographyStyle::Caption)
+          .foreground(MutedForeground)
+      })
+      .base(NoteIcon, |s| s.square(IconSize::Sm))
       .size(DialogSize::Sm, Panel, |s| s.width(360.0))
       .size(DialogSize::Md, Panel, |s| s.width(480.0))
       .size(DialogSize::Lg, Panel, |s| s.width(640.0))

@@ -40,6 +40,11 @@ pub struct KeyboardEvent {
   /// `on_key_down`, focused or not: a handler that acts only for what has the
   /// focus (an item of a menu opening its submenu on Right) checks this.
   pub focus_within: bool,
+  /// Whether what has the keyboard's focus does a thing of its own with Enter: a button (which it presses), a link
+  /// (which it follows), a select, or a text input of several lines (where it starts a line). A handler that gives
+  /// Enter a meaning of its own around them, as a dialog that confirms on it, steps aside where this is set. A
+  /// text input of one line is not one: Enter there submits a form at most.
+  pub focus_takes_enter: bool,
   pub(crate) control: EventControl,
 }
 
@@ -64,6 +69,7 @@ impl KeyboardEvent {
       text_input_focused: false,
       composing: false,
       focus_within: false,
+      focus_takes_enter: false,
       control: EventControl::new(),
     }
   }

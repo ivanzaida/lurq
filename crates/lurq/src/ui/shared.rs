@@ -9,11 +9,12 @@ use super::{
 };
 use crate::{
   animation::{KeyframesId, Transition},
+  app::events::{MouseButton, MouseEvent},
   app::theme::{IconSize, MotionDuration},
   components::{self, Row, TextOverflow},
-  core::{Signal, SignalValue},
+  core::{ElementRef, Signal, SignalValue},
   layout::layout_kind::Justify,
-  node::Element,
+  node::{Element, EventHandler},
 };
 
 /// Which way a component runs: along a row, or down a column. One type for every component that has a way, of
@@ -121,6 +122,63 @@ pub(crate) fn pressable(part: &ResolvedPart, disabled: bool) -> components::Butt
     .part(part)
 }
 
+/// `button` as `tab_stop(stops)` of a pressable says: where it is `false`, Tab passes the button by and a press of
+/// it with the pointer leaves the focus where it was. It still takes the focus the app gives it, which Enter and
+/// Space press it from, and the arrows of a focus group it is in still move to it.
+pub(crate) fn tab_stop(button: components::Button, stops: bool) -> components::Button {
+  if stops {
+    button
+  } else {
+    button.tab_stop(false).focus_on_press(false)
+  }
+}
+
+/// Whether a press asks for what it is on beside what is open, where a press of the primary button can: with Ctrl
+/// held, or Cmd where that is the platform's key (Ctrl and a press is the secondary press of a Mac).
+pub(crate) fn command_held(event: &MouseEvent) -> bool {
+  if cfg!(any(target_os = "macos", target_os = "ios")) {
+    event.meta
+  } else {
+    event.ctrl
+  }
+}
+
+/// `button` calling `handlers` (its `on_open_aside`) where a press asks for it beside what is open: a click of the
+/// middle button, or of the primary one with the platform's key held ([`command_held`]). Such a press is theirs
+/// alone: the button's own handlers are not called, it takes no focus, submits no form, and does not reach what
+/// is around the button. Given before the button's own `on_click`, which it runs ahead of. No handlers, no change.
+pub(crate) fn opens_aside(button: components::Button, handlers: &[EventHandler<MouseEvent>]) -> components::Button {
+  if handlers.is_empty() {
+    return button;
+  }
+  let call = |handlers: Vec<EventHandler<MouseEvent>>| {
+    move |event: &MouseEvent| {
+      for handler in &handlers {
+        handler.call(event);
+      }
+    }
+  };
+  let (primary, middle) = (call(handlers.to_vec()), call(handlers.to_vec()));
+  button
+    // A middle press is the start of this click, not of a scroll that follows the pointer.
+    .on_mouse_down(|event: MouseEvent| {
+      if event.button == MouseButton::Middle {
+        event.prevent_default();
+      }
+    })
+    .on_mouse_click(MouseButton::Middle, move |event: MouseEvent| {
+      event.stop_propagation();
+      middle(&event);
+    })
+    .on_click(move |event: MouseEvent| {
+      if command_held(&event) {
+        event.prevent_default();
+        event.stop_immediate_propagation();
+        primary(&event);
+      }
+    })
+}
+
 /// `text` on one line in the style of `part`, which gives way first where
 /// what holds it is narrower than it and is cut with an ellipsis: the label
 /// of a button, which keeps its padding and its icon in a room too small.
@@ -148,7 +206,13 @@ pub(crate) fn glyph(part: &ResolvedPart, name: Name, spin: bool) -> Element {
 ///
 /// let plain: Choice<u8> = (1, "Day").into();
 /// let with_icon = Choice::new("bold", "Bold").icon(icons::BOLD).icon_only(true);
+/// // A segment or a radio of its own id, with a count after its label and a state of the theme's.
+/// let all = Choice::new("all", "All").id("filter-all").count(24).state("warned", false);
 /// ```
+///
+/// What a group draws of a choice: a [`SegmentedControl`](super::SegmentedControl) and a
+/// [`RadioGroup`](super::RadioGroup) all of it; a toggle group and a chip group its label, its icon, `disabled`,
+/// `id` and `state`, and not its count or its element ref.
 #[derive(Clone)]
 pub struct Choice<T> {
   pub(crate) value: T,
@@ -156,6 +220,10 @@ pub struct Choice<T> {
   pub(crate) icon: Option<Name>,
   pub(crate) icon_only: bool,
   pub(crate) disabled: bool,
+  pub(crate) id: Option<Arc<str>>,
+  pub(crate) count: Option<Arc<str>>,
+  pub(crate) states: Vec<Name>,
+  pub(crate) element: Option<ElementRef>,
 }
 
 impl<T> Choice<T> {
@@ -167,7 +235,40 @@ impl<T> Choice<T> {
       icon: None,
       icon_only: false,
       disabled: false,
+      id: None,
+      count: None,
+      states: Vec::new(),
+      element: None,
     }
+  }
+
+  /// The id of what is pressed to make the choice (a segment, a radio's mark), after which its parts are named:
+  /// `<id>-label`, `<id>-count`.
+  pub fn id(mut self, id: impl Into<Arc<str>>) -> Self {
+    self.id = Some(id.into());
+    self
+  }
+
+  /// A number after the label: how many things the choice holds. "24", "99+".
+  pub fn count(mut self, count: impl std::fmt::Display) -> Self {
+    self.count = Some(Arc::from(count.to_string()));
+    self
+  }
+
+  /// Puts the choice alone in a state the theme's recipe names, or takes it out: a choice that warns.
+  pub fn state(mut self, state: impl Into<Name>, on: bool) -> Self {
+    let state = state.into();
+    self.states.retain(|held| *held != state);
+    if on {
+      self.states.push(state);
+    }
+    self
+  }
+
+  /// Refers to what is pressed to make the choice, once it is laid out: what a popup it opens hangs from.
+  pub fn element_ref(mut self, element: ElementRef) -> Self {
+    self.element = Some(element);
+    self
   }
 
   /// An icon before the label, by its name in the theme's set.

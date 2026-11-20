@@ -90,3 +90,81 @@ fn focusable_true_element_is_focused_by_click_but_not_a_tab_stop_outside_forms()
   click_id(&mut tree, "tile");
   assert_eq!(focused_id(&tree).as_deref(), Some("tile"));
 }
+
+/// Two buttons the pointer reaches: Tab passes them by, a press leaves the focus in the field, and the app can still
+/// focus one, which Enter presses then and Tab goes on from. In a focus group the arrows still move to them.
+fn pointer_only(clicks: &Arc<AtomicUsize>) -> Column {
+  let counted = clicks.clone();
+  Column::new()
+    .child(
+      TextInput::new(Signal::new(String::new()))
+        .id("field")
+        .width(120.0)
+        .tab_index(0),
+    )
+    .child(
+      lurq::components::Row::new()
+        .focus_group(lurq::node::FocusGroup::horizontal())
+        .child(
+          Button::new("Bold")
+            .id("bold")
+            .tab_index(0)
+            .tab_stop(false)
+            .focus_on_press(false)
+            .on_click(move |_| {
+              counted.fetch_add(1, Ordering::SeqCst);
+            }),
+        )
+        .child(Button::new("Italic").id("italic").tab_index(0).tab_stop(false)),
+    )
+    .child(Button::new("Next").id("next").tab_index(0))
+}
+
+#[test]
+fn a_button_off_tab_is_passed_by_and_a_press_leaves_the_focus_where_it_was() {
+  let clicks = Arc::new(AtomicUsize::new(0));
+  let mut tree = headless(pointer_only(&clicks));
+
+  tab(&mut tree);
+  assert_eq!(focused_id(&tree).as_deref(), Some("field"));
+  tab(&mut tree);
+  assert_eq!(focused_id(&tree).as_deref(), Some("next"), "Tab passes both by");
+
+  click_id(&mut tree, "field");
+  click_id(&mut tree, "bold");
+  assert_eq!(clicks.load(Ordering::SeqCst), 1, "the click runs");
+  assert_eq!(
+    focused_id(&tree).as_deref(),
+    Some("field"),
+    "and the field keeps the focus"
+  );
+
+  // One off Tab that a press focuses still: only `focus_on_press(false)` keeps the focus where it was.
+  click_id(&mut tree, "italic");
+  assert_eq!(focused_id(&tree).as_deref(), Some("italic"));
+}
+
+#[test]
+fn a_button_off_tab_the_app_focuses_is_pressed_by_enter_and_its_group_arrows_move() {
+  let clicks = Arc::new(AtomicUsize::new(0));
+  let mut tree = headless(pointer_only(&clicks));
+
+  tree.get_element_by_id_mut("bold").unwrap().focus();
+  assert_eq!(focused_id(&tree).as_deref(), Some("bold"), "the app can focus it");
+  tree.key_down("Enter".to_owned(), "Enter".to_owned(), false, false, false);
+  assert_eq!(clicks.load(Ordering::SeqCst), 1, "Enter presses it");
+
+  tree.key_down("ArrowRight".to_owned(), "ArrowRight".to_owned(), false, false, false);
+  assert_eq!(
+    focused_id(&tree).as_deref(),
+    Some("italic"),
+    "the group's arrows move to the next"
+  );
+
+  tab(&mut tree);
+  assert_eq!(
+    focused_id(&tree).as_deref(),
+    Some("next"),
+    "Tab goes on from where it is"
+  );
+}

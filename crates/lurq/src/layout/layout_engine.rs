@@ -1506,6 +1506,7 @@ impl LayoutEngine {
     quads: &mut Vec<Quad>,
   ) -> NodeQuadFrame {
     if let Some(ref element_ref) = node.element_ref {
+      element_ref.set_text_cut(node.text_is_cut());
       element_ref.update(
         abs_x,
         abs_y,
@@ -1626,6 +1627,22 @@ impl LayoutEngine {
       }
       #[cfg(feature = "image")]
       NodeKind::ResourceImage { .. } => QuadContent::None,
+      #[cfg(feature = "canvas")]
+      NodeKind::Svg { data } if data.paints_current_color() => {
+        let foreground = self
+          .foreground
+          .get()
+          .or_else(|| {
+            self
+              .palette
+              .borrow()
+              .try_get(&crate::app::theme::PaletteColor::Foreground)
+          })
+          .unwrap_or(crate::layout::text_style::DEFAULT_TEXT_COLOR);
+        QuadContent::Svg {
+          data: data.in_foreground(foreground),
+        }
+      }
       #[cfg(feature = "canvas")]
       NodeKind::Svg { data } => QuadContent::Svg { data: data.clone() },
       #[cfg(all(feature = "canvas", feature = "http"))]

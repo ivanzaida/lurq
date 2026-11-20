@@ -217,7 +217,7 @@ impl Component for RadioPage {
         self.plan.clone(),
         [
           Choice::new("free", "Free"),
-          Choice::new("team", "Team"),
+          Choice::new("team", "Team").id("plan-team").count(3),
           Choice::new("enterprise", "Enterprise").disabled(true),
         ],
       ),
@@ -411,7 +411,8 @@ impl Component for RadioPage {
               "// plan: Signal<&'static str>",
               "RadioGroup::new(plan, [",
               "    Choice::new(\"free\", \"Free\"),",
-              "    Choice::new(\"team\", \"Team\"),",
+              "    // Its own id, after which its parts are named, and a count after its label.",
+              "    Choice::new(\"team\", \"Team\").id(\"plan-team\").count(3),",
               "    Choice::new(\"enterprise\", \"Enterprise\").disabled(true),",
               "])",
             ],

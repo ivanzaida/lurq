@@ -4694,6 +4694,7 @@ impl Tree {
       text_input_focused: self.text_input_focused(),
       composing: self.is_composing(),
       focus_within: false,
+      focus_takes_enter: self.focus_takes_enter(),
       control,
     };
     if let Some(root) = &self.root {
@@ -4816,6 +4817,7 @@ impl Tree {
       text_input_focused: self.text_input_focused(),
       composing,
       focus_within: false,
+      focus_takes_enter: self.focus_takes_enter(),
       control: EventControl::new(),
     };
     let root = match &self.root {
@@ -7580,8 +7582,11 @@ impl Tree {
 
   /// Writes what the app asked to be put on the clipboard (`WindowHandle::copy_to_clipboard`), in order.
   fn write_requested_copies(&mut self) {
-    for text in self.window.take_copies() {
-      self.write_clipboard_text(&text);
+    for (text, done) in self.window.take_copies() {
+      let written = self.write_clipboard_text(&text);
+      if let Some(done) = done {
+        done(written);
+      }
     }
   }
 
@@ -7626,6 +7631,33 @@ impl Tree {
       .and_then(|path| find_node_by_path(root, path))
       .or_else(|| self.focused_node.and_then(|id| find_node_by_id(root, id)))
       .is_some_and(|node| matches!(node.node_kind(), NodeKind::TextInput { .. }))
+  }
+
+  /// Whether what has the keyboard's focus does a thing of its own with Enter: a button, a paragraph's link, a
+  /// select, or a text input of several lines. Stamped onto [`KeyboardEvent`]s for a handler that gives Enter a
+  /// meaning around them.
+  fn focus_takes_enter(&self) -> bool {
+    let Some(root) = self.root.as_ref() else {
+      return false;
+    };
+    let Some(node) = self
+      .focused_path
+      .as_deref()
+      .and_then(|path| find_node_by_path(root, path))
+      .or_else(|| self.focused_node.and_then(|id| find_node_by_id(root, id)))
+    else {
+      return false;
+    };
+    if node.button_kind_value().is_some() {
+      return true;
+    }
+    match node.node_kind() {
+      NodeKind::TextInput { state, .. } => state.overflow() == TextInputOverflow::Multiline,
+      NodeKind::Select { .. } => true,
+      #[cfg(feature = "markdown")]
+      NodeKind::InlineLink { .. } => true,
+      _ => false,
+    }
   }
 
   fn has_focused_blinking_text_input(&self, theme_caret_mode: CaretMode) -> bool {
@@ -9521,6 +9553,11 @@ fn build_overlay_node(
     at: spec.at,
     at_placement: spec.at_placement,
     clear: spec.clear,
+    within: spec
+      .within
+      .as_ref()
+      .filter(|element| element.is_attached())
+      .map(crate::core::ElementRef::bounds),
   };
   let (node, bounds) = place_overlay(
     node,
@@ -9550,6 +9587,8 @@ pub(super) struct OverlayPlacing {
   at_placement: Option<Placement>,
   /// What of the window's edges it keeps clear of (`Overlay::keep_clear`).
   clear: [f32; 4],
+  /// The box of the element it is kept inside besides the window (`Overlay::within`), as it was laid out.
+  within: Option<ElementRect>,
 }
 
 /// Measures `node`, an overlay's content, and puts it by its anchor at that size. Run again on a layer that
@@ -9574,6 +9613,7 @@ fn place_overlay(
     at,
     at_placement,
     clear,
+    within,
   } = placing;
   let measure_constraints = Constraints::loose(Size::new(
     constraints.max_width.min(viewport.width).max(0.0),
@@ -9615,8 +9655,17 @@ fn place_overlay(
     }
     (Some(point), None) => point_position(point, overlay_size, viewport, offset_x, offset_y, collision),
     (None, _) => {
-      let placement =
-        resolve_overlay_collision(placement, anchor, overlay_size, viewport, offset_x, offset_y, collision);
+      // It flips where the box it is kept inside has no room, the window's or an element's: the anchor is taken
+      // into that box's space.
+      let (frame_x, frame_y, room) = within.map_or((0.0, 0.0, viewport), |frame| {
+        (frame.x, frame.y, Size::new(frame.width, frame.height))
+      });
+      let moved = ElementRect {
+        x: anchor.x - frame_x,
+        y: anchor.y - frame_y,
+        ..anchor
+      };
+      let placement = resolve_overlay_collision(placement, moved, overlay_size, room, offset_x, offset_y, collision);
       overlay_position(anchor, overlay_size, placement, offset_x, offset_y)
     }
   };
@@ -9627,7 +9676,21 @@ fn place_overlay(
       (viewport.height - top - bottom).max(overlay_size.height.min(viewport.height)),
     );
     let (x, y) = clamp_overlay_position(x - left, y - top, overlay_size, room);
-    clamp_overlay_position(x + left, y + top, overlay_size, viewport)
+    let (x, y) = (x + left, y + top);
+    // Into the element's box, then into the window, which wins.
+    let (x, y) = match within {
+      Some(frame) => {
+        let (x, y) = clamp_overlay_position(
+          x - frame.x,
+          y - frame.y,
+          overlay_size,
+          Size::new(frame.width, frame.height),
+        );
+        (x + frame.x, y + frame.y)
+      }
+      None => (x, y),
+    };
+    clamp_overlay_position(x, y, overlay_size, viewport)
   } else {
     (x, y)
   };
@@ -10752,7 +10815,8 @@ impl<'t> ElementHandle<'t> {
     }
     let center = self.bounds().map(|bounds| bounds.center()).unwrap_or((0.0, 0.0));
     let Some(node) = self.node() else { return };
-    let focusable = node.is_focusable();
+    // A node that keeps the focus where it was on a press (`focus_on_press(false)`) is not focused by its click.
+    let focusable = node.is_focusable() && !node.events.press_keeps_focus;
     let button_kind = node.button_kind_value();
     let handlers = node.events.on_click.clone();
     self.tree.set_input_modality(focus_visible::InputModality::Pointer);
@@ -13351,6 +13415,7 @@ fn update_element_refs_recursive(
     return;
   }
   if let Some(element_ref) = &node.element_ref {
+    element_ref.set_text_cut(node.text_is_cut());
     element_ref.update(
       abs_x,
       abs_y,
@@ -13388,6 +13453,7 @@ fn update_element_refs_recursive(
 /// inside the zero-size box says.
 fn collapse_dropped_element_refs(node: &Node, abs_x: f32, abs_y: f32, parent_x: f32, parent_y: f32) {
   if let Some(element_ref) = &node.element_ref {
+    element_ref.set_text_cut(false);
     element_ref.update(abs_x, abs_y, abs_x - parent_x, abs_y - parent_y, 0.0, 0.0);
   }
   for child in node.children() {
@@ -13479,6 +13545,10 @@ fn dispatch_builtin_pointer(
     .map(|(node, _)| node.node_id());
 
   for (node, rect) in hits {
+    // Pressed, it leaves the focus where it was (`focus_on_press(false)`): nor does what is around it take it.
+    if node.events.press_keeps_focus && node.is_focusable() {
+      return None;
+    }
     if node.button_kind_value().is_some() {
       return Some(FocusTarget {
         input_id: node.node_id(),

@@ -387,6 +387,8 @@ struct Item {
   disabled: bool,
   selected: bool,
   pick: Arc<dyn Fn() + Send + Sync>,
+  id: Option<Arc<str>>,
+  states: Vec<Name>,
 }
 
 /// Chips that are one choice: the filters of a list, of which any number are
@@ -599,6 +601,8 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> ChipGrou
         label: choice.label,
         icon: choice.icon,
         disabled: choice.disabled,
+        id: choice.id,
+        states: choice.states,
       })
       .collect();
     // Where Tab enters the group: the interaction forced is drawn there alone, as it can only be.
@@ -616,6 +620,12 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> ChipGrou
         .on_change(move |_| pick());
       if let Some(name) = choice.icon {
         chip = chip.icon(name);
+      }
+      if let Some(id) = choice.id {
+        chip = chip.id(id);
+      }
+      for state in choice.states {
+        chip = chip.state(state, true);
       }
       root = root.child(chip.build(theme));
     }

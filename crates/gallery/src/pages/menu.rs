@@ -1,11 +1,12 @@
 //! The page of the menu: its playground, a dropdown from a button, the board's
-//! menu with checked, disabled and grouped items, and the split button's menu.
+//! menu with checked, disabled and grouped items, the split button's menu, and
+//! items with a detail, a reason and an avatar.
 
 use std::sync::Arc;
 
 use lurq::{
   app::{component::Component, ctx::Ctx},
-  components::{Column, Placement, Row},
+  components::{Column, Placement, Rect, Row},
   core::{ElementRef, Signal},
   layout::Alignment,
   node::Element,
@@ -502,6 +503,37 @@ impl Component for MenuPage {
       },
     ));
 
+    // Items that say more than their label: a detail, why one cannot be chosen, an element before the label.
+    let agents = Menu::controlled(true, ElementRef::new(), |_| {})
+      .inline(true)
+      .heading("Run with")
+      .item(
+        MenuItem::new("Builder")
+          .leading(
+            Rect::new(20.0, 20.0)
+              .rounded(10.0)
+              .background(lurq::app::theme::PaletteColor::Primary),
+          )
+          .detail("gpt-5 · high effort")
+          .checked(true),
+      )
+      .item(
+        MenuItem::new("Reviewer")
+          .leading(
+            Rect::new(20.0, 20.0)
+              .rounded(10.0)
+              .background(lurq::app::theme::PaletteColor::Secondary),
+          )
+          .detail("claude-opus · medium effort"),
+      )
+      .separator()
+      .item(
+        MenuItem::new("Publish the release")
+          .icon(icons::UPLOAD)
+          .unavailable("The run has not finished"),
+      );
+    let described = items().child(item(agents, "a detail, a reason, an avatar"));
+
     let rows = [
       (
         "Menu::new(open, anchor)",
@@ -617,6 +649,24 @@ impl Component for MenuPage {
         "bool",
         "false",
         "Dimmed; it cannot be chosen and the arrows pass it by.",
+      ),
+      (
+        "detail",
+        "&str",
+        "",
+        "A second line under the label that says more of the item.",
+      ),
+      (
+        "unavailable",
+        "&str",
+        "",
+        "It cannot be chosen, for this reason: dimmed, a lock at its end, the reason under its label.",
+      ),
+      (
+        "leading",
+        "impl Into<Element>",
+        "",
+        "Any element before the label, in place of the icon: an avatar, a mark.",
       ),
       (
         "on_select",
@@ -738,6 +788,20 @@ impl Component for MenuPage {
               "    .item(MenuItem::new(\"Create a merge commit\").checked(strategy.get() == 0).on_select(..))",
               "    .item(MenuItem::new(\"Squash and merge\").checked(strategy.get() == 1).on_select(..))",
               "    .item(MenuItem::new(\"Rebase and merge\").checked(strategy.get() == 2).on_select(..))",
+            ],
+          ),
+        ),
+        Section::new(
+          "Details, reasons and avatars",
+          "An item may say more under its label, say why it cannot be chosen (with a lock at its end, and the \
+           reason read by what reads the tree), and stand an element of the app's before its label.",
+          self.frame.demo(
+            3,
+            described,
+            ".detail(..) .unavailable(..) .leading(..)",
+            &[
+              "MenuItem::new(\"Builder\").leading(avatar).detail(\"gpt-5 · high effort\").checked(true)",
+              "MenuItem::new(\"Publish the release\").icon(icons::UPLOAD).unavailable(\"The run has not finished\")",
             ],
           ),
         ),

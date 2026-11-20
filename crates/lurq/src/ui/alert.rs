@@ -163,7 +163,7 @@ pub enum AlertPart {
   Description,
   /// What the app puts under the description: a list, a link, a progress.
   Body,
-  /// What holds the action, before the close control.
+  /// What holds the actions, before the close control, or under the words of a stacked alert.
   Action,
   /// What closes it, at the end.
   Close,
@@ -184,12 +184,15 @@ names!(AlertPart {
 /// keyboard do to its close control.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum AlertState {
-  /// It has an action: what is in it is centered on the action's height.
+  /// It has an action: what is in it is centered on the actions' height, where they are at its end.
   Action,
+  /// Its actions are under its words, at their start, and not at its end.
+  Stacked,
 }
 
 names!(AlertState {
   Action => "action",
+  Stacked => "stacked",
 });
 
 /// What builds an alert's nodes: a theme's in place of the default one.
@@ -206,6 +209,13 @@ pub type AlertRenderer = Arc<dyn Fn(AlertView) -> Element + Send + Sync>;
 ///   .description("The settings file is read-only.")
 ///   .variant(AlertVariant::Destructive)
 ///   .action(Button::new("Retry").variant(ButtonVariant::Outline).size(ButtonSize::Sm));
+/// // Several actions, under its words: the least first, the main one last.
+/// let offline = Alert::new("Working offline")
+///   .description("Changes are kept on this computer until the server answers again.")
+///   .variant(AlertVariant::Warning)
+///   .stacked(true)
+///   .action(Button::new("Details").variant(ButtonVariant::Ghost).size(ButtonSize::Sm))
+///   .action(Button::new("Reconnect").variant(ButtonVariant::Outline).size(ButtonSize::Sm));
 /// let shortcut = Alert::new("New shortcut")
 ///   .description("Press Ctrl+K to open the command palette.")
 ///   .variant(AlertVariant::Info)
@@ -223,7 +233,8 @@ pub struct Alert {
   description: Option<Arc<str>>,
   variant: Name,
   icon: Option<IconChoice>,
-  action: Option<Element>,
+  actions: Vec<Element>,
+  stacked: bool,
   body: Vec<Element>,
   role: Option<Arc<str>>,
   label: Option<Arc<str>>,
@@ -243,7 +254,8 @@ impl Alert {
       description: None,
       variant: AlertVariant::Neutral.into(),
       icon: None,
-      action: None,
+      actions: Vec::new(),
+      stacked: false,
       body: Vec::new(),
       role: None,
       label: None,
@@ -275,10 +287,27 @@ impl Alert {
     self
   }
 
-  /// What can be done about it, at its end before the close control: a
-  /// button, a link.
+  /// Adds something that can be done about it, after the actions already
+  /// there: a button, a link. An alert has several, the least first and the
+  /// main one last, at its end before the close control, or under its words
+  /// where it is [`stacked`](Self::stacked). A second call adds, and does not
+  /// take the place of the first.
   pub fn action(mut self, action: impl Into<Element>) -> Self {
-    self.action = Some(action.into());
+    self.actions.push(action.into());
+    self
+  }
+
+  /// Adds each of `actions`, as [`action`](Self::action) does.
+  pub fn actions(mut self, actions: impl IntoIterator<Item = impl Into<Element>>) -> Self {
+    self.actions.extend(actions.into_iter().map(Into::into));
+    self
+  }
+
+  /// Whether its actions are under its words, at their start, wrapping where
+  /// one line does not hold them, and not at its end: for words long enough
+  /// to need the alert's width, or more actions than its end has room for.
+  pub fn stacked(mut self, stacked: bool) -> Self {
+    self.stacked = stacked;
     self
   }
 
@@ -370,13 +399,15 @@ impl Alert {
       breakpoint: current_breakpoint(),
       states: self.states.clone(),
     }
-    .state(AlertState::Action, self.action.is_some());
+    .state(AlertState::Action, !self.actions.is_empty())
+    .state(AlertState::Stacked, self.stacked);
     let view = AlertView {
       title: self.title,
       description: self.description,
       variant: self.variant,
       icon: shown_icon(self.icon, tone.icon()),
-      action: self.action,
+      actions: self.actions,
+      stacked: self.stacked,
       body: self.body,
       role: self.role.unwrap_or_else(|| Arc::from(tone.role())),
       label: self.label,
@@ -411,8 +442,10 @@ pub struct AlertView {
   pub variant: Name,
   /// The icon it shows, by its name in the theme's set: the variant's, the one it was given, or none.
   pub icon: Option<Name>,
-  /// What the app put at its end.
-  pub action: Option<Element>,
+  /// What the app gave it to do, in the order it was given.
+  pub actions: Vec<Element>,
+  /// Whether its actions are under its words and not at its end.
+  pub stacked: bool,
   /// What the app put under the description.
   pub body: Vec<Element>,
   /// What it is to tooling that reads the tree: `alert` or `status`, or what the app said.
@@ -445,7 +478,8 @@ impl AlertView {
   }
 
   /// The title over the description, and the body under them, as wide as the
-  /// room the icon, the action and the close control leave.
+  /// room the icon, the actions and the close control leave. A stacked
+  /// alert's actions are under the body.
   pub fn text(&mut self) -> Column {
     let mut text = Column::new()
       .flex(1.0)
@@ -463,17 +497,31 @@ impl AlertView {
           .with_children(std::mem::take(&mut self.body)),
       );
     }
+    if self.stacked
+      && let Some(actions) = self.actions()
+    {
+      text = text.child(actions);
+    }
     text
   }
 
-  /// The action it was given, in the style of its part.
-  pub fn action(&mut self) -> Option<Row> {
-    let action = self.action.take()?;
+  /// The actions it was given, in a row in the style of its part: as wide as
+  /// the words and wrapping in a stacked alert, as wide as they are at the end
+  /// of another. `None` for an alert with none.
+  pub fn actions(&mut self) -> Option<Row> {
+    if self.actions.is_empty() {
+      return None;
+    }
+    let row = Row::new().align_items(Alignment::Center);
+    let row = if self.stacked {
+      row.width(Dimension::Pct(100.0)).wrap()
+    } else {
+      row
+    };
     Some(
-      Row::new()
-        .align_items(Alignment::Center)
+      row
         .part(&self.part(AlertPart::Action))
-        .child(action),
+        .with_children(std::mem::take(&mut self.actions)),
     )
   }
 
@@ -482,12 +530,13 @@ impl AlertView {
     close_control(&self.part(AlertPart::Close), &self.on_close)
   }
 
-  /// How the default renderer builds an alert: its icon, its text, its action
-  /// and its close control side by side. It is what its role says to what
-  /// reads the tree, called by its label or its title.
+  /// How the default renderer builds an alert: its icon, its text, its
+  /// actions and its close control side by side, or its actions under its
+  /// words where it is stacked. It is what its role says to what reads the
+  /// tree, called by its label or its title.
   pub fn render(mut self) -> Element {
     let mut root = Row::new()
-      .align_items(if self.action.is_some() {
+      .align_items(if !self.actions.is_empty() && !self.stacked {
         Alignment::Center
       } else {
         Alignment::Start
@@ -499,8 +548,8 @@ impl AlertView {
       root = root.child(icon);
     }
     root = root.child(self.text());
-    if let Some(action) = self.action() {
-      root = root.child(action);
+    if let Some(actions) = self.actions() {
+      root = root.child(actions);
     }
     if self.close_button {
       root = root.child(self.close());
@@ -548,7 +597,8 @@ impl Themed for Alert {
   /// and an icon of their color and a description in the foreground's. One
   /// that went wrong keeps the card's color, with an edge, an icon and a
   /// title of the destructive color. The close control is the toast's: 16 in
-  /// the muted color.
+  /// the muted color. Its actions are 8 apart; a stacked alert's are 8 under
+  /// its words, as its body is.
   fn recipe() -> Recipe {
     use AlertPart as P;
     use AlertVariant::{Destructive, Info, Success, Warning};
@@ -580,7 +630,8 @@ impl Themed for Alert {
           .foreground(MutedForeground)
       })
       .base(P::Body, |s| s.gap(8.0).padding_top(4.0))
-      .base(P::Action, |s| s.gap(8.0));
+      .base(P::Action, |s| s.gap(8.0))
+      .state(AlertState::Stacked, P::Action, |s| s.padding_top(4.0));
     recipe = close_style(recipe, P::Close);
     for variant in [Info, Success, Warning] {
       recipe = recipe

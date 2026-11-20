@@ -373,6 +373,10 @@ impl Component for AvatarPage {
         .child(item(Avatar::new("Lurq Team").shape(AvatarShape::Square), "square"))
         .child(item(Avatar::new("Build bot").icon(icons::TERMINAL), "icon"))
         .child(item(Avatar::new(""), "no name: a person"))
+        .child(item(
+          Avatar::new("Ada King Lovelace").initials("AK"),
+          "the app's letters",
+        ))
     });
     let [blue, orange, green] = self.portraits.clone();
     let pictures = crate::kit::apart(|| {
@@ -560,7 +564,7 @@ impl Component for AvatarPage {
           Section::new(
             "Sizes and shapes",
             "Five sizes, round or square. An icon takes the place of the initials for what is not a person, and a \
-           name with no letters shows a person.",
+           name with no letters shows a person. An app may give the letters, and the name stays who it is.",
             self.frame.demo(
               0,
               sizes,
@@ -574,6 +578,7 @@ impl Component for AvatarPage {
                 "Avatar::new(\"Lurq Team\").shape(AvatarShape::Square)",
                 "Avatar::new(\"Build bot\").icon(icons::TERMINAL)",
                 "Avatar::new(\"\")",
+                "Avatar::new(\"Ada King Lovelace\").initials(\"AK\")",
               ],
             ),
           ),

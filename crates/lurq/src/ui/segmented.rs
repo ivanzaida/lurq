@@ -7,7 +7,7 @@ use super::{
   names,
   part_style::Length,
   recipe::{Case, Interaction, Name, Recipe, ResolvedRecipe},
-  shared::{ChangeHandler, Choice, Chosen, fading, glyph, pressable},
+  shared::{ChangeHandler, Choice, Chosen, fading, glyph, pressable, tab_stop},
   theme::{Themed, current_theme},
 };
 use crate::{
@@ -15,7 +15,7 @@ use crate::{
     ControlSize, Density, IconSize, OpacityLevel, PaletteColor, RadiusSize, ShadowStyle, Theme, TypographyStyle,
   },
   components::Row,
-  core::{Signal, SignalValue},
+  core::{ElementRef, Signal, SignalValue},
   node::{Element, FocusGroup, border::Border as Line},
 };
 
@@ -30,6 +30,8 @@ pub enum SegmentedControlPart {
   Label,
   /// The icon of a segment.
   Icon,
+  /// The number after the label of a segment that has one: how many things the choice holds.
+  Count,
 }
 
 names!(SegmentedControlPart {
@@ -37,6 +39,7 @@ names!(SegmentedControlPart {
   Segment => "segment",
   Label => "label",
   Icon => "icon",
+  Count => "count",
 });
 
 /// The states of a segmented control a recipe styles.
@@ -72,6 +75,10 @@ struct Segment {
   icon_only: bool,
   disabled: bool,
   selected: bool,
+  id: Option<Arc<str>>,
+  count: Option<Arc<str>>,
+  states: Vec<Name>,
+  element: Option<ElementRef>,
   pick: Arc<dyn Fn() + Send + Sync>,
 }
 
@@ -92,7 +99,8 @@ struct Segment {
 /// ```
 ///
 /// Exactly one segment is chosen. Each is a button: Tab reaches it, and a
-/// click, Enter or Space chooses it. Its sizes are a button's
+/// click, Enter or Space chooses it. A choice may have an id of its own, after which its label and its count are
+/// named, a count after its label, a state of the theme's and a ref to its segment ([`Choice`]). Its sizes are a button's
 /// ([`SegmentedControlSize`]). [`on_change`](Self::on_change) is told the
 /// value a person chooses, a `&T` the compiler checks; a press of the chosen
 /// segment tells nothing. `T` is `()` where nothing names it: the theme's
@@ -106,6 +114,7 @@ pub struct SegmentedControl<T = ()> {
   disabled: bool,
   invalid: bool,
   full_width: bool,
+  tab_stop: bool,
   states: Vec<Name>,
   rules: Recipe,
   forced: Option<Interaction>,
@@ -124,6 +133,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SegmentedControl<T> {
       disabled: false,
       invalid: false,
       full_width: false,
+      tab_stop: true,
       states: Vec::new(),
       rules: Recipe::new(),
       forced: None,
@@ -207,6 +217,15 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SegmentedControl<T> {
     self
   }
 
+  /// Whether Tab stops in the control; it does, once, unless told otherwise. `false` is a control the pointer and
+  /// the app's own shortcuts reach: Tab passes its segments by, and a press of one chooses it and leaves the focus
+  /// where it was. A segment the app focuses is pressed by Enter and Space and its arrow keys move along the
+  /// segments as before, and they are the same to what reads the tree.
+  pub fn tab_stop(mut self, stops: bool) -> Self {
+    self.tab_stop = stops;
+    self
+  }
+
   /// Styles one part of this control over what the theme gives it.
   pub fn style(mut self, part: impl Into<Name>, style: impl FnOnce(super::PartStyle) -> super::PartStyle) -> Self {
     self.rules = self.rules.base(part, style);
@@ -244,15 +263,16 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SegmentedControl<T> {
     for state in &self.states {
       case = case.state(state.clone(), true);
     }
-    // A segment is in the state of the control, and the chosen one in its own too.
-    let resolve = |selected: bool| -> ResolvedRecipe {
-      theme.resolve::<SegmentedControl>(
-        &case.clone().state(SegmentedControlState::Selected, selected),
-        Some(&self.rules),
-      )
+    // A segment is in the state of the control, and the chosen one in its own too, and in the states of its choice.
+    let resolve = |selected: bool, states: &[Name]| -> ResolvedRecipe {
+      let case = states
+        .iter()
+        .fold(case.clone(), |case, state| case.state(*state, true))
+        .state(SegmentedControlState::Selected, selected);
+      theme.resolve::<SegmentedControl>(&case, Some(&self.rules))
     };
-    let plain = resolve(false).owned_by(self.id.as_ref());
-    let chosen = resolve(true).owned_like(&plain);
+    let plain = resolve(false, &[]).owned_by(self.id.as_ref());
+    let chosen = resolve(true, &[]).owned_like(&plain);
     // One choice: Tab stops in it once, at the chosen segment, and an arrow key moves the focus and the
     // choice with it.
     let mut root = Row::new()
@@ -277,6 +297,10 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SegmentedControl<T> {
         icon: choice.icon,
         icon_only: choice.icon_only,
         disabled: choice.disabled,
+        id: choice.id,
+        count: choice.count,
+        states: choice.states,
+        element: choice.element,
       })
       .collect();
     // Where Tab enters the group: the interaction forced is drawn there alone, as it can only be.
@@ -285,13 +309,30 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SegmentedControl<T> {
       .position(|segment| segment.selected && !segment.disabled)
       .or_else(|| segments.iter().position(|segment| !segment.disabled));
     for (index, segment) in segments.into_iter().enumerate() {
-      let recipe = if segment.selected { &chosen } else { &plain };
+      let own;
+      let recipe = match (segment.states.is_empty(), segment.selected) {
+        (true, true) => &chosen,
+        (true, false) => &plain,
+        (false, selected) => {
+          own = resolve(selected, &segment.states).owned_like(&plain);
+          &own
+        }
+      };
+      // A segment with an id of its own names its parts after it.
+      let recipe = recipe.item(segment.id.as_ref(), SegmentedControlPart::Segment);
       let forced = self.forced.filter(|_| Some(index) == entry);
       let part = |part: SegmentedControlPart| recipe.part(part).forced(forced);
       let pick = segment.pick;
-      let mut pressed = pressable(&part(SegmentedControlPart::Segment), self.disabled || segment.disabled)
+      let pressed = pressable(&part(SegmentedControlPart::Segment), self.disabled || segment.disabled);
+      let mut pressed = tab_stop(pressed, self.tab_stop)
         .focus_entry(segment.selected)
         .on_click(move |_| pick());
+      if let Some(id) = segment.id {
+        pressed = pressed.id(id);
+      }
+      if let Some(element) = segment.element {
+        pressed = pressed.ref_element(element);
+      }
       if self.full_width {
         pressed = pressed.flex(1.0);
       }
@@ -303,6 +344,10 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SegmentedControl<T> {
       } else {
         let label = part(SegmentedControlPart::Label);
         pressed = pressed.child(label.text(&segment.label).nowrap().part(&label));
+      }
+      if let Some(count) = &segment.count {
+        let style = part(SegmentedControlPart::Count);
+        pressed = pressed.child(style.text(count).nowrap().part(&style));
       }
       root = root.child(pressed);
     }
@@ -351,7 +396,7 @@ impl<T: Send + Sync + 'static> Themed for SegmentedControl<T> {
   /// apart; the chosen one is a surface with a small shadow.
   fn recipe() -> Recipe {
     use PaletteColor::*;
-    use SegmentedControlPart::{Icon, Label, Root, Segment};
+    use SegmentedControlPart::{Count, Icon, Label, Root, Segment};
     Recipe::new()
       .base(Root, |s| {
         s.height(ControlSize::Md)
@@ -372,6 +417,8 @@ impl<T: Send + Sync + 'static> Themed for SegmentedControl<T> {
       })
       .base(Label, |s| s.typography(TypographyStyle::Button))
       .base(Icon, |s| s.square(IconSize::Md))
+      // A count is quieter than the label it follows, on the chosen segment too.
+      .base(Count, |s| s.typography(TypographyStyle::Caption).foreground(MutedForeground))
       .hovered(Segment, |s| s.foreground(Foreground))
       .focus_visible(Segment, |s| s.focus_ring())
       .size(ButtonSize::Xs, Root, |s| s.height(Density::Compact))

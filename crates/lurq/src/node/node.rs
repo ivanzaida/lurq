@@ -1059,6 +1059,10 @@ pub struct EventHandlers {
   /// A press of the primary button runs the node's `on_click` handlers at once, and again while the button is held
   /// over it; its release clicks nothing more. See `app/runtime/press_repeat.rs`.
   pub press_repeats: bool,
+  /// Tab passes the node by, though it takes the focus otherwise: see `tab_stop` of an element.
+  pub(crate) skips_tab: bool,
+  /// A press of the node with the pointer leaves the focus where it was: see `focus_on_press` of an element.
+  pub(crate) press_keeps_focus: bool,
   /// Run as a press that repeats is let go, wherever the pointer is, or taken by the OS: the end of the gesture.
   pub on_press_end: Vec<VoidCallback>,
 }
@@ -5461,6 +5465,17 @@ impl Node {
 
   pub(crate) fn node_kind(&self) -> &NodeKind {
     &self.node_kind
+  }
+
+  /// Whether this is a text the last layout drew in fewer letters than it has: by an ellipsis, or cut to a limit of
+  /// lines.
+  pub(crate) fn text_is_cut(&self) -> bool {
+    match &self.node_kind {
+      NodeKind::Text { state, .. } => state
+        .display_text()
+        .is_some_and(|shown| Some(&*shown) != self.text_content()),
+      _ => false,
+    }
   }
 
   pub fn with_scroll_state(mut self, existing: crate::layout::layout_kind::ScrollState) -> Self {

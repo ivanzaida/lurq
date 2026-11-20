@@ -395,6 +395,21 @@ impl Component for TabsPage {
         Tabs::controlled(
           0,
           [
+            Tab::new(0, "Runs").count(24),
+            Tab::new(1, "Review").badge(3),
+            Tab::new(2, "Insights").disabled_reason("Comes with the next release"),
+          ],
+          |_| {},
+        )
+        .variant(TabsVariant::Line)
+        .key("reason")
+        .mount(ctx),
+        "a badge, and a tab disabled for a reason: its tooltip says why",
+      ))
+      .child(item(
+        Tabs::controlled(
+          0,
+          [
             Tab::new(0, "Inbox").icon(icons::INBOX).count(3),
             Tab::new(1, "Team").icon(icons::USERS),
             Tab::new(2, "Settings").icon(icons::SETTINGS),
@@ -465,6 +480,13 @@ impl Component for TabsPage {
         "The list scrolls between two scroll buttons, with a menu of every tab at its end, whether or not it \
          fits. Mounted tabs (`mount(ctx)`) keep where it is scrolled and whether the menu is open, and take this \
          form themselves while their list is wider than its room.",
+      ),
+      (
+        "tab_stop",
+        "bool",
+        "true",
+        "false: Tab passes the tabs by, and a press selects one and leaves the focus where it was. A tab's \
+         on_open_aside is called for the middle button or a press with Ctrl (Cmd on macOS), in place of selecting it.",
       ),
       (
         "more_label",
@@ -572,7 +594,8 @@ impl Component for TabsPage {
         Section::new(
           "States",
           "A tab under the pointer has its label in the foreground. The ring of the focus is the tab's. A disabled \
-           tab is dimmed, and the arrow keys pass it by.",
+           tab is dimmed, and the arrow keys pass it by; one disabled for a reason says it in its tooltip. A badge \
+           counts what waits for the person.",
           self.frame.demo(
             3,
             states,
@@ -583,6 +606,9 @@ impl Component for TabsPage {
               "Tabs::controlled(0, [..], |_| {}).force(Some(Interaction::FocusVisible))",
               "",
               "Tab::new(2, \"Shortcuts\").disabled(true)",
+              "",
+              "Tab::new(1, \"Review\").badge(3)",
+              "Tab::new(2, \"Insights\").disabled_reason(\"Comes with the next release\")",
               "",
               "Tab::new(0, \"Inbox\").icon(icons::INBOX).count(3)",
             ],

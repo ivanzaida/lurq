@@ -134,3 +134,62 @@ fn a_theme_takes_back_what_it_said_of_a_recipe_and_a_part_renderer() {
   assert_eq!(reset.fill_color("save"), Some(light(PaletteColor::Primary)));
   assert!(reset.paints("Save") && !reset.paints("marked"));
 }
+
+#[cfg(any(feature = "devtools", feature = "mcp"))]
+#[test]
+fn any_component_says_on_its_root_what_the_app_describes_before_what_it_says_itself() {
+  use lurq::{
+    components::Row,
+    ui::{Alert, Avatar, Badge, Callout, Card, DataList, Kbd, Meter, Progress, Spinner, Tag},
+  };
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .child(
+        Callout::new("The plan's quota is near.")
+          .id("callout")
+          .describe("tone", "warning"),
+      )
+      .child(Badge::new("Online").id("badge").describe("state", "online"))
+      .child(Progress::new(0.4).id("progress").describe("share", "40"))
+      .child(Meter::new(0.7).id("meter").describe("share", "70"))
+      .child(Spinner::new().id("spinner").describe("a11y_name", "Saving the plan"))
+      .child(Avatar::new("Ada Lovelace").id("avatar").describe("who", "ada"))
+      .child(Tag::new("rust").id("tag").describe("tag", "rust"))
+      .child(Kbd::new("K").id("kbd").describe("key", "k"))
+      .child(Alert::new("Saved").id("alert").describe("tone", "success"))
+      .child(Card::new().id("card").describe("surface", "raised"))
+      .child(
+        DataList::new()
+          .text("Version", "0.63.0")
+          .id("about")
+          .describe("rows", "1"),
+      )
+      .child(Row::new().child(Button::new("Save").id("button").describe("intent", "save")))
+      .into()
+  });
+  let said = |stage: &mut Stage, id: &str, name: &str| {
+    stage
+      .tree
+      .get_element_by_id_mut(id)
+      .and_then(|element| element.description(name))
+  };
+  for (id, name, value) in [
+    ("callout", "tone", "warning"),
+    ("badge", "state", "online"),
+    ("progress", "share", "40"),
+    ("meter", "share", "70"),
+    ("spinner", "a11y_name", "Saving the plan"),
+    ("avatar", "who", "ada"),
+    ("tag", "tag", "rust"),
+    ("kbd", "key", "k"),
+    ("alert", "tone", "success"),
+    ("card", "surface", "raised"),
+    ("about", "rows", "1"),
+    ("button", "intent", "save"),
+  ] {
+    assert_eq!(said(&mut stage, id, name).as_deref(), Some(value), "{id} says {name}");
+  }
+  // Only the root says it: no part of the callout does.
+  assert_eq!(said(&mut stage, "callout-icon", "tone"), None);
+  assert_eq!(said(&mut stage, "progress-fill", "share"), None);
+}

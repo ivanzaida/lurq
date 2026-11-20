@@ -44,6 +44,8 @@ struct Item {
   disabled: bool,
   on: bool,
   pick: Arc<dyn Fn() + Send + Sync>,
+  id: Option<Arc<str>>,
+  states: Vec<Name>,
 }
 
 /// The states of a group of toggles a recipe styles.
@@ -271,6 +273,8 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> ToggleGr
         icon: choice.icon,
         icon_only: choice.icon_only,
         disabled: choice.disabled,
+        id: choice.id,
+        states: choice.states,
       })
       .collect();
     toggles
@@ -378,6 +382,12 @@ impl Toggles {
         .on_change(move |_| pick());
       if let Some(name) = choice.icon {
         toggle = toggle.icon(name);
+      }
+      if let Some(id) = choice.id {
+        toggle = toggle.id(id);
+      }
+      for state in choice.states {
+        toggle = toggle.state(state, true);
       }
       children.push(toggle.build(theme));
     }

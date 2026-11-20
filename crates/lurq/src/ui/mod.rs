@@ -113,6 +113,7 @@ mod month_picker;
 mod multi_select;
 mod navbar;
 mod navigation_menu;
+mod node_edits;
 mod notification;
 mod notification_center;
 mod number_input;
@@ -168,6 +169,7 @@ mod spinner;
 mod splitter;
 mod stat_card;
 mod status_bar;
+mod status_label;
 mod steps;
 mod swatch_picker;
 mod switch;
@@ -366,7 +368,7 @@ pub use heatmap::{Heatmap, HeatmapPart};
 pub(crate) use highlight::fill_of;
 pub use highlight::{FindError, FindOptions, Highlight, HighlightPart, HighlightRenderer, HighlightView, find_matches};
 pub use hover_card::{HoverCard, HoverCardPart, HoverCardRenderer, HoverCardState, HoverCardView};
-pub use icon::{Icon, SPIN, SPIN_PERIOD};
+pub use icon::{Icon, SPIN, SPIN_PERIOD, SpinMotion};
 pub use info_label::{InfoLabel, InfoLabelPart, InfoLabelRenderer, InfoLabelState, InfoLabelView};
 pub use input::{Input, InputPart, InputRenderer, InputSize, InputState, InputView};
 pub use input_group::{
@@ -570,6 +572,10 @@ pub use stat_card::{
 pub use status_bar::{
   StatusBar, StatusBarPart, StatusBarRenderer, StatusBarState, StatusBarVariant, StatusBarView, StatusEntry,
   StatusItem, StatusItemVariant, StatusRegion,
+};
+pub use status_label::{
+  StatusLabel, StatusLabelPart, StatusLabelRenderer, StatusLabelSize, StatusLabelState, StatusLabelVariant,
+  StatusLabelView,
 };
 pub use steps::{Step, StepView, Steps, StepsOrientation, StepsPart, StepsRenderer, StepsState, StepsView};
 pub use swatch_picker::{

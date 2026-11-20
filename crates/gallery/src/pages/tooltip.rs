@@ -1,16 +1,17 @@
 //! The page of the tooltip: its playground, a toolbar whose buttons have
 //! tooltips, the four sides with and without an arrow, a shortcut and a long
-//! text.
+//! text, a note, a mono text, a label cut to its room and an icon button's
+//! label.
 
 use std::sync::Arc;
 
 use lurq::{
   app::{component::Component, ctx::Ctx},
-  components::{Column, Placement, Row},
-  core::Signal,
+  components::{Column, Placement, Row, Text, TextOverflow},
+  core::{ElementRef, Signal},
   layout::{Alignment, layout_kind::Justify},
   node::Element,
-  ui::{Button, ButtonVariant, Tooltip},
+  ui::{Button, ButtonVariant, Tooltip, icons},
 };
 
 use crate::{
@@ -68,6 +69,8 @@ pub struct TooltipPage {
   arrow: Signal<bool>,
   force_open: Signal<bool>,
   disabled: Signal<bool>,
+  /// The label cut to its room, whose tooltip shows only while it is cut.
+  cut: ElementRef,
 }
 
 impl TooltipPage {
@@ -213,6 +216,7 @@ impl Component for TooltipPage {
       arrow: ctx.signal(false),
       force_open: ctx.signal(true),
       disabled: ctx.signal(false),
+      cut: ctx.element_ref(),
     }
   }
 
@@ -272,6 +276,46 @@ impl Component for TooltipPage {
         "a disabled button: hover it",
       ));
 
+    let path = "~/projects/lurq/crates/lurq/src/ui/tooltip.rs";
+    let label = Text::new(path)
+      .nowrap()
+      .text_overflow(TextOverflow::Elipsis)
+      .ref_element(self.cut.clone());
+    let kinds = items()
+      .child(item(
+        Tooltip::new("Switch account")
+          .note("Signed in as ada@example.com")
+          .force_open(Some(true))
+          .mount(ctx, Button::new("Account").variant(ButtonVariant::Outline)),
+        "a note under its title",
+      ))
+      .child(item(
+        Tooltip::new("cargo test -p lurq --test ui_tests")
+          .mono(true)
+          .max_width(400.0)
+          .force_open(Some(true))
+          .mount(ctx, Button::new("Run").variant(ButtonVariant::Outline)),
+        "mono, wrapping at 400",
+      ))
+      .child(item(
+        Row::new().width(140.0).child(
+          Tooltip::new(path)
+            .mono(true)
+            .max_width(400.0)
+            .when_cut(&self.cut)
+            .mount(ctx, label),
+        ),
+        "a cut label: hover it",
+      ))
+      .child(item(
+        Button::new("Settings")
+          .variant(ButtonVariant::Ghost)
+          .icon(icons::SETTINGS)
+          .icon_only(true)
+          .mount(ctx),
+        "an icon button's label: hover it",
+      ));
+
     let rows = [
       (
         "text",
@@ -292,6 +336,30 @@ impl Component for TooltipPage {
         "&str",
         "",
         "The keys of a shortcut, after the text in a chip of their own.",
+      ),
+      (
+        "note",
+        "&str",
+        "",
+        "A second line under the text; the text is then its title, in a medium weight.",
+      ),
+      (
+        "mono",
+        "bool",
+        "false",
+        "Its text is a path, a command or code: in the mono family.",
+      ),
+      (
+        "max_width",
+        "impl Into<Length>",
+        "200",
+        "The widest the box is before its text wraps.",
+      ),
+      (
+        "when_cut",
+        "&ElementRef",
+        "",
+        "It shows only while the text whose ref this is is cut by the layout: a label that says itself whole.",
       ),
       (
         "placement",
@@ -413,6 +481,27 @@ impl Component for TooltipPage {
               "",
               "let export = Button::new(\"Export\").variant(ButtonVariant::Outline).disabled(true);",
               "Tooltip::new(\"Nothing to export yet\").mount(ctx, export)",
+            ],
+          ),
+        ),
+        Section::new(
+          "A note, a mono text, a cut label, an icon button",
+          "A note is a second line under the title. A path or a command is in the mono family, and may wrap wider \
+           than 200. A label cut to its room says itself whole in a tooltip only while it is cut. An icon-only \
+           button mounted outside a toolbar has its label as its tooltip.",
+          self.frame.demo(
+            3,
+            kinds,
+            ".note(..) .mono(true) .when_cut(&label)",
+            &[
+              "Tooltip::new(\"Switch account\").note(\"Signed in as ada@example.com\").mount(ctx, account)",
+              "",
+              "Tooltip::new(command).mono(true).max_width(400.0).mount(ctx, run)",
+              "",
+              "let words = Text::new(path).nowrap().text_overflow(TextOverflow::Elipsis).ref_element(label.clone());",
+              "Tooltip::new(path).mono(true).when_cut(&label).mount(ctx, words)",
+              "",
+              "Button::new(\"Settings\").icon(icons::SETTINGS).icon_only(true).mount(ctx)",
             ],
           ),
         ),

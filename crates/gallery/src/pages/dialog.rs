@@ -9,7 +9,7 @@ use lurq::{
   core::Signal,
   layout::{Alignment, text_style::FontWeight},
   node::Element,
-  ui::{Button, ButtonVariant, Dialog, DialogSize},
+  ui::{Button, ButtonVariant, Dialog, DialogSize, icons},
 };
 
 use crate::{
@@ -74,6 +74,27 @@ fn delete_workspace(open: &Signal<bool>) -> Dialog {
   Dialog::new(open.clone())
     .title("Delete workspace?")
     .description("This removes every window layout and setting stored for this workspace. It cannot be undone.")
+    .footer(
+      Button::new("Cancel")
+        .variant(ButtonVariant::Outline)
+        .on_click(move |_| cancel.set(false)),
+    )
+    .footer(
+      Button::new("Delete")
+        .variant(ButtonVariant::Destructive)
+        .on_click(move |_| delete.set(false)),
+    )
+}
+
+/// A dialog with a mark before its title, a note at its footer's start, and Enter that deletes.
+fn marked(open: &Signal<bool>) -> Dialog {
+  let (cancel, delete, confirm) = (open.clone(), open.clone(), open.clone());
+  Dialog::new(open.clone())
+    .icon(icons::TRASH)
+    .title("Delete connection?")
+    .description("The agents that use it stop reaching the server.")
+    .note("Enter deletes · Esc cancels")
+    .on_confirm(move || confirm.set(false))
     .footer(
       Button::new("Cancel")
         .variant(ButtonVariant::Outline)
@@ -315,6 +336,10 @@ impl Component for DialogPage {
           .inline(true)
           .style(lurq::ui::DialogPart::Panel, |s| s.height(300.0)),
         "dialog · scrolling body",
+      ))
+      .child(item(
+        marked(&Signal::new(false)).inline(true),
+        "dialog · a mark, a note, Enter confirms",
       ));
     let scrolls = Row::new()
       .child(opener("Terms of use…", &self.terms_open))
@@ -465,6 +490,14 @@ impl Component for DialogPage {
               "    .children(paragraphs)",
               "    .footer(..)",
               "    .style(DialogPart::Panel, |s| s.height(300.0))",
+              "    .inline(true)",
+              "",
+              "Dialog::new(open.clone())",
+              "    .icon(icons::TRASH)",
+              "    .title(\"Delete connection?\")",
+              "    .note(\"Enter deletes · Esc cancels\")",
+              "    .on_confirm(move || delete())",
+              "    .footer(..)",
               "    .inline(true)",
             ],
           ),

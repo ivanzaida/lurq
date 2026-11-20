@@ -187,6 +187,21 @@ impl Avatar {
     avatar
   }
 
+  /// The letters the face shows, in place of the initials it takes from the name: the app's own way of making
+  /// them ("Ada Lovelace" as "AL" where the first two words give them, a project's one letter). The name stays
+  /// what tooling that reads the tree calls the avatar. Empty letters show the icon of a person, as a name with no
+  /// letters does.
+  ///
+  /// ```
+  /// use lurq::ui::Avatar;
+  ///
+  /// let ada = Avatar::new("Ada King Lovelace").initials("AK");
+  /// ```
+  pub fn initials(mut self, letters: &str) -> Self {
+    self.text = Some(Arc::from(letters));
+    self
+  }
+
   /// A picture of the person in place of the initials, which fills the avatar and is clipped to its shape:
   /// a [`Picture`](super::Picture) of pixels the app has, of a file or bytes it decodes, of a resource or an
   /// address the app's loader reads, with a cache key and a size to decode to where it wants them. While the

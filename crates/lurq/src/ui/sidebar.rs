@@ -23,7 +23,7 @@ use super::{
   names,
   part_style::{Length, PartStyle, PartTransition},
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
-  shared::{fading, glyph, pressable},
+  shared::{command_held, fading, glyph, pressable},
   theme::{Themed, current_theme},
   tooltip::Tooltip,
 };
@@ -187,15 +187,6 @@ names!(SidebarHeadingVariant {
 pub type SidebarRenderer = Arc<dyn Fn(SidebarView) -> Element + Send + Sync>;
 
 type Handler = Arc<dyn Fn() + Send + Sync>;
-
-/// Whether a press asks for an item beside what is open: with Ctrl held, or Cmd where that is the platform's key.
-fn aside_asked(event: &MouseEvent) -> bool {
-  if cfg!(any(target_os = "macos", target_os = "ios")) {
-    event.meta
-  } else {
-    event.ctrl
-  }
-}
 
 /// Whether the window is too narrow for a sidebar beside the page: narrower than the `md` breakpoint.
 fn window_is_narrow() -> bool {
@@ -1176,7 +1167,7 @@ impl Build<'_> {
         let (choose, aside) = (choose.clone(), aside.clone());
         button = button
           .on_click(move |event: MouseEvent| {
-            if let Some(aside) = aside.as_ref().filter(|_| aside_asked(&event)) {
+            if let Some(aside) = aside.as_ref().filter(|_| command_held(&event)) {
               return aside();
             }
             press.update(|open| *open = !*open);
@@ -1189,7 +1180,7 @@ impl Build<'_> {
       }
     } else if choose.is_some() || aside.is_some() {
       button = button.on_click(move |event: MouseEvent| {
-        if let Some(aside) = aside.as_ref().filter(|_| aside_asked(&event)) {
+        if let Some(aside) = aside.as_ref().filter(|_| command_held(&event)) {
           return aside();
         }
         if let Some(choose) = &choose {

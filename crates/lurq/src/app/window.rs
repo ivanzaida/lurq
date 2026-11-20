@@ -542,8 +542,9 @@ struct WindowInner {
   icon: Option<WindowIcon>,
   #[cfg(feature = "raster")]
   icon_image: Option<crate::images::ImageData>,
-  /// Texts the app asked to be put on the clipboard, which the runtime writes after the event that asked.
-  copies: Vec<String>,
+  /// Texts the app asked to be put on the clipboard, which the runtime writes after the event that asked, each with
+  /// what is told whether it was written.
+  copies: Vec<(String, Option<CopyDone>)>,
   /// Undos and redos the app asked for without a key (an Edit menu), which the runtime runs on the focused element
   /// after the event that asked.
   edits: Vec<(crate::app::events::EditCommand, bool)>,
@@ -726,9 +727,19 @@ impl Window {
 
   /// Asks for `text` to be put on the clipboard; the runtime writes it after the event, or at the next pass.
   pub(crate) fn request_copy(&self, text: String) {
+    self.push_copy(text, None);
+  }
+
+  /// Asks for `text` to be put on the clipboard, as [`request_copy`](Self::request_copy) does, and calls `done` with
+  /// whether it was written, once it is.
+  pub(crate) fn request_copy_then(&self, text: String, done: impl FnOnce(bool) + Send + Sync + 'static) {
+    self.push_copy(text, Some(Box::new(done)));
+  }
+
+  fn push_copy(&self, text: String, done: Option<CopyDone>) {
     let waker = {
       let mut inner = self.inner.write().unwrap();
-      inner.copies.push(text);
+      inner.copies.push((text, done));
       inner.waker.clone()
     };
     if let Some(waker) = waker {
@@ -737,7 +748,7 @@ impl Window {
   }
 
   /// The texts asked to be put on the clipboard since the last time, in order.
-  pub(crate) fn take_copies(&self) -> Vec<String> {
+  pub(crate) fn take_copies(&self) -> Vec<(String, Option<CopyDone>)> {
     std::mem::take(&mut self.inner.write().unwrap().copies)
   }
 
@@ -1201,3 +1212,6 @@ mod orientation_tests {
     );
   }
 }
+
+/// What is told whether a copy the app asked for was written.
+pub(crate) type CopyDone = Box<dyn FnOnce(bool) + Send + Sync>;

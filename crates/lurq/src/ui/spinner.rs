@@ -6,7 +6,7 @@ use std::{sync::Arc, time::Duration};
 
 use super::{
   empty_state::centred,
-  icon::Icon,
+  icon::{Icon, SpinMotion},
   icons, names,
   part_style::{Length, Opacity, PartAnimation},
   recipe::{Case, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
@@ -46,6 +46,9 @@ const BAR_HEIGHTS: [f32; 5] = [0.4, 0.9, 0.6, 1.0, 0.5];
 
 /// How faint a dot is at the faintest, and how short a bar is at the shortest.
 const LEAST: f32 = 0.3;
+
+/// The spans between the keyframes of the dots and of the bars: there and back.
+const WAVE_SPANS: u32 = 2;
 
 /// The keyframes of the dots and the bars. They play in phase, so every spinner on screen moves as one.
 pub(crate) fn keyframes() -> [Keyframes; 2] {
@@ -178,8 +181,9 @@ pub type SpinnerRenderer = Arc<dyn Fn(SpinnerView) -> Element + Send + Sync>;
 /// "Loading" when it has none. It is drawn in the color of the text around
 /// it, the ring, the dots and the bars alike, so a spinner in a button is the
 /// color of the button's label.
-/// Spinners move whether or not motion is reduced: one that stood still would
-/// say nothing.
+/// Spinners move whether or not motion is reduced, unless their
+/// [`motion`](Self::motion), or the theme's, says to stand still: one that
+/// stood still would say nothing. A [`SpinMotion`] moves them in steps too.
 #[derive(Clone)]
 pub struct Spinner {
   kind: SpinnerKind,
@@ -188,6 +192,7 @@ pub struct Spinner {
   label: Option<Arc<str>>,
   label_hidden: bool,
   decorative: bool,
+  motion: Option<SpinMotion>,
   states: Vec<Name>,
   rules: Recipe,
   id: Option<Arc<str>>,
@@ -204,11 +209,27 @@ impl Spinner {
       label: None,
       label_hidden: false,
       decorative: false,
+      motion: None,
       states: Vec::new(),
       rules: Recipe::new(),
       id: None,
       key: None,
     }
+  }
+
+  /// How the ring, the dots or the bars move, in place of the theme's motion ([`Theme::spin_motion`]): in steps,
+  /// still where motion is reduced.
+  ///
+  /// ```
+  /// use lurq::ui::{SpinMotion, Spinner, SpinnerKind};
+  ///
+  /// let typing = Spinner::new()
+  ///   .kind(SpinnerKind::Dots)
+  ///   .motion(SpinMotion::stepped(24).still_when_reduced(true));
+  /// ```
+  pub fn motion(mut self, motion: SpinMotion) -> Self {
+    self.motion = Some(motion);
+    self
   }
 
   /// What the spinner draws: a ring, dots or bars.
@@ -302,6 +323,7 @@ impl Spinner {
       label: self.label,
       label_hidden: self.label_hidden,
       decorative: self.decorative,
+      motion: self.motion.unwrap_or_else(|| theme.spin_motion()),
       recipe: theme
         .resolve::<Spinner>(&case, Some(&self.rules))
         .owned_by(self.id.as_ref()),
@@ -337,6 +359,8 @@ pub struct SpinnerView {
   pub label_hidden: bool,
   /// Whether it is no status of its own.
   pub decorative: bool,
+  /// How it moves: its own motion, or the theme's.
+  pub motion: SpinMotion,
   /// The style of each part of this spinner.
   pub recipe: ResolvedRecipe,
   id: Option<Arc<str>>,
@@ -370,13 +394,19 @@ impl SpinnerView {
   }
 
   /// An animation of the dots or the bars: once in `period`, without end, the `index`th a step after the one
-  /// before it.
-  fn wave(keyframes: KeyframesId, period: Duration, index: usize, count: usize) -> Animation {
-    Animation::new(keyframes)
-      .duration(period)
-      .delay(period / (2 * count as u32) * index as u32)
-      .easing(Easing::EASE_IN_OUT)
-      .infinite()
+  /// before it, in the spinner's motion. `None` where the motion stands still.
+  fn wave(&self, keyframes: KeyframesId, period: Duration, index: usize, count: usize) -> Option<Animation> {
+    if self.motion.is_still(self.theme()) {
+      return None;
+    }
+    let delay = period / (2 * count as u32) * index as u32;
+    Some(
+      Animation::new(keyframes)
+        .duration(period)
+        .delay(self.motion.delay(period, WAVE_SPANS, delay))
+        .easing(self.motion.easing(period, WAVE_SPANS, Easing::EASE_IN_OUT))
+        .infinite(),
+    )
   }
 
   /// What moves, in the style of its part: the ring, the dots or the bars.
@@ -387,7 +417,13 @@ impl SpinnerView {
         let side = part.rest().width.unwrap_or(Length::Icon(IconSize::Md));
         Row::new()
           .part(&part)
-          .child(Icon::new(icons::SPINNER).size(side).spin(true).build(self.theme()))
+          .child(
+            Icon::new(icons::SPINNER)
+              .size(side)
+              .spin(true)
+              .spin_motion(self.motion)
+              .build(self.theme()),
+          )
           .into()
       }
       SpinnerKind::Dots => {
@@ -395,12 +431,11 @@ impl SpinnerView {
         let count = DOT_OPACITIES.len();
         let mut row = Row::new().part(&part).align_items(Alignment::Center);
         for (index, opacity) in DOT_OPACITIES.into_iter().enumerate() {
-          row = row.child(Row::new().part(&dot).opacity(opacity).animation(Self::wave(
-            SPINNER_DOTS,
-            SPINNER_DOTS_PERIOD,
-            index,
-            count,
-          )));
+          let mut dot = Row::new().part(&dot).opacity(opacity);
+          if let Some(wave) = self.wave(SPINNER_DOTS, SPINNER_DOTS_PERIOD, index, count) {
+            dot = dot.animation(wave);
+          }
+          row = row.child(dot);
         }
         row.into()
       }
@@ -410,12 +445,11 @@ impl SpinnerView {
         let count = BAR_HEIGHTS.len();
         let mut row = Row::new().part(&part).align_items(Alignment::Center);
         for (index, share) in BAR_HEIGHTS.into_iter().enumerate() {
-          row = row.child(Row::new().part(&bar).height(height * share).animation(Self::wave(
-            SPINNER_BARS,
-            SPINNER_BARS_PERIOD,
-            index,
-            count,
-          )));
+          let mut bar = Row::new().part(&bar).height(height * share);
+          if let Some(wave) = self.wave(SPINNER_BARS, SPINNER_BARS_PERIOD, index, count) {
+            bar = bar.animation(wave);
+          }
+          row = row.child(bar);
         }
         row.into()
       }

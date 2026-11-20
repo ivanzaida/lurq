@@ -231,6 +231,8 @@ pub(crate) struct OverlaySpec {
   pub(crate) at_placement: Option<Placement>,
   /// What of the window's edges it keeps clear of, top, right, bottom, left: see [`Overlay::keep_clear`].
   pub(crate) clear: [f32; 4],
+  /// The element whose box it is kept inside besides the window: see [`Overlay::within`].
+  pub(crate) within: Option<ElementRef>,
 }
 
 #[derive(Clone)]
@@ -339,6 +341,7 @@ impl OverlaySpec {
       at: self.at,
       at_placement: self.at_placement,
       clear: self.clear,
+      within: self.within.clone(),
     }
   }
 }
@@ -475,6 +478,7 @@ pub struct Overlay {
   at: Option<(f32, f32)>,
   at_placement: Option<Placement>,
   clear: [f32; 4],
+  within: Option<ElementRef>,
 }
 
 impl Overlay {
@@ -500,6 +504,7 @@ impl Overlay {
       at: None,
       at_placement: None,
       clear: [0.0; 4],
+      within: None,
     }
   }
 
@@ -659,6 +664,16 @@ impl Overlay {
     self
   }
 
+  /// Keeps the overlay inside the box of `element`, as it was last laid out, besides the window: where the collision
+  /// strategy flips it, it flips where that box has no room on its side, and where it clamps, it is moved into that
+  /// box and then into the window, which wins where they differ. A popover that belongs in a column, a menu that
+  /// stays in a panel. An overlay larger than the box keeps its start at the box's start. Before the element is laid
+  /// out, and with no clamping or flipping, the overlay is placed as it would be without it.
+  pub fn within(mut self, element: impl Into<ElementRef>) -> Self {
+    self.within = Some(element.into());
+    self
+  }
+
   fn into_spec(self) -> Option<OverlaySpec> {
     if !self.open.is_open() {
       return None;
@@ -686,6 +701,7 @@ impl Overlay {
       at: self.at,
       at_placement: self.at_placement,
       clear: self.clear,
+      within: self.within,
     })
   }
 }

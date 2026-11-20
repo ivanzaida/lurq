@@ -39,6 +39,14 @@ parts, states, roles and ids, the text forms of a state (a dock's, a table's), w
 the eyedropper's overlay window on Windows, which nothing shows. Numbers are written with a point in every
 language: a number's format is not in the locale yet.
 
+## Every new component has its page in the gallery
+
+A component that lurq gains (a new type of `lurq::ui`, or of the engine's `components` that an app builds with) is
+not done until the gallery shows it: its page in `crates/gallery/src/pages/<name>.rs`, registered in
+`pages/mod.rs`, with its playground, its props, every variant, size and state it has, and its use among others, as
+the playbook's steps say. Run `cargo test -p gallery narrow` for the page
+(`NARROW_PAGES=/<path>`). A branch that adds a component with no page is not merged.
+
 ## Decisions are written down
 
 What Ivan decides about lurq is written in `design/decisions.md` (and what is about phones and tablets in `design/mobile-decisions.md`) the day it is decided, before the work on it

@@ -11,7 +11,7 @@ use super::{
   names,
   part_style::Length,
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
-  shared::{fading, glyph, pressable},
+  shared::{fading, glyph, opens_aside, pressable, tab_stop},
   text_box::edge,
   theme::{Themed, current_theme},
 };
@@ -28,7 +28,7 @@ use crate::{
     layout_kind::{Justify, ShrinkLimit},
     text_style::FontWeight,
   },
-  node::{CursorIcon, Element, color::Color},
+  node::{CursorIcon, Element, EventHandler, IntoMouseEventHandler, color::Color},
 };
 
 /// The parts of a breadcrumb a recipe styles.
@@ -138,6 +138,8 @@ type ValueHandler = Arc<dyn Fn(&str) + Send + Sync>;
 /// let home = BreadcrumbStep::new("Home").icon(icons::HOME).value("/").on_select(|| println!("home"));
 /// let plain: BreadcrumbStep = "Settings".into();
 /// let closed = BreadcrumbStep::new("Archive").disabled(true);
+/// // In a state the theme's recipe names: a key in the family of code, a folder drawn as the steps before it.
+/// let key = BreadcrumbStep::new("KON-12").state("mono", true);
 /// ```
 #[derive(Clone)]
 pub struct BreadcrumbStep {
@@ -145,7 +147,9 @@ pub struct BreadcrumbStep {
   value: Arc<str>,
   icon: Option<Name>,
   disabled: bool,
+  states: Vec<Name>,
   on_select: Vec<Handler>,
+  on_open_aside: Vec<EventHandler<crate::app::events::MouseEvent>>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
@@ -159,7 +163,9 @@ impl BreadcrumbStep {
       label,
       icon: None,
       disabled: false,
+      states: Vec::new(),
       on_select: Vec::new(),
+      on_open_aside: Vec::new(),
       id: None,
       key: None,
     }
@@ -186,11 +192,40 @@ impl BreadcrumbStep {
     self
   }
 
+  /// Puts this step alone in a state the theme's recipe names, or takes it out: the parts of the step (its link or
+  /// its page, its icon) are styled in it, and the other steps and the separators are not. A key in the family of
+  /// code, the page's title in a title's type, a last step drawn as the steps before it:
+  /// `recipe.when(Selector::new().state("ancestor"), BreadcrumbPart::Page, |s| s.foreground(MutedForeground))`.
+  pub fn state(mut self, state: impl Into<Name>, on: bool) -> Self {
+    let state = state.into();
+    self.states.retain(|held| *held != state);
+    if on {
+      self.states.push(state);
+    }
+    self
+  }
+
+  /// The states the step is in, of its own.
+  pub fn states(&self) -> &[Name] {
+    &self.states
+  }
+
   /// Called when the step is followed: a click of it, Enter or Space while it
   /// is focused, or choosing it in the menu of the hidden steps. The last step
   /// is the page one is on, and is not followed.
   pub fn on_select(mut self, handler: impl Fn() + Send + Sync + 'static) -> Self {
     self.on_select.push(Arc::new(handler));
+    self
+  }
+
+  /// Called when a person asks for the step's place beside what is open, in place of following the step: a press of
+  /// its link with the middle button, or with Ctrl held (Cmd on macOS), and Enter with it while the link is focused.
+  /// An app with tabs opens the place in a new one. Such a press is the handler's alone: the step is not followed,
+  /// so neither its [`on_select`](Self::on_select) nor the breadcrumb's is called, and the link takes no focus. It
+  /// is given the press, whose `shift` asks for a tab that is switched to. The last step, the page, has no link,
+  /// and a hidden step's item in the menu is chosen as before. A second handler is called after the first.
+  pub fn on_open_aside(mut self, handler: impl IntoMouseEventHandler) -> Self {
+    self.on_open_aside.push(handler.into_event_handler());
     self
   }
 
@@ -371,6 +406,7 @@ pub struct Breadcrumb {
   label: Arc<str>,
   more_label: Arc<str>,
   disabled: bool,
+  tab_stop: bool,
   states: Vec<Name>,
   rules: Recipe,
   forced: Option<Interaction>,
@@ -400,6 +436,7 @@ impl Breadcrumb {
       label: super::current_locale().navigation.breadcrumb.clone(),
       more_label: super::current_locale().navigation.show_hidden_steps.clone(),
       disabled: false,
+      tab_stop: true,
       states: Vec::new(),
       rules: Recipe::new(),
       forced: None,
@@ -488,6 +525,15 @@ impl Breadcrumb {
   /// Whether the breadcrumb takes no input: no step is followed.
   pub fn disabled(mut self, disabled: bool) -> Self {
     self.disabled = disabled;
+    self
+  }
+
+  /// Whether Tab stops at the links of the steps and at the ellipsis; it does unless told otherwise. `false` is a
+  /// breadcrumb the pointer and the app's own shortcuts reach: Tab passes them by, and a press of one follows it
+  /// and leaves the focus where it was. A link the app focuses is followed by Enter and Space as before, and they
+  /// are the same to what reads the tree.
+  pub fn tab_stop(mut self, stops: bool) -> Self {
+    self.tab_stop = stops;
     self
   }
 
@@ -584,9 +630,30 @@ impl Breadcrumb {
     let recipe = theme
       .resolve::<Breadcrumb>(&case, Some(&self.rules))
       .owned_by(self.id.as_ref());
-    let disabled = theme
+    let disabled_recipe = theme
       .resolve::<Breadcrumb>(&disabled, Some(&self.rules))
       .owned_like(&recipe);
+    // A step in states of its own is resolved in them, as the whole and disabled where it is.
+    let step_recipes = self
+      .steps
+      .iter()
+      .map(|step| {
+        (!step.states.is_empty()).then(|| {
+          let base = if self.disabled || step.disabled {
+            &disabled
+          } else {
+            &case
+          };
+          let case = step
+            .states
+            .iter()
+            .fold(base.clone(), |case, state| case.state(*state, true));
+          theme
+            .resolve::<Breadcrumb>(&case, Some(&self.rules))
+            .owned_like(&recipe)
+        })
+      })
+      .collect();
     let view = BreadcrumbView {
       steps: self.steps,
       hidden,
@@ -594,8 +661,10 @@ impl Breadcrumb {
       fold,
       separator: self.separator,
       disabled: self.disabled,
+      tab_stop: self.tab_stop,
       recipe,
-      disabled_recipe: disabled,
+      disabled_recipe,
+      step_recipes,
       label: self.label,
       more_label: self.more_label,
       forced: self.forced,
@@ -710,10 +779,14 @@ pub struct BreadcrumbView {
   fold: Option<Fold>,
   pub separator: BreadcrumbSeparator,
   pub disabled: bool,
+  /// Whether Tab stops at the links and the ellipsis.
+  tab_stop: bool,
   /// The style of each part of this breadcrumb.
   pub recipe: ResolvedRecipe,
   /// The style of the parts of a step that is disabled.
   disabled_recipe: ResolvedRecipe,
+  /// The style of the parts of each step in states of its own, by its index: `None` for a step in none.
+  step_recipes: Vec<Option<ResolvedRecipe>>,
   /// What the whole is called.
   pub label: Arc<str>,
   /// What the ellipsis is called.
@@ -731,14 +804,15 @@ impl BreadcrumbView {
     self.recipe.part(part)
   }
 
-  /// The style of a part of the step at `index`: disabled where the step is, and in the interaction forced where it
-  /// is the link Tab stops on first. Its parts are named after the step's id, or after its value.
+  /// The style of a part of the step at `index`: disabled where the step is, in the step's own states where it has
+  /// some, and in the interaction forced where it is the link Tab stops on first. Its parts are named after the
+  /// step's id, or after its value.
   pub fn step_part(&self, index: usize, part: impl Into<Name>) -> ResolvedPart {
     let forced = self.forced.filter(|_| self.entry() == Some(index));
-    let recipe = if self.is_disabled(index) {
-      &self.disabled_recipe
-    } else {
-      &self.recipe
+    let recipe = match self.step_recipes.get(index) {
+      Some(Some(own)) => own,
+      _ if self.is_disabled(index) => &self.disabled_recipe,
+      _ => &self.recipe,
     };
     let step = &self.steps[index];
     let root = if self.is_current(index) {
@@ -871,7 +945,14 @@ impl BreadcrumbView {
       return page.into();
     }
     let part = self.step_part(index, BreadcrumbPart::Link);
-    let mut link = pressable(&part, self.is_disabled(index))
+    let pressed = tab_stop(pressable(&part, self.is_disabled(index)), self.tab_stop);
+    // Ahead of following the step, which a press that asks for it aside does not reach.
+    let aside = if self.is_disabled(index) {
+      &[][..]
+    } else {
+      &step.on_open_aside[..]
+    };
+    let mut link = opens_aside(pressed, aside)
       .align_items(Alignment::Center)
       .describe("a11y_role", "link")
       .describe("a11y_name", step.label.clone());
@@ -945,7 +1026,7 @@ impl BreadcrumbView {
       None => (ElementRef::new(), None),
     };
     let expanded = open.as_ref().is_some_and(|open| open.get());
-    let mut button = pressable(&part, self.disabled)
+    let mut button = tab_stop(pressable(&part, self.disabled), self.tab_stop)
       .justify(Justify::Center)
       .align_items(Alignment::Center)
       .ref_element(anchor.clone())

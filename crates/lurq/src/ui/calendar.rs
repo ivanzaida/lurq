@@ -53,6 +53,8 @@ pub enum CalendarPart {
   WeekNumber,
   /// A day: what is pressed, focused and chosen.
   Day,
+  /// What the app puts under the months, across the panel: Today and Clear.
+  Footer,
 }
 
 names!(CalendarPart {
@@ -68,6 +70,7 @@ names!(CalendarPart {
   Week => "week",
   WeekNumber => "week_number",
   Day => "day",
+  Footer => "footer",
 });
 
 /// The states of a calendar a recipe styles, besides what the pointer and the keyboard do to it. The calendar is in
@@ -329,6 +332,7 @@ pub struct Calendar<V: Picked = Date> {
   /// Whether the day Tab would enter at takes the focus as the panel it is in opens.
   pub(crate) autofocus: bool,
   pub(crate) bare: bool,
+  footer: Option<Element>,
   states: Vec<Name>,
   rules: Recipe,
   id: Option<Arc<str>>,
@@ -362,6 +366,7 @@ impl<V: Picked> Calendar<V> {
       memory: None,
       autofocus: false,
       bare: false,
+      footer: None,
       states: Vec::new(),
       rules: Recipe::new(),
       id: None,
@@ -451,6 +456,14 @@ impl<V: Picked> Calendar<V> {
   /// Whether the calendar takes no input.
   pub fn disabled(mut self, disabled: bool) -> Self {
     self.disabled = disabled;
+    self
+  }
+
+  /// What stands under the months, across the panel, in the part `Footer`: the app's own buttons (Today, Clear), a
+  /// line of what the days mean. What is in it is the app's, and is not in the focus group of the days: a button
+  /// in it is a stop of Tab of its own. A second footer takes the place of the first.
+  pub fn footer(mut self, footer: impl Into<Element>) -> Self {
+    self.footer = Some(footer.into());
     self
   }
 
@@ -680,6 +693,7 @@ impl<V: Picked> Calendar<V> {
       },
       locale,
       autofocus: self.autofocus,
+      footer: self.footer,
       label: self.label,
       previous_label: self.previous_label,
       next_label: self.next_label,
@@ -859,6 +873,8 @@ pub struct CalendarView {
   pub locale: Arc<dyn DateText>,
   /// The style of each part of this calendar.
   pub recipe: ResolvedRecipe,
+  /// What the app put under the months.
+  pub footer: Option<Element>,
   /// The recipe of a day in each set of its states, resolved once for each.
   days: Mutex<HashMap<Vec<Name>, ResolvedRecipe>>,
   case: Case,
@@ -1255,9 +1271,29 @@ impl CalendarView {
     panel
   }
 
-  /// How the default renderer builds a calendar: the headings of its months over their days, in the panel.
-  pub fn render(self) -> Element {
-    self.panel().child(self.headers()).child(self.grids()).into()
+  /// The app's footer in the style of its part, across the panel: `None` where the calendar has none. It takes the
+  /// footer out of the view.
+  pub fn take_footer(&mut self) -> Option<Element> {
+    let footer = self.footer.take()?;
+    Some(
+      Row::new()
+        .align_items(Alignment::Center)
+        .part(&self.part(CalendarPart::Footer))
+        .child(footer)
+        .into(),
+    )
+  }
+
+  /// How the default renderer builds a calendar: the headings of its months over their days, in the panel, and the
+  /// footer under them where it has one.
+  pub fn render(mut self) -> Element {
+    let footer = self.take_footer();
+    self
+      .panel()
+      .child(self.headers())
+      .child(self.grids())
+      .with_children(footer)
+      .into()
   }
 }
 
@@ -1294,9 +1330,10 @@ impl<V: Picked> Themed for Calendar<V> {
   /// (the board's accent), and today is too; the chosen one is on the primary fill, its number in the primary's
   /// foreground at medium weight. A day of the month beside is in the muted foreground at half opacity, and one that
   /// cannot be chosen is the same, with no fill under the pointer. A range's ends are chosen days, and the days
-  /// between them are on the highlight with no radius, so that they make one band (Date Range Picker).
+  /// between them are on the highlight with no radius, so that they make one band (Date Range Picker). A footer the
+  /// app gives is under the months, 8 under a line of 1 in the border's color across the panel.
   fn recipe() -> Recipe {
-    use CalendarPart::{Day, Grid, Header, Months, Nav, NavIcon, Root, Title, WeekNumber, Weekday};
+    use CalendarPart::{Day, Footer, Grid, Header, Months, Nav, NavIcon, Root, Title, WeekNumber, Weekday};
     use CalendarState::{Bare, Current, Disabled, InRange, Outside, Selected, Unavailable};
     use PaletteColor::{
       Border as Edge, Foreground, Highlight, HighlightForeground, Input, MutedForeground, Popover, PopoverForeground,
@@ -1315,6 +1352,9 @@ impl<V: Picked> Themed for Calendar<V> {
           .border(Border::inside(BorderSize::Sm, Edge))
       })
       .base(Months, |s| s.gap(16.0))
+      .base(Footer, |s| {
+        s.padding_top(8.0).top_line(Border::inside(BorderSize::Sm, Edge))
+      })
       .base(Header, |s| s.height(32.0))
       .base(Title, |s| {
         s.typography(TypographyStyle::Body)

@@ -131,6 +131,7 @@ mod spinner;
 mod splitter;
 mod stat_card;
 mod status_bar;
+mod status_label;
 mod steps;
 mod styling;
 mod swatch_picker;
@@ -692,7 +693,7 @@ pub const PAGES: &[Page] = &[
     path: "/card",
     name: "Card",
     icon: Some("square"),
-    about: "card surface panel tile header title description action content footer outline elevated filled pressed interactive settings stat child children variant size width on_click disabled",
+    about: "card surface panel tile header title description action content footer outline elevated filled pressed interactive settings stat child children variant size width height min_width max_width padding gap align_items flex flex_shrink absolute describe layout column on_click disabled",
     group: Group::Surfaces,
     mount: |ctx| ctx.mount::<card::CardPage>(()),
   },
@@ -932,6 +933,14 @@ pub const PAGES: &[Page] = &[
     mount: |ctx| ctx.mount::<badge::BadgePage>(()),
   },
   Page {
+    path: "/status-label",
+    name: "Status Label",
+    icon: Some("check-circle"),
+    about: "status label state run running queued completed failed waiting icon word tone variant neutral muted info success warning destructive size spin spinning spin_motion table row tatus abel",
+    group: Group::Data,
+    mount: |ctx| ctx.mount::<status_label::StatusLabelPage>(()),
+  },
+  Page {
     path: "/tag",
     name: "Tag",
     icon: Some("tag"),
@@ -1015,7 +1024,7 @@ pub const PAGES: &[Page] = &[
     path: "/alert",
     name: "Alert",
     icon: Some("warning"),
-    about: "alert message notice error warning success info destructive severity status callout inline dismiss close action new description variant icon child children on_close role",
+    about: "alert message notice error warning success info destructive severity status callout inline dismiss close action actions several stacked new description variant icon child children on_close role",
     group: Group::Data,
     mount: |ctx| ctx.mount::<alert::AlertPage>(()),
   },

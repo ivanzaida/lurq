@@ -214,14 +214,20 @@ fn the_keys_move_by_a_day_a_week_and_a_month_and_choose() {
   stage.key("ArrowDown");
   assert_eq!(focused(&stage), Some(cell(12, 29)));
   stage.key("ArrowDown");
-  assert_eq!(focused(&stage), Some(format!("cal-day-{}", Date::new(2027, 1, 5).unwrap())));
+  assert_eq!(
+    focused(&stage),
+    Some(format!("cal-day-{}", Date::new(2027, 1, 5).unwrap()))
+  );
   assert!(stage.paints("January 2027"));
   // Enter chooses the focused day.
   stage.key("Enter");
   assert_eq!(value.get_untracked(), Some(Date::new(2027, 1, 5).unwrap()));
   // Tab leaves the days.
   stage.key("Tab");
-  assert_ne!(focused(&stage), Some(format!("cal-day-{}", Date::new(2027, 1, 5).unwrap())));
+  assert_ne!(
+    focused(&stage),
+    Some(format!("cal-day-{}", Date::new(2027, 1, 5).unwrap()))
+  );
 }
 
 #[test]
@@ -694,5 +700,32 @@ fn an_apps_own_date_text_names_the_days_and_the_buttons() {
     said(&mut stage, "cal-nav-next", "a11y_name").as_deref(),
     Some("Next month"),
     "its default"
+  );
+}
+
+#[test]
+fn a_footer_stands_under_the_months_across_the_panel() {
+  let value = Signal::new(Some(day(11, 12)));
+  let mut stage = single(&value, |calendar| {
+    calendar.footer(Row::new().id("actions").child(lurq::components::Text::new("Clear")))
+  });
+  let (_, cal_y, cal_width, cal_height) = stage.bounds("cal");
+  let (_, footer_y, footer_width, _) = stage.bounds("cal-footer");
+  let (_, grid_y, _, grid_height) = stage.bounds("cal-grid");
+  assert!(footer_y >= grid_y + grid_height, "under the weeks");
+  assert!(footer_y < cal_y + cal_height, "inside the panel");
+  assert!(
+    (footer_width - (cal_width - 24.0)).abs() < 0.5,
+    "across the panel, inside its padding: {footer_width}"
+  );
+  let line = stage
+    .border("cal-footer")
+    .and_then(|quad| quad.border)
+    .and_then(|border| border.top);
+  assert_eq!(line.map(|side| side.width), Some(1.0), "a line over it");
+  assert!(stage.paints("Clear"));
+  assert!(
+    stage.bounds("actions").2 > 0.0,
+    "the app's own element, with its own id"
   );
 }
