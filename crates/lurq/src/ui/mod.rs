@@ -113,6 +113,7 @@ mod month_picker;
 mod multi_select;
 mod navbar;
 mod navigation_menu;
+mod node_edits;
 mod notification;
 mod notification_center;
 mod number_input;

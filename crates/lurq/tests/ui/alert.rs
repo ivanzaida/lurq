@@ -289,6 +289,93 @@ fn a_body_of_the_apps_elements_stands_under_the_description() {
   assert!(body_y >= description.y + description.height, "under the description");
 }
 
+fn small(label: &str, id: &str) -> Button {
+  Button::new(label)
+    .variant(ButtonVariant::Outline)
+    .size(ButtonSize::Sm)
+    .id(id.to_owned())
+}
+
+#[test]
+fn several_actions_stand_at_its_end_in_the_order_given_before_the_close_control() {
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .width(480.0)
+      .child(
+        Alert::new("Could not save")
+          .description("The settings file is read-only.")
+          .variant(AlertVariant::Destructive)
+          .action(small("Details", "details"))
+          .actions([small("Save as", "save-as"), small("Retry", "retry")])
+          .on_close(|| ())
+          .id("alert"),
+      )
+      .into()
+  });
+  let (details_x, details_y, details_width, details_height) = stage.bounds("details");
+  let (save_x, save_y, save_width, _) = stage.bounds("save-as");
+  let (retry_x, retry_y, retry_width, _) = stage.bounds("retry");
+  // On one line, the least first and the main one last, 8 apart.
+  assert!((save_x - (details_x + details_width) - 8.0).abs() < 0.5);
+  assert!((retry_x - (save_x + save_width) - 8.0).abs() < 0.5);
+  assert!((details_y - save_y).abs() < 0.5 && (save_y - retry_y).abs() < 0.5);
+  // The close control after them, and the words before them.
+  let mark = stage.text_quad(&glyph(icons::CLOSE)).unwrap();
+  assert!(retry_x + retry_width <= mark.x);
+  let title = stage.text_quad("Could not save").unwrap();
+  assert!(title.x + title.width <= details_x);
+  // Centered on the actions' height, and held by the part `action`, named after the alert.
+  let (row_x, row_y, _, row_height) = stage.bounds("alert-action");
+  assert!((row_x - details_x).abs() < 0.5);
+  assert!((row_y + row_height / 2.0 - (details_y + details_height / 2.0)).abs() < 0.5);
+}
+
+#[test]
+fn a_stacked_alert_has_its_actions_under_its_words_at_their_start() {
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .width(300.0)
+      .child(
+        Alert::new("Working offline")
+          .description("Changes are kept on this computer.")
+          .variant(AlertVariant::Warning)
+          .stacked(true)
+          .child(Row::new().size(120.0, 24.0).id("body"))
+          .actions([
+            small("Details", "details"),
+            small("Reconnect now", "reconnect"),
+            small("Work offline", "offline"),
+          ])
+          .on_close(|| ())
+          .id("alert"),
+      )
+      .into()
+  });
+  let (x, y, width, height) = stage.bounds("alert");
+  let title = stage.text_quad("Working offline").unwrap();
+  let (_, body_y, _, body_height) = stage.bounds("body");
+  let (details_x, details_y, details_width, _) = stage.bounds("details");
+  let (reconnect_x, reconnect_y, ..) = stage.bounds("reconnect");
+  let (offline_x, offline_y, _, offline_height) = stage.bounds("offline");
+  // At the start of the words, 8 under the body.
+  assert!((details_x - title.x).abs() < 0.5, "at the words' start");
+  assert!(
+    (details_y - (body_y + body_height) - 8.0).abs() < 0.5,
+    "8 under the body"
+  );
+  assert!((reconnect_x - (details_x + details_width) - 8.0).abs() < 0.5);
+  assert!((reconnect_y - details_y).abs() < 0.5);
+  // What one line of the words' width does not hold goes on to the next, at the start again.
+  assert!((offline_x - details_x).abs() < 0.5, "wrapped to the start: {offline_x}");
+  assert!(offline_y > reconnect_y);
+  // The title stays at the top, the close control at the end, and the box holds the actions.
+  assert!((title.y - y - 16.0).abs() < 2.0, "not centered on the actions");
+  let mark = stage.text_quad(&glyph(icons::CLOSE)).unwrap();
+  assert!((x + width - (mark.x + mark.width) - 16.0).abs() < 0.5);
+  assert!(mark.y < details_y, "the close control at the top");
+  assert!(offline_y + offline_height <= y + height - 15.5);
+}
+
 #[test]
 fn the_close_control_is_pressed_by_the_pointer_and_the_keyboard() {
   let (closed, close) = counter();

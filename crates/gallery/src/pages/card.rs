@@ -363,12 +363,12 @@ impl CardPage {
       )
   }
 
-  /// The board's stat card: what is counted, its number, and how it changed.
+  /// The board's stat card: what is counted, its number, and how it changed, laid out as a column is.
   fn stat_card() -> Card {
     Card::new()
       .width(200.0)
-      .style(CardPart::Content, |s| s.padding_x(20.0).padding_y(20.0))
-      .style(CardPart::Body, |s| s.gap(8.0))
+      .padding(20.0)
+      .gap(8.0)
       .child(text("Frames per second", 13.0, FontWeight::Normal).color(PaletteColor::MutedForeground))
       .child(text("144", 28.0, FontWeight::SemiBold))
       .child(
@@ -529,6 +529,48 @@ impl Component for CardPage {
         "A width of its own. Without one the card is as wide as the room it is given.",
       ),
       (
+        "height / min_width / max_width / min_height / max_height",
+        "impl Into<Length>",
+        "",
+        "A height of its own, and the least and the most it is wide and high.",
+      ),
+      (
+        "padding",
+        "impl Into<Padding>",
+        "the size's",
+        "The room inside it around its header and its body. The footer keeps its own.",
+      ),
+      (
+        "gap",
+        "impl Into<SpacingValue>",
+        "the size's",
+        "The room between its children, and between its header and its body.",
+      ),
+      (
+        "align_items",
+        "Alignment",
+        "Start",
+        "How its children are aligned across its width, as a column aligns them.",
+      ),
+      (
+        "flex / flex_shrink",
+        "f32",
+        "",
+        "Its share of the room left in a row or a column, and what it gives up where there is too little.",
+      ),
+      (
+        "absolute",
+        "x, y, width, height",
+        "",
+        "Where it stands in the Stack that holds it.",
+      ),
+      (
+        "describe",
+        "name, value",
+        "",
+        "What its surface says to tooling: the state of what it shows.",
+      ),
+      (
         "on_click",
         "impl Fn(MouseEvent)",
         "",
@@ -629,8 +671,8 @@ impl Component for CardPage {
         ),
         Section::new(
           "Composed from a card",
-          "A surface of the app's own is a card with its parts styled: a padding and a radius of its own, and what \
-           it holds as the content. The board's settings card and stat card, drawn here by hand, are components \
+          "A surface of the app's own is a card with its parts styled, or laid out from its own builder as a \
+           column is: a padding and a radius of its own, and what it holds as the content. The board's settings card and stat card, drawn here by hand, are components \
            of their own: SettingsCard and StatCard.",
           self.frame.demo(
             3,
@@ -643,10 +685,11 @@ impl Component for CardPage {
               "    .style(CardPart::Content, |s| s.padding_x(14.0).padding_y(14.0))",
               "    .child(Row::new().child(icon).child(text).child(select))",
               "",
+              "// Laid out as a column is: its padding, the room between its children.",
               "Card::new()",
               "    .width(200.0)",
-              "    .style(CardPart::Content, |s| s.padding_x(20.0).padding_y(20.0))",
-              "    .style(CardPart::Body, |s| s.gap(8.0))",
+              "    .padding(20.0)",
+              "    .gap(8.0)",
               "    .child(label)",
               "    .child(value)",
               "    .child(delta)",

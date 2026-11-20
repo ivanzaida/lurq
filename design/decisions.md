@@ -89,6 +89,46 @@ dropped). When a decision is replaced, the old entry stays and says what replace
 - **Why.** A window with a loader shown draws as few frames as its poses need, and an app whose design holds its
   loaders still for reduced motion can say so once, for lurq's spinners and its own.
 - **State.** Built on `claude/k4-b-describe-avatar-spinner`.
+### An alert has several actions, at its end or under its words
+
+- **Question.** `ui::Alert::action` took one element, and a second call took the place of the first. Orchester's
+  notices (`notice`, 101 call sites, and `setting_notice` in Settings) are a toned box with an icon, a title, what
+  happened, and two or three buttons: at the notice's end, or under its words where the words are long (a stacked,
+  flat or raised notice, every notice of Settings). Can an alert hold several actions, and where do they stand?
+- **Decision (Ivan, 2026-11-20: "давай роби тоді ці всі пункти", plan K4 item 2 of Orchester).** An alert has
+  several actions, as a notification, an outcome and an empty state do: `action(..)` adds one after those there,
+  `actions(..)` adds each of several, the least first and the main one last. They stand together in the part
+  `action` (its name kept, so that a theme's rule on it still holds), at the alert's end as before, or, given
+  `stacked(true)` (state `stacked`), under the description and the body at the start of the words, wrapping where
+  one line does not hold them. A renderer is given them as `AlertView::actions`.
+- **Why.** Orchester's kit builds its notices on `ui::Alert` only if the alert holds what a notice holds; a notice
+  of one button is the exception there, not the rule. The two places are the two the kit draws.
+- **State.** Built on `claude/k4-c-alert-card` (2026-11-20): `Alert::action` adds, `Alert::actions`,
+  `Alert::stacked` and `AlertState::Stacked`, `AlertView::actions` (field and method, in place of `action`). A
+  breaking change of the renderer's view and of a second `action` call, in the changelog. What the kit's Settings
+  notice has after its actions (a quieter note) is not part of it.
+
+### A card takes the layout of what is in it from its own builder
+
+- **Question.** Orchester's `card` is a `Column` dressed as a card, and its 170 call sites chain the column's
+  builder on it: `padding`, `spacing`, `align_items`, `width`, `height`, `flex`, `min_width`, `describe`, children.
+  `ui::Card` builds into an element whose children are two levels down (its root, its padded content, its body),
+  so none of those calls reaches them. Should a card take them, and to which of its parts do they go?
+- **Decision (Ivan, 2026-11-20: "давай роби тоді ці всі пункти", plan K4 item 13 of Orchester).** The card itself
+  takes them, as it took `width` already: what lays out what is in it goes to its content and its body
+  (`padding` is the content's, `gap` the room between the header and the body and between the children,
+  `align_items` the children's across the body), and what places the card in what holds it goes to its root
+  (`width`, `height` and their least and most, `flex`, `flex_shrink`, `absolute`, and `describe` for tooling). What a
+  part's style has (padding, gap, sizes) is laid as a rule of the card over the theme's recipe, so a theme's renderer
+  sees it in the part; the rest is laid on the node after the part's style. `Card::new().padding(..).gap(..)
+  .child(..)` is then a card as the kit's call sites write it. The other surfaces (popover, sheet, hover card) are
+  not changed: no call site of the kit asks it of them, and they take it the same way when one does.
+- **Why.** A card the app cannot lay out as it lays out a column is not used: the kit kept its own column because of
+  it.
+- **State.** Built on `claude/k4-c-alert-card` (2026-11-20): `Card::padding`, `gap`, `align_items`, `height`,
+  `min_width`, `max_width`, `min_height`, `max_height`, `flex`, `flex_shrink`, `absolute` and `describe`, on a read
+  card and a pressed one. A length in percent is not a `Length`, so a call site's `Dimension::Pct(100.0)` is
+  `Length::Fill`.
 
 ## 2026-11-19
 

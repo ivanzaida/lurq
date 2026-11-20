@@ -1,5 +1,6 @@
 //! The page of the alert: its playground, the board's alerts, each
-//! severity, and an alert with an action, a close control and a body.
+//! severity, an alert with an action, a close control and a body, and one
+//! with several actions under its words.
 
 use std::sync::Arc;
 
@@ -54,6 +55,7 @@ pub struct AlertPage {
   variant: Signal<usize>,
   icon: Signal<bool>,
   action: Signal<bool>,
+  stacked: Signal<bool>,
   closable: Signal<bool>,
   body: Signal<bool>,
   shown: Signal<bool>,
@@ -65,6 +67,7 @@ impl AlertPage {
     let (title, description) = (self.title.get(), self.description.get());
     let (variant, variant_name, variant_code) = VARIANTS[self.variant.get().min(VARIANTS.len() - 1)];
     let (icon, action, closable, body) = (self.icon.get(), self.action.get(), self.closable.get(), self.body.get());
+    let stacked = self.stacked.get();
     let plain = {
       let (title, description) = (title.clone(), description.clone());
       move || {
@@ -76,16 +79,18 @@ impl AlertPage {
           alert = alert.icon(None);
         }
         if action {
-          alert = alert.action(
-            Button::new("Install")
-              .variant(ButtonVariant::Outline)
-              .size(ButtonSize::Sm),
-          );
+          alert = alert
+            .action(Button::new("Later").variant(ButtonVariant::Ghost).size(ButtonSize::Sm))
+            .action(
+              Button::new("Install")
+                .variant(ButtonVariant::Outline)
+                .size(ButtonSize::Sm),
+            );
         }
         if body {
           alert = alert.child(Progress::new(0.6).label("Downloading"));
         }
-        alert
+        alert.stacked(stacked)
       }
     };
     let record = self.playground.recorder();
@@ -115,8 +120,12 @@ impl AlertPage {
       code.push("    .icon(None)".to_owned());
     }
     if action {
+      code.push("    .action(Button::new(\"Later\").variant(ButtonVariant::Ghost).size(ButtonSize::Sm))".to_owned());
       code
         .push("    .action(Button::new(\"Install\").variant(ButtonVariant::Outline).size(ButtonSize::Sm))".to_owned());
+    }
+    if stacked {
+      code.push("    .stacked(true)".to_owned());
     }
     if body {
       code.push("    .child(Progress::new(0.6).label(\"Downloading\"))".to_owned());
@@ -132,14 +141,23 @@ impl AlertPage {
     if icon {
       tree.push(format!("├─ icon        {} · 16", variant.icon()));
     }
+    let at_end = action && !stacked;
     tree.push(format!(
-      "{} text        title{}{}",
-      if action || closable { "├─" } else { "└─" },
+      "{} text        title{}{}{}",
+      if at_end || closable { "├─" } else { "└─" },
       if description.is_empty() { "" } else { " · description" },
-      if body { " · body" } else { "" }
+      if body { " · body" } else { "" },
+      if action && stacked {
+        " · action: Later, Install, 8 apart"
+      } else {
+        ""
+      }
     ));
-    if action {
-      tree.push(format!("{} action      Install", if closable { "├─" } else { "└─" }));
+    if at_end {
+      tree.push(format!(
+        "{} action      Later, Install · 8 apart",
+        if closable { "├─" } else { "└─" }
+      ));
     }
     if closable {
       tree.push("└─ close       16 · muted".to_owned());
@@ -149,6 +167,7 @@ impl AlertPage {
     let flags = [
       self.icon.clone(),
       self.action.clone(),
+      self.stacked.clone(),
       self.closable.clone(),
       self.body.clone(),
     ];
@@ -177,6 +196,7 @@ impl AlertPage {
           divider(),
           flag("icon", &self.icon),
           flag("action", &self.action),
+          flag("stacked", &self.stacked),
           flag("on_close", &self.closable),
           flag("child", &self.body),
         ],
@@ -186,6 +206,7 @@ impl AlertPage {
           variant != AlertVariant::Neutral,
           !icon,
           action,
+          stacked,
           closable,
           body,
         ]
@@ -218,6 +239,7 @@ impl Component for AlertPage {
       variant: ctx.signal(0),
       icon: ctx.signal(true),
       action: ctx.signal(false),
+      stacked: ctx.signal(false),
       closable: ctx.signal(false),
       body: ctx.signal(false),
       shown: ctx.signal(true),
@@ -278,6 +300,28 @@ impl Component for AlertPage {
         .on_click(move |_| shown.set(true))
         .into()
     };
+    let stacked = items().child(item(
+      Alert::new("Working offline")
+        .description("Changes are kept on this computer until the server answers again.")
+        .variant(AlertVariant::Warning)
+        .stacked(true)
+        .action(
+          Button::new("Details")
+            .variant(ButtonVariant::Ghost)
+            .size(ButtonSize::Sm),
+        )
+        .action(
+          Button::new("Work offline")
+            .variant(ButtonVariant::Outline)
+            .size(ButtonSize::Sm),
+        )
+        .action(
+          Button::new("Reconnect")
+            .variant(ButtonVariant::Outline)
+            .size(ButtonSize::Sm),
+        ),
+      "stacked · three actions",
+    ));
     let composed = items().child(item(dismissable, "action · on_close")).child(item(
       Alert::new("Downloading lurq 0.61")
         .icon(icons::DOWNLOAD)
@@ -311,10 +355,17 @@ impl Component for AlertPage {
         "An icon of the theme's set in place of the variant's, or none.",
       ),
       (
-        "action",
+        "action / actions",
         "impl Into<Element>",
         "",
-        "At the end, before the close control: a button, a link. The one action: a second takes its place.",
+        "Add what can be done about it, after those there: a button, a link. Several, the least first and the main \
+         one last, at the end before the close control.",
+      ),
+      (
+        "stacked",
+        "bool",
+        "false",
+        "Its actions under its words, at their start, wrapping where one line does not hold them.",
       ),
       (
         "child / children",
@@ -413,6 +464,25 @@ impl Component for AlertPage {
               "    .icon(icons::DOWNLOAD)",
               "    .variant(AlertVariant::Info)",
               "    .child(Progress::new(0.6).label(\"Downloading\"))",
+            ],
+          ),
+        ),
+        Section::new(
+          "Several actions",
+          "An alert holds several actions, the least first and the main one last, 8 apart. Stacked, they stand under \
+           its words at their start, and go on to the next line where one does not hold them.",
+          self.frame.demo(
+            3,
+            stacked,
+            ".stacked(true).action(..).action(..)",
+            &[
+              "Alert::new(\"Working offline\")",
+              "    .description(\"Changes are kept on this computer until the server answers again.\")",
+              "    .variant(AlertVariant::Warning)",
+              "    .stacked(true)",
+              "    .action(Button::new(\"Details\").variant(ButtonVariant::Ghost).size(ButtonSize::Sm))",
+              "    .action(Button::new(\"Work offline\").variant(ButtonVariant::Outline).size(ButtonSize::Sm))",
+              "    .action(Button::new(\"Reconnect\").variant(ButtonVariant::Outline).size(ButtonSize::Sm))",
             ],
           ),
         ),
