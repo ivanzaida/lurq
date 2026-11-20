@@ -3094,12 +3094,10 @@ impl Ctx {
   ///
   /// ```no_run
   /// # use lurq::{app::ctx::Ctx, node::Element, ui::VideoPlayer, core::Signal};
-  /// # fn clip() -> lurq::resources::Source { lurq::resources::Source::file("clip.mp4") }
   /// fn render(playing: &Signal<bool>, ctx: &mut Ctx) -> Element {
   ///   let playing = playing.clone();
   ///   let plays = playing.get() && ctx.is_in_front();
   ///   VideoPlayer::new()
-  ///     .source(&clip())
   ///     .playing_controlled(plays, move |to| playing.set(to))
   ///     .mount(ctx)
   /// }
