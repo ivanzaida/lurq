@@ -1765,6 +1765,14 @@ pub const PAGES: &[Page] = &[
     mount: |ctx| ctx.mount::<engine::persistent_storage::PersistentStoragePage>(()),
   },
   Page {
+    path: "/engine/share",
+    name: "Share",
+    icon: Some("share"),
+    about: "engine primitive share sheet system share address link url title text UIActivityViewController NSSharingServicePicker DataTransferManager navigator.share Share ShareError window share supported copy link",
+    group: Group::Engine,
+    mount: |ctx| ctx.mount::<engine::share::SharePage>(()),
+  },
+  Page {
     path: "/engine/drag-and-drop",
     name: "Drag and Drop",
     icon: Some("hand-grab"),

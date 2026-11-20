@@ -281,6 +281,9 @@ web-sys = { version = "0.3", features = [
 # feature-gated dx12 renderer, but are always available so any feature set links.
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62.2", features = [
+    # The system's share window, and the address it is given (`app::share`).
+    "ApplicationModel_DataTransfer",
+    "Foundation",
     "Win32_Foundation",
     "Win32_Graphics_Direct3D",
     "Win32_Graphics_Direct3D_Fxc",

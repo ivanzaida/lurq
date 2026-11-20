@@ -738,6 +738,15 @@ impl ManagedWindow {
           #[cfg(not(target_os = "ios"))]
           let _ = haptic;
         }
+        WindowCommand::Share(share) => {
+          let handle = self
+            .window
+            .as_ref()
+            .and_then(|window| window.window_handle().ok().map(|handle| handle.as_raw()));
+          if let Err(error) = crate::app::share::show(handle, &share) {
+            tracing::warn!(target: "lurq::share", %error, url = %share.url, "the share sheet was not shown");
+          }
+        }
         WindowCommand::SetTitle(title) => {
           if let Some(window) = &self.window {
             window.set_title(&title);
@@ -1594,6 +1603,15 @@ impl ManagedSecondaryWindow {
           ios::play_haptic(haptic);
           #[cfg(not(target_os = "ios"))]
           let _ = haptic;
+        }
+        WindowCommand::Share(share) => {
+          let handle = self
+            .window
+            .as_ref()
+            .and_then(|window| window.window_handle().ok().map(|handle| handle.as_raw()));
+          if let Err(error) = crate::app::share::show(handle, &share) {
+            tracing::warn!(target: "lurq::share", %error, url = %share.url, "the share sheet was not shown");
+          }
         }
         WindowCommand::SetTitle(title) => {
           if let Some(window) = &self.window {

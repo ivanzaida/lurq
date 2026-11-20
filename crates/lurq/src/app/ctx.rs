@@ -2760,6 +2760,13 @@ impl Ctx {
     crate::app::open_url(url)
   }
 
+  /// Shows the system's share sheet for `share` over the window this component is in: it is
+  /// [`WindowHandle::share`](crate::app::WindowHandle::share), which a handler with no `Ctx` calls on the window
+  /// it holds (`ctx.window()`).
+  pub fn share(&self, share: crate::app::Share) -> Result<(), crate::app::ShareError> {
+    self.window().share(share)
+  }
+
   /// Mutates the same shared services as the App passed to the tree.
   pub fn app_ref_mut(&mut self) -> &mut App {
     self.app.as_mut().expect("app ref not set")

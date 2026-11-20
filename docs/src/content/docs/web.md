@@ -314,6 +314,13 @@ With the `clipboard` feature:
   reads only in the press of a paste the person made. A browser that refuses the items gives the text alone.
 - Files do not cross: `copy_files_to_clipboard` returns `false`, and a paste has no files. A page has no paths.
 
+### Sharing
+
+[`window.share(Share::url(..))`](../ctx/#sharing-an-address) is the browser's `navigator.share`, asked within the
+press that shares, since a browser gives its sheet to nothing else, and only on a page that is a secure one
+(HTTPS, `localhost`). Not every browser has it: the browsers of a phone do, and Firefox on a desktop does not.
+Where there is none the call answers `ShareError::Unsupported`, and `share::supported()` says so ahead.
+
 ### Input
 
 - Keys of a hardware keyboard reach the app as on a desktop, text inputs included. While the canvas has the
