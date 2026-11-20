@@ -40,6 +40,12 @@ pub enum ChoiceCardPart {
   Price,
   /// More of it, under the title, in the muted color.
   Description,
+  /// What the app puts under the description: a picker, the steps of what is chosen.
+  Content,
+  /// Why the card cannot be chosen, under the description.
+  Reason,
+  /// The lock that stands in place of the box or the mark of a card that cannot be chosen, for a reason.
+  Lock,
 }
 
 names!(ChoiceCardPart {
@@ -50,6 +56,9 @@ names!(ChoiceCardPart {
   Title => "title",
   Price => "price",
   Description => "description",
+  Content => "content",
+  Reason => "reason",
+  Lock => "lock",
 });
 
 /// The states of a checkbox card or a radio card a recipe styles, besides what the pointer and the keyboard do to
@@ -66,6 +75,8 @@ pub enum ChoiceCardState {
   Disabled,
   /// It is as wide as what holds it.
   FullWidth,
+  /// What it chose is under way: it takes no press, and keeps its box or its mark.
+  Loading,
 }
 
 names!(ChoiceCardState {
@@ -74,6 +85,7 @@ names!(ChoiceCardState {
   Invalid => "invalid",
   Disabled => "disabled",
   FullWidth => "full_width",
+  Loading => "loading",
 });
 
 /// Which of the two a card is.
@@ -93,6 +105,10 @@ struct Content {
   title: Arc<str>,
   description: Option<Arc<str>>,
   icon: Option<Name>,
+  mark: Option<Element>,
+  content: Vec<Element>,
+  reason: Option<Arc<str>>,
+  loading: bool,
   price: Option<Arc<str>>,
   invalid: bool,
   disabled: bool,
@@ -110,6 +126,10 @@ impl Content {
       title: Arc::from(title),
       description: None,
       icon: None,
+      mark: None,
+      content: Vec::new(),
+      reason: None,
+      loading: false,
       price: None,
       invalid: false,
       disabled: false,
@@ -147,7 +167,8 @@ impl Content {
     .state(ChoiceCardState::Selected, selected)
     .state(ChoiceCardState::Invalid, self.invalid)
     .state(ChoiceCardState::Disabled, self.disabled)
-    .state(ChoiceCardState::FullWidth, self.full_width);
+    .state(ChoiceCardState::FullWidth, self.full_width)
+    .state(ChoiceCardState::Loading, self.loading);
     let recipe = match kind {
       ChoiceCardKind::Checkbox => theme.resolve::<CheckboxCard>(&case, Some(&self.rules)),
       ChoiceCardKind::Radio => theme.resolve::<RadioCard>(&case, Some(&self.rules)),
@@ -158,6 +179,10 @@ impl Content {
       title: self.title,
       description: self.description,
       icon: self.icon,
+      mark: self.mark,
+      content: self.content,
+      reason: self.reason,
+      loading: self.loading,
       price: self.price,
       checked,
       selected,
@@ -168,7 +193,7 @@ impl Content {
         .resolve::<C>(&indicator.breakpoint(super::current_breakpoint()), None)
         .owned_like(&recipe),
       forced: self.forced,
-      press: press.filter(|_| !self.disabled),
+      press: press.filter(|_| !self.disabled && !self.loading),
       id: self.id,
       key: self.key,
     }
@@ -191,6 +216,35 @@ macro_rules! card_props {
       /// An icon before the text, by its name in the theme's set.
       pub fn icon(mut self, name: impl Into<Name>) -> Self {
         self.content.icon = Some(name.into());
+        self
+      }
+
+      /// An element of the app's in place of the icon, in the part `Icon`: a mark in its own colors, the maker of
+      /// what is chosen.
+      pub fn mark(mut self, mark: impl Into<Element>) -> Self {
+        self.content.mark = Some(mark.into());
+        self
+      }
+
+      /// An element under the description, in the part `Content`: a picker, the steps of what is chosen. A second
+      /// one stands under the first. A press of what is in it presses the card too, unless it stops its press.
+      pub fn content(mut self, content: impl Into<Element>) -> Self {
+        self.content.content.push(content.into());
+        self
+      }
+
+      /// Disables the card for `reason`, which it says under its description (the part `Reason`) and to what reads
+      /// the tree, with a lock in place of its box or its mark.
+      pub fn disabled_reason(mut self, reason: &str) -> Self {
+        self.content.disabled = true;
+        self.content.reason = Some(Arc::from(reason));
+        self
+      }
+
+      /// Whether what the card chose is under way: it takes no press, is dimmed, keeps its box or its mark, and is
+      /// busy to what reads the tree.
+      pub fn loading(mut self, loading: bool) -> Self {
+        self.content.loading = loading;
         self
       }
 
@@ -439,6 +493,14 @@ pub struct ChoiceCardView {
   pub title: Arc<str>,
   pub description: Option<Arc<str>>,
   pub icon: Option<Name>,
+  /// The app's element in place of the icon.
+  pub mark: Option<Element>,
+  /// The app's elements under the description.
+  pub content: Vec<Element>,
+  /// Why it cannot be chosen, where it was disabled for a reason.
+  pub reason: Option<Arc<str>>,
+  /// Whether what it chose is under way.
+  pub loading: bool,
   pub price: Option<Arc<str>>,
   /// Whether a checkbox card is checked: false for a radio card.
   pub checked: bool,
@@ -474,7 +536,7 @@ impl ChoiceCardView {
       ChoiceCardKind::Checkbox => "checkbox",
       ChoiceCardKind::Radio => "radio",
     };
-    let mut root = pressable(&self.part(ChoiceCardPart::Root), self.disabled)
+    let mut root = pressable(&self.part(ChoiceCardPart::Root), self.disabled || self.loading)
       .justify(Justify::Start)
       .align_items(Alignment::Start)
       .describe("a11y_role", role)
@@ -485,6 +547,12 @@ impl ChoiceCardView {
       );
     if let Some(description) = &self.description {
       root = root.describe("a11y_description", description.clone());
+    }
+    if let Some(reason) = &self.reason {
+      root = root.describe("a11y_disabled_reason", reason.clone());
+    }
+    if self.loading {
+      root = root.describe("a11y_busy", "true");
     }
     if self.kind == ChoiceCardKind::Radio {
       // In a group, which Tab stops at once, the selected card is where Tab enters.
@@ -500,6 +568,15 @@ impl ChoiceCardView {
       root = root.key(key.clone());
     }
     root
+  }
+
+  /// The icon in the style of its part, or the app's mark in its place, where the card has one. It takes the mark
+  /// out of the view.
+  pub fn take_icon(&mut self) -> Option<Element> {
+    match self.mark.take() {
+      Some(mark) => Some(Row::new().part(&self.part(ChoiceCardPart::Icon)).child(mark).into()),
+      None => self.icon(),
+    }
   }
 
   /// The icon in the style of its part, where the card has one.
@@ -528,12 +605,32 @@ impl ChoiceCardView {
     if let Some(description) = &self.description {
       text = text.child(wrapping(&self.part(ChoiceCardPart::Description), description));
     }
+    if let Some(reason) = &self.reason {
+      text = text.child(wrapping(&self.part(ChoiceCardPart::Reason), reason));
+    }
     text
+  }
+
+  /// The app's elements under the text, in the part `Content`, taken out of the view: `None` where it has none.
+  pub fn take_content(&mut self) -> Option<Column> {
+    if self.content.is_empty() {
+      return None;
+    }
+    Some(
+      Column::new()
+        .width(Dimension::Pct(100.0))
+        .min_width(Dimension::Px(0.0))
+        .part(&self.part(ChoiceCardPart::Content))
+        .with_children(std::mem::take(&mut self.content)),
+    )
   }
 
   /// The box of a checkbox card with its check while it is checked, or the mark of a radio card with its dot while
   /// it is selected: the checkbox's and the radio's own parts, drawn, and not pressed or focused on their own.
   pub fn control(&self) -> Element {
+    if self.reason.is_some() {
+      return glyph(&self.part(ChoiceCardPart::Lock), Name::new(icons::LOCK), false);
+    }
     let held = |part: ResolvedPart| {
       Row::new()
         .justify(Justify::Center)
@@ -564,12 +661,16 @@ impl ChoiceCardView {
 
   /// How the default renderer builds a card: the icon, the text and the box or the mark at the end, side by side
   /// on the card.
-  pub fn render(self) -> Element {
+  pub fn render(mut self) -> Element {
     let mut root = self.root();
-    if let Some(icon) = self.icon() {
+    if let Some(icon) = self.take_icon() {
       root = root.child(icon);
     }
-    root.child(self.text()).child(self.control()).into()
+    let content = self.take_content();
+    root
+      .child(self.text().with_children(content))
+      .child(self.control())
+      .into()
   }
 }
 
@@ -588,10 +689,12 @@ fn wrapping(part: &ResolvedPart, content: &str) -> Column {
 /// medium over the description 4 under it in 13 of the muted color, and the box or the mark is 12 after it, at the
 /// top. Neither checked nor selected, the edge inside it is 1 of an input's edge; checked or selected, 2 of the
 /// primary color. Under the pointer the edge of one that is neither is the ring's color; the ring of the focus is
-/// around the card. An invalid one is edged in the destructive color, and a disabled one dimmed.
+/// around the card. An invalid one is edged in the destructive color, and a disabled one dimmed, as is one loading.
+/// What the app puts under the description is 8 under it, its elements 8 apart; a reason is in the description's
+/// type, and a lock of 16 in the muted foreground stands in place of the box or the mark.
 fn card_recipe() -> Recipe {
-  use ChoiceCardPart::{Description, Heading, Icon, Price, Root, Text, Title};
-  use ChoiceCardState::{Checked, Disabled, FullWidth, Invalid, Selected};
+  use ChoiceCardPart::{Content, Description, Heading, Icon, Lock, Price, Reason, Root, Text, Title};
+  use ChoiceCardState::{Checked, Disabled, FullWidth, Invalid, Loading, Selected};
   use PaletteColor::{Background, Destructive, Foreground, Input, MutedForeground, Primary, Ring};
   let edge = |size: BorderSize, color: PaletteColor| Border::inside(size, color);
   let invalid = || Selector::new().state(Invalid);
@@ -630,6 +733,14 @@ fn card_recipe() -> Recipe {
         .line_height(1.4)
         .foreground(MutedForeground)
     })
+    .base(Content, |s| s.gap(8.0).padding_top(8.0))
+    .base(Reason, |s| {
+      s.typography(TypographyStyle::Description)
+        .font_size(13.0)
+        .line_height(1.4)
+        .foreground(MutedForeground)
+    })
+    .base(Lock, |s| s.square(IconSize::Md).foreground(MutedForeground))
     .state(FullWidth, Root, |s| s.width(Length::Fill))
     .hovered(Root, |s| s.border(edge(BorderSize::Sm, Ring)))
     .focus_visible(Root, |s| s.focus_ring())
@@ -655,6 +766,9 @@ fn card_recipe() -> Recipe {
         })
     })
     .state(Disabled, Root, |s| {
+      s.opacity(OpacityLevel::Disabled).cursor(CursorIcon::Default)
+    })
+    .state(Loading, Root, |s| {
       s.opacity(OpacityLevel::Disabled).cursor(CursorIcon::Default)
     })
 }

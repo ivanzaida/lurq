@@ -169,6 +169,7 @@ mod spinner;
 mod splitter;
 mod stat_card;
 mod status_bar;
+mod status_label;
 mod steps;
 mod swatch_picker;
 mod switch;
@@ -571,6 +572,10 @@ pub use stat_card::{
 pub use status_bar::{
   StatusBar, StatusBarPart, StatusBarRenderer, StatusBarState, StatusBarVariant, StatusBarView, StatusEntry,
   StatusItem, StatusItemVariant, StatusRegion,
+};
+pub use status_label::{
+  StatusLabel, StatusLabelPart, StatusLabelRenderer, StatusLabelSize, StatusLabelState, StatusLabelVariant,
+  StatusLabelView,
 };
 pub use steps::{Step, StepView, Steps, StepsOrientation, StepsPart, StepsRenderer, StepsState, StepsView};
 pub use swatch_picker::{

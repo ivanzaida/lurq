@@ -138,6 +138,8 @@ type ValueHandler = Arc<dyn Fn(&str) + Send + Sync>;
 /// let home = BreadcrumbStep::new("Home").icon(icons::HOME).value("/").on_select(|| println!("home"));
 /// let plain: BreadcrumbStep = "Settings".into();
 /// let closed = BreadcrumbStep::new("Archive").disabled(true);
+/// // In a state the theme's recipe names: a key in the family of code, a folder drawn as the steps before it.
+/// let key = BreadcrumbStep::new("KON-12").state("mono", true);
 /// ```
 #[derive(Clone)]
 pub struct BreadcrumbStep {
@@ -145,6 +147,7 @@ pub struct BreadcrumbStep {
   value: Arc<str>,
   icon: Option<Name>,
   disabled: bool,
+  states: Vec<Name>,
   on_select: Vec<Handler>,
   on_open_aside: Vec<EventHandler<crate::app::events::MouseEvent>>,
   id: Option<Arc<str>>,
@@ -160,6 +163,7 @@ impl BreadcrumbStep {
       label,
       icon: None,
       disabled: false,
+      states: Vec::new(),
       on_select: Vec::new(),
       on_open_aside: Vec::new(),
       id: None,
@@ -186,6 +190,24 @@ impl BreadcrumbStep {
   pub fn disabled(mut self, disabled: bool) -> Self {
     self.disabled = disabled;
     self
+  }
+
+  /// Puts this step alone in a state the theme's recipe names, or takes it out: the parts of the step (its link or
+  /// its page, its icon) are styled in it, and the other steps and the separators are not. A key in the family of
+  /// code, the page's title in a title's type, a last step drawn as the steps before it:
+  /// `recipe.when(Selector::new().state("ancestor"), BreadcrumbPart::Page, |s| s.foreground(MutedForeground))`.
+  pub fn state(mut self, state: impl Into<Name>, on: bool) -> Self {
+    let state = state.into();
+    self.states.retain(|held| *held != state);
+    if on {
+      self.states.push(state);
+    }
+    self
+  }
+
+  /// The states the step is in, of its own.
+  pub fn states(&self) -> &[Name] {
+    &self.states
   }
 
   /// Called when the step is followed: a click of it, Enter or Space while it
@@ -608,9 +630,30 @@ impl Breadcrumb {
     let recipe = theme
       .resolve::<Breadcrumb>(&case, Some(&self.rules))
       .owned_by(self.id.as_ref());
-    let disabled = theme
+    let disabled_recipe = theme
       .resolve::<Breadcrumb>(&disabled, Some(&self.rules))
       .owned_like(&recipe);
+    // A step in states of its own is resolved in them, as the whole and disabled where it is.
+    let step_recipes = self
+      .steps
+      .iter()
+      .map(|step| {
+        (!step.states.is_empty()).then(|| {
+          let base = if self.disabled || step.disabled {
+            &disabled
+          } else {
+            &case
+          };
+          let case = step
+            .states
+            .iter()
+            .fold(base.clone(), |case, state| case.state(*state, true));
+          theme
+            .resolve::<Breadcrumb>(&case, Some(&self.rules))
+            .owned_like(&recipe)
+        })
+      })
+      .collect();
     let view = BreadcrumbView {
       steps: self.steps,
       hidden,
@@ -620,7 +663,8 @@ impl Breadcrumb {
       disabled: self.disabled,
       tab_stop: self.tab_stop,
       recipe,
-      disabled_recipe: disabled,
+      disabled_recipe,
+      step_recipes,
       label: self.label,
       more_label: self.more_label,
       forced: self.forced,
@@ -741,6 +785,8 @@ pub struct BreadcrumbView {
   pub recipe: ResolvedRecipe,
   /// The style of the parts of a step that is disabled.
   disabled_recipe: ResolvedRecipe,
+  /// The style of the parts of each step in states of its own, by its index: `None` for a step in none.
+  step_recipes: Vec<Option<ResolvedRecipe>>,
   /// What the whole is called.
   pub label: Arc<str>,
   /// What the ellipsis is called.
@@ -758,14 +804,15 @@ impl BreadcrumbView {
     self.recipe.part(part)
   }
 
-  /// The style of a part of the step at `index`: disabled where the step is, and in the interaction forced where it
-  /// is the link Tab stops on first. Its parts are named after the step's id, or after its value.
+  /// The style of a part of the step at `index`: disabled where the step is, in the step's own states where it has
+  /// some, and in the interaction forced where it is the link Tab stops on first. Its parts are named after the
+  /// step's id, or after its value.
   pub fn step_part(&self, index: usize, part: impl Into<Name>) -> ResolvedPart {
     let forced = self.forced.filter(|_| self.entry() == Some(index));
-    let recipe = if self.is_disabled(index) {
-      &self.disabled_recipe
-    } else {
-      &self.recipe
+    let recipe = match self.step_recipes.get(index) {
+      Some(Some(own)) => own,
+      _ if self.is_disabled(index) => &self.disabled_recipe,
+      _ => &self.recipe,
     };
     let step = &self.steps[index];
     let root = if self.is_current(index) {

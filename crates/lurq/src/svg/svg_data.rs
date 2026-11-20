@@ -57,6 +57,10 @@ struct SvgOverrides {
   fill: Option<Color>,
   stroke: Option<Color>,
   opacity: Option<f32>,
+  /// The fill is painted in the foreground the node inherits.
+  current_fill: bool,
+  /// The stroke is painted in the foreground the node inherits.
+  current_stroke: bool,
 }
 
 impl SvgData {
@@ -114,6 +118,41 @@ impl SvgData {
     self.overrides.opacity = Some(opacity);
     self.id = mix_id(self.id, 3, u64::from(opacity.to_bits()));
     self
+  }
+
+  /// Paints the fill of every shape in the foreground the node inherits, as a text that names no color is painted:
+  /// the color of what it is in, or its own `.foreground(..)`. What [`with_fill`](Self::with_fill) gives is over
+  /// it. An icon whose shapes are its color.
+  pub fn fill_current_color(mut self) -> Self {
+    self.overrides.current_fill = true;
+    self.id = mix_id(self.id, 4, 1);
+    self
+  }
+
+  /// Paints the stroke of every shape in the foreground the node inherits: an icon drawn in lines, as lucide's
+  /// are. What [`with_stroke`](Self::with_stroke) gives is over it.
+  pub fn stroke_current_color(mut self) -> Self {
+    self.overrides.current_stroke = true;
+    self.id = mix_id(self.id, 5, 1);
+    self
+  }
+
+  /// Whether it is painted in the foreground its node inherits, its fill or its stroke.
+  pub fn paints_current_color(&self) -> bool {
+    (self.overrides.current_fill && self.overrides.fill.is_none())
+      || (self.overrides.current_stroke && self.overrides.stroke.is_none())
+  }
+
+  /// This data as it is painted in `foreground`: its fill and its stroke that take the inherited foreground in it.
+  pub(crate) fn in_foreground(&self, foreground: Color) -> Self {
+    let mut painted = self.clone();
+    if painted.overrides.current_fill && painted.overrides.fill.is_none() {
+      painted = painted.with_fill(foreground);
+    }
+    if painted.overrides.current_stroke && painted.overrides.stroke.is_none() {
+      painted = painted.with_stroke(foreground);
+    }
+    painted
   }
 
   pub fn id(&self) -> u64 {

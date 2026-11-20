@@ -7582,8 +7582,11 @@ impl Tree {
 
   /// Writes what the app asked to be put on the clipboard (`WindowHandle::copy_to_clipboard`), in order.
   fn write_requested_copies(&mut self) {
-    for text in self.window.take_copies() {
-      self.write_clipboard_text(&text);
+    for (text, done) in self.window.take_copies() {
+      let written = self.write_clipboard_text(&text);
+      if let Some(done) = done {
+        done(written);
+      }
     }
   }
 

@@ -100,6 +100,8 @@ pub enum CodeBlockState {
   Wrap,
   /// It has just copied its code: its button shows a check.
   Copied,
+  /// Its copy has just failed, the clipboard did not take it: its button shows an alert.
+  CopyFailed,
   /// It is drawn in a frame of its own: a fill, an edge and round corners.
   Framed,
 }
@@ -109,6 +111,7 @@ names!(CodeBlockState {
   LineNumbers => "line_numbers",
   Wrap => "wrap",
   Copied => "copied",
+  CopyFailed => "copy_failed",
   Framed => "framed",
 });
 
@@ -173,6 +176,8 @@ pub struct CodeBlock {
   copy_button: bool,
   copy_label: Arc<str>,
   copied_text: Arc<str>,
+  copy_failed_text: Arc<str>,
+  copy_text: Option<Arc<str>>,
   on_copy: Vec<CopyHandler>,
   selectable: bool,
   framed: bool,
@@ -209,6 +214,8 @@ impl CodeBlock {
       copy_button: true,
       copy_label: super::current_locale().editing.copy_code.clone(),
       copied_text: super::current_locale().editing.copied.clone(),
+      copy_failed_text: super::current_locale().editing.copy_failed.clone(),
+      copy_text: None,
       on_copy: Vec::new(),
       selectable: true,
       framed: true,
@@ -356,7 +363,20 @@ impl CodeBlock {
     self
   }
 
-  /// Told the code a press of the copy button put on the clipboard.
+  /// The copy button's name while it shows that the clipboard did not take the code ("Couldn't copy"), mounted.
+  pub fn copy_failed_text(mut self, text: &str) -> Self {
+    self.copy_failed_text = Arc::from(text);
+    self
+  }
+
+  /// What the copy button puts on the clipboard in place of the code it shows: a command shown short and copied
+  /// whole, a snippet copied without its prompts. [`on_copy`](Self::on_copy) is told it.
+  pub fn copy_text(mut self, text: &str) -> Self {
+    self.copy_text = Some(Arc::from(text));
+    self
+  }
+
+  /// Told the code a press of the copy button put on the clipboard, or its [`copy_text`](Self::copy_text).
   pub fn on_copy(mut self, handler: impl Fn(&str) + Send + Sync + 'static) -> Self {
     self.on_copy.push(Arc::new(handler));
     self
@@ -469,12 +489,14 @@ impl CodeBlock {
       .header
       .unwrap_or(self.copy_button || self.title.is_some() || self.language.is_some());
     let is_copied = copied.as_ref().is_some_and(|copied| copied.on.get());
+    let copy_failed = copied.as_ref().is_some_and(|copied| copied.failed.get());
     let mut case = Case::new()
       .breakpoint(super::current_breakpoint())
       .state(CodeBlockState::Header, has_header)
       .state(CodeBlockState::LineNumbers, self.line_numbers)
       .state(CodeBlockState::Wrap, self.wrap)
       .state(CodeBlockState::Copied, is_copied)
+      .state(CodeBlockState::CopyFailed, copy_failed)
       .state(CodeBlockState::Framed, self.framed);
     for state in &self.states {
       case = case.state(state.clone(), true);
@@ -514,7 +536,10 @@ impl CodeBlock {
       copy_button: self.copy_button,
       copy_label: self.copy_label,
       copied_text: self.copied_text,
+      copy_failed_text: self.copy_failed_text,
+      copy_text: self.copy_text,
       copied: is_copied,
+      copy_failed,
       on_copy: self.on_copy,
       selectable: self.selectable,
       framed: self.framed,
@@ -671,6 +696,8 @@ impl Geometry {
 #[derive(Clone)]
 struct Copied {
   on: Signal<bool>,
+  /// Whether the clipboard did not take the last copy.
+  failed: Signal<bool>,
   off: Timeout,
 }
 
@@ -698,8 +725,13 @@ pub struct CodeBlockView {
   pub copy_button: bool,
   pub copy_label: Arc<str>,
   pub copied_text: Arc<str>,
+  pub copy_failed_text: Arc<str>,
+  /// What its button copies in place of the code, where the app gave it.
+  pub copy_text: Option<Arc<str>>,
   /// Whether it has just copied, mounted.
   pub copied: bool,
+  /// Whether its last copy has just failed, mounted.
+  pub copy_failed: bool,
   on_copy: Vec<CopyHandler>,
   pub selectable: bool,
   pub framed: bool,
@@ -880,24 +912,30 @@ impl CodeBlockView {
       .collect()
   }
 
-  /// What a press of the copy button does: the code on the clipboard, the app told, and the check shown.
+  /// What a press of the copy button does: the code, or its copy text, on the clipboard, the app told, and a check
+  /// shown once the clipboard took it, or an alert where it did not.
   fn copy(&self) -> impl Fn(MouseEvent) + Send + Sync + 'static {
     let (code, window, handlers, copied) = (
-      self.code.clone(),
+      self.copy_text.clone().unwrap_or_else(|| self.code.clone()),
       self.window.clone(),
       self.on_copy.clone(),
       self.shown_copied.clone(),
     );
     move |_| {
-      if let Some(window) = &window {
-        window.request_copy(code.to_string());
+      match (&window, &copied) {
+        (Some(window), Some(copied)) => {
+          let copied = copied.clone();
+          window.request_copy_then(code.to_string(), move |written| {
+            copied.on.set(written);
+            copied.failed.set(!written);
+            copied.off.restart();
+          });
+        }
+        (Some(window), None) => window.request_copy(code.to_string()),
+        (None, _) => {}
       }
       for handler in &handlers {
         handler(&code);
-      }
-      if let Some(copied) = &copied {
-        copied.on.set(true);
-        copied.off.restart();
       }
     }
   }
@@ -930,12 +968,13 @@ impl CodeBlockView {
   /// The copy button: a copy glyph, a check once it copied, named by `copy_label` or `copied_text`.
   pub fn copy_control(&self) -> Element {
     let part = self.part(CodeBlockPart::Copy).forced(self.forced);
-    let name = if self.copied {
-      self.copied_text.clone()
+    let (name, icon) = if self.copy_failed {
+      (self.copy_failed_text.clone(), icons::ALERT_CIRCLE)
+    } else if self.copied {
+      (self.copied_text.clone(), icons::CHECK)
     } else {
-      self.copy_label.clone()
+      (self.copy_label.clone(), icons::COPY)
     };
-    let icon = if self.copied { icons::CHECK } else { icons::COPY };
     let mut button = pressable(&part, false)
       .describe("a11y_role", "button")
       .describe("a11y_name", name)
@@ -1405,14 +1444,15 @@ impl Themed for CodeBlock {
   /// The design's code block (`pencil/lurq-design-system.pen`, Code Block `kyzrV`, in Data and in the Markdown
   /// document): on `Background` in an edge of 1 in `Border` with the large radius; a bar of 36 on `Bar` with a line
   /// of 1 in `Border` under it, padded 14 at its start and 6 at its end, its title 11 in the family of code in
-  /// `MutedForeground`, and a ghost button of 28 with a copy glyph of 16; the code 13 in the family of code in
+  /// `MutedForeground`, and a ghost button of 28 with a copy glyph of 16 (a check in `Success` once it copied, an
+  /// alert in `Destructive` where the clipboard did not take it); the code 13 in the family of code in
   /// `Foreground`, padded 14, its lines 4 apart. Its tokens are in the theme's code colors (`CodeScheme::lurq`: the
   /// words of the language in `Info`, as the board draws them); a rule for a part named as a token styles it over
   /// them.
   fn recipe() -> Recipe {
     use CodeBlockPart::*;
     use PaletteColor::{
-      Background, Border as Edge, Foreground, Highlight, HighlightForeground, MutedForeground, Success,
+      Background, Border as Edge, Destructive, Foreground, Highlight, HighlightForeground, MutedForeground, Success,
     };
     // A line is `row_height` high, 21 unless told: the code's own line of 17 and 4 between two. The room around the
     // lines is 14, less above and below by what a row takes past the code's own line.
@@ -1449,6 +1489,7 @@ impl Themed for CodeBlock {
       .focus_visible(Copy, |s| s.focus_ring())
       .base(CopyIcon, |s| s.square(Length::Icon(IconSize::Md)))
       .state(CodeBlockState::Copied, CopyIcon, |s| s.foreground(Success))
+      .state(CodeBlockState::CopyFailed, CopyIcon, |s| s.foreground(Destructive))
       .base(Code, |s| {
         s.typography(TypographyStyle::Mono)
           .font_size(13.0)
@@ -1491,13 +1532,16 @@ impl Component for CodeBlockHost {
   type Props = CodeBlockProps;
 
   fn create(ctx: &mut Ctx) -> Self {
-    let on = ctx.signal(false);
+    let (on, failed) = (ctx.signal(false), ctx.signal(false));
     let off = ctx.create_timeout(CODE_BLOCK_COPIED_FOR, {
-      let on = on.clone();
-      move || on.set(false)
+      let (on, failed) = (on.clone(), failed.clone());
+      move || {
+        on.set(false);
+        failed.set(false);
+      }
     });
     Self {
-      copied: Copied { on, off },
+      copied: Copied { on, failed, off },
       lines: Arc::default(),
       follow: Follow {
         window: Signal::new(None),

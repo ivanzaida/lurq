@@ -159,6 +159,7 @@ mod splitter;
 mod stage;
 mod stat_card;
 mod status_bar;
+mod status_label;
 mod steps;
 mod styled;
 mod swatch_picker;

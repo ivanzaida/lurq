@@ -612,14 +612,18 @@ An [`Icon`](../design-system/#icon) is a square of one of these sides, `Md` unle
 
 ## Icons
 
-What each name of an icon is drawn with: a character of a font. `ThemeIcons` is the table, and a theme starts with lurq's own set, the 152 icons of the font every app has loaded (`ui::icons`).
+What each name of an icon is drawn with: a character of a font, or an SVG. `ThemeIcons` is the table, and a theme starts with lurq's own set, the 152 icons of the font every app has loaded (`ui::icons`).
 
 ```rust
-use lurq::{app::theme::{IconGlyph, ThemeIcons}, ui::icons};
+use lurq::{app::theme::{IconGlyph, IconSvg, ThemeIcons}, ui::icons};
 
 // Another drawing of an icon there is, and an icon of the app's own.
 theme.set_icon(icons::SEARCH, IconGlyph::new("brand icons", '\u{F002}'));
 theme.set_icon("rocket", IconGlyph::new("brand icons", '\u{F135}'));
+
+// An SVG in place of a glyph: its lines in the icon's color, its shapes, or its own colors.
+theme.set_icon_svg("github", IconSvg::stroked(include_str!("github.svg")));
+theme.set_icon_svg("anthropic", IconSvg::colored(include_str!("anthropic.svg")));
 
 // A whole set at once, in a definition.
 let mut brand = ThemeDefinition::neutral();
@@ -633,11 +637,14 @@ brand.icons.set_font("brand icons", [(icons::CHECK, '\u{F00C}'), (icons::CLOSE, 
 | `theme.icons()`, `theme.set_icons(icons)` | The whole table |
 | `ThemeIcons::lurq()`, `ThemeIcons::empty()` | lurq's set, and no icon at all, for a theme that brings every one it draws |
 | `icons.set(name, glyph)`, `icons.set_font(family, [(name, char)])`, `icons.remove(name)` | One name, a set from one font, and a name taken out |
-| `icons.get(name)`, `icons.names()`, `icons.len()` | What is in the table |
+| `icons.get(name)`, `icons.names()`, `icons.len()` | What is in the table. `get` gives a glyph, `None` for a name drawn with an SVG |
+| `theme.icon_svg(name)`, `theme.set_icon_svg(name, svg)`, `icons.svg(name)`, `icons.set_svg(name, svg)` | The SVG a name is drawn with, and a name given one in place of a glyph |
+| `IconSvg::stroked(svg)`, `filled(svg)`, `colored(svg)` | An SVG whose lines are in the icon's color (lucide's icons), whose shapes are, or that keeps its own colors (a brand's mark) |
 
 - The font of a glyph is the app's to load (`App::load_font`, or `App::load_hinted_font` for a font hinted for the pixel grid). lurq's own is loaded in every app.
 - lurq's components name the icons they draw (a button's spinner is `icons::SPINNER`), so a theme that gives those names other glyphs changes the components too.
 - A name with no glyph draws nothing and keeps its room.
+- A name has one drawing: a glyph given to a name drawn with an SVG takes its place, and the other way round. An icon drawn with an SVG is painted in the foreground its node inherits, as text that names no color is (`SvgData::stroke_current_color`, `fill_current_color`). SVG needs the feature `canvas`; without it, and for a source that is no SVG, the icon keeps its room and draws nothing.
 
 ## Density
 
