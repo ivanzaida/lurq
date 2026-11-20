@@ -647,7 +647,7 @@ impl Breadcrumb {
           let case = step
             .states
             .iter()
-            .fold(base.clone(), |case, state| case.state(state.clone(), true));
+            .fold(base.clone(), |case, state| case.state(*state, true));
           theme
             .resolve::<Breadcrumb>(&case, Some(&self.rules))
             .owned_like(&recipe)

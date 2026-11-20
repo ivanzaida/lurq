@@ -879,7 +879,7 @@ fn a_step_in_a_state_of_its_own_is_styled_by_it_and_the_others_are_not() {
         s.foreground(PaletteColor::Primary)
       })
   });
-  let mut stage = Stage::in_app(app, |_| {
+  let stage = Stage::in_app(app, |_| {
     page(
       Breadcrumb::default()
         .id("way")
