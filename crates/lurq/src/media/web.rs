@@ -141,10 +141,12 @@ fn heard_from(shared: &Arc<Shared>, kind: &str) {
       inner.opened = true;
       inner.waiting = false;
     }
+    // The element's own word for it: it has what it plays, and plays.
     "playing" => {
       inner.waiting = false;
       inner.at = at;
       inner.since = Instant::now();
+      shared.presented_in(&mut inner);
     }
     "waiting" => {
       inner.hold();
@@ -191,6 +193,11 @@ fn heard_from(shared: &Arc<Shared>, kind: &str) {
       if inner.playing && !inner.waiting && inner.sent == gone && (at - inner.position()).abs() > APART {
         inner.at = at;
         inner.since = Instant::now();
+      }
+      // It went on: where the element said it plays before who listens had heard it was told to, this is what
+      // tells them it started.
+      if inner.playing && !inner.waiting {
+        shared.presented_in(&mut inner);
       }
       return;
     }

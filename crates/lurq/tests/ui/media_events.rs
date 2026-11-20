@@ -391,3 +391,97 @@ fn a_looped_video_player_tells_each_end_and_goes_on_playing() {
   assert_eq!(log.take(), ["ended"], "and each time round");
   assert_eq!(drive.count(), 1, "nothing is opened again");
 }
+
+#[test]
+fn a_video_player_tells_it_started_when_a_frame_is_shown_after_it_could_move() {
+  let drive = drive_media();
+  let log = Log::default();
+  let made = log.clone();
+  let mut stage = stage(move |ctx| {
+    let say = made.say();
+    video(&made)
+      .looped(true)
+      .on_started(move || say("started".to_owned()))
+      .mount(ctx)
+  });
+  let media = drive.last();
+  media.open(CLIP);
+  // Its first frame, shown while it stands: it opened, and has not started.
+  media.present();
+  stage.pass();
+  assert_eq!(log.take(), ["load Some(15.0) 1280x720 sound true"]);
+
+  // Told to play is not yet playing: it started when the first frame since is shown, and once.
+  stage.click("v-play");
+  assert_eq!(log.take(), ["playing true"]);
+  stage.pass();
+  assert!(log.take().is_empty(), "nothing is shown yet");
+  media.present();
+  stage.pass();
+  assert_eq!(log.take(), ["started"]);
+  media.present();
+  media.present();
+  stage.pass();
+  assert!(log.take().is_empty(), "the frames that follow are no start");
+
+  // It waits for what it plays and moves again: a start.
+  media.wait(true);
+  stage.pass();
+  media.present();
+  stage.pass();
+  assert_eq!(log.take(), ["waiting true"], "a frame shown while it waits is no start");
+  media.wait(false);
+  stage.pass();
+  assert_eq!(log.take(), ["waiting false"]);
+  media.present();
+  stage.pass();
+  assert_eq!(log.take(), ["started"]);
+
+  // A round of a looped one is an end and no stop: no start.
+  media.end();
+  stage.pass();
+  media.present();
+  stage.pass();
+  assert_eq!(log.take(), ["ended"]);
+
+  // Paused and played again: a start.
+  stage.click("v-play");
+  assert_eq!(log.take(), ["playing false"]);
+  stage.pass();
+  media.present();
+  stage.pass();
+  assert!(log.take().is_empty(), "paused, a frame is no start");
+  stage.click("v-play");
+  assert_eq!(log.take(), ["playing true"]);
+  stage.pass();
+  media.present();
+  stage.pass();
+  assert_eq!(log.take(), ["started"]);
+}
+
+#[test]
+fn an_audio_player_tells_it_started_when_its_sound_is_heard() {
+  let drive = drive_media();
+  let log = Log::default();
+  let made = log.clone();
+  let mut stage = stage(move |ctx| {
+    let (started, played) = (made.say(), made.say());
+    AudioPlayer::new(lurq::core::Signal::new(0.0), 0.0)
+      .id("a")
+      .source(&Source::file("songs/night-drive.mp3"))
+      .on_playing_change(move |plays| played(format!("playing {plays}")))
+      .on_started(move || started("started".to_owned()))
+      .mount(ctx)
+  });
+  let media = drive.last();
+  media.open(SONG);
+  stage.pass();
+  log.take();
+  stage.click("a-play");
+  assert_eq!(log.take(), ["playing true"]);
+  stage.pass();
+  assert!(log.take().is_empty());
+  media.present();
+  stage.pass();
+  assert_eq!(log.take(), ["started"]);
+}

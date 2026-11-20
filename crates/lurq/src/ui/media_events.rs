@@ -1,5 +1,5 @@
-//! What a player tells of the media of its source: it opened, it failed, it ended, it began or stopped waiting,
-//! and whether it plays. [`VideoPlayer`](super::VideoPlayer) and [`AudioPlayer`](super::AudioPlayer) share it.
+//! What a player tells of the media of its source: it opened, it failed, it started, it ended, it began or stopped
+//! waiting, and whether it plays. [`VideoPlayer`](super::VideoPlayer) and [`AudioPlayer`](super::AudioPlayer) share it.
 //!
 //! The media tells its events on the UI thread ([`Media::on_load`](crate::media::Media::on_load) and the rest); a
 //! player listens to each media it opens and passes them on to the handlers of its last render. A player without a
@@ -16,6 +16,7 @@ pub(crate) struct MediaEvents {
   pub load: Vec<Arc<dyn Fn(&MediaInfo) + Send + Sync>>,
   pub error: Vec<Arc<dyn Fn(&MediaError) + Send + Sync>>,
   pub ended: Vec<Arc<dyn Fn() + Send + Sync>>,
+  pub started: Vec<Arc<dyn Fn() + Send + Sync>>,
   pub waiting: Vec<Arc<dyn Fn(bool) + Send + Sync>>,
 }
 
@@ -66,6 +67,11 @@ mod listener {
       let events = self.events.clone();
       media.on_ended(move || {
         let handlers = lock(&events).ended.clone();
+        handlers.iter().for_each(|handler| handler());
+      });
+      let events = self.events.clone();
+      media.on_started(move || {
+        let handlers = lock(&events).started.clone();
         handlers.iter().for_each(|handler| handler());
       });
       let events = self.events.clone();

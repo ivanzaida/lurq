@@ -1780,3 +1780,50 @@ fn the_settings_button_can_be_left_out_and_the_speed_stays() {
   let mut stage = still(|| plain(640.0, false).settings_button(false));
   assert!(has(&mut stage, "v-speed"), "the large form keeps its speed's button");
 }
+
+#[cfg(all(windows, feature = "media"))]
+#[test]
+fn given_a_source_it_tells_it_started_once_its_video_really_plays() {
+  use lurq::resources::Source;
+  let clip = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../gallery/assets/media/sample.mp4");
+  let told = Told::default();
+  let said = told.clone();
+  let mut stage = mounted(move || {
+    let (load, playing, started) = (said.say(), said.say(), said.say());
+    VideoPlayer::new()
+      .id("v")
+      .width(640.0)
+      .source(&Source::file(&clip))
+      .muted_controlled(true, |_| {})
+      .on_load(move |_| load("load".to_owned()))
+      .on_playing_change(move |to| playing(format!("playing {to}")))
+      .on_started(move || started("started".to_owned()))
+  });
+  // It opened, and shows its first frame: it has not started.
+  until(&mut stage, "its length", |stage| stage.paints("0:15"));
+  std::thread::sleep(std::time::Duration::from_millis(200));
+  stage.pass();
+  assert_eq!(told.take(), ["load"], "opened and standing, it has not started");
+  // Played: it was told to, and then it really plays.
+  stage.click("v-play");
+  let mut heard = told.take();
+  until(&mut stage, "started", |_| {
+    heard.extend(told.take());
+    heard.iter().any(|what| what == "started")
+  });
+  assert_eq!(heard, ["playing true", "started"]);
+  // It plays on: no start for the frames that follow.
+  until(&mut stage, "playing", |stage| stage.paints("0:01"));
+  assert!(told.take().is_empty(), "once");
+  // Paused and played again: a start again.
+  stage.click("v-play");
+  assert_eq!(told.take(), ["playing false"]);
+  stage.pass();
+  stage.click("v-play");
+  let mut heard = told.take();
+  until(&mut stage, "started again", |_| {
+    heard.extend(told.take());
+    heard.iter().any(|what| what == "started")
+  });
+  assert_eq!(heard, ["playing true", "started"]);
+}

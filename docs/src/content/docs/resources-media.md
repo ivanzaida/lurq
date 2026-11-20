@@ -380,6 +380,7 @@ use lurq::media::Media;
 let media = Media::open(app.loader(), &Source::file("clips/lake.mp4"));
 media.on_load(|info| println!("{:?} long, {:?}, sound: {}", info.duration, info.size, info.sound));
 media.on_error(|why| tracing::warn!("{why}: {}", why.detail().unwrap_or_default()));
+media.on_started(|| println!("it plays"));
 media.on_ended(|| println!("the end"));
 media.on_playing_change(|plays| println!("playing: {plays}"));
 media.on_waiting_change(|waits| println!("waiting: {waits}"));
@@ -390,6 +391,7 @@ media.play();
 | --- | --- |
 | `on_load(Fn(&MediaInfo))` | Once it opened and is ready to play: `duration` (`None` for what has no end), `size` of its picture (`None` for a sound), whether it has `sound` |
 | `on_error(Fn(&MediaError))` | Once it cannot play: a kind, which the locale says (`MediaWords::error`); `detail()` is what the system said, for a log. A media that failed stays failed: trying again is opening it anew |
+| `on_started(Fn())` | Each time it really starts to play: it was told to, it does not wait for what it plays, and the first frame since is shown (for what has no picture, its sound is given to the output). After `on_load`, which is that it opened, and after `on_playing_change(true)`, which is that it was told to play. Again after a pause, after it waited and after its end; not for a round of a looped media, which did not stop, nor when it is sent to another time while it plays |
 | `on_ended(Fn())` | Each time it played to its end, again only after it played again. A looped media (`media.set_looped(true)`) is told at each end as it goes on from its start, and is not told it stopped playing |
 | `on_playing_change(Fn(bool))` | Whether it plays, each time that changes once it opened: told to play or pause, it ended, it failed |
 | `on_waiting_change(Fn(bool))` | Whether it waits for what it plays once it opened (an address read slower than it plays); opening is not waiting |

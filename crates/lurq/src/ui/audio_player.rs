@@ -813,6 +813,16 @@ impl AudioPlayer {
     self
   }
 
+  /// Called each time its [`source`](Self::source) really starts to play: it was told to, it does not wait for
+  /// what it plays, and its sound is given to the output
+  /// ([`Media::on_started`](crate::media::Media::on_started)). Told again after a pause, after it waited and
+  /// after its end; not for a round of a [looped](Self::looped) one, which did not stop. A player without a source
+  /// is never told. Each call adds a handler.
+  pub fn on_started(mut self, handler: impl Fn() + Send + Sync + 'static) -> Self {
+    self.events.started.push(Arc::new(handler));
+    self
+  }
+
   /// Called with whether its [`source`](Self::source) waits for what it plays, each time that changes once it
   /// opened: `true` when it began waiting, `false` when it goes on. Loading a sound before it opens is not
   /// waiting. A player without a source is never told: its [`loading`](Self::loading) is the app's. Each call adds

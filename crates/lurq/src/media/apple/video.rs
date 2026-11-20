@@ -743,6 +743,7 @@ fn play(shared: &Arc<Shared>, place: Place, picture: bool) {
         });
         if let Some(another) = another {
           (expected, nudged) = (None, false);
+          shared.presented();
           if another {
             let mut inner = shared.inner();
             inner.size = image.as_ref().map(|image| (image.width(), image.height()));
@@ -805,6 +806,9 @@ fn play(shared: &Arc<Shared>, place: Place, picture: bool) {
     } else if !waits && inner.sent == heard && link.arrived.load(Ordering::Acquire) == sent {
       // The media's clock is the player's: what is seen and heard is where it is. A media that is only heard has
       // no output to ask, and goes by what the main thread saw.
+      if output.is_none() && current && seen.control == Control::Playing {
+        shared.presented_in(&mut inner);
+      }
       let at = shown.or_else(|| (output.is_none() && current && seen.control == Control::Playing).then_some(seen.at));
       if let Some(at) = at
         && (at - inner.position()).abs() > APART

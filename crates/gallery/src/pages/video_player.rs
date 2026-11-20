@@ -674,9 +674,10 @@ impl VideoPlayerPage {
           say("on_retry"),
         );
         // What its source tells: told only where one is chosen.
-        let (load, error, ended, waiting) = (
+        let (load, error, started, ended, waiting) = (
           say("on_load"),
           say("on_error"),
+          say("on_started"),
           say("on_ended"),
           say("on_waiting_change"),
         );
@@ -703,6 +704,7 @@ impl VideoPlayerPage {
           .on_retry(move || t(String::new()))
           .on_load(move |info| load(media_info(info)))
           .on_error(move |why| error(format!("{why:?}")))
+          .on_started(move || started(String::new()))
           .on_ended(move || ended(String::new()))
           .on_waiting_change(move |to| waiting(to.to_string()))
           .key("played")
@@ -912,7 +914,7 @@ impl VideoPlayerPage {
         fill: false,
         forceable: true,
         facts,
-        event: "on_playing_change / on_position_change / on_load / on_ended / …",
+        event: "on_playing_change / on_position_change / on_load / on_started / on_ended / …",
         code,
         tree,
         controls: controls_list,
@@ -1576,10 +1578,10 @@ impl Component for VideoPlayerPage {
         "The error's button, drawn once this is given.",
       ),
       (
-        "on_load / on_error / on_ended / on_waiting_change",
-        "Fn(&MediaInfo) / Fn(&MediaError) / Fn() / Fn(bool)",
+        "on_load / on_error / on_started / on_ended / on_waiting_change",
+        "Fn(&MediaInfo) / Fn(&MediaError) / Fn() / Fn() / Fn(bool)",
         "",
-        "What its source tells, on the UI thread, once each time: it opened (its length, size, sound), it          failed (a kind, in the locale's words), it played to its end, it began or stopped waiting. With a          source, on_playing_change is told when the video stops by itself too. A player without a source tells          none of them.",
+        "What its source tells, on the UI thread, once each time: it opened (its length, size, sound), it          failed (a kind, in the locale's words), it really started to play (the first frame after it was told to is on the screen), it played to its end, it began or stopped waiting. With a          source, on_playing_change is told when the video stops by itself too. A player without a source tells          none of them.",
       ),
       (
         "size",

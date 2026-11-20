@@ -830,6 +830,18 @@ impl VideoPlayer {
     self
   }
 
+  /// Called each time its [`source`](Self::source) really starts to play: it was told to, it does not wait for
+  /// what it plays, and the first frame since is shown ([`Media::on_started`](crate::media::Media::on_started)).
+  /// After [`on_load`](Self::on_load), which says it opened with nothing moving yet, and after
+  /// [`on_playing_change`](Self::on_playing_change) said it was told to play: where a poster of the app's covers
+  /// the player until the video moves, this is when to take it away. Told again after a pause, after it waited
+  /// and after its end; not for a round of a [looped](Self::looped) one, which did not stop. A player without a
+  /// source is never told. A second handler is called after the first.
+  pub fn on_started(mut self, handler: impl Fn() + Send + Sync + 'static) -> Self {
+    self.events.started.push(Arc::new(handler));
+    self
+  }
+
   /// Called with whether its [`source`](Self::source) waits for what it plays, each time that changes once it
   /// opened: `true` when it began waiting (an address read slower than it plays), `false` when it goes on. A
   /// player without a source is never told: its [`waiting`](Self::waiting) is the app's. A second handler is

@@ -199,6 +199,7 @@ fn play(shared: &Shared, player: &AVAudioPlayer) {
       }
       if player.isPlaying() {
         starting = None;
+        shared.presented_in(&mut inner);
         // The media's clock is the player's: what is heard is where it is.
         let heard = player.currentTime();
         if inner.sent == gone && (heard - inner.position()).abs() > APART {

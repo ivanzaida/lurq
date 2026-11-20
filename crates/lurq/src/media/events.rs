@@ -1,5 +1,5 @@
-//! What a media tells who listens: it opened, it failed, it ended, it began or stopped playing, it began or stopped
-//! waiting.
+//! What a media tells who listens: it opened, it failed, it started, it ended, it began or stopped playing, it began
+//! or stopped waiting.
 //!
 //! The media's own thread changes its state and wakes the loops of the thread that listens: each tree of that
 //! thread registered its loop ([`note_loop`]). The tree's next turn ([`tell_news`], from its pass and from the tick
@@ -25,6 +25,7 @@ pub(crate) struct Handlers {
   pub load: Vec<Arc<dyn Fn(&MediaInfo) + Send + Sync>>,
   pub error: Vec<Arc<dyn Fn(&MediaError) + Send + Sync>>,
   pub ended: Vec<Arc<dyn Fn() + Send + Sync>>,
+  pub started: Vec<Arc<dyn Fn() + Send + Sync>>,
   pub playing: Vec<Arc<dyn Fn(bool) + Send + Sync>>,
   pub waiting: Vec<Arc<dyn Fn(bool) + Send + Sync>>,
 }
@@ -35,6 +36,8 @@ pub(crate) enum MediaEvent {
   Load(MediaInfo),
   Waiting(bool),
   Playing(bool),
+  /// It really plays: told to play, not waiting, and a frame was shown or its sound was heard since.
+  Started,
   Ended,
   Error(MediaError),
 }
@@ -49,9 +52,18 @@ pub(crate) struct Told {
   ended: bool,
   /// How many of the times a looped media went on from its start were told as ends.
   rounds: u64,
+  /// Whether it was told it started, and has not stopped moving since.
+  moving: bool,
+  /// How much it had presented when it could first move again: one more, and it started.
+  mark: Option<u64>,
 }
 
 impl Told {
+  /// Whether it may move and has not been told it started: the next frame it shows is its start.
+  pub(crate) fn awaits_start(&self) -> bool {
+    self.mark.is_some() && !self.moving
+  }
+
   /// What changed in `inner` since it was last told, in order: it opened, it began or stopped waiting, it began or
   /// stopped playing, it ended, it failed. Nothing is told before it opened but that it failed; waiting and
   /// playing are told while it is open and has not failed.
@@ -75,6 +87,23 @@ impl Told {
     if playing != self.playing {
       self.playing = playing;
       news.push(MediaEvent::Playing(playing));
+    }
+    // It started once something was presented after it could move: told to play is not yet playing, and a
+    // media that waits for what it plays shows nothing new. A pause, a wait, its end and a failure stop it, and
+    // the next time it moves is a start again.
+    if playing && !waiting && !inner.ended {
+      match self.mark {
+        _ if self.moving => {}
+        None => self.mark = Some(inner.presented),
+        Some(mark) if inner.presented > mark => {
+          self.moving = true;
+          news.push(MediaEvent::Started);
+        }
+        Some(_) => {}
+      }
+    } else {
+      self.moving = false;
+      self.mark = None;
     }
     // A looped media came to its end and went on from its start: an end each time, with no stop of its playing.
     if self.loaded {
@@ -205,7 +234,11 @@ pub(crate) fn tell_news() -> bool {
     };
     let news = {
       let inner = shared.inner();
-      lock(&listening.told).news(&inner)
+      let mut last = lock(&listening.told);
+      let news = last.news(&inner);
+      // What it presents next is its start: its thread wakes the loops for it, and for nothing else it shows.
+      shared.awaits_start.store(last.awaits_start(), Ordering::Release);
+      news
     };
     if news.is_empty() {
       continue;
@@ -218,6 +251,7 @@ pub(crate) fn tell_news() -> bool {
         MediaEvent::Load(info) => handlers.load.iter().for_each(|handler| handler(&info)),
         MediaEvent::Waiting(waiting) => handlers.waiting.iter().for_each(|handler| handler(waiting)),
         MediaEvent::Playing(playing) => handlers.playing.iter().for_each(|handler| handler(playing)),
+        MediaEvent::Started => handlers.started.iter().for_each(|handler| handler()),
         MediaEvent::Ended => handlers.ended.iter().for_each(|handler| handler()),
         MediaEvent::Error(error) => handlers.error.iter().for_each(|handler| handler(&error)),
       }
@@ -245,6 +279,7 @@ mod tests {
       rate: 1.0,
       looped: false,
       rounds: 0,
+      presented: 0,
       at: 0.0,
       since: crate::time::Instant::now(),
       sent: 0,
@@ -290,6 +325,56 @@ mod tests {
     state.ended = true;
     state.playing = false;
     assert_eq!(told.news(&state), [MediaEvent::Playing(false), MediaEvent::Ended]);
+  }
+
+  #[test]
+  fn a_media_started_once_it_presents_something_after_it_could_move() {
+    let (mut told, mut state) = (Told::default(), inner());
+    state.opened = true;
+    state.waiting = false;
+    // Its first frame is shown while it is paused: that is no start.
+    state.presented = 1;
+    assert_eq!(told.news(&state).len(), 1, "it opened");
+    assert!(!told.awaits_start());
+    // Told to play, it has not started until a frame is shown.
+    state.playing = true;
+    assert_eq!(told.news(&state), [MediaEvent::Playing(true)]);
+    assert!(told.awaits_start());
+    assert_eq!(told.news(&state), []);
+    state.presented = 2;
+    assert_eq!(told.news(&state), [MediaEvent::Started]);
+    assert!(!told.awaits_start());
+    state.presented = 30;
+    assert_eq!(told.news(&state), [], "once, however many frames follow");
+    // A looped round is no stop, so no start.
+    state.rounds = 1;
+    state.presented = 31;
+    assert_eq!(told.news(&state), [MediaEvent::Ended]);
+    // It waits for what it plays, and moves again: a start.
+    state.waiting = true;
+    assert_eq!(told.news(&state), [MediaEvent::Waiting(true)]);
+    state.waiting = false;
+    state.presented = 32;
+    assert_eq!(told.news(&state), [MediaEvent::Waiting(false)]);
+    state.presented = 33;
+    assert_eq!(told.news(&state), [MediaEvent::Started]);
+    // Paused and played again: a start.
+    state.playing = false;
+    assert_eq!(told.news(&state), [MediaEvent::Playing(false)]);
+    state.playing = true;
+    state.presented = 40;
+    assert_eq!(told.news(&state), [MediaEvent::Playing(true)]);
+    state.presented = 41;
+    assert_eq!(told.news(&state), [MediaEvent::Started]);
+    // At its end it has stopped; played again, it starts again.
+    state.playing = false;
+    state.ended = true;
+    assert_eq!(told.news(&state), [MediaEvent::Playing(false), MediaEvent::Ended]);
+    state.ended = false;
+    state.playing = true;
+    assert_eq!(told.news(&state), [MediaEvent::Playing(true)]);
+    state.presented = 42;
+    assert_eq!(told.news(&state), [MediaEvent::Started]);
   }
 
   #[test]
