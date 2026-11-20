@@ -1,5 +1,7 @@
 //! The page of the window tabs: their playground in a title bar, the board's
-//! strip, each state of a tab, and a window with more tabs than its bar holds.
+//! strip, each state of a tab, a window with more tabs than its bar holds,
+//! and the tabs of an app's title bar: a home tab, marks after a label, the
+//! dot beside the close button, and the tabs that do not fit in a list.
 
 use std::sync::Arc;
 
@@ -13,7 +15,10 @@ use lurq::{
   core::Signal,
   layout::{Alignment, layout_kind::Justify},
   node::Element,
-  ui::{Interaction, WindowTab, WindowTabs, icons},
+  ui::{
+    Badge, BadgeSize, BadgeVariant, Interaction, Tooltip, WindowTab, WindowTabs, WindowTabsDirtyMark,
+    WindowTabsOverflow, icons,
+  },
 };
 
 use crate::{
@@ -40,6 +45,22 @@ const FILES: [&str; 12] = [
 
 /// What a long label is, where the playground is asked for one.
 const LONG: &str = "a_file_whose_name_is_longer_than_its_tab.rs";
+
+/// The value of the home tab, which is no file's.
+const HOME: usize = usize::MAX;
+
+/// The mark that something in a tab waits for the person: an amber hand with how many.
+fn hand(count: usize) -> Badge {
+  Badge::count(count)
+    .icon(icons::HAND)
+    .variant(BadgeVariant::Warning)
+    .size(BadgeSize::Sm)
+}
+
+/// [`hand`] with a tooltip that says what waits.
+fn waiting(ctx: &mut Ctx, count: usize) -> Element {
+  Tooltip::new(&format!("{count} runs wait for you")).mount(ctx, hand(count))
+}
 
 /// The window a title bar of tabs is drawn in, as wide as its room up to `width`: the bar, `Muted`, 40 high
 /// with the tabs on its bottom edge and the room after them the window is dragged by, over the content the
@@ -141,7 +162,14 @@ pub struct WindowTabsPage {
   disabled: Signal<bool>,
   disabled_tab: Signal<bool>,
   long: Signal<bool>,
+  home: Signal<bool>,
+  marks: Signal<bool>,
+  capped: Signal<bool>,
+  after_label: Signal<bool>,
+  listed: Signal<bool>,
+  tab_stop: Signal<bool>,
   many: Files,
+  app: Files,
 }
 
 impl WindowTabsPage {
@@ -150,31 +178,60 @@ impl WindowTabsPage {
     let (with_icons, dirty, close_buttons) = (self.icons.get(), self.dirty.get(), self.close_buttons.get());
     let (add, shortcuts, disabled) = (self.add.get(), self.shortcuts.get(), self.disabled.get());
     let (disabled_tab, long) = (self.disabled_tab.get(), self.long.get());
+    let (home, marks, capped) = (self.home.get(), self.marks.get(), self.capped.get());
+    let (after_label, listed, tab_stop) = (self.after_label.get(), self.listed.get(), self.tab_stop.get());
     let open = self.play.open.get();
     let selected = self.play.selected.get();
-    let tabs = move |open: &[usize]| -> Vec<WindowTab<usize>> {
-      open
-        .iter()
-        .map(|file| {
-          let name = if long && *file == 0 { LONG } else { FILES[*file] };
-          let mut tab = WindowTab::new(*file, name)
-            .dirty(dirty && *file == 1)
-            .close_button(close_buttons)
-            .disabled(disabled_tab && *file == 2);
-          if with_icons {
-            tab = tab.icon(icons::FILE_CODE);
-          }
-          tab
-        })
-        .collect()
+    let mark = marks.then(|| waiting(ctx, 2));
+    let tabs = move |open: &[usize], mark: Option<Element>| -> Vec<WindowTab<usize>> {
+      let home = home.then(|| {
+        WindowTab::new(HOME, "Home")
+          .icon(icons::HOME)
+          .icon_only(true)
+          .closable(false)
+          .describe("route", "/")
+      });
+      let files = open.iter().map(|file| {
+        let name = if long && *file == 0 { LONG } else { FILES[*file] };
+        let mut tab = WindowTab::new(*file, name)
+          .dirty(dirty && *file == 1)
+          .close_button(close_buttons)
+          .disabled(disabled_tab && *file == 2)
+          .describe("route", format!("/files/{}", FILES[*file]));
+        if with_icons {
+          tab = tab.icon(icons::FILE_CODE);
+        }
+        if capped {
+          tab = tab.max_width(110.0);
+        }
+        if let (Some(mark), 2) = (&mark, *file) {
+          tab = tab.trailing(mark.clone());
+        }
+        tab
+      });
+      home.into_iter().chain(files).collect()
+    };
+    let overflow = if listed {
+      WindowTabsOverflow::List
+    } else {
+      WindowTabsOverflow::Scroll
+    };
+    let dirty_mark = if after_label {
+      WindowTabsDirtyMark::AfterLabel
+    } else {
+      WindowTabsDirtyMark::InCloseSlot
     };
     let plain = {
       let open = open.clone();
       move || {
-        let mut strip = WindowTabs::controlled(selected, tabs(&open), |_| {})
+        let mark = marks.then(|| Element::from(hand(2)));
+        let mut strip = WindowTabs::controlled(selected, tabs(&open, mark), |_| {})
           .label("Open files")
           .shortcuts(false)
-          .disabled(disabled);
+          .disabled(disabled)
+          .overflow(overflow)
+          .dirty_mark(dirty_mark)
+          .tab_stop(tab_stop);
         if add {
           strip = strip.on_add(|| {});
         }
@@ -193,10 +250,13 @@ impl WindowTabsPage {
     );
     let mut strip = self
       .playground
-      .styled(WindowTabs::new(self.play.selected.clone(), tabs(&open)))
+      .styled(WindowTabs::new(self.play.selected.clone(), tabs(&open, mark)))
       .label("Open files")
       .shortcuts(shortcuts)
       .disabled(disabled)
+      .overflow(overflow)
+      .dirty_mark(dirty_mark)
+      .tab_stop(tab_stop)
       .force(self.playground.forced())
       .on_change(move |file| on_change.0(format!("on_change({file})")))
       .on_close(move |file| {
@@ -218,10 +278,15 @@ impl WindowTabsPage {
       });
     }
 
-    let mut code = vec![
-      "// open: Signal<usize>, files: the app's list".to_owned(),
-      "WindowTabs::new(open, files.iter().map(|file| {".to_owned(),
-    ];
+    let mut code = vec!["// open: Signal<usize>, files: the app's list".to_owned()];
+    if home {
+      code.push(
+        "let home = WindowTab::new(HOME, \"Home\").icon(icons::HOME).icon_only(true).closable(false);".to_owned(),
+      );
+      code.push("WindowTabs::new(open, std::iter::once(home).chain(files.iter().map(|file| {".to_owned());
+    } else {
+      code.push("WindowTabs::new(open, files.iter().map(|file| {".to_owned());
+    }
     let mut tab = "    WindowTab::new(file.id, &file.name)".to_owned();
     if with_icons {
       tab.push_str(".icon(icons::FILE_CODE)");
@@ -235,9 +300,29 @@ impl WindowTabsPage {
     if disabled_tab {
       tab.push_str(".disabled(file.locked)");
     }
+    if capped {
+      tab.push_str(".max_width(110.0)");
+    }
+    tab.push_str(".describe(\"route\", &file.route)");
     code.push(tab);
-    code.push("}))".to_owned());
+    if marks {
+      code.push("        // A badge in a tooltip, after the label of the file whose runs wait.".to_owned());
+      code.push(
+        "        .trailing(Tooltip::new(\"2 runs wait for you\").mount(ctx, Badge::count(2).icon(icons::HAND)))"
+          .to_owned(),
+      );
+    }
+    code.push(if home { "})))" } else { "}))" }.to_owned());
     code.push("    .label(\"Open files\")".to_owned());
+    if listed {
+      code.push("    .overflow(WindowTabsOverflow::List)".to_owned());
+    }
+    if after_label {
+      code.push("    .dirty_mark(WindowTabsDirtyMark::AfterLabel)".to_owned());
+    }
+    if !tab_stop {
+      code.push("    .tab_stop(false)".to_owned());
+    }
     if !shortcuts {
       code.push("    .shortcuts(false)".to_owned());
     }
@@ -252,27 +337,50 @@ impl WindowTabsPage {
     code.push("    .on_detach(|file| /* open it in a window of its own */)".to_owned());
     code.push("    .mount(ctx)".to_owned());
 
-    let tree = vec![
+    let mut tree = vec![
       format!("root        {}   32 high", self.playground.measured()),
-      format!("├─ list      tabs abutting   tablist   ×{}", open.len()),
-      "│  └─ tab    128 × 32 · radius 8 8 0 0 · least 72".to_owned(),
       format!(
-        "│     └─ {}label 12{}",
-        if with_icons { "icon 14 · " } else { "" },
-        if close_buttons {
-          " · close 18 (x 12, or a dot of 7)"
-        } else {
-          ""
-        }
+        "├─ list      tabs abutting   tablist   ×{}",
+        open.len() + usize::from(home)
       ),
-      "├─ separator 1 × 16 · between tabs not selected".to_owned(),
+    ];
+    if home {
+      tree.push("│  ├─ tab    28 × 32 · icon_only · the home icon 14 in its middle · not closable".to_owned());
+    }
+    tree.push(format!(
+      "│  └─ tab    {} × 32 · radius 8 8 0 0 · least 72",
+      if capped { "110" } else { "128" }
+    ));
+    tree.push(format!(
+      "│     ├─ {}title: label 12{}{}",
+      if with_icons { "icon 14 · " } else { "" },
+      if after_label { " · dot 7, 6 after it" } else { "" },
+      if marks { " · marks (6 after)" } else { "" },
+    ));
+    tree.push(
+      if close_buttons {
+        if after_label {
+          "│     └─ close 18 (x 12, always)"
+        } else {
+          "│     └─ close 18 (x 12, or a dot of 7)"
+        }
+      } else {
+        "│     └─ (no close button: closed by the middle button and Delete)"
+      }
+      .to_owned(),
+    );
+    tree.push("├─ separator 1 × 16 · between tabs not selected".to_owned());
+    if listed {
+      tree.push("├─ more      28 high · the count 12 · chevron 12 · while tabs left the strip".to_owned());
+    }
+    tree.push(
       if add {
         "└─ add       30 × 28 · plus 14"
       } else {
         "└─ (no add button: on_add not given)"
       }
       .to_owned(),
-    ];
+    );
 
     let defaults = [
       (self.icons.clone(), true),
@@ -283,6 +391,12 @@ impl WindowTabsPage {
       (self.disabled.clone(), false),
       (self.disabled_tab.clone(), false),
       (self.long.clone(), false),
+      (self.home.clone(), false),
+      (self.marks.clone(), false),
+      (self.capped.clone(), false),
+      (self.after_label.clone(), false),
+      (self.listed.clone(), false),
+      (self.tab_stop.clone(), true),
     ];
     let changed = defaults.iter().filter(|(flag, default)| flag.get() != *default).count()
       + usize::from(open != [0, 1, 2] || selected != 0);
@@ -310,7 +424,12 @@ impl WindowTabsPage {
         shown: Shown::of(window(measured, 560.0, "Window content")).measured(),
         fill: true,
         forceable: true,
-        facts: format!("{} tabs{}", open.len(), if add { " · add" } else { "" }),
+        facts: format!(
+          "{} tabs{}{}",
+          open.len() + usize::from(home),
+          if add { " · add" } else { "" },
+          if listed { " · list" } else { "" }
+        ),
         event: "on_change",
         code,
         tree,
@@ -320,8 +439,14 @@ impl WindowTabsPage {
           flag("close_button", &self.close_buttons),
           flag("a long label (blur.rs)", &self.long),
           flag("a disabled tab (canvas.rs)", &self.disabled_tab),
+          flag("a home tab (icon_only, closable(false))", &self.home),
+          flag("trailing: a mark (canvas.rs)", &self.marks),
+          flag("max_width(110)", &self.capped),
           divider(),
           flag("on_add", &self.add),
+          flag("overflow: List", &self.listed),
+          flag("dirty_mark: AfterLabel", &self.after_label),
+          flag("tab_stop", &self.tab_stop),
           flag("shortcuts", &self.shortcuts),
           flag("disabled", &self.disabled),
         ],
@@ -351,9 +476,19 @@ impl Component for WindowTabsPage {
       disabled: ctx.signal(false),
       disabled_tab: ctx.signal(false),
       long: ctx.signal(false),
+      home: ctx.signal(false),
+      marks: ctx.signal(false),
+      capped: ctx.signal(false),
+      after_label: ctx.signal(false),
+      listed: ctx.signal(false),
+      tab_stop: ctx.signal(true),
       many: Files {
         open: ctx.signal((0..9).collect()),
         selected: ctx.signal(4),
+      },
+      app: Files {
+        open: ctx.signal((0..9).collect()),
+        selected: ctx.signal(HOME),
       },
     }
   }
@@ -445,6 +580,38 @@ impl Component for WindowTabsPage {
     };
     let many = window(many, 520.0, &format!("{} files open", self.many.open.get().len()));
 
+    // An app's title bar: a home tab of its icon alone, a mark after a label, the dot beside the close button, and
+    // the tabs that do not fit in the list of the More button.
+    let app = {
+      let (close, add, reorder) = (self.app.clone(), self.app.clone(), self.app.clone());
+      let open = self.app.open.get();
+      let mark = waiting(ctx, 3);
+      let home = WindowTab::new(HOME, "Home")
+        .icon(icons::HOME)
+        .icon_only(true)
+        .closable(false);
+      let files = open.iter().map(|id| {
+        let tab = file(*id).dirty(*id == 1).max_width(140.0);
+        if *id == 2 { tab.trailing(mark.clone()) } else { tab }
+      });
+      WindowTabs::new(self.app.selected.clone(), std::iter::once(home).chain(files))
+        .label("Open files")
+        .overflow(WindowTabsOverflow::List)
+        .dirty_mark(WindowTabsDirtyMark::AfterLabel)
+        .on_close(move |file| close.close(*file))
+        .on_add(move || {
+          add.add();
+        })
+        // The home tab stays first: the files are the tabs after it.
+        .on_reorder(move |from, to| {
+          if from > 0 {
+            reorder.reorder(from - 1, to.saturating_sub(1));
+          }
+        })
+        .mount(ctx)
+    };
+    let app = window(app, 520.0, &format!("{} files open", self.app.open.get().len()));
+
     let rows = [
       (
         "value",
@@ -457,8 +624,48 @@ impl Component for WindowTabsPage {
         "tabs",
         "impl IntoIterator<Item = impl Into<WindowTab<T>>>",
         "",
-        "The tabs, in order: a (value, label) or a WindowTab with an icon, dirty, close_button, on_close, \
-         disabled, id and key.",
+        "The tabs, in order: a (value, label) or a WindowTab with an icon, dirty, close_button, closable, \
+         on_close, disabled, icon_only, width, max_width, trailing, describe, id and key.",
+      ),
+      (
+        "WindowTab::closable",
+        "bool",
+        "true",
+        "Whether a person may close the tab. One that may not (a home tab) shows no close button and is closed by \
+         nothing: no middle press, no Delete, no Ctrl+W.",
+      ),
+      (
+        "WindowTab::close_button",
+        "bool",
+        "true",
+        "Whether the close button shows. A closable tab without one is still closed by the middle button, Delete \
+         and Ctrl+W.",
+      ),
+      (
+        "WindowTab::icon_only",
+        "bool",
+        "false",
+        "The icon alone, 28 wide, no label and no close slot: a home tab. The label is still its name to tooling.",
+      ),
+      (
+        "WindowTab::width / max_width",
+        "f32",
+        "",
+        "A width of its own, which neither grows nor gives way; or a cap under the recipe's most, the label cut \
+         there.",
+      ),
+      (
+        "WindowTab::trailing",
+        "impl Into<Element>",
+        "",
+        "The app's element after the label, in the tab's marks part: a count, a mark that something waits, with \
+         its tooltip. It keeps its width; the label gives way first.",
+      ),
+      (
+        "WindowTab::describe",
+        "(name, value)",
+        "",
+        "Said of the tab to tooling (the DevTools, the MCP tree) before what the strip says: its route, its state.",
       ),
       (
         "on_change",
@@ -495,6 +702,28 @@ impl Component for WindowTabsPage {
          the window's top or start edge.",
       ),
       (
+        "overflow",
+        "WindowTabsOverflow",
+        "Scroll",
+        "Scroll: the tabs share the room down to 72 and then the strip scrolls. List: they keep their width, and \
+         those that do not fit leave the strip, the last first and never the selected one, into the menu of a \
+         button at the end of the tabs that shows how many left. Mounted only.",
+      ),
+      (
+        "dirty_mark",
+        "WindowTabsDirtyMark",
+        "InCloseSlot",
+        "InCloseSlot: the dot in the close slot, the x in its place under the pointer. AfterLabel: the dot right \
+         after the label, and the close button in its slot, both shown.",
+      ),
+      (
+        "tab_stop",
+        "bool",
+        "true",
+        "false: Tab passes the tabs, the add button and the More button by, and a press leaves the focus where it \
+         was. The window's keys still work.",
+      ),
+      (
         "shortcuts",
         "bool",
         "true",
@@ -524,6 +753,12 @@ impl Component for WindowTabsPage {
         "&str",
         "\"Close\"",
         "The word before a tab's label that names its close button: \"Close blur.rs\".",
+      ),
+      (
+        "more_label",
+        "&str",
+        "\"Show the hidden tabs\"",
+        "What the More button of the list mode and its menu are called, to what reads the tree.",
       ),
       (
         "mount",
@@ -614,6 +849,34 @@ impl Component for WindowTabsPage {
               "    .on_add(..)",
               "    .on_reorder(..)",
               "    .on_detach(..)",
+              "    .mount(ctx)",
+            ],
+          ),
+        ),
+        Section::new(
+          "An app's title bar",
+          "A home tab of its icon alone that nobody closes, a mark after a label with its tooltip, the dot of \
+           unsaved changes right after the label beside a close button that stays, and tabs that keep their width: \
+           those that do not fit leave the bar for the menu of the button after the tabs, which says how many. \
+           Choose one there and it comes back as the selected tab. A middle press closes any tab but the home tab.",
+          self.frame.demo(
+            3,
+            app,
+            ".overflow(WindowTabsOverflow::List)",
+            &[
+              "let home = WindowTab::new(HOME, \"Home\").icon(icons::HOME).icon_only(true).closable(false);",
+              "let files = files.iter().map(|file| {",
+              "    let tab = WindowTab::new(file.id, &file.name).dirty(file.dirty).max_width(140.0);",
+              "    match file.waiting {",
+              "        0 => tab,",
+              "        n => tab.trailing(Tooltip::new(&format!(\"{n} runs wait for you\")).mount(ctx, hand(n))),",
+              "    }",
+              "});",
+              "WindowTabs::new(open, std::iter::once(home).chain(files))",
+              "    .overflow(WindowTabsOverflow::List)",
+              "    .dirty_mark(WindowTabsDirtyMark::AfterLabel)",
+              "    .on_close(..)",
+              "    .on_add(..)",
               "    .mount(ctx)",
             ],
           ),

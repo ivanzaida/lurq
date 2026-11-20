@@ -190,3 +190,4 @@ mod watermark;
 mod waveform;
 mod window_chrome;
 mod window_tabs;
+mod window_tabs_hosted;

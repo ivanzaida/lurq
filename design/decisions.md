@@ -11,6 +11,35 @@ dropped). When a decision is replaced, the old entry stays and says what replace
 
 ## 2026-11-20
 
+### Window tabs that hold Orchester's title-bar tabs
+
+- **Question.** Orchester draws the tabs of its title bar itself: a Home tab of an icon alone, tabs capped at a width
+  of the app's, an attention mark after a label (an amber hand with a count, or a red alert, with a tooltip), a
+  middle press that closes any tab a person may close, tabs that do not fit put in a list rather than scrolled, a
+  strip Tab passes by, the dot of unsaved changes beside a close button that stays, and a bar 36 high. `ui::WindowTabs`
+  and `ui::WindowChrome` could do none of it. Should lurq's window tabs host them, and how?
+- **Decision (Ivan, 2026-11-20: "так, давай обидва показувати одночасно - фікси ці всі пройоби в луркі").** Yes,
+  all of it, in lurq:
+  1. A tab takes the app's elements after its label (`WindowTab::trailing`), in a part of their own.
+  2. A tab takes `describe(name, value)`, said on the tab's node before what the strip says of it, as `Styled::describe`
+     is on a component.
+  3. The middle button closes any tab a person may close (Ivan: "закриваємо будь яку"), whether its close button is
+     shown or not; whether a person may close a tab is `WindowTab::closable(bool)`, apart from whether its close
+     button shows (`close_button(bool)`). A tab that is not closable is closed by nothing a person does.
+  4. A second overflow mode (Ivan: "треба окремим режимом табок"): the tabs that do not fit leave the strip, last
+     first and never the selected one, into the menu of a button at the strip's end that shows how many left;
+     choosing one there selects it. Shrinking and then scrolling stays the default.
+  5. `tab_stop(false)` on the strip, by the mechanism of 0.63.2's pressables: Tab passes its tabs, its add button
+     and its list button by, and a press leaves the focus where it was.
+  6. A mode of the dot of unsaved changes where it stands right after the label and the close button keeps its slot
+     and shows, with no swap under the pointer. The swap stays the default.
+  7. A tab's own width and most width, and a tab of its icon alone (a Home tab, 28 wide).
+  8. The height of a bar of `ui::WindowChrome` with tabs is its recipe's, as a bar without tabs is: the default stays
+     40, and an app's recipe makes it 36.
+- **Why.** Orchester's title bar is to be lurq's component, not a copy of it in the app; each of these is what a
+  browser's or an editor's tabs do, and none is Orchester's alone.
+- **State.** Built on `claude/window-tabs` (2026-11-20).
+
 ### Every new component is shown in the gallery
 
 - **Question.** `ui::StatusLabel` came with plan K4's item 7 with no gallery page. Is a component done without its page?
