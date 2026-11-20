@@ -777,7 +777,7 @@ impl super::FieldControl for AngleSlider {
   /// Called by the field's label unless it has a name of its own, and disabled where the field is. A dial has no
   /// judgment.
   fn in_field(mut self, field: &super::InField) -> Element {
-    if self.label.is_none() {
+    if self.label.is_none() && !field.label.is_empty() {
       self.label = Some(field.label.clone());
     }
     self.disabled |= field.disabled;

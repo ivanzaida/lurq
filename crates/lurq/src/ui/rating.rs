@@ -829,7 +829,7 @@ impl<V: RatingValue> super::FieldControl for Rating<V> {
   /// Called by the field's label unless it has a name of its own, invalid where the field is, and disabled where
   /// the field is.
   fn in_field(mut self, field: &super::InField) -> Element {
-    if self.label.is_none() {
+    if self.label.is_none() && !field.label.is_empty() {
       self.label = Some(field.label.clone());
     }
     self.invalid |= field.judgment == Some(super::Judgment::Invalid);
@@ -839,7 +839,7 @@ impl<V: RatingValue> super::FieldControl for Rating<V> {
 
   /// Told what the field says, as in `in_field`, and mounted: the same control as outside a field.
   fn mount_in_field(mut self, field: &super::InField, ctx: &mut Ctx) -> Element {
-    if self.label.is_none() {
+    if self.label.is_none() && !field.label.is_empty() {
       self.label = Some(field.label.clone());
     }
     self.invalid |= field.judgment == Some(super::Judgment::Invalid);

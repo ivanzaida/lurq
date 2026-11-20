@@ -412,7 +412,7 @@ impl super::FieldControl for Switch {
   /// Called by the field's label where its own is hidden, since the label a person reads is then the field's;
   /// invalid where the field is, and disabled where the field is.
   fn in_field(mut self, field: &super::InField) -> Element {
-    if self.label_hidden {
+    if self.label_hidden && !field.label.is_empty() {
       self.label = field.label.clone();
     }
     self.invalid |= field.judgment == Some(super::Judgment::Invalid);
