@@ -9,6 +9,53 @@ them says so. Decisions about phones and tablets are in [mobile-decisions.md](mo
 Each entry: **the question**, **the decision**, **why**, and its **state** (decided, in work on a branch, built,
 dropped). When a decision is replaced, the old entry stays and says what replaced it.
 
+## 2026-11-21
+
+### A breadcrumb that ends with a link, and a step that is no link
+
+- **Question.** Orchester's breadcrumbs do not all end with the page one is on: the Files header and Edit task end
+  their trail with a link (the task's key, back to the task), and the Sharing upload and join crumbs start with a
+  step that is plain text (the local project's name, which goes nowhere). lurq's breadcrumb makes every step but the
+  last a link, and the last the current page. Can a step say what it is?
+- **Decision (Ivan, 2026-11-21: "давай додай можливості в лурк ці").** `BreadcrumbStep::link(bool)`: whether the step
+  is a link, over what its place makes it. `link(true)` on the last step makes it a link, and the trail has no
+  current page; `link(false)` on a step before it makes it plain text, in a part of its own (`BreadcrumbPart::Text`,
+  the muted foreground as a link has it), no stop of Tab, not followed, and disabled in the menu of the hidden steps.
+  `Breadcrumb::current(false)` says the same of the whole: the last step is a link like the others, unless it is told
+  `link(false)`. A breadcrumb that overflows never drops its last step, link or page.
+- **Why.** What Orchester's kit (`ui/breadcrumb.rs`, `Crumb::to` and `Crumb::here` in any place) needs to move onto
+  `ui::Breadcrumb`; a trail that ends at a parent of the page (an editor's form under its record) and one that starts
+  at a place that cannot be opened are common to apps.
+- **State.** Decided; in work on `claude/k7-a-navigation`.
+
+### A tab's own state, its tooltip, and a press of the selected tab
+
+- **Question.** Orchester's page tabs paint a count in `warning` when it counts what waits for the person, give an
+  openable tab a tooltip (an explanation beside its lock), and open the current tab's page again when it is pressed
+  (a page whose current tab is a place of its own re-opens it). `ui::Tabs` has no state on one tab a recipe sees,
+  shows a tooltip only for a disabled tab's reason, and a press of the selected tab does nothing.
+- **Decision (Ivan, 2026-11-21: "давай додай можливості в лурк ці").** `Tab::state(name, on)`: the tab alone in a
+  state the theme's recipe names, seen by every part of it (its label, count, badge, dot), as a breadcrumb step's
+  state is. `Tab::tooltip(Tooltip)` and `Tab::hint(&str)`: a tooltip on the tab, open or disabled, in place of the
+  reason's tooltip (the reason stays its description to tooling). `Tabs::reselect(true)`: a press of the selected tab,
+  and choosing it in the menu of the overflowing form, tells `on_change` its value again (the signal is not set, being
+  the same); off unless told.
+- **Why.** What Orchester's kit (`ui/tabs.rs`, `PageTab::count(_, waits)`, `explanation`, `PageTab::to(.., current,
+  ..)`) needs to move onto `ui::Tabs`.
+- **State.** Decided; in work on `claude/k7-a-navigation`.
+
+### The list of every open tab opens with no tab hidden
+
+- **Question.** The docs of `WindowTabs::list_shortcut` and `menu_open` say the list of every open tab
+  (`WindowTabsMenu::All`) opens at any time, but it hangs from the More button, which is laid out only while a tab
+  has left the strip: with every tab in the strip the shortcut and the app's signal opened nothing on screen.
+- **Decision (Ivan, 2026-11-21: "давай додай можливості в лурк ці").** The list opens with no tab hidden, as the docs
+  say. The More button stays hidden then, and the list hangs from the tabs: 4 under them (or under what
+  `list_clear_of` names), its end at the end of the tabs, inside the window's edges as before. A press on a tab while
+  it so hangs is not outside it.
+- **Why.** Orchester's title bar opens the list by Ctrl/Cmd+Shift+A and from its own button whatever the strip shows.
+- **State.** Decided; in work on `claude/k7-a-navigation`.
+
 ## 2026-11-20
 
 ### The list of every open tab: the app's to know, its keys first, its rows, its place and its words
