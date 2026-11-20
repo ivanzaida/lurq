@@ -103,6 +103,7 @@ mod media_volume;
 mod menu;
 mod menu_content;
 mod menu_item_detail;
+mod menu_keys;
 mod menubar;
 mod message_box;
 mod meter;

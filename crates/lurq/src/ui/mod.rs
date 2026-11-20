@@ -413,7 +413,7 @@ pub use mentions::{
   MentionsState, MentionsView,
 };
 pub use menu::{
-  Menu, MenuEntry, MenuItem, MenuItemPart, MenuItemRenderer, MenuItemState, MenuItemView, MenuPart, MenuRenderer,
+  Menu, MenuEntry, MenuItem, MenuItemPart, MenuItemRenderer, MenuItemState, MenuItemView, MenuKeys, MenuPart, MenuRenderer,
   MenuState, MenuView,
 };
 pub use menubar::{Menubar, MenubarMenu, MenubarPart, MenubarRenderer, MenubarState, MenubarView};

@@ -1,24 +1,32 @@
 //! A menu: a list of commands in a panel over the window, opened from an anchor.
 
+mod keys;
+
 use std::sync::Arc;
+
+pub use keys::MenuKeys;
+use keys::ItemKeys;
 
 use super::{
   icons, names,
   part_style::Length,
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe},
-  shared::{fading, glyph, pressable},
+  shared::{fading, glyph, opens_aside, pressable},
   theme::{Themed, current_theme},
 };
 use crate::{
   app::{
     ctx::{CollisionStrategy, OpenState, OutsidePress, Placement},
-    events::KeyboardEvent,
+    events::{KeyboardEvent, MouseEvent},
     theme::{BorderSize, IconSize, OpacityLevel, PaletteColor, RadiusSize, ShadowStyle, Theme, TypographyStyle},
   },
   components::{self, Column, Popup, Row},
   core::{ElementRef, Signal},
   layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
-  node::{CursorIcon, Element, FocusGroup, SpacingValue, border::Border, node_kind::TextOverflow},
+  node::{
+    CursorIcon, Element, EventHandler, FocusGroup, IntoMouseEventHandler, SpacingValue, border::Border,
+    node_kind::TextOverflow,
+  },
 };
 
 /// How far the panel stands from its anchor, in the direction it opens.
@@ -159,6 +167,7 @@ pub struct Menu {
   dismiss_on_outside_press: bool,
   closes_too: Vec<Closer>,
   context: Option<Option<(f32, f32)>>,
+  keys: Option<MenuKeys>,
   states: Vec<Name>,
   rules: Recipe,
   id: Option<Arc<str>>,
@@ -212,6 +221,7 @@ impl Menu {
       dismiss_on_outside_press: true,
       closes_too: Vec::new(),
       context: None,
+      keys: None,
       states: Vec::new(),
       rules: Recipe::new(),
       id: None,
@@ -358,6 +368,20 @@ impl Menu {
     self
   }
 
+  /// Leaves the focus in the app's field as the menu opens, where a person goes on typing: a combobox's list, the
+  /// commands after a `/`, the people after an `@`. The panel takes no focus, nor does a press of an item; one item is
+  /// the active one (state [`MenuItemState::Active`], `a11y_selected` to tooling), the first that can be chosen as the
+  /// menu opens and whenever what it holds changes, and the one the pointer comes onto. While the field `keys` was
+  /// made with has the focus, the panel reads its keys ([`MenuKeys::key_down`]): Up and Down move the active item,
+  /// Enter chooses it, Ctrl+Enter (Cmd+Enter on macOS) asks for it aside, Escape closes the menu, and every other key
+  /// is the field's. A press outside the panel, in the field too, closes the menu and goes on to what it was on,
+  /// unless [`dismiss_on_outside_press`](Self::dismiss_on_outside_press) says otherwise; a press of the anchor opens
+  /// nothing. The items of an item's page and of a submenu are not reached by these keys.
+  pub fn keeps_focus(mut self, keys: &MenuKeys) -> Self {
+    self.keys = Some(keys.clone());
+    self
+  }
+
   /// Draws the panel where the menu is in the tree, open or not, and not over
   /// the window from its anchor: for a gallery, a test, or a list of commands
   /// that is part of a page. Choosing an item still calls its handler and
@@ -465,6 +489,7 @@ impl Menu {
       dismiss_on_outside_press: self.dismiss_on_outside_press,
       closes_too: self.closes_too,
       context: self.context,
+      keys: self.keys,
       id: self.id,
       key: self.key,
     };
@@ -512,6 +537,8 @@ pub struct MenuView {
   closes_too: Vec<Closer>,
   submenus: Vec<Signal<bool>>,
   context: Option<Option<(f32, f32)>>,
+  /// The keys of a menu that leaves the focus in the app's field.
+  keys: Option<MenuKeys>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
@@ -598,17 +625,30 @@ impl MenuView {
   /// to what reads the tree, and a group the arrow keys move the focus in:
   /// Up and Down between its items, Home and End to the first and the last,
   /// a letter to the item whose label starts with it. Tab stops in it once.
+  ///
+  /// A menu that [keeps the focus](Menu::keeps_focus) in the app's field is no group of the focus: it reads the keys
+  /// of the field while the field has the focus.
   pub fn panel(&self) -> Column {
     let mut panel = Column::new()
       .align_items(Alignment::Stretch)
       .part(&self.part(MenuPart::Panel))
-      .focus_group(
+      .describe("a11y_role", "menu");
+    panel = match &self.keys {
+      Some(keys) => {
+        let keys = keys.clone();
+        panel.on_key_down(move |event: KeyboardEvent| {
+          if keys.field().focus_signal().get_untracked() {
+            keys.key_down(&event);
+          }
+        })
+      }
+      None => panel.focus_group(
         FocusGroup::vertical()
           .one_stop(true)
           .follow_pointer(true)
           .typeahead(true),
-      )
-      .describe("a11y_role", "menu");
+      ),
+    };
     if let Some(label) = &self.label {
       panel = panel.describe("a11y_name", label.clone());
     }
@@ -786,6 +826,28 @@ impl MenuView {
     (x, y)
   }
 
+  /// Of a menu that keeps the focus in the app's field, starts the build of its keys over the items among `entries`:
+  /// the keys, the place of the next item among the items (0), and the active one.
+  fn begin_keys(&self, entries: &[MenuEntry]) -> Option<(MenuKeys, usize, Option<usize>)> {
+    let keys = self.keys.clone()?;
+    let items: Vec<(&str, bool)> = entries
+      .iter()
+      .filter_map(|entry| match entry {
+        MenuEntry::Item(item) => Some((item.label.as_ref(), !item.is_disabled())),
+        _ => None,
+      })
+      .collect();
+    let (own, dismissed) = (self.open.signal(), self.dismissed());
+    let dismiss = Arc::new(move || {
+      if let Some(own) = &own {
+        own.set(false);
+      }
+      dismissed();
+    });
+    let active = keys.begin(self.is_open(), &items, dismiss);
+    Some((keys, 0, active))
+  }
+
   /// How the default renderer builds a menu: the panel with what it holds,
   /// hung from the anchor over the window, or in place where it is inline.
   pub fn render(mut self) -> Element {
@@ -809,10 +871,19 @@ impl MenuView {
         });
       }
       _ => {
+        let mut active = self.begin_keys(&entries);
         for (index, entry) in entries.into_iter().enumerate() {
           panel = panel.child(match entry {
             MenuEntry::Item(item) => {
-              let item = self.opens_page(item, index);
+              let mut item = self.opens_page(item, index);
+              if let Some((keys, at, on)) = &mut active {
+                item.keys = Some(ItemKeys {
+                  keys: keys.clone(),
+                  index: *at,
+                  active: *on == Some(*at),
+                });
+                *at += 1;
+              }
               self.item(item)
             }
             MenuEntry::Separator => self.separator(),
@@ -826,12 +897,14 @@ impl MenuView {
       return panel.into();
     }
     let (x, y) = self.offset();
-    // The focus goes to the first item that takes it as the menu opens, and back to what had it as it closes.
+    // The focus goes to the first item that takes it as the menu opens, and back to what had it as it closes; a
+    // menu that keeps it in the app's field leaves it there, and a press outside it goes on to what it was on.
+    let keeps = self.keys.is_some();
     let mut popup = Popup::new(self.anchor.clone(), panel)
       .open(self.open.clone())
       .placement(self.placement)
       .offset(x, y)
-      .takes_focus(true)
+      .takes_focus(!keeps)
       .dismiss_on_escape(self.dismiss_on_escape)
       .dismiss_on_outside_click(self.dismiss_on_outside_press)
       .on_dismiss(self.dismissed());
@@ -846,6 +919,11 @@ impl MenuView {
     }
     if self.at.is_some() {
       popup = popup.at(self.at);
+    }
+    if keeps {
+      popup = popup
+        .outside_press(OutsidePress::PassThrough)
+        .switch_on_anchor_press(false);
     }
     if self.submenu {
       // A press on the menu it hangs from closes the submenu and still reaches the item pressed there; the item
@@ -984,6 +1062,9 @@ pub enum MenuItemState {
   Unavailable,
   /// What it shows is the app's own element ([`MenuItem::content`]): it is as high as that, and never lower than a row.
   Content,
+  /// It is the item the keys are on in a menu that leaves the focus in the app's field ([`Menu::keeps_focus`]): what
+  /// Enter chooses.
+  Active,
 }
 
 names!(MenuItemState {
@@ -996,6 +1077,7 @@ names!(MenuItemState {
   Detail => "detail",
   Unavailable => "unavailable",
   Content => "content",
+  Active => "active",
 });
 
 /// What builds a menu item's nodes: a theme's in place of the default one.
@@ -1036,8 +1118,11 @@ pub struct MenuItem {
   rules: Recipe,
   forced: Option<Interaction>,
   on_select: Vec<Arc<dyn Fn() + Send + Sync>>,
+  on_open_aside: Vec<EventHandler<MouseEvent>>,
   closes: Vec<Closer>,
   submenus: Vec<Signal<bool>>,
+  /// Of a menu that keeps the focus in the app's field: its keys, the item's place, and whether it is the active one.
+  keys: Option<ItemKeys>,
   autofocus: bool,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
@@ -1066,8 +1151,10 @@ impl MenuItem {
       rules: Recipe::new(),
       forced: None,
       on_select: Vec::new(),
+      on_open_aside: Vec::new(),
       closes: Vec::new(),
       submenus: Vec::new(),
+      keys: None,
       autofocus: false,
       id: None,
       key: None,
@@ -1212,6 +1299,18 @@ impl MenuItem {
     self
   }
 
+  /// Called when a person asks for what the item stands for beside what is open, in place of choosing it: a press of
+  /// the middle button, or a press with Ctrl held (Cmd on macOS), and Enter with it while the item is focused or, in
+  /// a menu that [keeps the focus](Menu::keeps_focus) in the app's field, is the active one. An app with tabs opens
+  /// the place in a new one. Such a press is the handler's alone: [`on_select`](Self::on_select) is not called, the
+  /// item takes no focus, and the menu closes, with the menus it is in, as after a choice. It is given the press,
+  /// whose `shift` asks for a tab that is switched to. An item that is disabled, or opens a submenu or a page, is
+  /// asked for nothing. A second handler is called after the first.
+  pub fn on_open_aside(mut self, handler: impl IntoMouseEventHandler) -> Self {
+    self.on_open_aside.push(handler.into_event_handler());
+    self
+  }
+
   /// Styles one part of this item over what the theme gives it.
   pub fn style(mut self, part: impl Into<Name>, style: impl FnOnce(super::PartStyle) -> super::PartStyle) -> Self {
     self.rules = self.rules.base(part, style);
@@ -1296,7 +1395,8 @@ impl MenuItem {
     .state(MenuItemState::Open, open)
     .state(MenuItemState::Detail, detail.is_some())
     .state(MenuItemState::Unavailable, self.reason.is_some())
-    .state(MenuItemState::Content, self.content.is_some());
+    .state(MenuItemState::Content, self.content.is_some())
+    .state(MenuItemState::Active, self.keys.as_ref().is_some_and(|keys| keys.active));
     let view = MenuItemView {
       label: self.label,
       icon: self.icon,
@@ -1319,8 +1419,10 @@ impl MenuItem {
       name: self.name,
       forced: self.forced,
       on_select: self.on_select,
+      aside: self.on_open_aside,
       closes: self.closes,
       submenus: self.submenus,
+      keys: self.keys,
       autofocus: self.autofocus,
       id: self.id,
       key: self.key,
@@ -1371,8 +1473,10 @@ pub struct MenuItemView {
   name: Option<Arc<str>>,
   forced: Option<Interaction>,
   on_select: Vec<Arc<dyn Fn() + Send + Sync>>,
+  aside: Vec<EventHandler<MouseEvent>>,
   closes: Vec<Closer>,
   submenus: Vec<Signal<bool>>,
+  keys: Option<ItemKeys>,
   autofocus: bool,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
@@ -1447,6 +1551,23 @@ impl MenuItemView {
     })
   }
 
+  /// What asking for the item aside does: its menu closes, and the menus it is in, then its `on_open_aside` handlers
+  /// are called with the press. None for an item that has none, is disabled, or opens a submenu or a page.
+  fn aside(&self) -> Option<Arc<dyn Fn(&MouseEvent) + Send + Sync>> {
+    if self.disabled || self.aside.is_empty() || self.submenu.is_some() || self.stays.is_some() {
+      return None;
+    }
+    let (handlers, closes) = (self.aside.clone(), self.closes.clone());
+    Some(Arc::new(move |event: &MouseEvent| {
+      for closer in &closes {
+        (closer.close)();
+      }
+      for handler in &handlers {
+        handler.call(event);
+      }
+    }))
+  }
+
   /// The item's behavior with the style of its root: the element that is
   /// pressed, focused and disabled, with nothing in it yet. It is a menu item
   /// to what reads the tree, called by its label. An item with a submenu is
@@ -1475,8 +1596,26 @@ impl MenuItemView {
         .describe("a11y_haspopup", "menu")
         .describe("a11y_expanded", if self.open { "true" } else { "false" });
     }
-    if let Some(choose) = self.choose() {
+    // Ahead of the choice, which a press that asks for the item aside does not reach.
+    let aside = self.aside();
+    if let Some(aside) = &aside {
+      let aside = aside.clone();
+      root = opens_aside(root, &[EventHandler::new(move |event: &MouseEvent| aside(event))]);
+    }
+    let choose = self.choose();
+    if let Some(choose) = &choose {
+      let choose = choose.clone();
       root = root.on_click(move |_| choose());
+    }
+    // In a menu that keeps the focus in the app's field: the item takes none, tells the keys what it does, and is
+    // the active one under the pointer.
+    if let Some(keys) = &self.keys {
+      keys.keys.register(keys.index, choose, aside);
+      let (pointed, index) = (keys.keys.clone(), keys.index);
+      root = root
+        .focusable(false)
+        .describe("a11y_selected", if keys.active { "true" } else { "false" })
+        .on_mouse_enter(move || pointed.point(index));
     }
     // Right shows the page of an item that has one.
     if self.page
@@ -1742,6 +1881,7 @@ impl Themed for MenuItem {
       .hovered(Root, |s| s.background(Highlight))
       .focus_visible(Root, |s| s.background(Highlight))
       .state(MenuItemState::Open, Root, |s| s.background(Highlight))
+      .state(MenuItemState::Active, Root, |s| s.background(Highlight))
       .state(MenuItemState::Destructive, Root, |s| s.foreground(Destructive))
       .state(MenuItemState::Destructive, Icon, |s| s.foreground(Destructive))
       .state(MenuItemState::Disabled, Root, |s| {
