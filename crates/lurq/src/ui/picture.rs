@@ -1346,6 +1346,11 @@ struct Live {
   /// The load of the picture's bytes while it is on its way, with its source's key: while it is held the app's
   /// loader keeps it.
   held: Arc<parking_lot::Mutex<Option<(u64, crate::resources::Load)>>>,
+  /// Whether any of its box shows, in the list it scrolls in or in the window: a picture that shows is loaded
+  /// before one that does not. Kept by the observer under it, for as long as the picture lives.
+  #[cfg_attr(not(feature = "image"), allow(dead_code))]
+  shows: Arc<std::sync::atomic::AtomicBool>,
+  _watching: Arc<crate::core::VisibilityObserver>,
   /// The load of the small version that stands in for the picture, as `held` is the picture's.
   held_small: Arc<parking_lot::Mutex<Option<(u64, crate::resources::Load)>>>,
   /// What the app was last told of a source, by its key: that it came, or that it did not.
@@ -1396,6 +1401,27 @@ impl Component for PictureHost {
         }
       });
     }
+    // A picture that shows is loaded before those that wait their turn and do not: in a long list scrolled
+    // fast, the rows on the screen now and not the ones that went by.
+    type Held = Arc<parking_lot::Mutex<Option<(u64, crate::resources::Load)>>>;
+    let (held, held_small): (Held, Held) = (Arc::default(), Arc::default());
+    let shows = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let watching = frame.observe_visibility(crate::core::VisibilityOptions::new(), {
+      let (shows, loads) = (shows.clone(), [held.clone(), held_small.clone()]);
+      move |seen| {
+        shows.store(seen.visible, std::sync::atomic::Ordering::Relaxed);
+        let priority = if seen.visible {
+          crate::resources::LoadPriority::High
+        } else {
+          crate::resources::LoadPriority::Normal
+        };
+        for held in &loads {
+          if let Some((_, load)) = &*held.lock() {
+            load.set_priority(priority);
+          }
+        }
+      }
+    });
     Self {
       live: Live {
         menu: ctx.signal(false),
@@ -1404,8 +1430,10 @@ impl Component for PictureHost {
         sheet: ctx.signal(false),
         tick,
         wake,
-        held: Arc::default(),
-        held_small: Arc::default(),
+        held,
+        held_small,
+        shows,
+        _watching: Arc::new(watching),
         told: Arc::default(),
         news: Arc::default(),
         frame,
@@ -1544,6 +1572,10 @@ impl PictureHost {
               )));
             };
             let load = app.loader().load(source);
+            // One that shows goes before those that wait and do not.
+            if self.live.shows.load(std::sync::atomic::Ordering::Relaxed) {
+              load.set_priority(crate::resources::LoadPriority::High);
+            }
             *held = Some((source.cache_key(), load.clone()));
             load
           }

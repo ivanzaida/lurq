@@ -18,7 +18,7 @@ use std::{
   path::PathBuf,
   sync::{
     Arc,
-    atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
+    atomic::{AtomicBool, AtomicU8, AtomicU64, AtomicUsize, Ordering},
   },
   time::Duration,
 };
@@ -126,10 +126,38 @@ impl LoadState {
   }
 }
 
+/// How soon a load is read, among those that wait their turn: see [`Load::set_priority`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum LoadPriority {
+  /// After the others: what is far from what is shown, fetched for later.
+  Low,
+  /// As it comes.
+  #[default]
+  Normal,
+  /// Before the others: what is on the screen now.
+  High,
+}
+
+impl LoadPriority {
+  fn of(level: u8) -> Self {
+    match level {
+      0 => Self::Low,
+      1 => Self::Normal,
+      _ => Self::High,
+    }
+  }
+}
+
+/// The count of the loads asked for, in the order they were: the one asked for last has the largest.
+static ASKED: AtomicU64 = AtomicU64::new(1);
+
 struct Entry {
   state: Mutex<LoadState>,
-  /// Nobody waits for it: what reads it stops at its next step.
+  /// Nobody waits for it: what reads it stops at its next step, and what has not started it does not.
   cancelled: AtomicBool,
+  /// How soon it is read among those that wait, and when it was last asked for.
+  priority: AtomicU8,
+  asked: AtomicU64,
   /// How many [`Load`]s hold it.
   holders: AtomicUsize,
   /// Since when nobody holds it.
@@ -144,6 +172,8 @@ impl Entry {
     Arc::new(Self {
       state: Mutex::new(state),
       cancelled: AtomicBool::new(false),
+      priority: AtomicU8::new(LoadPriority::Normal as u8),
+      asked: AtomicU64::new(ASKED.fetch_add(1, Ordering::Relaxed)),
       holders: AtomicUsize::new(0),
       idle_since: Mutex::new(Some(Instant::now())),
       wakers: Mutex::new(Vec::new()),
@@ -157,6 +187,11 @@ impl Entry {
     for wake in wakers {
       wake();
     }
+  }
+
+  /// Whether anybody still waits for it.
+  fn wanted(&self) -> bool {
+    !self.cancelled.load(Ordering::Acquire)
   }
 
   /// The load came to `loaded` of `total`. Answers whether it is to go on: `false` once nobody waits for it.
@@ -176,6 +211,116 @@ impl Entry {
       Err(error) => LoadState::Failed(error),
     };
     self.wake();
+  }
+}
+
+/// A read that waits its turn.
+#[cfg(not(target_arch = "wasm32"))]
+struct Waits {
+  /// What tells it from the others that wait.
+  turn: u64,
+  entry: Arc<Entry>,
+  read: Box<dyn FnOnce() + Send>,
+}
+
+/// The reads that wait their turn. As many are read at once as the loader's pool is large; when one of its
+/// threads (or a blocking task of the app's runtime) is free, the read it takes is not the one that came first
+/// but the one of the highest [priority](LoadPriority), and among those the one asked for last: in a long list
+/// scrolled fast, what is on the screen now is read before what went by. A read nobody waits for any more is
+/// not started at all.
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Default)]
+struct Waiting {
+  reads: Mutex<Vec<Waits>>,
+  turns: AtomicU64,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl Waiting {
+  /// Takes a read in, and gives the turn that will read one: its own, or one that came after and goes before.
+  fn push(self: &Arc<Self>, entry: Arc<Entry>, read: Box<dyn FnOnce() + Send>) -> Turn {
+    let turn = self.turns.fetch_add(1, Ordering::Relaxed);
+    self.reads.lock().push(Waits { turn, entry, read });
+    Turn {
+      waiting: self.clone(),
+      turn,
+      taken: false,
+    }
+  }
+
+  /// The read whose turn it is. Those nobody waits for are let go, unread: each ends as a load that was stopped.
+  fn next(&self) -> Option<Box<dyn FnOnce() + Send>> {
+    let (next, gone) = {
+      let mut reads = self.reads.lock();
+      let (kept, gone): (Vec<Waits>, Vec<Waits>) = std::mem::take(&mut *reads)
+        .into_iter()
+        .partition(|waits| waits.entry.wanted());
+      *reads = kept;
+      let best = reads
+        .iter()
+        .enumerate()
+        .max_by_key(|(_, waits)| {
+          (
+            waits.entry.priority.load(Ordering::Relaxed),
+            waits.entry.asked.load(Ordering::Relaxed),
+          )
+        })
+        .map(|(at, _)| at);
+      (best.map(|at| reads.swap_remove(at)), gone)
+    };
+    // Outside the lock: a read let go tells who waited for it, which may ask the loader again.
+    drop(gone);
+    next.map(|waits| waits.read)
+  }
+
+  /// A turn was dropped unread, by a runtime that stopped: one read will never have its turn, and is let go.
+  /// Its own, where it still waits; else the one that would have been read last.
+  fn give_up(&self, turn: u64) {
+    let gone = {
+      let mut reads = self.reads.lock();
+      let at = reads.iter().position(|waits| waits.turn == turn).or_else(|| {
+        reads
+          .iter()
+          .enumerate()
+          .min_by_key(|(_, waits)| {
+            (
+              waits.entry.priority.load(Ordering::Relaxed),
+              waits.entry.asked.load(Ordering::Relaxed),
+            )
+          })
+          .map(|(at, _)| at)
+      });
+      at.map(|at| reads.swap_remove(at))
+    };
+    drop(gone);
+  }
+}
+
+/// A place in the line of the reads that wait: run, it reads the one whose turn it is; dropped unrun, one read
+/// of the line is let go, so that none waits for a turn that never comes.
+#[cfg(not(target_arch = "wasm32"))]
+struct Turn {
+  waiting: Arc<Waiting>,
+  turn: u64,
+  taken: bool,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl Turn {
+  fn run(mut self) {
+    self.taken = true;
+    if let Some(read) = self.waiting.next() {
+      read();
+    }
+  }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl Drop for Turn {
+  fn drop(&mut self) {
+    if !self.taken {
+      self.waiting.give_up(self.turn);
+    }
   }
 }
 
@@ -208,6 +353,25 @@ impl Load {
   /// Where the load is now.
   pub fn state(&self) -> LoadState {
     self.entry.state.lock().clone()
+  }
+
+  /// How soon it is read among the loads that wait their turn: before the others (`High`, what is on the
+  /// screen now), as it comes (`Normal`, unless told), or after the others (`Low`). Among loads of one
+  /// priority the one asked for last is read first. It can be told again while the load waits: a picture
+  /// that scrolls into view goes before the ones that scrolled out. Nothing to a load that is being read.
+  pub fn set_priority(&self, priority: LoadPriority) {
+    self.entry.priority.store(priority as u8, Ordering::Relaxed);
+  }
+
+  /// [`set_priority`](Self::set_priority), on a load as it is asked for.
+  pub fn with_priority(self, priority: LoadPriority) -> Self {
+    self.set_priority(priority);
+    self
+  }
+
+  /// How soon it is read among the loads that wait.
+  pub fn priority(&self) -> LoadPriority {
+    LoadPriority::of(self.entry.priority.load(Ordering::Relaxed))
   }
 
   /// Calls `wake` when the load ends, and as it comes further. The same waker is kept once.
@@ -256,6 +420,9 @@ struct Settings {
 struct Shared {
   settings: RwLock<Settings>,
   entries: Mutex<HashMap<u64, Arc<Entry>>>,
+  /// The reads that wait for a thread of the pool, or for room on the app's runtime.
+  #[cfg(not(target_arch = "wasm32"))]
+  waiting: Arc<Waiting>,
   /// Made by the first load that reads: an app that loads nothing has no threads for it.
   pool: Mutex<Option<ThreadPool>>,
   /// What was loaded from addresses, kept in the folder the app gave: off until it gives one.
@@ -322,6 +489,8 @@ impl Loader {
           block: DEFAULT_READ_BLOCK,
         }),
         entries: Mutex::new(HashMap::new()),
+        #[cfg(not(target_arch = "wasm32"))]
+        waiting: Arc::default(),
         pool: Mutex::new(None),
         agents: agent_pool(LOADER_THREADS),
         disk: MediaDiskCache::new(),
@@ -560,6 +729,10 @@ impl Loader {
     let key = source.cache_key();
     let mut entries = self.shared.entries.lock();
     if let Some(entry) = entries.get(&key) {
+      // Asked for again, it is the newest: among the loads that wait it goes first.
+      entry
+        .asked
+        .store(ASKED.fetch_add(1, Ordering::Relaxed), Ordering::Relaxed);
       return Load::of(entry);
     }
     let entry = match &source.kind {
@@ -665,8 +838,13 @@ impl Loader {
       let disk = self.shared.disk.clone();
       let agents = self.shared.agents.clone();
       let unread = Unread(entry.clone());
+      let waits = entry.clone();
       let read = move || {
         let _unread = unread;
+        // Nobody waits for it any more: it is not started.
+        if !entry.wanted() {
+          return;
+        }
         let told = |loaded, total| entry.progress(loaded, total);
         let result = match (path, &source.kind, head) {
           (Some(path), _, Some(head)) => FileReader::open(&path)
@@ -690,13 +868,16 @@ impl Loader {
         };
         entry.finish(result);
       };
+      // It waits its turn with the others: what is free next reads the one of the highest priority, the one
+      // asked for last among those, and not the one that came first.
+      let turn = self.shared.waiting.push(waits, Box::new(read));
       // On the app's runtime where it gave one: a blocking task of it, once there is room for one more read.
       #[cfg(feature = "tokio")]
       if let Some(handle) = self.shared.runtime.lock().clone() {
         let room = self.shared.room.lock().clone();
         drop(handle.spawn(async move {
-          if let Ok(_turn) = room.acquire().await {
-            let _ = tokio::task::spawn_blocking(read).await;
+          if let Ok(_room) = room.acquire().await {
+            let _ = tokio::task::spawn_blocking(move || turn.run()).await;
           }
         }));
         return;
@@ -707,7 +888,7 @@ impl Loader {
         .pool
         .lock()
         .get_or_insert_with(|| ThreadPool::new(size))
-        .execute(read);
+        .execute(move || turn.run());
     }
   }
 
@@ -1213,6 +1394,113 @@ mod tests {
     (address, served)
   }
 
+  /// A server on this machine that answers every request with three bytes, `pause` after it came, and keeps
+  /// the paths it was asked for, in order.
+  #[cfg(feature = "http")]
+  fn serve_named(pause: Duration) -> (String, Arc<Mutex<Vec<String>>>) {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = format!("http://{}", listener.local_addr().unwrap());
+    let asked: Arc<Mutex<Vec<String>>> = Arc::default();
+    let paths = asked.clone();
+    std::thread::spawn(move || {
+      for stream in listener.incoming() {
+        let Ok(mut stream) = stream else {
+          return;
+        };
+        let paths = paths.clone();
+        std::thread::spawn(move || {
+          let mut request = Vec::new();
+          let mut chunk = [0_u8; 1024];
+          loop {
+            while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+              match stream.read(&mut chunk) {
+                Ok(read) if read > 0 => request.extend_from_slice(&chunk[..read]),
+                _ => return,
+              }
+            }
+            let said = String::from_utf8_lossy(&request).into_owned();
+            let path = said.split_whitespace().nth(1).unwrap_or_default().to_owned();
+            request.clear();
+            paths.lock().push(path);
+            std::thread::sleep(pause);
+            if stream
+              .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nabc")
+              .is_err()
+            {
+              return;
+            }
+          }
+        });
+      }
+    });
+    (address, asked)
+  }
+
+  /// Waits until the server was asked for `count` paths.
+  #[cfg(feature = "http")]
+  fn asked_for(asked: &Mutex<Vec<String>>, count: usize) {
+    let until = Instant::now() + Duration::from_secs(5);
+    while asked.lock().len() < count {
+      assert!(Instant::now() < until, "asked for {:?} only", asked.lock());
+      std::thread::sleep(Duration::from_millis(2));
+    }
+  }
+
+  #[cfg(feature = "http")]
+  #[test]
+  fn the_loads_that_wait_are_read_by_their_priority_and_the_newest_first() {
+    let (address, asked) = serve_named(Duration::from_millis(60));
+    let loader = loader();
+    loader.pool_size(1);
+    let load = |name: &str| loader.load(&Source::url(&format!("{address}/{name}")));
+    // The one thread reads the first; the others wait their turn.
+    let first = load("first");
+    asked_for(&asked, 1);
+    let (a, b, c) = (load("a"), load("b"), load("c"));
+    let later = load("later").with_priority(LoadPriority::Low);
+    assert_eq!(later.priority(), LoadPriority::Low);
+    // What came into view goes before the rest, though it was asked for first.
+    a.set_priority(LoadPriority::High);
+    for load in [&first, &a, &b, &c, &later] {
+      assert!(matches!(ended(load), LoadState::Ready(bytes) if bytes[..] == *b"abc"));
+    }
+    assert_eq!(
+      *asked.lock(),
+      ["/first", "/a", "/c", "/b", "/later"],
+      "the one in view, then the newest, then the one for later"
+    );
+  }
+
+  #[cfg(feature = "http")]
+  #[test]
+  fn a_load_nobody_waits_for_any_more_is_never_started() {
+    let (address, asked) = serve_named(Duration::from_millis(600));
+    let loader = loader();
+    loader.pool_size(1);
+    let load = |name: &str| loader.load(&Source::url(&format!("{address}/{name}")));
+    let first = load("first");
+    asked_for(&asked, 1);
+    // A row scrolled past: asked for, and let go before its turn came.
+    let gone = load("gone");
+    let wake = Arc::new(AtomicUsize::new(0));
+    let woken = wake.clone();
+    gone.wake_with(Arc::new(move || {
+      woken.fetch_add(1, Ordering::SeqCst);
+    }));
+    drop(gone);
+    std::thread::sleep(IDLE_GRACE + Duration::from_millis(40));
+    loader.sweep();
+    let kept = load("kept");
+    for load in [&first, &kept] {
+      assert!(matches!(ended(load), LoadState::Ready(_)));
+    }
+    assert_eq!(*asked.lock(), ["/first", "/kept"], "the server was never asked for it");
+    assert_eq!(loader.pending(), 0);
+    // Asked for again, it is loaded as anything new is.
+    assert!(matches!(ended(&load("gone")), LoadState::Ready(_)));
+  }
+
   #[cfg(feature = "http")]
   #[test]
   fn the_loads_of_one_host_go_over_the_connection_the_first_opened() {
@@ -1332,6 +1620,8 @@ mod tests {
       what_came_from_an_address_is_kept_in_the_folder_the_app_gave_and_read_from_there,
       the_loads_of_one_host_go_over_the_connection_the_first_opened,
       as_many_loads_are_read_at_once_as_the_pool_is_large_and_its_agents_are_kept,
+      the_loads_that_wait_are_read_by_their_priority_and_the_newest_first,
+      a_load_nobody_waits_for_any_more_is_never_started,
     );
 
     /// Loads `count` files of this test's own with `loader`, one after another, to their end.

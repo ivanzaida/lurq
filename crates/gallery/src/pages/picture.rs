@@ -23,6 +23,115 @@ use crate::{
   playground::{Playground, Shown, Spec, divider, field, flag, prop},
 };
 
+/// How many pictures the list that shows the loader's order has, and how high a row of it is.
+#[cfg(not(target_arch = "wasm32"))]
+const ORDER_ROWS: usize = 40;
+#[cfg(not(target_arch = "wasm32"))]
+const ORDER_ROW: f32 = 48.0;
+
+/// A list of pictures from a host that takes a third of a second over each, with the order the host was asked
+/// for them beside it: the rows that show first, then the newest. A component of its own: the order is read
+/// again a few times a second while pictures are on their way.
+#[cfg(not(target_arch = "wasm32"))]
+struct Order {
+  /// Counted on by "Again": another run is other addresses, which nothing has loaded yet.
+  run: Signal<u64>,
+  /// Counted on by a clock while the host is still asked for pictures: the order is read again.
+  beat: Signal<u64>,
+  _clock: lurq::app::ctx::Interval,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl Component for Order {
+  type Props = ();
+
+  fn create(ctx: &mut Ctx) -> Self {
+    let (run, beat) = (ctx.signal(1_u64), ctx.signal(0_u64));
+    let clock = ctx.create_interval(std::time::Duration::from_millis(200), {
+      let (run, beat) = (run.clone(), beat.clone());
+      let seen = std::sync::atomic::AtomicUsize::new(usize::MAX);
+      move || {
+        let asked = crate::slow_host::slow_host().map_or(0, |host| host.asked(run.get_untracked()).len());
+        // Only while more of them were asked for since the last look.
+        if seen.swap(asked, std::sync::atomic::Ordering::Relaxed) != asked {
+          beat.update(|count| *count += 1);
+        }
+      }
+    });
+    clock.start();
+    Self {
+      run,
+      beat,
+      _clock: clock,
+    }
+  }
+
+  fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
+    let run = self.run.get();
+    self.beat.get();
+    let Some(host) = crate::slow_host::slow_host() else {
+      return Column::new().child(quiet("this machine gave the gallery's host no port", 12.0));
+    };
+    let rows = Column::new().width(FILL).with_children((0..ORDER_ROWS).map(|index| {
+      Row::new()
+        .width(FILL)
+        .height(ORDER_ROW)
+        .spacing(12.0)
+        .padding_horizontal(12.0)
+        .align_items(Alignment::Center)
+        .child(
+          Picture::from_source(lurq::resources::Source::url(&host.picture(run, index)))
+            .label(&format!("Picture {index}"))
+            .size_px(32.0, 32.0)
+            .bare(true)
+            .key(format!("order-{run}-{index}")),
+        )
+        .child(text(&format!("Picture {index}"), 13.0, FontWeight::Medium))
+    }));
+    let asked = host.asked(run);
+    let order = asked.iter().map(usize::to_string).collect::<Vec<_>>().join(" ");
+    let again = {
+      let run = self.run.clone();
+      Button::new("Again")
+        .variant(ButtonVariant::Outline)
+        .size(ButtonSize::Sm)
+        .id("order-again")
+        .on_click(move |_| run.update(|run| *run += 1))
+    };
+    Column::new()
+      .width(FILL)
+      .spacing(16.0)
+      .child(Row::new().child(again))
+      .child(
+        Row::new()
+          .width(FILL)
+          .spacing(24.0)
+          .wrap()
+          .align_items(Alignment::Start)
+          .child(
+            lurq::components::ScrollVertical::new(rows)
+              .id("order-list")
+              .width(240.0)
+              .max_width(FILL)
+              .height(ORDER_ROW * 4.0)
+              .rounded(RadiusSize::Md)
+              .border(crate::kit::line()),
+          )
+          .child(
+            Column::new()
+              .width(280.0)
+              .max_width(FILL)
+              .spacing(6.0)
+              .child(quiet(
+                &format!("asked for {} of {ORDER_ROWS}, in this order", asked.len()),
+                12.0,
+              ))
+              .child(lurq::components::Text::new(&order).id("order-asked")),
+          ),
+      )
+  }
+}
+
 /// Something on a stage with what it is under it.
 fn item(shown: impl Into<Element>, caption: &str) -> Column {
   // No wider than the stage: what is shown gets narrower with it, and what is said under it wraps.
@@ -814,6 +923,8 @@ impl Component for PicturePage {
           ),
       )
     });
+    #[cfg(not(target_arch = "wasm32"))]
+    let order = ctx.mount::<Order>(());
     let on_a_phone = crate::kit::apart(|| {
       items()
         .id("picture-phone")
@@ -1188,6 +1299,29 @@ impl Component for PicturePage {
               "    .menu_items(items)",
               "    .lightbox(true)",
               "    .variant(PictureVariant::Phone)",
+            ],
+          ),
+        ),
+        #[cfg(not(target_arch = "wasm32"))]
+        Section::new(
+          "What loads first",
+          "Forty pictures from a host on this machine that takes a third of a second over each, four of them \
+           read at a time. All forty are asked for as the list is built; the order the host was asked in is beside \
+           it. The four rows that show are read first, then the newest asked for: scroll while they load, and the \
+           rows that come into view go before the ones that wait. A mounted picture tells the loader while its box \
+           shows; an app's own load says it with set_priority.",
+          self.frame.demo(
+            9,
+            order,
+            "load.set_priority(LoadPriority::High)",
+            &[
+              "// A mounted picture does this itself, from whether its box shows.",
+              "let load = app.loader().load(&Source::url(address));",
+              "load.set_priority(LoadPriority::High);   // before the others that wait",
+              "",
+              "// Of the loads that wait: the highest priority first, and the newest among those.",
+              "// A load nobody holds any more is never started.",
+              "drop(load);",
             ],
           ),
         ),

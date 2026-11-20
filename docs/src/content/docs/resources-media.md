@@ -315,7 +315,17 @@ app
   the same host, a picture of the same album, goes over one of them with no new handshake; a reader of an address
   (`loader.open`, a video) is lent them for each of its requests. Told again, it is for the loads asked for from
   then on: those on their way end on the threads they were given, and an agent given back beyond the new size is
-  let go. Loads wait their turn in the order they were asked for.
+  let go.
+- **Whose turn it is.** Of the loads that wait for a free thread, the next one read is the one of the highest
+  priority, and among those the one asked for last, not the one that came first: in a long list scrolled fast,
+  what is on the screen now is read before what went by. `load.set_priority(LoadPriority::High)` (or
+  `loader.load(&source).with_priority(..)`) puts a load before the others, `Low` after them; it can be told again
+  while the load waits. A mounted [`ui::Picture`](../design-system/#picture) gives its load `High` while any of
+  its box shows in the list it scrolls in, and `Normal` when it does not.
+- **A load nobody waits for is not read.** A `Load` dropped by everyone that held it (the picture of a row that
+  scrolled out of a virtualized list, a component that was unmounted) is let go a quarter of a second later: one
+  that still waits its turn is never started, and the server is never asked; one being read stops at its next
+  step. So a list scrolled past does not hold the pool. Asked for again, it is loaded as anything new is.
 - `allow` says which addresses may be loaded: every one the app asks for, unless told. One it refuses fails with
   `LoadError::Denied` and nothing is sent. It is what keeps a text from a stranger, shown by the app, from fetching
   what the stranger chose.

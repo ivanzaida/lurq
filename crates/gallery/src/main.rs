@@ -25,6 +25,8 @@ mod pages;
 mod playground;
 mod scene;
 mod shell;
+#[cfg(not(target_arch = "wasm32"))]
+mod slow_host;
 #[cfg(test)]
 mod speed;
 mod styling;
