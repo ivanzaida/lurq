@@ -1,6 +1,8 @@
 //! Interaction groups (`.interaction_group(true)`): an element under the pointer, or with the focus on it or in
 //! it, lights the elements in it that have a `within` state style, as an action at the end of a row that shows
-//! only while the row is pointed at or focused. An element in two groups answers to the innermost. What is lit
+//! only while the row is pointed at or focused. An element in two groups answers to the innermost. An element in no
+//! group answers to the innermost button it is in, as to a group: the label of a button styled by the button's hover.
+//! What is lit
 //! knows too whether its group is under the pointer and whether it is held down, for the parts styled by the
 //! group's hover or press alone (`within_hovered_style`, `within_pressed_style`): a cell that stays as its row
 //! scrolls and covers the row's veil, veiled with the row instead.
@@ -22,12 +24,14 @@ impl Tree {
       if root.is_style_hovered() && root.is_interaction_group() {
         groups.push(root);
       }
+      let grouped = root.is_interaction_group();
       for child in root.children() {
-        hovered_groups(child, &mut groups);
+        hovered_groups(child, grouped, &mut groups);
       }
       if let Some(path) = &self.focused_path {
         let mut node = root;
-        if node.is_interaction_group() {
+        let mut grouped = node.is_interaction_group();
+        if grouped {
           groups.push(node);
         }
         for &index in path {
@@ -35,9 +39,10 @@ impl Tree {
             break;
           };
           node = child;
-          if node.is_interaction_group() {
+          if acts_as_group(node, grouped) {
             groups.push(node);
           }
+          grouped |= node.is_interaction_group();
         }
       }
     }
@@ -58,7 +63,7 @@ impl Tree {
         hovered: group.is_style_hovered(),
         pressed: group.style_state.is_active(),
       };
-      light(group, true, states, &mut lit, &mut changed);
+      light(group, states, &mut lit, &mut changed);
     }
     for state in std::mem::take(&mut self.within_states) {
       if state.is_within() && !lit.iter().any(|kept| kept.same(&state)) {
@@ -75,16 +80,24 @@ impl Tree {
   }
 }
 
-/// The interaction groups among the hovered nodes under `node`, `node` too.
-fn hovered_groups<'a>(node: &'a Node, groups: &mut Vec<&'a Node>) {
+/// Whether `node` lights what it holds: it is an interaction group, or a button in none (`grouped` says whether a
+/// group is around it).
+fn acts_as_group(node: &Node, grouped: bool) -> bool {
+  node.is_interaction_group() || !grouped && node.button_kind_value().is_some()
+}
+
+/// The interaction groups among the hovered nodes under `node`, `node` too, and the buttons in no group among them;
+/// `grouped` says whether a group is around `node`.
+fn hovered_groups<'a>(node: &'a Node, grouped: bool, groups: &mut Vec<&'a Node>) {
   if !node.is_style_hovered() {
     return;
   }
-  if node.is_interaction_group() {
+  if acts_as_group(node, grouped) {
     groups.push(node);
   }
+  let grouped = grouped || node.is_interaction_group();
   for child in node.children() {
-    hovered_groups(child, groups);
+    hovered_groups(child, grouped, groups);
   }
 }
 
@@ -95,9 +108,21 @@ struct GroupStates {
   pressed: bool,
 }
 
-/// Lights what the group `node` holds that has a `within` style, and not what a group inside it holds.
-fn light(node: &Node, top: bool, states: GroupStates, lit: &mut Vec<InteractionState>, changed: &mut bool) {
-  if !top && node.is_interaction_group() {
+/// Lights what the group `node` holds that has a `within` style, and not what a group inside it holds. A button
+/// that lights what it holds, being in no group, does not light what a button inside it holds either.
+fn light(node: &Node, states: GroupStates, lit: &mut Vec<InteractionState>, changed: &mut bool) {
+  light_in(node, true, !node.is_interaction_group(), states, lit, changed);
+}
+
+fn light_in(
+  node: &Node,
+  top: bool,
+  button: bool,
+  states: GroupStates,
+  lit: &mut Vec<InteractionState>,
+  changed: &mut bool,
+) {
+  if !top && (node.is_interaction_group() || button && node.button_kind_value().is_some()) {
     return;
   }
   if node.has_within_style() && !lit.iter().any(|held| held.same(&node.style_state)) {
@@ -106,6 +131,6 @@ fn light(node: &Node, top: bool, states: GroupStates, lit: &mut Vec<InteractionS
     lit.push(state);
   }
   for child in node.children() {
-    light(child, false, states, lit, changed);
+    light_in(child, false, button, states, lit, changed);
   }
 }

@@ -11,6 +11,47 @@ dropped). When a decision is replaced, the old entry stays and says what replace
 
 ## 2026-11-20
 
+### The list of every open tab: the app's to know, its keys first, its rows, its place and its words
+
+- **Question.** Orchester's title bar moved onto `ui::WindowTabs` in its list mode with the list of every open tab
+  (`WindowTabsMenu::All`), and had to work round what the list could not do: the app could not know whether the list
+  was open; its keys (Ctrl/Cmd+W on a row, Enter) reached the page first, so the window's Ctrl+W closed the active
+  tab as well and a question's Enter under the list confirmed it; a row said one text, where Orchester's says the page
+  and, quieter, the project, with its mark that something waits; the panel stood under the More button, 4 below it,
+  where Orchester's stands 4 under the title bar, 8 inside the window's edge and never lower than 48 above its
+  bottom; a search moved no row into view, and the rows under the search field stood 2 apart where the design has
+  them abut; the More button's tooltip said lurq's words. Should lurq's list do these?
+- **Decision (Ivan, 2026-11-20: "роби", on the K6 list).**
+  1. `WindowTabs::menu_open(Signal<bool>)`: whether the More button's menu is open is the app's signal, which the
+     strip sets as it opens and closes and the app may set; `on_menu_open_change(bool)` hears each change a person
+     makes. An element built with `keys_first(true)` (the engine's, `NodeUpdate::keys_first`) hears a key before the
+     rest of the tree while the focus is in it, and what it stops (`stop_propagation`) the rest of the tree does not
+     hear; what the window does by default with the key still happens unless it is prevented. The list is one: the
+     keys it acts on while the focus is in it (Ctrl/Cmd+W, Enter, Escape, the arrows, and every key without Ctrl,
+     Alt or Cmd) are its own.
+  2. `WindowTab::list_label(&str)` and `list_detail(&str)`: what the tab's row says in place of its label, and a
+     quiet text after it (the part `item_detail`), both searched; `WindowTab::list_trailing(element)`: the app's
+     elements in the row, after the mark of a tab not in the strip (the part `item_marks`). They are elements of
+     their own, apart from the tab's `trailing`, so their ids do not collide with the tab's.
+  3. `WindowTabs::list_clear_of(element)`: the list stands clear of that element's box (the title bar) on the side
+     it opens on, not of the More button's, lined up with the button along it; `list_inset(f32)`: how far it stays
+     inside the window's edges (8 unless told), which it is never lower than either, its rows scrolling.
+  4. While the list is open, the row of the selected tab, or the first that matches the search, is scrolled into
+     view, after each change of the search too. A state of the strip, `searchable`, is on while the list leads with
+     its search field; the default recipe makes the rows abut then.
+  5. `WindowTabs::more_tooltip(Fn(usize) -> String)`: what the More button's tooltip says for the count of hidden
+     tabs, and what it says of itself to what reads the tree; the locale's words unless told.
+  6. A `within` rule of a part in no interaction group answers to the innermost button around it, as to a group:
+     `within_hovered(ButtonPart::Label, ..)` paints the label of a hovered `ui::Button`, and so does a rule of the
+     More button's label. Where a group is around the part, it answers to the group as before.
+- **Why.** What Orchester's kit needs to drop its workarounds (`navigation/input.rs`'s check of a layer over the page,
+  the question's check of where the focus is) and its own sizing of the list, and to keep the design's rows. None of
+  it is Orchester's alone: a browser's tab search says a page and its site, stands under its bar, and takes its keys.
+- **State.** Built on `claude/k6-a-tabs-list` (2026-11-20): `WindowTabs::menu_open`, `on_menu_open_change`,
+  `list_clear_of`, `list_inset`, `more_tooltip`; `WindowTab::list_label`, `list_detail`, `list_trailing`; the parts
+  `ItemDetail` and `ItemMarks` and the state `Searchable`; the engine's `keys_first`; a `within` rule in no group
+  answering to its button. The gallery's "Every open tab in a list" says each file's folder.
+
 ### Window tabs that keep a gap between them, and fit by it
 
 - **Question.** Orchester's design puts 2 between its title-bar tabs and before the add button and the More button.

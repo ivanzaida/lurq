@@ -131,8 +131,9 @@ impl Selector {
   }
 
   /// While the pointer is on the element the part is in that is an interaction group, or the focus is on it or in
-  /// it (`.interaction_group(true)`, which a component puts on what is pressed: a row, an item). What it sets is
-  /// painted only, never sized. With [`hovered`](Self::hovered) or [`pressed`](Self::pressed), while the group
+  /// it (`.interaction_group(true)`, which a component puts on what is pressed: a row, an item); a part in no group
+  /// answers to the innermost button it is in, as to a group (the label of a button). What it sets is painted only,
+  /// never sized. With [`hovered`](Self::hovered) or [`pressed`](Self::pressed), while the group
   /// is under the pointer or held down, and not while it only holds the focus: the veil of a row on a cell of it
   /// that covers the row's. With another interaction, as without one.
   pub fn within(mut self) -> Self {

@@ -651,3 +651,25 @@ mod submitting {
     assert_eq!(SUBMITTED.load(Ordering::SeqCst), 1);
   }
 }
+
+#[test]
+fn a_rule_of_the_label_while_the_button_is_under_the_pointer_paints_the_label() {
+  use lurq::ui::Recipe;
+  let ink = Color::new(200, 30, 30, 255);
+  let mut stage = Stage::new(move |_| {
+    Row::new()
+      .padding(20.0)
+      .child(
+        Button::new("Save")
+          .id("save")
+          .rules(&Recipe::new().within_hovered(ButtonPart::Label, |s| s.foreground(ink))),
+      )
+      .into()
+  });
+  assert_ne!(stage.text("Save").0, ink, "at rest the label has its own ink");
+  stage.hover("save");
+  assert_eq!(stage.text("Save").0, ink, "the pointer on the button paints its label");
+  stage.tree.mouse_move(390.0, 290.0);
+  stage.pass();
+  assert_ne!(stage.text("Save").0, ink, "the pointer gone, the label is as it was");
+}
