@@ -723,7 +723,7 @@ impl Tree {
       self.page_after_finger_scroll(now);
     }
     // What the finger scrolled is at rest when it lifted and left the content nothing to do.
-    self.touch_scroll_rest();
+    self.touch_scroll_rest(now);
     route
   }
 
