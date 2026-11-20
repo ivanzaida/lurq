@@ -372,11 +372,13 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   figure cards 118 high) gives that height to its body, so that what is in it with `flex` fills it. A `ui::Card` lets
   what is in it paint over its corners, and its content and body are as high as what is in them, whatever the card is.
   Can lurq's card do both?
-- **Decision (Ivan, 2026-11-20: "так давай роби в луркі").** `Card::clip(true)` clips what is in the card to its
-  rounded corners; it is not the default, since a card clips the focus rings of the controls at its edges then. The
-  content and the body take the height the card has over what is in them, always: a card as high as its content is
-  as before, and one of a fixed height or a share of a column gives the rest to its body, whose children with `flex`
-  fill it; the footer stays at the bottom.
+- **Decision (Ivan, 2026-11-20: "так давай роби в луркі").** What is in a card is clipped to its rounded corners by
+  default: every element of lurq clips what is in it to its own box and corners unless told `overflow_visible`, a
+  card's surface too, so no option is added; a test holds it. A card given a height of its own (`height`,
+  `min_height`, or its recipe's) gives what its header leaves to its body and what its footer leaves to its content,
+  so children with `flex` fill it and the footer stays at the bottom. A card as high as what is in it is as before:
+  a column that grows takes all the room it may in lurq's layout, so the body grows only where the card's height is
+  its own (`CardView::has_height`). A card that is a share of a column takes `height(Length::Fill)`.
 - **Why.** The kit's card is a column that clips; a card that could do neither kept the kit on its own.
 - **State.** In work on `claude/k5-b-surfaces`.
 

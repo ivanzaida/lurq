@@ -164,7 +164,13 @@ pub type CardRenderer = Arc<dyn Fn(CardView) -> Element + Send + Sync>;
 /// what places it in what holds it ([`width`](Card::width),
 /// [`height`](Card::height) and their least and most, [`flex`](Card::flex),
 /// [`flex_shrink`](Card::flex_shrink), [`absolute`](Card::absolute)) to its
-/// surface.
+/// surface. A card given a height of its own ([`height`](Card::height) or
+/// [`min_height`](Card::min_height), or its recipe's) gives what its header
+/// leaves to its body, so its children with `flex` fill it, and its footer
+/// stays at the bottom.
+/// What is in a card is clipped to its rounded corners, as what is in any
+/// element is to its own: a table or a picture that reaches its edge does not
+/// paint over them.
 pub struct Card {
   title: Option<Arc<str>>,
   label: Option<Arc<str>>,
@@ -556,6 +562,13 @@ impl CardView {
     Some(text)
   }
 
+  /// Whether the card has a height of its own, or a least one, that its content and its body are to fill: a card as
+  /// high as what is in it gives them none, since a column that grows takes all the room it may.
+  pub fn has_height(&self) -> bool {
+    let root = self.part(CardPart::Root).rest();
+    root.height.is_some() || root.min_height.is_some()
+  }
+
   /// What the card is called to tooling: its label, or its title.
   fn name(&self) -> Option<Arc<str>> {
     self.label.clone().or_else(|| self.title.clone())
@@ -604,6 +617,10 @@ impl CardView {
       .width(Dimension::Pct(100.0))
       .part(&self.part(CardPart::Body))
       .with_children(std::mem::take(&mut self.body));
+    // A card of a height of its own gives what its header leaves to what is in it: a child with `flex` fills it.
+    if self.has_height() {
+      body = body.flex(1.0);
+    }
     body.update_node(|node| self.body_edits.apply(node));
     Some(body)
   }
@@ -619,6 +636,10 @@ impl CardView {
     let mut content = Column::new()
       .width(Dimension::Pct(100.0))
       .part(&self.part(CardPart::Content));
+    // A card of a height of its own gives what its footer leaves to its content: the footer stays at the bottom.
+    if self.has_height() {
+      content = content.flex(1.0);
+    }
     if let Some(header) = header {
       content = content.child(header);
     }
