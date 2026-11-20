@@ -29,7 +29,10 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   no pointer cursor). The rule and the quiet count are already lurq's.
 - **Why.** Each is what a page's tabs show in many apps; with them the kit's page tabs are `ui::Tabs` dressed by the
   app's recipe.
-- **State.** In work on `claude/k5-c-rows-forms`.
+- **State.** Built on `claude/k5-c-rows-forms` (2026-11-20): `Tabs::note`, `Tabs::end`, `Tab::dot`,
+  `Tab::count_pending`, `Tab::inert`; parts `dot`, `count_skeleton`, `note`, `end`, state `inert`;
+  `TabsView::count_bone`, `end_of_line`. The note and the element are not counted in what the list needs to stand
+  whole, so a list that just fits keeps its form and the note gives way.
 
 ### A list item with tags and an (i) after its title, elements under its words, and parts under the row
 
@@ -47,7 +50,9 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   is in every component, and a second name for one part would be two ids for one node.
 - **Why.** A settings row and a grouped row are list items with a few more things around the title; with them the
   kit's rows are `ui::ListItem` in a `ui::List`.
-- **State.** In work on `claude/k5-c-rows-forms`.
+- **State.** Built on `claude/k5-c-rows-forms` (2026-11-20): `ListItem::tag`, `info`, `detail`, `below`; parts `tags`,
+  `info`, `detail`, `below`; the title's node now has its id `x-title`. A row with something below it is a column
+  of the row (its id) and the part `below`, the key on the column.
 
 ### A field without a label, and rows under its description
 
@@ -63,7 +68,9 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   rows, a count, a link.
 - **Why.** The kit's fields are lurq's only if a field can be a control alone, and if what the app says under it has a
   place that is the field's.
-- **State.** In work on `claude/k5-c-rows-forms`.
+- **State.** Built on `claude/k5-c-rows-forms` (2026-11-20): `Field::unlabeled`, `Field::below` (part `below`); the
+  controls that took an empty name from a field (a radio and a switch with their labels hidden, a select, a
+  listbox, the groups, a rating and others) keep theirs, and a drop zone keeps a label of its own.
 
 ### Key caps in a dialog's note, and a veil that leaves a band of the app's at the top
 
@@ -80,7 +87,9 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   centred in the rest. The title bar of a `WindowChrome` is left without it, as before.
 - **Why.** What a key does is said with its key cap in many apps' footers; and a bar that is not the chrome's is still
   the app's to keep in reach while a dialog asks.
-- **State.** In work on `claude/k5-c-rows-forms`.
+- **State.** Built on `claude/k5-c-rows-forms` (2026-11-20): `Dialog::note_key`, `note_child`, `inset_top`; part
+  `note_key` (its id `x-note_key`, `x-note_key-2`). A note with key caps wraps them onto more lines where it is
+  short, and cuts a pair's words where one pair is wider than the note.
 
 ### A button whose label takes its room, whose description wraps, and that tells its focus
 
@@ -96,7 +105,9 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   from the app; a second handler is called after the first.
 - **Why.** A select's trigger, a stacked answer and a focus that changes what is said beside it are buttons in the
   kit; with these they are `ui::Button`, and the kit's own frame goes.
-- **State.** In work on `claude/k5-c-rows-forms`.
+- **State.** Built on `claude/k5-c-rows-forms` (2026-11-20): `Button::fill_label`, `description_wraps`, `on_focus`;
+  states `fill_label` and `description_wraps`. The description's id stays `x-description` (the kit's stacked answer
+  has `-consequence`: the app reads lurq's).
 
 ### Window tabs that hold Orchester's title-bar tabs
 
