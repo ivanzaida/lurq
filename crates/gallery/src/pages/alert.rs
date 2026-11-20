@@ -329,6 +329,39 @@ impl Component for AlertPage {
         .child(Progress::new(0.6).label("Downloading")),
       "icon · child",
     ));
+    let small = |label: &str| Button::new(label).variant(ButtonVariant::Outline).size(ButtonSize::Sm);
+    let layouts = Column::new()
+      .width(FILL)
+      .spacing(16.0)
+      .child(item(
+        Alert::new("The token expires in 3 days")
+          .description("A run that starts after that cannot sign in, and stops at its first step.")
+          .variant(AlertVariant::Warning)
+          .align_top(true)
+          .action(small("Rotate")),
+        "align_top · the action on the first line",
+      ))
+      .child(item(
+        Alert::untitled()
+          .description("Rotating the token signs every device out.")
+          .variant(AlertVariant::Info)
+          .stacked(true)
+          .action(small("Rotate now"))
+          .note("The new token is shown once."),
+        "untitled · stacked · note",
+      ))
+      .child(item(
+        Row::new().width(320.0).max_width(FILL).child(
+          Alert::new("Not synced with the team")
+            .description("This profile has changes the team has not seen yet.")
+            .variant(AlertVariant::Info)
+            .compact(true)
+            .actions_end(true)
+            .action(small("Discard"))
+            .action(Button::new("Push").size(ButtonSize::Sm)),
+        ),
+        "compact · actions_end, in a column of 320",
+      ));
     let rows = [
       (
         "new",
@@ -366,6 +399,37 @@ impl Component for AlertPage {
         "bool",
         "false",
         "Its actions under its words, at their start, wrapping where one line does not hold them.",
+      ),
+      (
+        "actions_end",
+        "bool",
+        "false",
+        "Actions under its words (stacked or compact) stand at their far end.",
+      ),
+      (
+        "align_top",
+        "bool",
+        "false",
+        "The icon, the words, the actions at its end and the close control at the top, the actions on the first \
+         line, in place of centred on the actions.",
+      ),
+      (
+        "note",
+        "&str",
+        "",
+        "A quieter line after the actions, under the words: 12 in the muted color.",
+      ),
+      (
+        "compact",
+        "bool",
+        "false",
+        "For a narrow column: the icon beside the title alone, and the rest under them across the box.",
+      ),
+      (
+        "untitled",
+        "Alert::untitled()",
+        "",
+        "An alert with no title, called by its description.",
       ),
       (
         "child / children",
@@ -483,6 +547,37 @@ impl Component for AlertPage {
               "    .action(Button::new(\"Details\").variant(ButtonVariant::Ghost).size(ButtonSize::Sm))",
               "    .action(Button::new(\"Work offline\").variant(ButtonVariant::Outline).size(ButtonSize::Sm))",
               "    .action(Button::new(\"Reconnect\").variant(ButtonVariant::Outline).size(ButtonSize::Sm))",
+            ],
+          ),
+        ),
+        Section::new(
+          "Layouts",
+          "At the top in place of the middle, with no title and a note after its actions, and compact, as an \
+           inspector's narrow column has it: the icon beside the title alone, the rest under them, the actions at \
+           the far end.",
+          self.frame.demo(
+            4,
+            layouts,
+            ".align_top(true) · .note(..) · .compact(true)",
+            &[
+              "Alert::new(\"The token expires in 3 days\")",
+              "    .description(\"A run that starts after that cannot sign in..\")",
+              "    .variant(AlertVariant::Warning)",
+              "    .align_top(true)",
+              "    .action(rotate)",
+              "",
+              "Alert::untitled()",
+              "    .description(\"Rotating the token signs every device out.\")",
+              "    .stacked(true)",
+              "    .action(rotate_now)",
+              "    .note(\"The new token is shown once.\")",
+              "",
+              "Alert::new(\"Not synced with the team\")",
+              "    .description(\"This profile has changes the team has not seen yet.\")",
+              "    .compact(true)",
+              "    .actions_end(true)",
+              "    .action(discard)",
+              "    .action(push)",
             ],
           ),
         ),

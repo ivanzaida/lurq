@@ -26,7 +26,7 @@ use super::{
 use crate::{
   app::{
     component::Component,
-    ctx::{CollisionStrategy, Ctx, Overlay, Placement, Timeout},
+    ctx::{CollisionStrategy, Ctx, OpenState, Overlay, Placement, Timeout},
     events::MouseEvent,
     theme::{PaletteColor, RadiusSize, Theme, TypographyStyle},
   },
@@ -248,6 +248,9 @@ pub struct Tooltip {
   mono: bool,
   max_width: Option<Length>,
   when_cut: Option<ElementRef>,
+  hint: Option<Arc<str>>,
+  over: Option<ElementRef>,
+  hung: Option<(ElementRef, OpenState)>,
   shortcut: Option<Arc<str>>,
   placement: Placement,
   offset: Option<SpacingValue>,
@@ -273,6 +276,9 @@ impl Tooltip {
       mono: false,
       max_width: None,
       when_cut: None,
+      hint: None,
+      over: None,
+      hung: None,
       shortcut: None,
       placement: Placement::Top,
       offset: None,
@@ -321,15 +327,70 @@ impl Tooltip {
   /// itself whole in its tooltip has one only where it is not whole already. The pointer and the focus show it
   /// as they would; a text that fits shows nothing, and is not described by it to what reads the tree, since it
   /// says the same itself. `text` is the label's own ref, in the element the tooltip is mounted on or anywhere
-  /// else.
+  /// else. With a [`hint`](Self::hint) it says the hint while the text is whole, and is shown then too.
   pub fn when_cut(mut self, text: &ElementRef) -> Self {
     self.when_cut = Some(text.clone());
     self
   }
 
+  /// What the tooltip says while the text [`when_cut`](Self::when_cut) names is whole, in place of showing nothing:
+  /// a tab whose label is a short key says the page's title while the key fits, and the title is its text, said
+  /// while the key is cut too. Tooling is told the element is described by the hint. An empty hint is none.
+  pub fn hint(mut self, hint: &str) -> Self {
+    self.hint = (!hint.is_empty()).then(|| Arc::from(hint));
+    self
+  }
+
+  /// Whether a text it names by [`when_cut`](Self::when_cut) is whole, as the last layout drew it.
+  fn fits(&self) -> bool {
+    self.when_cut.as_ref().is_some_and(|text| !text.text_cut())
+  }
+
   /// Whether the tooltip shows only while a text is cut, and that text is whole.
   fn waits_for_cut(&self) -> bool {
-    self.when_cut.as_ref().is_some_and(|text| !text.text_cut())
+    self.hint.is_none() && self.fits()
+  }
+
+  /// What the tooltip says now: its hint while the text it names is whole, else its text.
+  fn says(&self) -> Arc<str> {
+    match &self.hint {
+      Some(hint) if self.fits() => hint.clone(),
+      _ => self.text.clone(),
+    }
+  }
+
+  /// Keeps the tooltip clear of `frame`, an element around the one it describes, on the side it opens on: its
+  /// distance is measured from the frame's edge, and along it the tooltip lines up with its element as its placement
+  /// says. A chip's tooltip over the field the chip sits in, not over the chip. Where the frame has no room on that
+  /// side it goes to the frame's other side ([`Overlay::clear_of`]).
+  pub fn over(mut self, frame: &ElementRef) -> Self {
+    self.over = Some(frame.clone());
+    self
+  }
+
+  /// The tooltip beside `anchor`, an element of the app's, shown while `open` is (a `bool`, or a `Signal<bool>` the
+  /// app sets): the app shows it and puts it away, and the pointer, the focus, a press and Escape do nothing to it.
+  /// It takes no pointer: what it covers is hovered and pressed through it. A toolbar that shows its buttons'
+  /// tooltips itself, as the pointer comes to them, with no delay of the tooltip's.
+  ///
+  /// It is an element to put among the children of any container, the anchor's own or another: it takes no room
+  /// there. Its open delay, close delay, `force_open` and `when_cut` are not used, and it describes nothing to
+  /// tooling: the app names its element.
+  pub fn hang(mut self, anchor: &ElementRef, open: impl Into<OpenState>) -> Element {
+    self.hung = Some((anchor.clone(), open.into()));
+    Element::component::<TooltipHost>(TooltipProps {
+      tooltip: Arc::new(self),
+      child: Element::new(),
+    })
+  }
+
+  /// `overlay` at the tooltip's placement, with its collision, kept clear of its frame where it has one.
+  fn placed(&self, overlay: Overlay) -> Overlay {
+    let overlay = overlay.placement(self.placement).collision(self.collision);
+    match &self.over {
+      Some(frame) => overlay.clear_of(frame.clone()),
+      None => overlay,
+    }
   }
 
   /// Which side of what it describes the tooltip is on, where there is room,
@@ -475,7 +536,7 @@ impl Tooltip {
     }
     let rules = rules.extend(&self.rules);
     TooltipView {
-      text: self.text.clone(),
+      text: self.says(),
       note: self.note.clone(),
       shortcut: self.shortcut.clone(),
       side,
@@ -876,6 +937,43 @@ impl TooltipHost {
   }
 }
 
+impl TooltipHost {
+  /// `tooltip` as it is drawn beside `anchor` now, on the side it was put on, and what the readers of where it was
+  /// put need noted.
+  fn view(&self, tooltip: &Tooltip, theme: &Theme, anchor: &ElementRef) -> TooltipView {
+    let placed = side_of(tooltip.placement);
+    let side = if self.flipped.get() { placed.opposite() } else { placed };
+    let mut view = tooltip.view(theme, side, self.multiline.get());
+    view.aim = self.aim.get();
+    view.label_ref = Some(self.label.clone());
+    let mut placing = self.placing.lock();
+    placing.side = placed;
+    placing.anchor = anchor.clone();
+    placing.along = view.arrow_size().map_or(0.0, |(along, _)| along);
+    placing.font_size = view
+      .part(TooltipPart::Label)
+      .rest()
+      .text
+      .resolve(view.theme())
+      .font_size;
+    view
+  }
+
+  /// A tooltip the app shows itself beside `anchor` ([`Tooltip::hang`]): its layer while `open`, which takes no
+  /// pointer and is put away by nothing but the app.
+  fn hung(&self, tooltip: &Tooltip, anchor: &ElementRef, open: bool) -> Element {
+    let view = self.view(tooltip, &current_theme(), anchor);
+    if !open || view.text.is_empty() {
+      return Overlay::new(Element::new()).open_when(false).into();
+    }
+    let shown = Tooltip::render_view(view).map_node(|node| node.ref_element(self.shown.clone()));
+    tooltip
+      .placed(Overlay::new(shown).anchor(anchor.clone()))
+      .hit_test(HitTestBehavior::None)
+      .into()
+  }
+}
+
 impl Component for TooltipHost {
   type Props = TooltipProps;
 
@@ -948,6 +1046,9 @@ impl Component for TooltipHost {
     if tooltip.disabled {
       return child;
     }
+    if let Some((anchor, open)) = &tooltip.hung {
+      return self.hung(&tooltip, anchor, open.is_open());
+    }
     let theme = current_theme();
     let (open_delay, close_delay) = (length(tooltip.open_delay, &theme), length(tooltip.close_delay, &theme));
     self.delay.set_duration(open_delay);
@@ -968,25 +1069,9 @@ impl Component for TooltipHost {
       }
       allowed.clone()
     };
-    let placed = side_of(tooltip.placement);
-    let side = if self.flipped.get() { placed.opposite() } else { placed };
-    let mut view = tooltip.view(&theme, side, self.multiline.get());
-    view.aim = self.aim.get();
-    view.label_ref = Some(self.label.clone());
-    {
-      let mut placing = self.placing.lock();
-      placing.side = placed;
-      placing.anchor = anchor.clone();
-      placing.along = view.arrow_size().map_or(0.0, |(along, _)| along);
-      placing.font_size = view
-        .part(TooltipPart::Label)
-        .rest()
-        .text
-        .resolve(view.theme())
-        .font_size;
-    }
+    let view = self.view(&tooltip, &theme, &anchor);
     // One that waits for its text to be cut shows nothing while it is whole.
-    let shows = !tooltip.text.is_empty() && tooltip.force_open.unwrap_or(asked && !tooltip.waits_for_cut());
+    let shows = !view.text.is_empty() && tooltip.force_open.unwrap_or(asked && !tooltip.waits_for_cut());
     // A tooltip that went from under the pointer is told of no leave: the pointer is on it no longer.
     if !shows || (tooltip.force_open.is_none() && !allowed.get()) {
       self.pointer.lock().on_tooltip = false;
@@ -1014,10 +1099,8 @@ impl Component for TooltipHost {
           .on_mouse_enter(tooltip_enter)
           .on_mouse_leave(tooltip_leave)
       });
-      let overlay = Overlay::new(shown)
-        .anchor(anchor.clone())
-        .placement(tooltip.placement)
-        .collision(tooltip.collision)
+      let overlay = tooltip
+        .placed(Overlay::new(shown).anchor(anchor.clone()))
         // The pointer can be moved onto the tooltip, its root and the room in it toward the element included (with
         // `ContentOnly` the root, which holds the handlers, would not be hit). It stands beside the element, so it
         // covers nothing of it.
@@ -1108,9 +1191,9 @@ impl Component for TooltipHost {
       }
     };
 
-    let text = tooltip.text.clone();
-    // A text that says itself whole in its tooltip is not described by it again.
-    let described = tooltip.when_cut.is_none();
+    let text = tooltip.hint.clone().unwrap_or_else(|| tooltip.text.clone());
+    // A text that says itself whole in its tooltip is not described by it again; one with a hint is, by the hint.
+    let described = tooltip.when_cut.is_none() || tooltip.hint.is_some();
     let describe = move |node: Node| {
       // Named by what it says of itself, or by a text in it: a button by its label. What tooling is told is kept
       // only where there is tooling to tell.

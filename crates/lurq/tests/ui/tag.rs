@@ -14,7 +14,8 @@ use lurq::{
   layout::quad::{Quad, QuadContent},
   node::{FocusGroup, color::Color},
   ui::{
-    Case, Chip, ChipGroup, ChipPart, ChipState, Interaction, Opacity, Tag, TagPart, TagRenderer, TagShape, TagSize,
+    Case, Chip, ChipGroup, ChipPart, ChipState, Interaction, Opacity, Tag, TagPart, TagRemoveEvent, TagRenderer,
+    TagShape, TagSize,
     TagState, TagVariant, TagView, Themed,
   },
 };
@@ -618,4 +619,41 @@ fn a_term_stands_before_the_text_quieter_than_it() {
     light(PaletteColor::Success),
     "the variant's color on another tag"
   );
+}
+
+#[test]
+fn a_remove_handler_given_the_event_keeps_the_press_from_a_row_around_the_tag() {
+  let opened = Arc::new(Mutex::new(0));
+  let removed = Arc::new(Mutex::new(Vec::new()));
+  let (row_heard, told) = (opened.clone(), removed.clone());
+  let mut stage = Stage::new(move |_| {
+    let (row_heard, told, plain) = (row_heard.clone(), told.clone(), told.clone());
+    Row::new()
+      .padding(8.0)
+      .id("row")
+      .on_click(move |_| *row_heard.lock().unwrap() += 1)
+      .child(
+        Tag::new("rust")
+          .id("rust")
+          .on_remove(move || plain.lock().unwrap().push("plain"))
+          .on_remove_event(move |event: &TagRemoveEvent| {
+            event.stop_propagation();
+            told.lock().unwrap().push(match event {
+              TagRemoveEvent::Press(_) => "press",
+              TagRemoveEvent::Key(_) => "key",
+            });
+          }),
+      )
+      .into()
+  });
+  let rust = remove_box(&mut stage, "rust", 16.0, 4.0);
+  press_at(&mut stage, rust);
+  assert_eq!(*removed.lock().unwrap(), ["plain", "press"], "both, in their order");
+  assert_eq!(*opened.lock().unwrap(), 0, "the row heard nothing");
+  stage.key("Tab");
+  stage.key("Delete");
+  assert_eq!(*removed.lock().unwrap(), ["plain", "press", "plain", "key"]);
+  // A press of the tag's text is the row's.
+  stage.click("rust");
+  assert_eq!(*opened.lock().unwrap(), 1);
 }

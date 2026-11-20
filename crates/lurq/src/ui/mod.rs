@@ -100,8 +100,8 @@ mod link_preview;
 mod list_item;
 mod listbox;
 mod media_captions;
-mod media_speed_menu;
 mod media_events;
+mod media_speed_menu;
 mod media_time;
 mod media_volume;
 mod mentions;
@@ -204,6 +204,7 @@ mod window_chrome;
 mod window_tabs;
 mod year_picker;
 
+pub use crate::core::PictureError;
 pub use accordion::{Accordion, AccordionItem, AccordionPart, AccordionRenderer, AccordionState, AccordionView};
 pub use action_bar::{
   ActionBar, ActionBarAction, ActionBarPart, ActionBarRenderer, ActionBarSide, ActionBarState, ActionBarView,
@@ -279,8 +280,8 @@ pub use choice_card::{
   RadioCardGroup,
 };
 pub use code_block::{
-  CODE_BLOCK_COPIED_FOR, CODE_BLOCK_ROW_HEIGHT, CODE_BLOCK_WINDOWED_LINES, CodeBlock, CodeBlockPart,
-  CodeBlockRenderer, CodeBlockState, CodeBlockView,
+  CODE_BLOCK_COPIED_FOR, CODE_BLOCK_ROW_HEIGHT, CODE_BLOCK_WINDOWED_LINES, CodeBlock, CodeBlockPart, CodeBlockRenderer,
+  CodeBlockState, CodeBlockView,
 };
 pub use collapsible::{Collapsible, CollapsiblePart, CollapsibleRenderer, CollapsibleState, CollapsibleView};
 pub use color_field::{
@@ -457,7 +458,6 @@ pub use path_field::{
   PathField, PathFieldPart, PathFieldRenderer, PathFieldSize, PathFieldState, PathFieldView, PathKind,
 };
 pub use persona::{Persona, PersonaPart, PersonaRenderer, PersonaSize, PersonaState, PersonaView};
-pub use crate::core::PictureError;
 pub use picture::{
   PICTURE_LARGE_FROM, PICTURE_SMALL_UP_TO, PICTURE_SMALLEST_UP_TO, Picture, PictureBar, PictureFit, PictureForm,
   PictureLoad, PicturePart, PicturePlaceholder, PictureRenderer, PictureShape, PictureSize, PictureSmall, PictureState,
@@ -545,7 +545,7 @@ pub use signature_pad::{
 pub(crate) use skeleton::keyframes as skeleton_keyframes;
 pub use skeleton::{
   SKELETON_PULSE, SKELETON_PULSE_PERIOD, SKELETON_SHIMMER, SKELETON_SHIMMER_PERIOD, Skeleton, SkeletonAnimation,
-  SkeletonPart, SkeletonRenderer, SkeletonShape, SkeletonView,
+  SkeletonMotion, SkeletonPart, SkeletonRenderer, SkeletonShape, SkeletonView,
 };
 pub use slider::{
   RangeSlider, Slider, SliderNumber, SliderOrientation, SliderPart, SliderRenderer, SliderState, SliderView,
@@ -595,7 +595,7 @@ pub use table_of_contents::{
   TableOfContentsView,
 };
 pub use tabs::{Tab, TabEntry, Tabs, TabsOrientation, TabsPart, TabsRenderer, TabsState, TabsVariant, TabsView};
-pub use tag::{Tag, TagPart, TagRenderer, TagShape, TagSize, TagState, TagVariant, TagView};
+pub use tag::{Tag, TagPart, TagRemoveEvent, TagRenderer, TagShape, TagSize, TagState, TagVariant, TagView};
 pub use teaching_tip::{
   TeachingTip, TeachingTipPart, TeachingTipRenderer, TeachingTipState, TeachingTipVariant, TeachingTipView, Tour,
   TourStep,
@@ -665,8 +665,8 @@ pub use window_chrome::{
   WindowControl, WindowControls, WindowPlatform,
 };
 pub use window_tabs::{
-  WindowTab, WindowTabEntry, WindowTabs, WindowTabsDirtyMark, WindowTabsOverflow, WindowTabsPart, WindowTabsRenderer,
-  WindowTabsState, WindowTabsView,
+  WindowTab, WindowTabEntry, WindowTabs, WindowTabsDirtyMark, WindowTabsMenu, WindowTabsOverflow, WindowTabsPart,
+  WindowTabsRenderer, WindowTabsState, WindowTabsView,
 };
 pub use year_picker::{YearPicker, YearPickerRenderer, YearPickerView};
 

@@ -1,11 +1,11 @@
 //! The page of the popover: its playground, the popover of the design with a
-//! field in it, the sides it is placed on, and a few settings in one.
+//! field in it, the sides it is placed on, a few settings in one, and one placed by a bar its button is in.
 
 use std::sync::Arc;
 
 use lurq::{
   app::{component::Component, ctx::Ctx},
-  components::{Placement, Row},
+  components::{Placement, Row, Text},
   core::{ElementRef, Signal},
   layout::Alignment,
   node::Element,
@@ -70,6 +70,9 @@ pub struct PopoverPage {
   settings: (ElementRef, Signal<bool>),
   mentions: Signal<bool>,
   replies: Signal<bool>,
+  /// A popover placed by the bar its button is in.
+  bar: ElementRef,
+  bar_item: (ElementRef, Signal<bool>),
 }
 
 impl PopoverPage {
@@ -244,6 +247,8 @@ impl Component for PopoverPage {
       settings: (ElementRef::new(), ctx.signal(false)),
       mentions: ctx.signal(true),
       replies: ctx.signal(false),
+      bar: ElementRef::new(),
+      bar_item: (ElementRef::new(), ctx.signal(false)),
     }
   }
 
@@ -283,6 +288,27 @@ impl Component for PopoverPage {
       .description("What you are told of while you are away.")
       .child(switch("Mentions", &self.mentions))
       .child(switch("Replies to you", &self.replies));
+
+    // A bar with a button in it whose popover stands over the bar, at the bar's end: the button stays its trigger.
+    let (anchor, open) = &self.bar_item;
+    let by_bar = Row::new().width(FILL).padding_top(140.0).child(
+      Row::new()
+        .ref_element(self.bar.clone())
+        .width(FILL)
+        .padding(4.0)
+        .spacing(8.0)
+        .align_items(Alignment::Center)
+        .background(lurq::app::theme::PaletteColor::Muted)
+        .child(Text::new("Status bar"))
+        .child(
+          with_trigger("Server", anchor, open)
+            .placement(Placement::TopEnd)
+            .placed_by(self.bar.clone())
+            .width(240.0)
+            .title("Server")
+            .description("Placed by the bar, at its end; opened by its button."),
+        ),
+    );
 
     let rows = [
       (
@@ -370,6 +396,18 @@ impl Component for PopoverPage {
         "false",
         "Draws the panel where it is declared, open or not, without its trigger: for a gallery or a test.",
       ),
+      (
+        "placed_by",
+        "ElementRef",
+        "",
+        "Placed by that element's box in place of its anchor's; the anchor stays its trigger.",
+      ),
+      (
+        "at",
+        "Option<(f32, f32)>",
+        "None",
+        "A point of the window it stands at in place of its anchor.",
+      ),
     ];
     let playground = self.play(ctx);
     self.frame.page(
@@ -442,6 +480,24 @@ impl Component for PopoverPage {
               "    .description(\"What you are told of while you are away.\")",
               "    .child(Switch::new(\"Mentions\").on(mentions.get()).on_change(..))",
               "    .child(Switch::new(\"Replies to you\").on(replies.get()).on_change(..))",
+            ],
+          ),
+        ),
+        Section::new(
+          "Placed by another element",
+          "The button in the bar opens it and the focus goes back to it, but the popover stands by the bar's box: \
+           over the bar, at its end.",
+          self.frame.demo(
+            3,
+            by_bar,
+            ".placed_by(bar)",
+            &[
+              "// bar: ElementRef on the bar; anchor, open of the button in it",
+              "Popover::new(open.clone(), anchor.clone())",
+              "    .trigger(Button::new(\"Server\").variant(ButtonVariant::Outline))",
+              "    .placement(Placement::TopEnd)",
+              "    .placed_by(bar.clone())",
+              "    .title(\"Server\")",
             ],
           ),
         ),

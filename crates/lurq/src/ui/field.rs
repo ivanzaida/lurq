@@ -169,6 +169,8 @@ pub enum FieldPart {
   Icon,
   /// The label and the description, one over the other, where the control is at the row's end.
   Text,
+  /// What the app put under the description: error rows, a count, a link.
+  Below,
 }
 
 names!(FieldPart {
@@ -180,6 +182,7 @@ names!(FieldPart {
   Description => "description",
   Icon => "icon",
   Text => "text",
+  Below => "below",
 });
 
 /// The states of a field a recipe styles.
@@ -269,6 +272,7 @@ pub struct Field {
   fluid_control: bool,
   error_icon: Option<Name>,
   control_end: bool,
+  below: Vec<Element>,
   states: Vec<Name>,
   rules: Recipe,
   id: Option<Arc<str>>,
@@ -284,6 +288,7 @@ impl Field {
       fluid: false,
       error_icon: None,
       control_end: false,
+      below: Vec::new(),
       fluid_control: control.has_fluid_form(),
       label: Arc::from(label),
       control: Box::new(move |field: &InField, ctx: Option<&mut Ctx>| match ctx {
@@ -306,6 +311,29 @@ impl Field {
       id: None,
       key: None,
     }
+  }
+
+  /// A field with no label that holds `control`: the control alone, with what the field says under it. The control
+  /// keeps the name it has of its own (its hidden label, its placeholder's words where it is called by them): a
+  /// field gives no control an empty name. A field beside its label ([`Orientation::Horizontal`]) keeps the label's
+  /// column, empty, so that its control stands in line with the others of the form.
+  ///
+  /// ```
+  /// use lurq::{core::Signal, ui::{Field, Input}};
+  ///
+  /// let query = Signal::new(String::new());
+  /// let search = Field::unlabeled(Input::new(query).label("Search tasks").full_width(true))
+  ///   .description("Finds by title and key.");
+  /// ```
+  pub fn unlabeled(control: impl FieldControl + 'static) -> Self {
+    Self::new("", control)
+  }
+
+  /// An element of the app's under the description, after those given before: a row of an error the control
+  /// found, a count, a link. They stand one under another, as wide as the description is.
+  pub fn below(mut self, element: impl Into<Element>) -> Self {
+    self.below.push(element.into());
+    self
   }
 
   /// What the control is for, under it: a hint, a count of characters, a caveat.
@@ -525,6 +553,7 @@ impl Field {
       fluid,
       error_icon: self.error_icon.filter(|_| invalid),
       control_end: self.control_end && !fluid,
+      below: self.below,
       recipe: theme
         .resolve::<Field>(&case, Some(&self.rules))
         .owned_by(self.id.as_ref()),
@@ -570,6 +599,8 @@ pub struct FieldView {
   pub error_icon: Option<Name>,
   /// Whether the control is at the row's end, the label and the description on the left.
   pub control_end: bool,
+  /// What the app put under the description.
+  pub below: Vec<Element>,
   /// The style of each part of this field.
   pub recipe: ResolvedRecipe,
   id: Option<Arc<str>>,
@@ -648,9 +679,23 @@ impl FieldView {
     )
   }
 
+  /// What the app put under the description, one under another in the style of its part: `None` where it put
+  /// nothing.
+  pub fn below(&mut self) -> Option<Column> {
+    if self.below.is_empty() {
+      return None;
+    }
+    Some(
+      Column::new()
+        .align_items(Alignment::Stretch)
+        .part(&self.part(FieldPart::Below))
+        .with_children(std::mem::take(&mut self.below)),
+    )
+  }
+
   /// How the default renderer builds a field whose control is at the row's end: the label and the description in
   /// a column that takes the room, and the control after them, in the middle of their height.
-  fn render_control_end(self) -> Element {
+  fn render_control_end(mut self) -> Element {
     let mut text = Column::new()
       .align_items(Alignment::Stretch)
       .flex_full(1.0, 1.0, Some(0.0))
@@ -661,6 +706,9 @@ impl FieldView {
     }
     if let Some(description) = self.description() {
       text = text.child(description);
+    }
+    if let Some(below) = self.below() {
+      text = text.child(below);
     }
     let root_part = self.part(FieldPart::Root);
     // Keyed, as the row of any field's control is, so that the ref made anew in each build keeps its node.
@@ -725,9 +773,10 @@ impl FieldView {
 
   /// How the default renderer builds a fluid field: the control, which is the box, with the label over its top,
   /// and the description under them.
-  fn render_fluid(self) -> Element {
+  fn render_fluid(mut self) -> Element {
     let label = self.fluid_label();
     let description = self.description();
+    let below = self.below();
     // The stack carries a ref made anew in each build, and a key, as the row of any field's control does.
     let boxed = Stack::new()
       .key("control")
@@ -749,6 +798,9 @@ impl FieldView {
     if let Some(description) = description {
       root = root.child(description);
     }
+    if let Some(below) = below {
+      root = root.child(below);
+    }
     if let Some(id) = self.id {
       root = root.id(id);
     }
@@ -761,7 +813,7 @@ impl FieldView {
   /// How the default renderer builds a field: the label, the control and the
   /// description one under another, or the label beside the other two. A fluid one has its label over the top of
   /// its control's box.
-  pub fn render(self) -> Element {
+  pub fn render(mut self) -> Element {
     if self.fluid {
       return self.render_fluid();
     }
@@ -770,6 +822,7 @@ impl FieldView {
     }
     let label = self.label();
     let description = self.description();
+    let below = self.below();
     let root_part = self.part(FieldPart::Root);
     let body_part = self.part(FieldPart::Body);
     // A control that fills the field (`full_width`), or a component, which may fill it from inside, is held at the
@@ -797,6 +850,10 @@ impl FieldView {
         .unwrap_or(0.0);
       Some((width - label_width - gap).max(0.0))
     });
+    let below = match room {
+      Some(width) => below.map(|below| below.width(Dimension::Px(width)).max_width(Dimension::Pct(100.0))),
+      None => below,
+    };
     let (label, description) = match room {
       Some(width) => (
         if self.orientation == Orientation::Horizontal {
@@ -886,6 +943,9 @@ impl FieldView {
       if let Some(description) = description {
         body = body.child(description);
       }
+      if let Some(below) = below {
+        body = body.child(below);
+      }
       // Over the body the label is as high as its words: the height it has beside a control, to stand level
       // with it, is for that line. Which it is is read from where the two were laid out, before the frame is
       // painted, so no frame shows the label with the wrong height.
@@ -937,6 +997,9 @@ impl FieldView {
       if let Some(description) = description {
         root = root.child(description);
       }
+      if let Some(below) = below {
+        root = root.child(below);
+      }
       named!(root)
     }
   }
@@ -976,7 +1039,7 @@ impl Themed for Field {
   /// muted foreground. Beside its control (Fieldset), the label is 110 wide,
   /// 12 from the control, and as high as a control.
   fn recipe() -> Recipe {
-    use FieldPart::{Body, Description, Icon, Label, Optional, Required, Root, Text};
+    use FieldPart::{Below, Body, Description, Icon, Label, Optional, Required, Root, Text};
     use PaletteColor::{Destructive, Foreground, MutedForeground, Success, Warning};
     Recipe::new()
       .base(Root, |s| s.width(260.0).max_width(Length::Fill).gap(6.0))
@@ -1005,6 +1068,8 @@ impl Themed for Field {
       // The control at the row's end (lurq's): the field as wide as what holds it, the words 2 apart and 16 from
       // the control.
       .base(Text, |s| s.gap(2.0))
+      // What the app puts under the description (lurq's): 4 apart.
+      .base(Below, |s| s.gap(4.0))
       .state(FieldState::ControlEnd, Root, |s| s.width(Length::Fill).gap(16.0))
       .state(FieldState::Invalid, Description, |s| s.foreground(Destructive))
       .state(FieldState::Warning, Description, |s| s.foreground(Warning))

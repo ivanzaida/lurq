@@ -42,6 +42,13 @@ pub struct NavigationWords {
   pub more_tabs: Arc<str>,
   /// How many tabs a button holds that did not fit: "3 hidden tabs".
   pub hidden_tabs: Plural,
+  /// The list of every open tab a strip's button opens: what it is called, what its search field says while it is
+  /// empty ("Search 12 open tabs"), what it says where nothing matches (`{query}`, what was typed), and what a row
+  /// of a tab not in the strip is described by.
+  pub open_tabs: Arc<str>,
+  pub search_tabs: Plural,
+  pub no_tab_matches: Arc<str>,
+  pub not_in_strip: Arc<str>,
   pub scroll_back: Arc<str>,
   pub scroll_on: Arc<str>,
   /// What a dock layout is called, and what is done with its panels.
@@ -143,6 +150,10 @@ impl NavigationWords {
       show_hidden_tabs: "Show the hidden tabs".into(),
       more_tabs: "More tabs".into(),
       hidden_tabs: Plural::two("{count} hidden tab", "{count} hidden tabs"),
+      open_tabs: "Open tabs".into(),
+      search_tabs: Plural::two("Search {count} open tab", "Search {count} open tabs"),
+      no_tab_matches: "No open tab matches “{query}”".into(),
+      not_in_strip: "Not in the tab strip".into(),
       scroll_back: "Scroll back".into(),
       scroll_on: "Scroll on".into(),
       dock_layout: "Dock layout".into(),
@@ -233,6 +244,14 @@ impl NavigationWords {
           "{count} приховані вкладки",
           "{count} прихованих вкладок",
         ),
+        open_tabs: "Відкриті вкладки".into(),
+        search_tabs: Plural::three(
+          "Пошук серед {count} відкритої вкладки",
+          "Пошук серед {count} відкритих вкладок",
+          "Пошук серед {count} відкритих вкладок",
+        ),
+        no_tab_matches: "Жодна відкрита вкладка не відповідає «{query}»".into(),
+        not_in_strip: "Немає на панелі вкладок".into(),
         scroll_back: "Прокрутити назад".into(),
         scroll_on: "Прокрутити далі".into(),
         dock_layout: "Розкладка панелей".into(),
@@ -318,6 +337,10 @@ impl NavigationWords {
         show_hidden_tabs: "Ausgeblendete Tabs anzeigen".into(),
         more_tabs: "Weitere Tabs".into(),
         hidden_tabs: Plural::two("{count} ausgeblendeter Tab", "{count} ausgeblendete Tabs"),
+        open_tabs: "Offene Tabs".into(),
+        search_tabs: Plural::two("{count} offenen Tab durchsuchen", "{count} offene Tabs durchsuchen"),
+        no_tab_matches: "Kein offener Tab passt zu „{query}“".into(),
+        not_in_strip: "Nicht in der Tableiste".into(),
         scroll_back: "Zurückscrollen".into(),
         scroll_on: "Weiterscrollen".into(),
         dock_layout: "Andockbereich".into(),
@@ -402,6 +425,13 @@ impl NavigationWords {
         show_hidden_tabs: "Afficher les onglets masqués".into(),
         more_tabs: "Plus d’onglets".into(),
         hidden_tabs: Plural::two("{count} onglet masqué", "{count} onglets masqués"),
+        open_tabs: "Onglets ouverts".into(),
+        search_tabs: Plural::two(
+          "Rechercher dans {count} onglet ouvert",
+          "Rechercher dans {count} onglets ouverts",
+        ),
+        no_tab_matches: "Aucun onglet ouvert ne correspond à « {query} »".into(),
+        not_in_strip: "Absent de la barre d’onglets".into(),
         scroll_back: "Défiler vers l’arrière".into(),
         scroll_on: "Défiler vers l’avant".into(),
         dock_layout: "Disposition des panneaux".into(),
@@ -486,6 +516,10 @@ impl NavigationWords {
         show_hidden_tabs: "Mostrar las pestañas ocultas".into(),
         more_tabs: "Más pestañas".into(),
         hidden_tabs: Plural::two("{count} pestaña oculta", "{count} pestañas ocultas"),
+        open_tabs: "Pestañas abiertas".into(),
+        search_tabs: Plural::two("Buscar en {count} pestaña abierta", "Buscar en {count} pestañas abiertas"),
+        no_tab_matches: "Ninguna pestaña abierta coincide con «{query}»".into(),
+        not_in_strip: "No está en la barra de pestañas".into(),
         scroll_back: "Desplazar atrás".into(),
         scroll_on: "Desplazar adelante".into(),
         dock_layout: "Diseño de paneles".into(),
@@ -570,6 +604,14 @@ impl NavigationWords {
         show_hidden_tabs: "Pokaż ukryte karty".into(),
         more_tabs: "Więcej kart".into(),
         hidden_tabs: Plural::three("{count} ukryta karta", "{count} ukryte karty", "{count} ukrytych kart"),
+        open_tabs: "Otwarte karty".into(),
+        search_tabs: Plural::three(
+          "Szukaj w {count} otwartej karcie",
+          "Szukaj w {count} otwartych kartach",
+          "Szukaj w {count} otwartych kartach",
+        ),
+        no_tab_matches: "Żadna otwarta karta nie pasuje do „{query}”".into(),
+        not_in_strip: "Poza paskiem kart".into(),
         scroll_back: "Przewiń wstecz".into(),
         scroll_on: "Przewiń dalej".into(),
         dock_layout: "Układ paneli".into(),
@@ -672,6 +714,11 @@ mod tests {
         words.hidden_tabs.forms().iter().all(|form| form.contains("{count}")),
         "{language}"
       );
+      assert!(
+        words.search_tabs.forms().iter().all(|form| form.contains("{count}")),
+        "{language}"
+      );
+      assert!(words.no_tab_matches.contains("{query}"), "{language}");
       assert!(!words.main.is_empty() && !words.show_all.is_empty(), "{language}");
     }
     assert_eq!(NavigationWords::for_language("xx"), NavigationWords::english());

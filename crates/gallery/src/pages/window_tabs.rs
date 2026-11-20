@@ -1,7 +1,8 @@
 //! The page of the window tabs: their playground in a title bar, the board's
 //! strip, each state of a tab, a window with more tabs than its bar holds,
 //! and the tabs of an app's title bar: a home tab, marks after a label, the
-//! dot beside the close button, and the tabs that do not fit in a list.
+//! dot beside the close button, and the tabs that do not fit in a list; and the list of every open tab, with tabs
+//! as wide as what they show, 2 apart.
 
 use std::sync::Arc;
 
@@ -16,8 +17,8 @@ use lurq::{
   layout::{Alignment, layout_kind::Justify},
   node::Element,
   ui::{
-    Badge, BadgeSize, BadgeVariant, Interaction, Tooltip, WindowTab, WindowTabs, WindowTabsDirtyMark,
-    WindowTabsOverflow, icons,
+    Badge, BadgeSize, BadgeVariant, Interaction, Recipe, Tooltip, WindowTab, WindowTabs, WindowTabsDirtyMark,
+    WindowTabsMenu, WindowTabsOverflow, WindowTabsPart, icons,
   },
 };
 
@@ -167,9 +168,21 @@ pub struct WindowTabsPage {
   capped: Signal<bool>,
   after_label: Signal<bool>,
   listed: Signal<bool>,
+  every: Signal<bool>,
+  list_shortcut: Signal<bool>,
+  fit: Signal<bool>,
   tab_stop: Signal<bool>,
   many: Files,
   app: Files,
+  all: Files,
+}
+
+/// The rules of a strip whose tabs are 2 apart, and 2 before the add button, with no line between them.
+fn gapped() -> Recipe {
+  Recipe::new()
+    .base(WindowTabsPart::List, |s| s.gap(2.0))
+    .base(WindowTabsPart::Root, |s| s.gap(2.0))
+    .base(WindowTabsPart::Separator, |s| s.width(0.0).height(0.0))
 }
 
 impl WindowTabsPage {
@@ -180,6 +193,12 @@ impl WindowTabsPage {
     let (disabled_tab, long) = (self.disabled_tab.get(), self.long.get());
     let (home, marks, capped) = (self.home.get(), self.marks.get(), self.capped.get());
     let (after_label, listed, tab_stop) = (self.after_label.get(), self.listed.get(), self.tab_stop.get());
+    let (every, list_shortcut, fit) = (self.every.get(), self.list_shortcut.get(), self.fit.get());
+    let menu = if every {
+      WindowTabsMenu::All
+    } else {
+      WindowTabsMenu::Hidden
+    };
     let open = self.play.open.get();
     let selected = self.play.selected.get();
     let mark = marks.then(|| waiting(ctx, 2));
@@ -203,6 +222,9 @@ impl WindowTabsPage {
         }
         if capped {
           tab = tab.max_width(110.0);
+        }
+        if fit {
+          tab = tab.fit_content(200.0);
         }
         if let (Some(mark), 2) = (&mark, *file) {
           tab = tab.trailing(mark.clone());
@@ -230,6 +252,8 @@ impl WindowTabsPage {
           .shortcuts(false)
           .disabled(disabled)
           .overflow(overflow)
+          .menu(menu)
+          .list_shortcut(list_shortcut)
           .dirty_mark(dirty_mark)
           .tab_stop(tab_stop);
         if add {
@@ -255,6 +279,8 @@ impl WindowTabsPage {
       .shortcuts(shortcuts)
       .disabled(disabled)
       .overflow(overflow)
+      .menu(menu)
+      .list_shortcut(list_shortcut)
       .dirty_mark(dirty_mark)
       .tab_stop(tab_stop)
       .force(self.playground.forced())
@@ -303,6 +329,9 @@ impl WindowTabsPage {
     if capped {
       tab.push_str(".max_width(110.0)");
     }
+    if fit {
+      tab.push_str(".fit_content(200.0)");
+    }
     tab.push_str(".describe(\"route\", &file.route)");
     code.push(tab);
     if marks {
@@ -316,6 +345,12 @@ impl WindowTabsPage {
     code.push("    .label(\"Open files\")".to_owned());
     if listed {
       code.push("    .overflow(WindowTabsOverflow::List)".to_owned());
+    }
+    if every {
+      code.push("    .menu(WindowTabsMenu::All)".to_owned());
+    }
+    if list_shortcut {
+      code.push("    .list_shortcut(true)".to_owned());
     }
     if after_label {
       code.push("    .dirty_mark(WindowTabsDirtyMark::AfterLabel)".to_owned());
@@ -396,6 +431,9 @@ impl WindowTabsPage {
       (self.capped.clone(), false),
       (self.after_label.clone(), false),
       (self.listed.clone(), false),
+      (self.every.clone(), false),
+      (self.list_shortcut.clone(), false),
+      (self.fit.clone(), false),
       (self.tab_stop.clone(), true),
     ];
     let changed = defaults.iter().filter(|(flag, default)| flag.get() != *default).count()
@@ -442,9 +480,12 @@ impl WindowTabsPage {
           flag("a home tab (icon_only, closable(false))", &self.home),
           flag("trailing: a mark (canvas.rs)", &self.marks),
           flag("max_width(110)", &self.capped),
+          flag("fit_content(200)", &self.fit),
           divider(),
           flag("on_add", &self.add),
           flag("overflow: List", &self.listed),
+          flag("menu: All", &self.every),
+          flag("list_shortcut", &self.list_shortcut),
           flag("dirty_mark: AfterLabel", &self.after_label),
           flag("tab_stop", &self.tab_stop),
           flag("shortcuts", &self.shortcuts),
@@ -481,6 +522,9 @@ impl Component for WindowTabsPage {
       capped: ctx.signal(false),
       after_label: ctx.signal(false),
       listed: ctx.signal(false),
+      every: ctx.signal(false),
+      list_shortcut: ctx.signal(false),
+      fit: ctx.signal(false),
       tab_stop: ctx.signal(true),
       many: Files {
         open: ctx.signal((0..9).collect()),
@@ -489,6 +533,10 @@ impl Component for WindowTabsPage {
       app: Files {
         open: ctx.signal((0..9).collect()),
         selected: ctx.signal(HOME),
+      },
+      all: Files {
+        open: ctx.signal((0..12).collect()),
+        selected: ctx.signal(0),
       },
     }
   }
@@ -612,6 +660,28 @@ impl Component for WindowTabsPage {
     };
     let app = window(app, 520.0, &format!("{} files open", self.app.open.get().len()));
 
+    // Every open tab in the list of the More button, tabs as wide as what they show, 2 apart.
+    let all = {
+      let (close, add, reorder) = (self.all.clone(), self.all.clone(), self.all.clone());
+      let open = self.all.open.get();
+      WindowTabs::new(
+        self.all.selected.clone(),
+        open.iter().map(|id| file(*id).fit_content(160.0)),
+      )
+      .label("Open files")
+      .rules(&gapped())
+      .overflow(WindowTabsOverflow::List)
+      .menu(WindowTabsMenu::All)
+      .list_shortcut(true)
+      .on_close(move |file| close.close(*file))
+      .on_add(move || {
+        add.add();
+      })
+      .on_reorder(move |from, to| reorder.reorder(from, to))
+      .mount(ctx)
+    };
+    let all = window(all, 520.0, &format!("{} files open", self.all.open.get().len()));
+
     let rows = [
       (
         "value",
@@ -653,6 +723,13 @@ impl Component for WindowTabsPage {
         "",
         "A width of its own, which neither grows nor gives way; or a cap under the recipe's most, the label cut \
          there.",
+      ),
+      (
+        "WindowTab::fit_content",
+        "f32",
+        "",
+        "As wide as what it shows, its icon, label, marks and close slot, up to this cap, the label cut there. In \
+         the list mode it keeps that width and leaves the strip whole.",
       ),
       (
         "WindowTab::trailing",
@@ -708,6 +785,21 @@ impl Component for WindowTabsPage {
         "Scroll: the tabs share the room down to 72 and then the strip scrolls. List: they keep their width, and \
          those that do not fit leave the strip, the last first and never the selected one, into the menu of a \
          button at the end of the tabs that shows how many left. Mounted only.",
+      ),
+      (
+        "menu",
+        "WindowTabsMenu",
+        "Hidden",
+        "What the More button of the list mode opens. Hidden: a menu of the tabs that left the strip. All: a list of \
+         every open tab, with a search field once it holds more than eight, marks on the selected tab and on those \
+         not in the strip, and a close button on each row; Ctrl+W (Cmd+W) on a row closes its tab.",
+      ),
+      (
+        "list_shortcut",
+        "bool",
+        "false",
+        "Ctrl+Shift+A (Cmd+Shift+A on macOS) opens and closes the More button's menu from anywhere in the window. \
+         The button's tooltip says the keys.",
       ),
       (
         "dirty_mark",
@@ -875,6 +967,37 @@ impl Component for WindowTabsPage {
               "WindowTabs::new(open, std::iter::once(home).chain(files))",
               "    .overflow(WindowTabsOverflow::List)",
               "    .dirty_mark(WindowTabsDirtyMark::AfterLabel)",
+              "    .on_close(..)",
+              "    .on_add(..)",
+              "    .mount(ctx)",
+            ],
+          ),
+        ),
+        Section::new(
+          "Every open tab in a list",
+          "Tabs as wide as what they show up to 160, 2 apart with no line between them (the gap of the list part, \
+           which the strip counts as it fits them). The More button opens the list of every open tab: a search \
+           field over twelve, a check on the selected tab, a mark on each tab not in the bar, and a close button \
+           on each row. Ctrl+Shift+A (Cmd+Shift+A) opens it; Up and Down move through it, Enter chooses, Ctrl+W \
+           closes the row's tab, Escape empties the search and then closes it.",
+          self.frame.demo(
+            4,
+            all,
+            ".menu(WindowTabsMenu::All)",
+            &[
+              "WindowTabs::new(open, files.iter().map(|file| {",
+              "    WindowTab::new(file.id, &file.name).icon(icons::FILE_CODE).fit_content(160.0)",
+              "}))",
+              "    // 2 between tabs and before the add button, no line between them.",
+              "    .rules(",
+              "        &Recipe::new()",
+              "            .base(WindowTabsPart::List, |s| s.gap(2.0))",
+              "            .base(WindowTabsPart::Root, |s| s.gap(2.0))",
+              "            .base(WindowTabsPart::Separator, |s| s.width(0.0).height(0.0)),",
+              "    )",
+              "    .overflow(WindowTabsOverflow::List)",
+              "    .menu(WindowTabsMenu::All)",
+              "    .list_shortcut(true)",
               "    .on_close(..)",
               "    .on_add(..)",
               "    .mount(ctx)",

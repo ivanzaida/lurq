@@ -588,3 +588,160 @@ fn a_theme_names_the_group_without_its_type_and_styles_a_group_of_any() {
   let row = stage.text_quad("Yes").unwrap().height.max(16.0);
   assert_eq!(no.y - yes.y, row + 30.0);
 }
+
+#[test]
+fn a_radio_pressed_as_a_whole_has_its_id_on_the_whole_and_its_parts_after_it() {
+  let asked = Arc::new(Mutex::new(Vec::new()));
+  let told = asked.clone();
+  let mut stage = Stage::new(move |_| {
+    let told = told.clone();
+    Column::new()
+      .padding(8.0)
+      .child(
+        Radio::new("Weekly")
+          .whole(true)
+          .count(12)
+          .id("weekly")
+          .on_change(move |next| told.lock().unwrap().push(next)),
+      )
+      .into()
+  });
+  let ids = stage.ids();
+  for id in ["weekly", "weekly-mark", "weekly-label", "weekly-count"] {
+    assert!(ids.contains(&id.to_owned()), "{id} in {ids:?}");
+  }
+  let (x, _, width, _) = stage.bounds("weekly");
+  let (_, _, mark_width, _) = stage.bounds("weekly-mark");
+  let (count_x, _, count_width, _) = stage.bounds("weekly-count");
+  assert_eq!(mark_width, 16.0);
+  assert!(
+    (x + width - (count_x + count_width)).abs() < 0.5,
+    "the whole holds the label and the count: {width}"
+  );
+  stage.key("Tab");
+  let ring = stage
+    .quads()
+    .into_iter()
+    .find(|quad| {
+      matches!(&quad.content, QuadContent::Rect { color, gradient: None } if color.a() == 0)
+        && quad.border.and_then(|border| border.top).map(|side| side.color) == Some(light(PaletteColor::Ring))
+    })
+    .expect("the keyboard rings it");
+  assert!(
+    ring.width >= width,
+    "the ring is round the whole: {} {width}",
+    ring.width
+  );
+  stage.key(" ");
+  stage.click("weekly-label");
+  stage.click("weekly-mark");
+  assert_eq!(*asked.lock().unwrap(), [true, true, true]);
+}
+
+#[cfg(any(feature = "mcp", feature = "devtools"))]
+#[test]
+fn to_tooling_a_whole_radio_is_the_radio() {
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .child(Radio::new("Weekly").whole(true).selected(true).id("weekly"))
+      .into()
+  });
+  let said = |stage: &mut Stage, id: &str, name: &str| {
+    stage
+      .tree
+      .get_element_by_id_mut(id)
+      .and_then(|element| element.description(name))
+  };
+  assert_eq!(said(&mut stage, "weekly", "a11y_role").as_deref(), Some("radio"));
+  assert_eq!(said(&mut stage, "weekly", "a11y_name").as_deref(), Some("Weekly"));
+  assert_eq!(said(&mut stage, "weekly", "a11y_checked").as_deref(), Some("true"));
+  assert_eq!(
+    said(&mut stage, "weekly-mark", "a11y_role"),
+    None,
+    "the mark is only drawn"
+  );
+}
+
+#[test]
+fn a_press_of_a_radio_does_not_reach_a_row_around_it() {
+  let (rows, pressed) = (Arc::new(Mutex::new(0)), Arc::new(Mutex::new(0)));
+  let (row_told, radio_told) = (rows.clone(), pressed.clone());
+  let mut stage = Stage::new(move |_| {
+    let (row_told, radio_told, whole_told) = (row_told.clone(), radio_told.clone(), radio_told.clone());
+    Column::new()
+      .padding(8.0)
+      .child(
+        Row::new()
+          .id("row")
+          .padding(8.0)
+          .spacing(12.0)
+          .on_click(move |_| *row_told.lock().unwrap() += 1)
+          .child(
+            Radio::new("Daily")
+              .id("mark")
+              .on_change(move |_| *radio_told.lock().unwrap() += 1),
+          )
+          .child(
+            Radio::new("Weekly")
+              .whole(true)
+              .id("whole")
+              .on_change(move |_| *whole_told.lock().unwrap() += 1),
+          ),
+      )
+      .into()
+  });
+  stage.click("mark");
+  let label = stage.text_quad("Daily").unwrap();
+  let (x, y) = (label.x + label.width / 2.0, label.y + label.height / 2.0);
+  stage.tree.mouse_move(x, y);
+  stage.tree.mouse_down(x, y, MouseButton::Left);
+  stage.tree.mouse_up(x, y, MouseButton::Left);
+  stage.pass();
+  stage.click("whole");
+  assert_eq!(*pressed.lock().unwrap(), 3);
+  assert_eq!(*rows.lock().unwrap(), 0, "the row is not pressed");
+  let (x, y, ..) = stage.bounds("row");
+  stage.tree.mouse_move(x + 2.0, y + 2.0);
+  stage.tree.mouse_down(x + 2.0, y + 2.0, MouseButton::Left);
+  stage.tree.mouse_up(x + 2.0, y + 2.0, MouseButton::Left);
+  stage.pass();
+  assert_eq!(*rows.lock().unwrap(), 1, "the row is pressed beside them");
+}
+
+#[test]
+fn a_group_of_whole_radios_is_one_stop_whose_arrows_choose() {
+  let value = Signal::new(1u8);
+  let bound = value.clone();
+  let mut stage = Stage::new(move |_| {
+    Column::new()
+      .padding(8.0)
+      .child(
+        RadioGroup::new(
+          bound.clone(),
+          [
+            Choice::new(0u8, "Daily").id("daily"),
+            Choice::new(1, "Weekly").id("weekly"),
+            Choice::new(2, "Monthly").id("monthly"),
+          ],
+        )
+        .whole(true),
+      )
+      .into()
+  });
+  let ids = stage.ids();
+  assert!(ids.contains(&"weekly-label".to_owned()), "{ids:?}");
+  stage.key("Tab");
+  assert_eq!(
+    stage
+      .tree
+      .focused_element()
+      .and_then(|element| element.id().map(str::to_owned))
+      .as_deref(),
+    Some("weekly"),
+    "Tab enters at the whole of the selected one"
+  );
+  stage.key("ArrowDown");
+  assert_eq!(value.get_untracked(), 2);
+  stage.click("daily-label");
+  assert_eq!(value.get_untracked(), 0);
+}

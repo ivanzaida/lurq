@@ -79,6 +79,14 @@ pub enum TabsPart {
   Count,
   /// The count of a tab in a pill, after its label: how many things in it wait for the person.
   Badge,
+  /// The dot of a tab, after its count and its badge: the state of what it counts.
+  Dot,
+  /// The bone in the count's place while the count is read: its width, its height and its corners.
+  CountSkeleton,
+  /// The quiet words at the end of the list's line.
+  Note,
+  /// What the app puts at the end of the list's line.
+  End,
   /// The line that sets a tab apart from those before it.
   Separator,
   /// The panel of the selected tab.
@@ -105,6 +113,10 @@ names!(TabsPart {
   Icon => "icon",
   Count => "count",
   Badge => "badge",
+  Dot => "dot",
+  CountSkeleton => "count_skeleton",
+  Note => "note",
+  End => "end",
   Separator => "separator",
   Panel => "panel",
   Bar => "bar",
@@ -122,6 +134,8 @@ pub enum TabsState {
   Selected,
   /// Of a tab: it cannot be selected.
   Disabled,
+  /// Of a tab: a press leaves it alone. It is drawn as it is, and is neither selected nor focused by a person.
+  Inert,
   /// The list runs along the top.
   Horizontal,
   /// The list runs down the start side.
@@ -133,6 +147,7 @@ pub enum TabsState {
 names!(TabsState {
   Selected => "selected",
   Disabled => "disabled",
+  Inert => "inert",
   Horizontal => "horizontal",
   Vertical => "vertical",
   Overflow => "overflow",
@@ -167,6 +182,9 @@ pub struct Tab<T> {
   reason: Option<Arc<str>>,
   disabled: bool,
   separated: bool,
+  dot: Option<PaletteColor>,
+  count_pending: bool,
+  inert: bool,
   panel: Option<PanelBuilder>,
   on_open_aside: Vec<EventHandler<crate::app::events::MouseEvent>>,
   id: Option<Arc<str>>,
@@ -185,6 +203,9 @@ impl<T> Tab<T> {
       reason: None,
       disabled: false,
       separated: false,
+      dot: None,
+      count_pending: false,
+      inert: false,
       panel: None,
       on_open_aside: Vec::new(),
       id: None,
@@ -208,6 +229,30 @@ impl<T> Tab<T> {
   /// [`count`](Self::count), after it.
   pub fn badge(mut self, count: impl Display) -> Self {
     self.badge = Some(Arc::from(count.to_string()));
+    self
+  }
+
+  /// A dot after the count and the badge, in `color`, a role of the theme's palette: the state of what the tab
+  /// counts, `PaletteColor::Destructive` once one of its services crashed. Its size is the recipe's (part `dot`).
+  pub fn dot(mut self, color: PaletteColor) -> Self {
+    self.dot = Some(color);
+    self
+  }
+
+  /// Whether the count is still being read: a bone stands in its place, as wide as one digit, so that a count of
+  /// one digit takes its place without moving the tabs after it. The tab is busy to tooling. A
+  /// [`count`](Self::count) given beside it is shown in place of the bone.
+  pub fn count_pending(mut self, pending: bool) -> Self {
+    self.count_pending = pending;
+    self
+  }
+
+  /// Whether a press leaves the tab alone: it is drawn as it is, selected or not, and not dimmed, but a press of
+  /// it, its item in the menu of the overflowing form and the arrow keys neither select it nor focus it, and its
+  /// [`on_open_aside`](Self::on_open_aside) is not called. The selected tab of a page that keeps the panel it shows
+  /// whatever is pressed; a tab that is there to be seen.
+  pub fn inert(mut self, inert: bool) -> Self {
+    self.inert = inert;
     self
   }
 
@@ -440,6 +485,12 @@ pub struct TabEntry {
   pub disabled: bool,
   pub separated: bool,
   pub selected: bool,
+  /// The dot after the count, in a role of the palette.
+  pub dot: Option<PaletteColor>,
+  /// Whether the count is still read: a bone in its place.
+  pub count_pending: bool,
+  /// Whether a press leaves the tab alone.
+  pub inert: bool,
   select: Arc<dyn Fn() + Send + Sync>,
   aside: Vec<EventHandler<crate::app::events::MouseEvent>>,
   panel: Option<PanelBuilder>,
@@ -511,6 +562,8 @@ pub struct Tabs<T = ()> {
   tab_stop: bool,
   label: Option<Arc<str>>,
   overflow: bool,
+  note: Option<Arc<str>>,
+  end: Option<Element>,
   words: Words,
   states: Vec<Name>,
   rules: Recipe,
@@ -533,6 +586,8 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Tabs<T> {
       tab_stop: true,
       label: None,
       overflow: false,
+      note: None,
+      end: None,
       words: Words {
         back: super::current_locale().navigation.scroll_back.clone(),
         on: super::current_locale().navigation.scroll_on.clone(),
@@ -635,6 +690,22 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Tabs<T> {
     self
   }
 
+  /// Quiet words at the end of the list's line, after the tabs: why a tab cannot be opened, when the list was read.
+  /// They give way first where the line is short, and end in an ellipsis. In the default form they stand in the
+  /// rail after the tabs; in the overflowing form at the end of the list that scrolls. An empty text is none.
+  pub fn note(mut self, note: &str) -> Self {
+    self.note = (!note.is_empty()).then(|| Arc::from(note));
+    self
+  }
+
+  /// An element of the app's at the end of the list's line, after the tabs and the note: a button that acts on the
+  /// page, a count of the app's. It is no tab: the arrow keys of the list do not move to it, and it is a stop of Tab
+  /// of its own where it takes the focus. A second takes the place of the first.
+  pub fn end(mut self, element: impl Into<Element>) -> Self {
+    self.end = Some(element.into());
+    self
+  }
+
   /// What the scroll button at the start of the overflowing list is called, to what reads the tree: "Scroll back".
   pub fn scroll_back_label(mut self, label: &str) -> Self {
     self.words.back = Arc::from(label);
@@ -719,6 +790,9 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Tabs<T> {
           disabled: tab.disabled,
           separated: tab.separated,
           selected: chosen,
+          dot: tab.dot,
+          count_pending: tab.count_pending,
+          inert: tab.inert,
           // A press of the selected tab asks for nothing, and tells nothing.
           select: Arc::new(move || {
             if chosen || write.as_ref().is_some_and(|write| !write(&value)) {
@@ -744,6 +818,8 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Tabs<T> {
       tab_stop: self.tab_stop,
       label: self.label,
       overflow: self.overflow,
+      note: self.note,
+      end: self.end,
       words: self.words,
       states: self.states,
       rules: self.rules,
@@ -795,6 +871,8 @@ struct Prepared {
   tab_stop: bool,
   label: Option<Arc<str>>,
   overflow: bool,
+  note: Option<Arc<str>>,
+  end: Option<Element>,
   words: Words,
   states: Vec<Name>,
   rules: Recipe,
@@ -818,6 +896,8 @@ impl Prepared {
         &tab.badge,
         tab.icon.map(|icon| icon.as_str()),
         tab.separated,
+        tab.dot.is_some(),
+        tab.count_pending,
       )
         .hash(&mut hasher);
     }
@@ -856,13 +936,14 @@ impl Prepared {
     });
     let overflow = ((self.overflow || scrolls) && !vertical).then_some(kept);
     let case = self.case(overflow.is_some());
-    // A tab is in the state of the tabs, and in its own: selected, disabled.
-    let resolve = |selected: bool, disabled: bool| -> ResolvedRecipe {
+    // A tab is in the state of the tabs, and in its own: selected, disabled, inert.
+    let resolve = |selected: bool, disabled: bool, inert: bool| -> ResolvedRecipe {
       theme.resolve::<Tabs>(
         &case
           .clone()
           .state(TabsState::Selected, selected)
-          .state(TabsState::Disabled, disabled),
+          .state(TabsState::Disabled, disabled)
+          .state(TabsState::Inert, inert),
         Some(&self.rules),
       )
     };
@@ -878,13 +959,15 @@ impl Prepared {
     // The list alone, along the top: mounted it is measured with every tab whole, and built with nothing kept its
     // tabs give way in a room too narrow for them.
     let alone = overflow.is_none() && !vertical;
-    let plain = resolve(false, false).owned_by(self.id.as_ref());
-    let recipes = [
-      resolve(true, false).owned_like(&plain),
-      resolve(false, true).owned_like(&plain),
-      resolve(true, true).owned_like(&plain),
-    ];
-    let [selected, disabled, both] = recipes;
+    let plain = resolve(false, false, false).owned_by(self.id.as_ref());
+    // By the bits of a tab's states: selected 1, disabled 2, inert 4.
+    let recipes: [ResolvedRecipe; 8] = std::array::from_fn(|bits| {
+      if bits == 0 {
+        plain.clone()
+      } else {
+        resolve(bits & 1 != 0, bits & 2 != 0, bits & 4 != 0).owned_like(&plain)
+      }
+    });
     let view = TabsView {
       tabs: self.tabs,
       variant: self.variant,
@@ -893,7 +976,9 @@ impl Prepared {
       manual: self.manual,
       tab_stop: self.tab_stop,
       label: self.label,
-      recipes: [plain, selected, disabled, both],
+      note: self.note,
+      end: self.end,
+      recipes,
       list_ref: ElementRef::new(),
       tab_refs,
       room: fits.map(|fits| fits.root.clone()),
@@ -963,9 +1048,13 @@ pub struct TabsView {
   pub label: Option<Arc<str>>,
   /// Whether Tab stops in the list and at its More button.
   tab_stop: bool,
-  /// The recipe of a tab neither selected nor disabled, then selected, disabled, and both. The first is
-  /// every other part's.
-  recipes: [ResolvedRecipe; 4],
+  /// The quiet words at the end of the list's line.
+  pub note: Option<Arc<str>>,
+  /// What the app put at the end of the list's line.
+  end: Option<Element>,
+  /// The recipe of a tab in each case of its states, by their bits: selected 1, disabled 2, inert 4. The first,
+  /// of none of them, is every other part's.
+  recipes: [ResolvedRecipe; 8],
   overflow: Option<Kept>,
   words: Words,
   /// Of the overflowing form, where the list and each tab were last laid out: what scrolls a tab chosen from
@@ -993,16 +1082,21 @@ impl TabsView {
   /// The style of a part of the tab at `index`: in the states of that tab, and in the interaction forced where
   /// it is the tab Tab stops on.
   pub fn tab_part(&self, index: usize, part: impl Into<Name>) -> ResolvedPart {
+    let forced = self.forced.filter(|_| self.entry() == Some(index));
+    self.tab_recipe(index).part(part).forced(forced)
+  }
+
+  /// The recipe of the tab at `index`, in its states, naming its parts after the tab.
+  fn tab_recipe(&self, index: usize) -> ResolvedRecipe {
     let tab = &self.tabs[index];
     let disabled = self.disabled || tab.disabled;
-    let forced = self.forced.filter(|_| self.entry() == Some(index));
-    let recipe = &self.recipes[usize::from(tab.selected) + 2 * usize::from(disabled)];
+    let bits = usize::from(tab.selected) + 2 * usize::from(disabled) + 4 * usize::from(tab.inert);
+    let recipe = &self.recipes[bits];
     // A tab with an id names its parts after it; one with a key only, after the tabs' id and the key.
-    let recipe = match (&tab.id, &tab.key) {
+    match (&tab.id, &tab.key) {
       (None, Some(key)) => recipe.keyed_item(key, TabsPart::Tab),
       (id, _) => recipe.item(id.as_ref(), TabsPart::Tab),
-    };
-    recipe.part(part).forced(forced)
+    }
   }
 
   /// The tab Tab stops on: the selected one, else the first that is not disabled. None where all are.
@@ -1010,7 +1104,7 @@ impl TabsView {
     if self.disabled {
       return None;
     }
-    let open = |tab: &TabEntry| !tab.disabled;
+    let open = |tab: &TabEntry| !tab.disabled && !tab.inert;
     self
       .tabs
       .iter()
@@ -1049,13 +1143,18 @@ impl TabsView {
       pressable(&part(TabsPart::Tab), self.disabled || entry.disabled),
       self.tab_stop,
     );
-    // Ahead of the selection, which a press that asks for the tab aside does not reach.
-    let mut tab = opens_aside(pressed, &entry.aside)
-      .focus_entry(entry.selected)
-      .describe("a11y_role", "tab")
-      .describe("a11y_name", entry.label.clone())
-      .describe("a11y_selected", if entry.selected { "true" } else { "false" })
-      .on_click(move |_| select());
+    let mut tab = if entry.inert {
+      // Drawn as any tab, and taking nothing: no press, no focus, no stop of the arrows.
+      pressed.focusable(false)
+    } else {
+      // Ahead of the selection, which a press that asks for the tab aside does not reach.
+      opens_aside(pressed, &entry.aside)
+        .focus_entry(entry.selected)
+        .on_click(move |_| select())
+    }
+    .describe("a11y_role", "tab")
+    .describe("a11y_name", entry.label.clone())
+    .describe("a11y_selected", if entry.selected { "true" } else { "false" });
     if self.vertical() {
       tab = tab.justify(Justify::Start);
     }
@@ -1074,10 +1173,15 @@ impl TabsView {
     if let Some(count) = &entry.count {
       let style = part(TabsPart::Count);
       tab = tab.child(Row::new().part(&style).child(style.text(count).nowrap()));
+    } else if entry.count_pending {
+      tab = tab.child(self.count_bone(index)).describe("a11y_busy", "true");
     }
     if let Some(badge) = &entry.badge {
       let style = part(TabsPart::Badge);
       tab = tab.child(Row::new().part(&style).child(style.text(badge).nowrap()));
+    }
+    if let Some(color) = &entry.dot {
+      tab = tab.child(Row::new().part(&part(TabsPart::Dot)).background(color.clone()));
     }
     if let Some(reason) = &entry.reason {
       tab = tab.describe("a11y_description", reason.clone());
@@ -1094,6 +1198,62 @@ impl TabsView {
       tab = tab.ref_element(last.clone());
     }
     tab
+  }
+
+  /// The bone in the place of the count of the tab at `index` while its count is read: a skeleton of the size the
+  /// recipe gives [`TabsPart::CountSkeleton`] (its corners the skeleton's own), in the part [`TabsPart::Count`], so that a count that comes in its
+  /// place moves nothing after it.
+  pub fn count_bone(&self, index: usize) -> Element {
+    let recipe = self.tab_recipe(index);
+    let size = recipe.part(TabsPart::CountSkeleton).rest();
+    let bone = super::Skeleton::block(
+      size.width.unwrap_or(Length::Px(8.0)),
+      size.height.unwrap_or(Length::Px(10.0)),
+    )
+    .rules(&recipe.lend(TabsPart::CountSkeleton));
+    Row::new()
+      .align_items(Alignment::Center)
+      .part(&recipe.part(TabsPart::Count))
+      .child(bone.build(self.theme()))
+      .into()
+  }
+
+  /// The quiet words and the app's element at the end of the list's line, after a room that grows: they give way
+  /// first where the line is short. `None` where the tabs have neither.
+  pub fn end_of_line(&self) -> Option<Row> {
+    if self.note.is_none() && self.end.is_none() {
+      return None;
+    }
+    let mut row = Row::new()
+      .flex_full(1.0, 1.0, None)
+      .min_width(0.0)
+      .align_items(Alignment::Center)
+      .justify(Justify::End)
+      .overflow_visible()
+      // What is here is no tab: the arrow keys of the list pass it by.
+      .focus_group(FocusGroup::none());
+    if let Some(note) = &self.note {
+      let part = self.part(TabsPart::Note);
+      row = row.child(
+        Row::new().flex_shrink(1.0).min_width(0.0).part(&part).child(
+          part
+            .text(note)
+            .nowrap()
+            .text_overflow(crate::components::TextOverflow::Elipsis),
+        ),
+      );
+    }
+    if let Some(end) = &self.end {
+      row = row.child(
+        Row::new()
+          .flex_shrink(0.0)
+          .align_items(Alignment::Center)
+          .overflow_visible()
+          .part(&self.part(TabsPart::End))
+          .child(end.clone()),
+      );
+    }
+    Some(row)
   }
 
   /// The tab at `index` as the list holds it: [`tab`](Self::tab), with its reason as its tooltip where it has one.
@@ -1128,6 +1288,7 @@ impl TabsView {
       }
       children.push(self.tab_element(index));
     }
+    children.extend(self.end_of_line().map(Element::from));
     let part = self.part(TabsPart::List);
     let orientation = if self.vertical() { "vertical" } else { "horizontal" };
     let name = self.label.clone().unwrap_or_default();
@@ -1253,7 +1414,7 @@ impl TabsView {
       let reveal = self.reveal(overflow, index);
       let mut item = MenuItem::new(&entry.label)
         .radio(entry.selected)
-        .disabled(self.disabled || entry.disabled)
+        .disabled(self.disabled || entry.disabled || entry.inert)
         .on_select(move || {
           select();
           reveal();
@@ -1414,10 +1575,10 @@ impl<T: Send + Sync + 'static> Themed for Tabs<T> {
   fn recipe() -> Recipe {
     use PaletteColor::{Background, Foreground, Muted, MutedForeground, Primary, PrimaryForeground, Ring};
     use TabsPart::{
-      Badge, Bar, Count, Icon, Label, List, More, MoreIcon, MoreLabel, Panel, Root, ScrollButton, ScrollIcon,
-      Separator, Tab,
+      Badge, Bar, Count, CountSkeleton, Dot, End, Icon, Label, List, More, MoreIcon, MoreLabel, Note, Panel, Root,
+      ScrollButton, ScrollIcon, Separator, Tab,
     };
-    use TabsState::{Disabled, Horizontal, Overflow, Selected, Vertical};
+    use TabsState::{Disabled, Horizontal, Inert, Overflow, Selected, Vertical};
     use TabsVariant::{Default, Line, Pill};
     let when = |variant: TabsVariant, states: &[TabsState]| {
       states.iter().fold(Selector::new().variant(variant), |selector, state| {
@@ -1442,6 +1603,16 @@ impl<T: Send + Sync + 'static> Themed for Tabs<T> {
           .weight(FontWeight::Medium)
       })
       .base(Separator, |s| s.width(1.0).height(16.0).background(PaletteColor::Border))
+      // lurq's, the board has none: a dot of 6 in the app's color; a count's bone of one digit, 7 by 10; the note
+      // in a caption's type in the muted foreground, 16 from the tabs, and the app's element 8 after it.
+      .base(Dot, |s| s.square(6.0).radius(RadiusSize::Full))
+      .base(CountSkeleton, |s| s.width(7.0).height(10.0))
+      .base(Note, |s| {
+        s.padding_start(16.0)
+          .typography(TypographyStyle::Caption)
+          .foreground(MutedForeground)
+      })
+      .base(End, |s| s.padding_start(8.0))
       .base(Panel, |s| s.radius(RadiusSize::Md))
       .base(Bar, |s| s.width(Length::Fill))
       .base(ScrollButton, |s| {
@@ -1470,6 +1641,8 @@ impl<T: Send + Sync + 'static> Themed for Tabs<T> {
       .state(Disabled, Tab, |s| {
         s.opacity(OpacityLevel::Disabled).cursor(CursorIcon::Default)
       })
+      // An inert tab is drawn as it is, and does not answer the pointer.
+      .state(Inert, Tab, |s| s.cursor(CursorIcon::Default))
       // A tab of a list that scrolls has its ring inside it, where the list does not cut it off.
       .when(Selector::new().state(Overflow).focus_visible(), Tab, |s| {
         s.outline(Outline::new(BorderSize::Md, Ring).offset(-2.0))
@@ -1540,8 +1713,11 @@ impl<T: Send + Sync + 'static> Themed for Tabs<T> {
       .when(when(Pill, &[Selected]), Count, |s| {
         s.foreground(PrimaryForeground).opacity(OpacityLevel::Muted)
       })
-      // A disabled tab does not light up under the pointer.
+      // A disabled or inert tab does not light up under the pointer.
       .when(Selector::new().state(Disabled).hovered(), Tab, |s| s.foreground(MutedForeground))
+      .when(Selector::new().state(Inert).hovered(), Tab, |s| s.foreground(MutedForeground))
+      .when(Selector::new().state(Selected).state(Inert).hovered(), Tab, |s| s.foreground(Foreground))
+      .when(when(Pill, &[Selected, Inert]).hovered(), Tab, |s| s.foreground(PrimaryForeground))
       .when(Selector::new().state(Selected).state(Disabled).hovered(), Tab, |s| {
         s.foreground(Foreground)
       })

@@ -1098,7 +1098,7 @@ fn part_name(part: FileUploadPart) -> &'static str {
 impl super::FieldControl for FileUpload {
   /// Called by the field's label unless it has its own, invalid where the field is, and disabled where it is.
   fn in_field(mut self, field: &super::InField) -> Element {
-    if self.label.is_none() {
+    if self.label.is_none() && !field.label.is_empty() {
       self = self.label(&field.label);
     }
     self.invalid |= field.judgment == Some(super::Judgment::Invalid);
@@ -1108,7 +1108,7 @@ impl super::FieldControl for FileUpload {
 
   /// Told what the field says, as in `in_field`, and mounted: the same control as outside a field.
   fn mount_in_field(mut self, field: &super::InField, ctx: &mut Ctx) -> Element {
-    if self.label.is_none() {
+    if self.label.is_none() && !field.label.is_empty() {
       self = self.label(&field.label);
     }
     self.invalid |= field.judgment == Some(super::Judgment::Invalid);
@@ -1121,7 +1121,7 @@ impl super::FieldControl for DropZone {
   /// Called by the field's label unless it has its own, invalid where the field is, and disabled where it is.
   fn in_field(self, field: &super::InField) -> Element {
     self
-      .label(&field.label)
+      .named_by(field)
       .invalid(field.judgment == Some(super::Judgment::Invalid))
       .disabled(field.disabled)
       .into()
@@ -1130,7 +1130,7 @@ impl super::FieldControl for DropZone {
   /// Told what the field says, as in `in_field`, and mounted: the same zone as outside a field.
   fn mount_in_field(self, field: &super::InField, ctx: &mut Ctx) -> Element {
     self
-      .label(&field.label)
+      .named_by(field)
       .invalid(field.judgment == Some(super::Judgment::Invalid))
       .disabled(field.disabled)
       .mount(ctx)

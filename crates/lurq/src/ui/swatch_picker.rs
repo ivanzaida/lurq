@@ -412,7 +412,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> super::FieldControl for Swatc
   /// Called by the field's label unless it has a name of its own, judged invalid where the field is, and disabled
   /// where the field is.
   fn in_field(mut self, field: &super::InField) -> Element {
-    if self.label.is_none() {
+    if self.label.is_none() && !field.label.is_empty() {
       self.label = Some(field.label.clone());
     }
     self.invalid |= field.judgment == Some(super::text_box::Judgment::Invalid);

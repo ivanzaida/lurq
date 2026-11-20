@@ -5,12 +5,13 @@ use std::sync::Arc;
 use super::{
   names,
   part_style::{Length, PartTransition},
-  recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe},
+  recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
   shared::{fading, pressable},
   theme::{Themed, current_theme},
 };
 use crate::{
   animation::Transition,
+  app::events::MouseEvent,
   app::theme::{BorderSize, MotionDuration, OpacityLevel, PaletteColor, RadiusSize, Theme, TypographyStyle},
   components::{self, Row},
   core::Signal,
@@ -48,12 +49,15 @@ pub enum SwitchState {
   Invalid,
   /// It takes no input.
   Disabled,
+  /// It is pressed as a whole: its root is what is pressed and focused, with the track and the label in it.
+  Whole,
 }
 
 names!(SwitchState {
   On => "on",
   Invalid => "invalid",
   Disabled => "disabled",
+  Whole => "whole",
 });
 
 /// What builds a switch's nodes: a theme's in place of the default one.
@@ -76,10 +80,13 @@ pub type SwitchRenderer = Arc<dyn Fn(SwitchView) -> Element + Send + Sync>;
 /// A switch does not keep whether it is on: the app says so with
 /// [`Switch::on`], and is told of a press with [`Switch::on_change`], or binds
 /// it to a signal with [`Switch::bind`]. A press of its label is a press of
-/// the switch.
+/// the switch, and a press of either is the switch's alone: a row around it
+/// that is pressed is not. [`Switch::whole`] makes the switch and its label
+/// one control, its id on the whole.
 pub struct Switch {
   label: Arc<str>,
   label_hidden: bool,
+  whole: bool,
   on: bool,
   invalid: bool,
   disabled: bool,
@@ -97,6 +104,7 @@ impl Switch {
     Self {
       label: Arc::from(label),
       label_hidden: false,
+      whole: false,
       on: false,
       invalid: false,
       disabled: false,
@@ -112,6 +120,16 @@ impl Switch {
   /// Whether the switch is its track alone. Its label stays what it is called.
   pub fn label_hidden(mut self, hidden: bool) -> Self {
     self.label_hidden = hidden;
+    self
+  }
+
+  /// Whether the switch and its label are one control: what is pressed,
+  /// focused and ringed is the whole of them, one stop of Tab, and its id is
+  /// on the whole, the track, the thumb and the label named after it
+  /// (`x-track`, `x-thumb`, `x-label`). Not unless told: the track is what is
+  /// pressed, and has the id.
+  pub fn whole(mut self, whole: bool) -> Self {
+    self.whole = whole;
     self
   }
 
@@ -179,7 +197,8 @@ impl Switch {
     self
   }
 
-  /// The id of the track: what is pressed.
+  /// The id of the track: what is pressed. The id of the whole where it is
+  /// [`whole`](Self::whole).
   pub fn id(mut self, id: impl Into<Arc<str>>) -> Self {
     self.id = Some(id.into());
     self
@@ -203,16 +222,23 @@ impl Switch {
     }
     .state(SwitchState::On, self.on)
     .state(SwitchState::Invalid, self.invalid)
-    .state(SwitchState::Disabled, self.disabled);
+    .state(SwitchState::Disabled, self.disabled)
+    .state(SwitchState::Whole, self.whole);
+    let recipe = theme.resolve::<Switch>(&case, Some(&self.rules));
+    // Pressed as a whole, the id is on the root, and the track is a part named after it.
+    let recipe = if self.whole {
+      recipe.rooted_at(SwitchPart::Root)
+    } else {
+      recipe
+    };
     let view = SwitchView {
       label: self.label,
       label_hidden: self.label_hidden,
+      whole: self.whole,
       on: self.on,
       invalid: self.invalid,
       disabled: self.disabled,
-      recipe: theme
-        .resolve::<Switch>(&case, Some(&self.rules))
-        .owned_by(self.id.as_ref()),
+      recipe: recipe.owned_by(self.id.as_ref()),
       forced: self.forced,
       on_change: self.on_change,
       id: self.id,
@@ -236,6 +262,8 @@ impl From<Switch> for Element {
 pub struct SwitchView {
   pub label: Arc<str>,
   pub label_hidden: bool,
+  /// Whether the switch and its label are one control, its id on the whole.
+  pub whole: bool,
   pub on: bool,
   pub invalid: bool,
   pub disabled: bool,
@@ -269,25 +297,39 @@ impl SwitchView {
     })
   }
 
+  /// The switch's behavior with the style of `part`: the element that is
+  /// pressed, focused and disabled, with nothing in it yet, its id and its
+  /// key. It is a switch to what reads the tree, called by its label, and
+  /// says whether it is on. A press of it is its own: it does not reach what
+  /// is around it.
+  fn control(&self, part: SwitchPart) -> components::Button {
+    let mut control = pressable(&self.part(part), self.disabled)
+      .justify(Justify::Start)
+      .describe("a11y_role", "switch")
+      .describe("a11y_name", self.label.clone())
+      .describe("a11y_checked", if self.on { "true" } else { "false" })
+      .on_click(own_press(self.press()));
+    if let Some(id) = &self.id {
+      control = control.id(id.clone());
+    }
+    if let Some(key) = &self.key {
+      control = control.key(key.clone());
+    }
+    control
+  }
+
   /// The switch's behavior with the style of its track: the element that is
   /// pressed, focused and disabled, with nothing in it yet. It is a switch to
   /// what reads the tree, called by its label, and says whether it is on.
   pub fn track(&self) -> components::Button {
-    let mut track = pressable(&self.part(SwitchPart::Track), self.disabled)
-      .justify(Justify::Start)
-      .describe("a11y_role", "switch")
-      .describe("a11y_name", self.label.clone())
-      .describe("a11y_checked", if self.on { "true" } else { "false" });
-    if let Some(press) = self.press() {
-      track = track.on_click(move |_| press());
-    }
-    if let Some(id) = &self.id {
-      track = track.id(id.clone());
-    }
-    if let Some(key) = &self.key {
-      track = track.key(key.clone());
-    }
-    track
+    self.control(SwitchPart::Track)
+  }
+
+  /// The behavior of a switch pressed as a whole, with the style of its root:
+  /// what is pressed, focused and ringed, with nothing in it yet, the track
+  /// and the label to go in it. What [`track`](Self::track) is otherwise.
+  pub fn whole_root(&self) -> components::Button {
+    self.control(SwitchPart::Root).align_items(Alignment::Center)
   }
 
   /// How far the thumb moves from off to on: the room of the track that the
@@ -319,26 +361,53 @@ impl SwitchView {
     }
   }
 
-  /// How the default renderer builds a switch: the track with its thumb, and the label beside it.
+  /// The label in the style of its part: `None` where it is hidden.
+  fn label(&self) -> Option<Row> {
+    if self.label_hidden {
+      return None;
+    }
+    let part = self.part(SwitchPart::Label);
+    Some(Row::new().part(&part).child(part.text(&self.label).nowrap()))
+  }
+
+  /// How the default renderer builds a switch: the track with its thumb, and the label beside it; pressed as a whole,
+  /// both in what is pressed.
   pub fn render(self) -> Element {
-    let mut track = self.track().child(self.thumb());
     // A track whose travel the recipe does not say holds its thumb at the end it belongs at.
-    if self.on && self.travel().is_none() {
+    let end = self.on && self.travel().is_none();
+    if self.whole {
+      let mut track = Row::new()
+        .align_items(Alignment::Center)
+        .part(&self.part(SwitchPart::Track))
+        .child(self.thumb());
+      if end {
+        track = track.justify(Justify::End);
+      }
+      return self.whole_root().child(track).with_children(self.label()).into();
+    }
+    let mut track = self.track().child(self.thumb());
+    if end {
       track = track.justify(Justify::End);
     }
     let mut root = Row::new()
       .align_items(Alignment::Center)
       .part(&self.part(SwitchPart::Root))
       .child(track);
-    if !self.label_hidden {
-      let part = self.part(SwitchPart::Label);
-      let mut label = Row::new().part(&part).child(part.text(&self.label).nowrap());
-      if let Some(press) = self.press() {
-        label = label.on_click(move |_| press());
-      }
-      root = root.child(label);
+    if let Some(label) = self.label() {
+      root = root.child(label.on_click(own_press(self.press())));
     }
     root.into()
+  }
+}
+
+/// What a press of a switch, a checkbox or its label does: `press`, where it has one, and nothing more. It is its
+/// own, and does not reach what is around it (a row that is pressed).
+pub(crate) fn own_press(press: Option<impl Fn() + Send + Sync + 'static>) -> impl Fn(MouseEvent) + Send + Sync + 'static {
+  move |event: MouseEvent| {
+    event.stop_propagation();
+    if let Some(press) = &press {
+      press();
+    }
   }
 }
 
@@ -405,6 +474,12 @@ impl Themed for Switch {
       .state(SwitchState::Disabled, Root, |s| s.opacity(OpacityLevel::Disabled))
       .state(SwitchState::Disabled, Track, |s| s.cursor(CursorIcon::Default))
       .state(SwitchState::Disabled, Label, |s| s.cursor(CursorIcon::Default))
+      // Pressed as a whole: the root is what the pointer presses and the ring goes round, the track only drawn.
+      .state(SwitchState::Whole, Root, |s| s.radius(RadiusSize::Sm).cursor(CursorIcon::Pointer))
+      .when(Selector::new().state(SwitchState::Whole).focus_visible(), Root, |s| s.focus_ring())
+      .when(Selector::new().state(SwitchState::Whole).state(SwitchState::Disabled), Root, |s| {
+        s.cursor(CursorIcon::Default)
+      })
   }
 }
 
@@ -412,7 +487,7 @@ impl super::FieldControl for Switch {
   /// Called by the field's label where its own is hidden, since the label a person reads is then the field's;
   /// invalid where the field is, and disabled where the field is.
   fn in_field(mut self, field: &super::InField) -> Element {
-    if self.label_hidden {
+    if self.label_hidden && !field.label.is_empty() {
       self.label = field.label.clone();
     }
     self.invalid |= field.judgment == Some(super::Judgment::Invalid);

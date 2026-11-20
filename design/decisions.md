@@ -11,6 +11,306 @@ dropped). When a decision is replaced, the old entry stays and says what replace
 
 ## 2026-11-20
 
+### Window tabs that keep a gap between them, and fit by it
+
+- **Question.** Orchester's design puts 2 between its title-bar tabs and before the add button and the More button.
+  `ui::WindowTabs` counted the strip's width from its tabs, its separators and its add button, never a gap, and in
+  the list mode it counted the separator of a tab only while the tab was in the strip: a tab that left for the More
+  button's menu needed less room to come back than it took once back, and with a gap it never came back at all.
+  Should the strip keep a gap, and how does it fit?
+- **Decision (Ivan, 2026-11-20: "так давай роби в луркі").** The gap of the `list` part is the room between two tabs
+  and before the More button, the gap of the `root` part the room before the add button; both are counted wherever
+  the strip reckons its width, and a tab leaves the strip with its gap and its separator, so it comes back as soon as
+  the room it took is there again. A separator stands by the tabs on either side of it whether they are in the strip
+  or not, and the separator before the add button keeps its room in the list mode whether it shows or not. A separator
+  the recipe makes 0 wide is not laid out. The default recipe has no gap: what an app sees does not change.
+- **Why.** What Orchester's kit needs: its strip is lurq's, with the design's gap, and a tab that left comes back when
+  the window grows.
+- **State.** Built on `claude/k5-a-tabs-small` (2026-11-20): the gaps of `list` and `root` counted, the list mode's strip as wide as its tabs are laid out (the list in a column, so the strip's line takes room from it and does not drop it whole), separators by the tabs on either side whatever is hidden, the one before the add button keeping its room in the list mode.
+
+### The More button's menu may list every open tab
+
+- **Question.** Orchester's tab list (its old `chrome/tab_list`) is the list of all open tabs, not only the hidden
+  ones: a search field once there are more than eight, a close button on each row (and Ctrl/Cmd+W on the row the keys
+  are on), marks for the current tab and for the tabs not in the strip, Ctrl+Shift+A (Cmd+Shift+A) to open it, a
+  tooltip on its button with the count of hidden tabs, and its button pressed with an up-chevron while it is open.
+  `WindowTabs`' list mode lists only the hidden tabs in a plain menu. Should lurq's list do Orchester's?
+- **Decision (Ivan, 2026-11-20: "так давай роби в луркі").** Yes, as an option of the list mode:
+  `WindowTabs::menu(WindowTabsMenu::All)` makes the More button's menu a panel of every tab in the strip's order,
+  with all of the above; `WindowTabsMenu::Hidden`, the menu of the hidden tabs, stays the default.
+  `WindowTabs::list_shortcut(bool)` is the optional Ctrl+Shift+A (Cmd+Shift+A on macOS) that opens and closes it,
+  apart from the window's other shortcuts. Every word is in the locale; the More button says while it is open with
+  a state of the strip (`menu_open`) a recipe styles, and its chevron points up then.
+- **Why.** What Orchester's kit needs to drop its own list and keep its behaviour; a browser's tab search is the same
+  thing, none of it Orchester's alone.
+- **State.** Built on `claude/k5-a-tabs-small` (2026-11-20): `WindowTabsMenu`, `WindowTabs::menu` and `list_shortcut`, the state `MenuOpen`, the parts of the list, four words of the locale; the gallery's "Every open tab in a list".
+
+### A window tab as wide as what it shows, up to a cap
+
+- **Question.** Orchester measures each tab's label after a layout (`tab_measure`, `tab_fit`) to give a tab the
+  width of what it shows, capped. Can lurq size a tab to its content?
+- **Decision (Ivan, 2026-11-20: "так давай роби в луркі").** `WindowTab::fit_content(max)`: the tab is as wide as
+  its icon, label, marks and close slot, up to `max`, where its label ends in an ellipsis; in the scroll mode it
+  still gives way down to the recipe's least width, and in the list mode it keeps that width and leaves the strip
+  whole. The strip is as wide as such tabs are laid out, with no measuring of the app's.
+- **Why.** What Orchester's kit needs to drop `tab_measure` and `tab_fit`.
+- **State.** Built on `claude/k5-a-tabs-small` (2026-11-20). In the scroll mode the strip is reckoned with such a tab at its cap, a label's width being unknown before the layout.
+
+### A tag's remove handler is given the event
+
+- **Question.** Orchester's chips sit in rows a press opens; the press on a chip's remove button must not reach the
+  row. `Tag::on_remove` is given nothing. Should it be given the event?
+- **Decision (Ivan, 2026-11-20: "так давай роби в луркі").** Additively: `Tag::on_remove_event(|event| ..)` is given a
+  `TagRemoveEvent`, the press or the key that took the tag away, which the handler stops (`stop_propagation`) so
+  nothing around the tag hears it. `on_remove(|| ..)` stays as it was.
+- **Why.** What Orchester's kit needs; breaking `on_remove` for it would break every app that has one.
+- **State.** Built on `claude/k5-a-tabs-small` (2026-11-20).
+
+### A badge that cuts its word where it has less room
+
+- **Question.** Orchester's badges stand in rows that narrow, and cut their word with an ellipsis there. A
+  `ui::Badge` keeps its width. Should it give way?
+- **Decision (Ivan, 2026-11-20: "так давай роби в луркі").** `Badge::truncate(true)`: the badge gives way where it
+  has less room than its word, down to its dot and icon and its padding, and its word ends in an ellipsis; what
+  reads the tree is still told the whole word. Off unless told.
+- **Why.** What Orchester's kit needs.
+- **State.** Built on `claude/k5-a-tabs-small` (2026-11-20).
+
+### A part's foreground wins over the color of its typography role
+
+- **Question.** lurq colored a part's text by the part's `foreground` only when the text's style had the default
+  color, so an app whose typography roles carry colors (Orchester's) saw a recipe's `foreground` ignored: a primary
+  button's label in the role's color and not on the accent. Orchester works around it with a twin of each role in no
+  color. Which wins?
+- **Decision (Ivan, 2026-11-20: "так давай роби в луркі").** A part style that sets a `foreground`, at rest or in any
+  of its states, colors its own text even where its typography role names a color: the role's color is dropped from
+  the text of that part, which takes the part's foreground. Where the part sets a foreground only in a state, the
+  role's color is the text's at rest. A role's color still applies where the part sets no foreground at all.
+- **Why.** A recipe says what a part looks like; its `foreground` is the more particular of the two, and the role's
+  color is a default for text that names nothing else.
+- **State.** Built on `claude/k5-a-tabs-small` (2026-11-20), in `ResolvedPart::text`, the text every renderer draws a part's words with. A text a renderer resolves from `TextPatch::resolve` itself (a highlight's runs, a watermark) is as it was.
+### Tabs with a note at the end, a dot, a count still read, and a tab a press leaves alone
+
+- **Question.** Orchester's page tabs (`ui/tabs.rs` of its kit) have quiet words at the strip's end (why a tab cannot
+  be opened), a rule between groups of tabs, a dot after a tab's count in the tone of what it counts (a service that
+  crashed), a quiet count apart from the badge of what waits for the person, a count's bone while the count is read,
+  and the tab of the page shown that a press leaves alone (it keeps the panel it shows). `ui::Tabs` has the rule
+  (`Tab::separated`) and the quiet count (`Tab::count`, apart from `Tab::badge`), and none of the rest. Can it host
+  them (K5, package C)?
+- **Decision (Ivan, 2026-11-20: "так давай роби в луркі").** `Tabs::note(&str)` puts quiet words at the end of the
+  list's line (part `note`), and `Tabs::end(element)` an element of the app's there (part `end`); both give way first
+  where the line is short. `Tab::dot(PaletteColor)` draws a dot after the count and the badge in a role of the
+  palette (part `dot`, its size the recipe's). `Tab::count_pending(true)` shows a skeleton in the count's place,
+  as wide as one digit (part `count`, its bone `count_skeleton`), and says the tab is busy to tooling.
+  `Tab::inert(true)` is a tab a press leaves alone: it is drawn as it is, selected or not and not dimmed, but a
+  press, its item in the menu of the overflowing form and the arrow keys neither select nor focus it (state `inert`,
+  no pointer cursor). The rule and the quiet count are already lurq's.
+- **Why.** Each is what a page's tabs show in many apps; with them the kit's page tabs are `ui::Tabs` dressed by the
+  app's recipe.
+- **State.** Built on `claude/k5-c-rows-forms` (2026-11-20): `Tabs::note`, `Tabs::end`, `Tab::dot`,
+  `Tab::count_pending`, `Tab::inert`; parts `dot`, `count_skeleton`, `note`, `end`, state `inert`;
+  `TabsView::count_bone`, `end_of_line`. The note and the element are not counted in what the list needs to stand
+  whole, so a list that just fits keeps its form and the note gives way.
+
+### A list item with tags and an (i) after its title, elements under its words, and parts under the row
+
+- **Question.** Orchester's grouped rows and settings rows (`ui/row_group.rs`, `ui/setting_rows.rs`) have tags after
+  the label (*Default*, *Changed*), an (i) after it with the rest of what the setting does in its tooltip, a link
+  under the hint, and what the row says under itself (a problem, a code to copy) inside the row's box under it.
+  `ui::ListItem` has a title and a description of text. Can it hold them, and which ids does the app read?
+- **Decision (Ivan, 2026-11-20: "так давай роби в луркі").** `ListItem::tag(element)` puts the app's elements after the
+  title, on its line (part `tags`); `ListItem::info(&str)` the mark of an `InfoLabel` after the title and the tags,
+  its words in a tooltip (part `info`) that shows wherever the row is rendered; `ListItem::detail(element)` an element
+  of the app's under the description in the text's column (part `detail`): a link, a path; `ListItem::below(element)`
+  what the row says under itself, across the row under its line, in a part `below` that a press of the row does not
+  reach. The ids stay lurq's part names: `x-title` and `x-description`, not the kit's `x-label` and `x-hint`. The app
+  reads lurq's (its tests and its MCP readers move to `-title` and `-description`); a lurq part is named after what it
+  is in every component, and a second name for one part would be two ids for one node.
+- **Why.** A settings row and a grouped row are list items with a few more things around the title; with them the
+  kit's rows are `ui::ListItem` in a `ui::List`.
+- **State.** Built on `claude/k5-c-rows-forms` (2026-11-20): `ListItem::tag`, `info`, `detail`, `below`; parts `tags`,
+  `info`, `detail`, `below`; the title's node now has its id `x-title`. A row with something below it is a column
+  of the row (its id) and the part `below`, the key on the column.
+
+### A field without a label, and rows under its description
+
+- **Question.** Orchester's form fields (`ui/field/` of its kit) are often a control alone with its hint, named by the
+  control (a search box, a field of a table's row), and its controls add error rows of their own under the field.
+  A `ui::Field` with an empty label draws none, but gives some controls an empty name over their own, and has
+  nothing under its description. Can it?
+- **Decision (Ivan, 2026-11-20: "так давай роби в луркі").** `Field::unlabeled(control)` is a field with no label: the
+  control keeps the name it has of its own (its hidden label, its own `label`), and no control takes an empty name
+  from a field (each control's `in_field` leaves its name alone where the field's label is empty). A field beside
+  its label (`Horizontal`) keeps the label's column, so its control stands in line with the others of the form.
+  `Field::below(element)` adds the app's elements under the description, one under another (part `below`): error
+  rows, a count, a link.
+- **Why.** The kit's fields are lurq's only if a field can be a control alone, and if what the app says under it has a
+  place that is the field's.
+- **State.** Built on `claude/k5-c-rows-forms` (2026-11-20): `Field::unlabeled`, `Field::below` (part `below`); the
+  controls that took an empty name from a field (a radio and a switch with their labels hidden, a select, a
+  listbox, the groups, a rating and others) keep theirs, and a drop zone keeps a label of its own.
+
+### Key caps in a dialog's note, and a veil that leaves a band of the app's at the top
+
+- **Question.** Orchester's confirmations say at their footer's start what Enter does and that Esc cancels, each with
+  its key cap (`Keys` in `08e · History · Delete confirmation`), and its scrim stops under its title bar. A
+  `ui::Dialog`'s note is words alone; its veil starts under the title bar a `WindowChrome` says
+  (`WindowHandle::title_bar_inset`), and nothing else. Can a note hold key caps, and can the veil leave more of the
+  top?
+- **Decision (Ivan, 2026-11-20: "так давай роби в луркі").** `Dialog::note_key(keys, words)` adds a key cap (a
+  `ui::Kbd` of `keys`, as `Kbd::shortcut` writes them for the platform; part `note_key`) and its words in the note's
+  type to the note, after its text, in the order given; `Dialog::note_child(element)` adds any element of the app's
+  there. A note of keys alone is a note. `Dialog::inset_top(f32)` leaves that much of the top of what the veil covers
+  to what is under it, which takes the pointer there (a bar the app draws itself, not a `WindowChrome`); the panel is
+  centred in the rest. The title bar of a `WindowChrome` is left without it, as before.
+- **Why.** What a key does is said with its key cap in many apps' footers; and a bar that is not the chrome's is still
+  the app's to keep in reach while a dialog asks.
+- **State.** Built on `claude/k5-c-rows-forms` (2026-11-20): `Dialog::note_key`, `note_child`, `inset_top`; part
+  `note_key` (its id `x-note_key`, `x-note_key-2`). A note with key caps wraps them onto more lines where it is
+  short, and cuts a pair's words where one pair is wider than the note.
+
+### A button whose label takes its room, whose description wraps, and that tells its focus
+
+- **Question.** Orchester's select-like buttons put their chevron at the button's end with the label taking the room
+  before it; its stacked answers say what a press leads to under the label in several lines; and an answer tells the
+  app when the keyboard focuses it (its supporting copy changes). A `ui::Button` centres its content, cuts its
+  description to one line, and has no focus handler. Can it?
+- **Decision (Ivan, 2026-11-20: "так давай роби в луркі").** `Button::fill_label(true)` (state `fill_label`): the
+  label (with its description) takes the room the button has, its content starts at the button's start, and what is
+  after the label (a trailing icon, an element) stands at the end. `Button::description_wraps(true)` (state
+  `description_wraps`): the description goes on to the next lines in the room the button has, in place of one line
+  cut with an ellipsis. `Button::on_focus(handler)` is called when the button takes the focus, from the keyboard or
+  from the app; a second handler is called after the first.
+- **Why.** A select's trigger, a stacked answer and a focus that changes what is said beside it are buttons in the
+  kit; with these they are `ui::Button`, and the kit's own frame goes.
+- **State.** Built on `claude/k5-c-rows-forms` (2026-11-20): `Button::fill_label`, `description_wraps`, `on_focus`;
+  states `fill_label` and `description_wraps`. The description's id stays `x-description` (the kit's stacked answer
+  has `-consequence`: the app reads lurq's).
+### A menu whose rows are the app's, and panels placed by another frame
+
+- **Question.** Orchester's menus (`ui/menu.rs` of its kit, and the menus of its pickers, its slash and mention
+  lists, its context meter) are a panel the app builds itself: its own rows (a label cut to its room with its words in
+  a tooltip, a detail after the label on one line or under it, a hint at the end, a row 40 high for an agent and its
+  model, a row of an unavailable choice only faded whose reason a foot under the rows says once), separators, a foot
+  of words, sections. `ui::Menu` owns its item list and draws each item itself: the kit could take its look,
+  keyboard, focus and dismissal only by giving up its rows. Its popovers and menus also open by a frame that is not
+  their trigger (the status bar's popover above the bar and at its end while the bar's item stays the trigger) or at
+  a point. Should a lurq menu take the app's rows, and a popup be placed by another element?
+- **Decision (Ivan, 2026-11-20: "так давай роби в луркі").** Yes:
+  1. A `MenuItem` takes the app's element as all it shows (`MenuItem::content(element)`), in place of its icon, label,
+     detail and end; the item keeps everything else: its root is the item that is pressed, reached by the arrows,
+     found by typing its label, called by its label to tooling, checked, disabled or unavailable for a reason
+     (`a11y_description`), destructive, and choosing it closes the menu and calls its handlers. The app's recipe of
+     `menu_item` gives the root its height, its padding and its fill under the pointer. So a row of the app's is a
+     menu's row and the keyboard works, with no role of the menu's for the app to put on an element of its own.
+  2. A menu holds the app's elements among its entries (`Menu::child`, `Menu::children`, `MenuEntry::Element`): a
+     foot, a section of its own, a field. Drawn as given; one that takes the focus is reached by the arrows as an item
+     is, and choosing it does what the app wires.
+  3. A popup may be placed by another element than its anchor (`Overlay::placed_by`, `Popup::placed_by`,
+     `Menu::placed_by`, `Popover::placed_by`): it stands at its placement of that element's box, flips and is clamped
+     as it would by its anchor, and the anchor stays what it hangs from (its trigger, where the focus goes back, what
+     hides it out of view). A menu and a popover may stand at a point of the window too (`Menu::at`, `Popover::at`),
+     as a context menu does.
+- **Why.** The kit's menus keep their rows, which are its design, and get lurq's menu: the roving focus, the typing,
+  Escape, a press outside, Tab, the focus given back, flipping and clamping, `within`. A popover by the status bar no
+  longer reckons its offset from where two elements were last laid out.
+- **State.** Built on `claude/k5-d-overlays` (2026-11-20).
+
+### A hover card the pointer passes through
+
+- **Question.** The cards of Orchester's status bar show what an item of the bar is (the cloud, the MCP server, the
+  runner) while the pointer rests on it: they say words, hold nothing to press, let the pointer through to what is
+  under them, and go as soon as the pointer leaves the item. `ui::HoverCard` takes the pointer, stays while it is on
+  the card and goes after a delay to cross to it. Can a hover card do both?
+- **Decision (Ivan, 2026-11-20: "так давай роби в луркі").** `HoverCard::pass_through(true)`: the card takes no
+  pointer (what is under it is hovered and pressed through it), and it goes as the pointer leaves the element it is
+  about, with no delay. The focus and Escape do what they did. Staying open while the card is hovered stays the
+  default.
+- **Why.** A card of words over a bar the pointer moves along must not hide the next item from the pointer, nor
+  linger over it.
+- **State.** Built on `claude/k5-d-overlays` (2026-11-20).
+
+### Tooltips placed by a frame, held by the app, and worded for a cut text
+
+- **Question.** Orchester's tooltips do three things `ui::Tooltip` does not: a skill chip's tooltip opens over the
+  composer box the chip sits in, clear of the box's top, and not over the chip; a message's actions show their
+  tooltips themselves, the app saying which one shows ("hung" tooltips, with no hover of the tooltip's own); and a
+  browser tab's label says one thing in its tooltip while it fits (the page's title) and another while it is cut.
+  Can lurq's tooltip do them?
+- **Decision (Ivan, 2026-11-20: "так давай роби в луркі").**
+  1. `Tooltip::over(&frame)`: the tooltip keeps clear of `frame`, an element around the one it describes, on the side
+     it opens on: its distance is measured from the frame's edge and it lines up with its element along it
+     (`Overlay::clear_of`). It flips as it would.
+  2. `Tooltip::hang(anchor, open)`: a tooltip the app shows and hides itself beside an element of its own, open while
+     `open` is (a `bool` or a `Signal<bool>`): the pointer, the focus, a press and Escape do nothing to it, it takes no
+     pointer, and it is an element the app puts among the children of any container.
+  3. `Tooltip::hint(text)` with `when_cut`: what the tooltip says while the text is whole, in place of showing
+     nothing; while the text is cut it says its own text, as before.
+- **Why.** Each is how the kit's tooltips behave today, and none is Orchester's alone: a tooltip over a field's box, a
+  toolbar that shows its tooltips itself, a tab's title.
+- **State.** Built on `claude/k5-d-overlays` (2026-11-20).
+### Copies that go where the app says, not to the system's clipboard
+
+- **Question.** Orchester's copy buttons (its code box, the commands and links it offers to copy) write through a
+  copier the app provides once: a QA copy of the app and its gallery copy to a clipboard of their own and never
+  touch the person's. A copy of lurq's (a `ui::CodeBlock`'s button, a Markdown code block's, a table's, Ctrl+C in a
+  field, `WindowHandle::copy_to_clipboard`) goes to the system's clipboard in a window, and only a test's `Tree`
+  can put another writer in its place. Can an app say once where lurq's copies go?
+- **Decision (Ivan, 2026-11-20: "так давай роби в луркі").** Yes, once for the app: `App::set_clipboard_writer` (and
+  `App::set_clipboard_reader` for what a paste reads), which every copy and paste of every window of the app goes
+  through, the button of a code block and the keys alike, in place of the system's clipboard; a test's writer on its
+  `Tree` stays over the app's. A code block's button says it copied, or could not, by what the writer answers, as
+  it says by what the system's clipboard answers.
+- **Why.** What a kit's copier is for is the whole app's, not one button's: a QA copy that writes the person's
+  clipboard from one place is as wrong as from another, so the hook is the app's and lurq's own copies keep their
+  behaviour.
+- **State.** Built on `claude/k5-e-misc` (2026-11-20).
+
+### A calendar that marks the other end of a range, in the app's own words
+
+- **Question.** Orchester picks the start and the end of a range in two pickers of one date each, and the calendar
+  of one marks the date the other holds (the other end) in a tint of its own while the person picks. And it names
+  its months and weekdays in its own words. A `ui::Calendar` of one date marks no other day, and does it take the
+  app's words?
+- **Decision (Ivan, 2026-11-20: "так давай роби в луркі").** `Calendar::other_end(Option<Date>)` marks the day of the
+  other end of a range the calendar's date is one end of: a state `other_end` of the day, which the design's recipe
+  tints as the days inside a range are, and which tooling reads (`range_other_end`). The words were already the
+  app's: a calendar takes its month names, its weekdays' heads and their names from `Locale::dates` (or
+  `App::set_date_locale`), whose fields an app may change one by one; this is documented and tested.
+- **Why.** The kit's date picker moves onto `ui::Calendar` only with the mark it draws, and its words must be
+  Orchester's own.
+- **State.** Built on `claude/k5-e-misc` (2026-11-20).
+
+### Skeletons that pulse in steps, and bones laid out as the app chains them
+
+- **Question.** Orchester's skeletons pulse together, in 16 steps a half pulse rather than smoothly, so the window
+  draws a few frames a second while one is shown, and stand still where motion is reduced. Its bones (~114 call
+  sites) are columns that it sizes, rounds and flexes with a column's builder. `ui::Skeleton` pulses smoothly, and
+  takes a width and a height only. Can lurq's do both?
+- **Decision (Ivan, 2026-11-20: "так давай роби в луркі").** A `SkeletonMotion` says how skeletons move:
+  `SkeletonMotion::SMOOTH`, as before, or `SkeletonMotion::stepped(per_second)`, each pose held until the next and
+  no frame asked for between, with its `period`; a theme gives the one of every skeleton not told its own
+  (`Theme::set_skeleton_motion`), and `Skeleton::motion` one skeleton's. Every skeleton still pulses in one phase,
+  and stands still where motion is reduced, as before. A skeleton takes the layout an app chains on a bone:
+  `radius`, `min_width`, `max_width`, `min_height`, `max_height`, `flex` and `flex_shrink`, beside its `width` and
+  `height`. lurq has no margins, so there are none to take.
+- **Why.** The kit's bones and its pulse move onto `ui::Skeleton` only where the bones keep their shapes and the
+  pulse its cadence.
+- **State.** Built on `claude/k5-e-misc` (2026-11-20).
+
+### A radio pressed as a whole, its id on the whole, and a press kept from a row around it
+
+- **Question.** As for a switch and a checkbox (the entry of K5-B below): Orchester's radio is one control of its
+  mark and its label, found by its id as a whole and pressed inside rows. A `ui::Radio` has its id on the mark, and
+  a press of it reaches a row around it.
+- **Decision (Ivan, 2026-11-20: "так давай роби в луркі").** `Radio::whole(true)` and `RadioGroup::whole(true)`
+  make the mark and its label one control: what is pressed, focused and ringed is the whole of them, one stop of
+  Tab (one stop for the group, as before), its id on the whole and the mark, the dot, the label and the count named
+  after it (`x-mark`, `x-dot`, `x-label`, `x-count`). A press of a radio, whole or not, its label too, stops there:
+  a row around it is not pressed.
+- **Why.** The same as for the switch and the checkbox, for the third of the kit's toggles.
+- **State.** Built on `claude/k5-e-misc` (2026-11-20).
+
 ### Window tabs that hold Orchester's title-bar tabs
 
 - **Question.** Orchester draws the tabs of its title bar itself: a Home tab of an icon alone, tabs capped at a width
@@ -364,6 +664,82 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   an icon takes its room and draws nothing.
 - **Why.** An app's marks are drawn by name wherever lurq's components draw icons, as its glyphs are.
 - **State.** Built on `claude/k4-f-misc` (2026-11-20).
+
+### A card that clips to its corners and gives its height to its body
+
+- **Question.** Orchester's cards (`ui/card.rs` of its kit) clip what is in them to their rounded corners (a table, a
+  picture, a header's fill reach the edge), and a card of a fixed height or a share of a row (`flex(1.0)`, the usage
+  figure cards 118 high) gives that height to its body, so that what is in it with `flex` fills it. A `ui::Card` lets
+  what is in it paint over its corners, and its content and body are as high as what is in them, whatever the card is.
+  Can lurq's card do both?
+- **Decision (Ivan, 2026-11-20: "так давай роби в луркі").** What is in a card is clipped to its rounded corners by
+  default: every element of lurq clips what is in it to its own box and corners unless told `overflow_visible`, a
+  card's surface too, so no option is added; a test holds it. A card given a height of its own (`height`, or
+  its recipe's) gives what its header leaves to its body and what its footer leaves to its content, so children with
+  `flex` fill it and the footer stays at the bottom. A card as high as what is in it, or given only a least height, is
+  as before: a column that grows takes all the room it may in lurq's layout, so the body grows only where the card's
+  height is its own (`CardView::has_height`). A card that is a share of a column takes `height(Length::Fill)`.
+- **Why.** The kit's card is a column that clips; a card that could do neither kept the kit on its own.
+- **State.** Built on `claude/k5-b-surfaces` (2026-11-20).
+
+### A data list's term at the top of a value that wraps, and its id kept by a theme's renderer
+
+- **Question.** Orchester's detail rows (`ui/detail_row.rs`) put the term at the top of its value, where the value
+  wraps onto several lines or is an element of several lines. A `ui::DataList` centers the term on the value's height.
+  And a theme's renderer of a data list could not put the list's id on its root: the view kept it to itself.
+- **Decision (Ivan, 2026-11-20: "так давай роби в луркі").** `DataList::align(Alignment)` says how a term and its
+  value stand to each other across: `Center` as before, or `Start`, the term at the top of the value. The view gives a
+  renderer the id and the key (`DataListView::id`, `key`), and a root a renderer builds with no id of its own is given
+  the list's.
+- **Why.** The kit's detail rows move onto `DataList` only with their term where the design draws it, and a list whose
+  id a theme drops cannot be found by the tests that read it.
+- **State.** Built on `claude/k5-b-surfaces` (2026-11-20).
+
+### An alert at the top of its first line, with a note, without a title, and in the inspector's layout
+
+- **Question.** Orchester's notices (`ui/notice.rs`, `ui/setting_notice.rs`) put the icon and the actions at the top
+  of the first line where the actions stand at the end, say a quieter note after the actions (Settings), may have no
+  title (Settings), and in an inspector of 340 have the icon beside the title alone, with the words, the parts and the
+  actions under them across the whole width. A `ui::Alert` centers what is in it on its actions, has a title always,
+  and no note and no such layout. Its kit's ids are `<id>-icon`, `-text`, `-title`, `-body`, `-actions`, `-note`.
+- **Decision (Ivan, 2026-11-20: "так давай роби в луркі").** `Alert::align_top(true)` (state `align_top`): the icon,
+  the words, the actions and the close control stand at the top, the actions on the first line. `Alert::note(&str)`:
+  a quieter line after the actions (part `note`, state `note`). An empty title draws no title part
+  (`Alert::untitled()`), and the alert is then called by its description. `Alert::compact(true)` (state `compact`): the
+  icon beside the title alone, the description, the body and the actions under them across the alert, the actions
+  under the words. `Alert::actions_end(true)` (state `actions_end`): actions under the words stand at the far end.
+  Ids keep the part-ids rule: the kit's `-body` is lurq's `-description` (the kit's words under the title), its
+  `-actions` lurq's `-action` (the part's name, kept so a theme's rule on it holds), `-icon`, `-text`, `-title` and
+  `-note` are the same; the app renames the two it reads.
+- **Why.** The kit's notices are built on `ui::Alert` only where it draws them as the design does.
+- **State.** Built on `claude/k5-b-surfaces` (2026-11-20).
+
+### A breadcrumb's links cut at a width, with their whole name in a tooltip while cut
+
+- **Question.** Orchester's breadcrumb (`ui/breadcrumb.rs`) cuts an ancestor's name at 160 with an ellipsis and shows
+  it whole in a tooltip while it is cut; ancestors keep their room and the page gives way. A `ui::Breadcrumb`'s links
+  are as wide as their names.
+- **Decision (Ivan, 2026-11-20: "так давай роби в луркі").** `Breadcrumb::link_max_width(length)`: each link is at
+  most that wide and keeps its room, its name cut with an ellipsis, and a tooltip says the name whole while it is cut
+  (`Tooltip::when_cut`).
+- **Why.** A trail of long names (folders, projects) fits its bar only if each of them gives up room, and a name cut
+  must still be readable.
+- **State.** Built on `claude/k5-b-surfaces` (2026-11-20).
+
+### A switch and a checkbox pressed as a whole, their id on the whole, and a press kept from a row around them
+
+- **Question.** Orchester's toggles (`ui/toggle.rs`) are one control: the mark and the label pressed together, one
+  ring around both, the id on the whole and its parts `<id>-mark`, `<id>-knob`, `<id>-label`; a press of one does
+  not reach the row it stands in. A `ui::Switch` and a `ui::Checkbox` put the id on the track or the box alone, and a
+  press of them goes on to a pressable row around them.
+- **Decision (Ivan, 2026-11-20: "так давай роби в луркі").** `Switch::whole(true)` and `Checkbox::whole(true)`
+  (state `whole`): the root is what is pressed, focused and ringed, with the track or the box and the label in it; the
+  id is on the root and the parts are named after it. lurq keeps its part names: the kit's `-mark` is a switch's
+  `-track` and a checkbox's `-box`, its `-knob` a switch's `-thumb`, and `-label` is the same. A press of a switch or
+  a checkbox, whole or not, its label too, stops there: a row around it is not pressed.
+- **Why.** The kit's toggle is found by its id as a whole and pressed inside rows; with the id on the box alone and a
+  press that also pressed the row, it could not move onto lurq.
+- **State.** Built on `claude/k5-b-surfaces` (2026-11-20).
 
 ## 2026-11-19
 

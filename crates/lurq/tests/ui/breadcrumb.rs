@@ -2,7 +2,10 @@
 //! following a step does, the keyboard, the collapsed form with its menu, and
 //! what a theme changes.
 
-use std::sync::{Arc, Mutex};
+use std::{
+  sync::{Arc, Mutex},
+  time::Duration,
+};
 
 use lurq::{
   app::{
@@ -915,4 +918,75 @@ fn a_step_in_a_state_of_its_own_is_styled_by_it_and_the_others_are_not() {
       .states(),
     &[] as &[lurq::ui::Name]
   );
+}
+
+const LONG_NAME: &str = "The pipeline of the release of the desktop app";
+
+/// A trail with an ancestor of a long name and one of a short one, their links at most 120 wide.
+fn cut_trail() -> Breadcrumb {
+  Breadcrumb::new([
+    BreadcrumbStep::new(LONG_NAME).id("long"),
+    BreadcrumbStep::new("Runs").id("runs"),
+    BreadcrumbStep::new("Run 12"),
+  ])
+  .link_max_width(120.0)
+}
+
+#[test]
+fn a_link_is_cut_at_its_most_width_and_said_whole_in_a_tooltip_while_cut() {
+  let mut stage = Stage::new(|ctx| Column::new().size(400.0, 300.0).padding(40.0).child(cut_trail().mount(ctx)).into());
+  let (_, _, long_width, _) = stage.bounds("long");
+  assert!(long_width <= 120.0 + 0.5, "the link at its most width: {long_width}");
+  assert!(stage.cut_text_quad(LONG_NAME).is_some(), "its name cut with an ellipsis");
+  assert!(!stage.paints(LONG_NAME), "nothing says it whole at rest");
+  assert!(stage.paints("Runs"), "a short name is whole");
+  stage.own_timers();
+  stage.hover("long");
+  stage.tick_timers(Duration::from_secs(2));
+  stage.pass();
+  assert!(stage.paints(LONG_NAME), "its tooltip says it whole");
+}
+
+#[test]
+fn a_link_that_fits_shows_no_tooltip() {
+  let mut stage = Stage::new(|ctx| Column::new().size(400.0, 300.0).padding(40.0).child(cut_trail().mount(ctx)).into());
+  let said = |stage: &Stage| {
+    stage
+      .quads()
+      .into_iter()
+      .filter(|quad| matches!(&quad.content, QuadContent::Text { text, .. } if text == "Runs"))
+      .count()
+  };
+  stage.own_timers();
+  stage.hover("runs");
+  stage.tick_timers(Duration::from_secs(2));
+  stage.pass();
+  assert_eq!(said(&stage), 1, "no tooltip over a link that fits");
+  stage.hover("long");
+  stage.tick_timers(Duration::from_secs(4));
+  stage.pass();
+  assert!(stage.paints(LONG_NAME), "the tooltip of a cut one shows in the same stage");
+}
+
+#[test]
+fn links_keep_their_room_and_the_page_gives_way() {
+  let mut stage = Stage::new(|ctx| {
+    Column::new()
+      .size(400.0, 300.0)
+      .child(
+        Row::new().width(200.0).child(
+          Breadcrumb::new([
+            BreadcrumbStep::new(LONG_NAME).id("long"),
+            BreadcrumbStep::new("The run of the release, its last attempt").id("page"),
+          ])
+          .link_max_width(120.0)
+          .mount(ctx),
+        ),
+      )
+      .into()
+  });
+  let (_, _, long_width, _) = stage.bounds("long");
+  assert!((long_width - 120.0).abs() < 0.5, "the link keeps its room: {long_width}");
+  let (page_x, _, page_width, _) = stage.bounds("page");
+  assert!(page_x + page_width <= 200.5, "the page gives way inside the row");
 }

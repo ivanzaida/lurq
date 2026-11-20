@@ -6,13 +6,14 @@ use super::{
   icons, names,
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
   shared::{Choice, Orientation, fading, glyph, pressable},
+  switch::own_press,
   theme::{Themed, current_theme},
 };
 use crate::{
   app::theme::{BorderSize, IconSize, OpacityLevel, PaletteColor, RadiusSize, Theme, TypographyStyle},
   components::{self, Column, Row},
   core::{Signal, SignalValue},
-  layout::Alignment,
+  layout::{Alignment, layout_kind::Justify},
   node::{CursorIcon, Element, border::Border},
 };
 
@@ -48,6 +49,8 @@ pub enum CheckboxState {
   Invalid,
   /// It takes no input.
   Disabled,
+  /// It is pressed as a whole: its root is what is pressed and focused, with the box and the label in it.
+  Whole,
 }
 
 names!(CheckboxState {
@@ -55,6 +58,7 @@ names!(CheckboxState {
   Indeterminate => "indeterminate",
   Invalid => "invalid",
   Disabled => "disabled",
+  Whole => "whole",
 });
 
 /// What builds a checkbox's nodes: a theme's in place of the default one.
@@ -79,10 +83,14 @@ pub type CheckboxRenderer = Arc<dyn Fn(CheckboxView) -> Element + Send + Sync>;
 /// A checkbox does not keep whether it is checked: the app says so with
 /// [`Checkbox::checked`], and is told of a press with
 /// [`Checkbox::on_change`], or binds it to a signal with [`Checkbox::bind`].
-/// A press of its label is a press of the checkbox.
+/// A press of its label is a press of the checkbox, and a press of either is
+/// the checkbox's alone: a row around it that is pressed is not.
+/// [`Checkbox::whole`] makes the box and its label one control, its id on the
+/// whole.
 pub struct Checkbox {
   label: Arc<str>,
   label_hidden: bool,
+  whole: bool,
   checked: bool,
   indeterminate: bool,
   invalid: bool,
@@ -106,6 +114,7 @@ impl Checkbox {
     Self {
       label: Arc::from(label),
       label_hidden: false,
+      whole: false,
       checked: false,
       indeterminate: false,
       invalid: false,
@@ -214,7 +223,18 @@ impl Checkbox {
     self
   }
 
-  /// The id of the box: what is pressed.
+  /// Whether the box and its label are one control: what is pressed,
+  /// focused and ringed is the whole of them, one stop of Tab, and its id is
+  /// on the whole, the box, its mark and the label named after it (`x-box`,
+  /// `x-indicator`, `x-label`). Not unless told: the box is what is pressed,
+  /// and has the id.
+  pub fn whole(mut self, whole: bool) -> Self {
+    self.whole = whole;
+    self
+  }
+
+  /// The id of the box: what is pressed. The id of the whole where it is
+  /// [`whole`](Self::whole).
   pub fn id(mut self, id: impl Into<Arc<str>>) -> Self {
     self.id = Some(id.into());
     self
@@ -239,10 +259,12 @@ impl Checkbox {
     .state(CheckboxState::Checked, self.checked && !self.indeterminate)
     .state(CheckboxState::Indeterminate, self.indeterminate)
     .state(CheckboxState::Invalid, self.invalid)
-    .state(CheckboxState::Disabled, self.disabled);
+    .state(CheckboxState::Disabled, self.disabled)
+    .state(CheckboxState::Whole, self.whole);
     let view = CheckboxView {
       label: self.label,
       label_hidden: self.label_hidden,
+      whole: self.whole,
       checked: self.checked,
       indeterminate: self.indeterminate,
       invalid: self.invalid,
@@ -275,6 +297,8 @@ impl From<Checkbox> for Element {
 pub struct CheckboxView {
   pub label: Arc<str>,
   pub label_hidden: bool,
+  /// Whether the box and its label are one control, its id on the whole.
+  pub whole: bool,
   pub checked: bool,
   pub indeterminate: bool,
   pub invalid: bool,
@@ -317,18 +341,32 @@ impl CheckboxView {
   /// to what reads the tree, called by its label, and says whether it is
   /// checked: `mixed` while it is indeterminate.
   pub fn control(&self) -> components::Button {
+    self.pressed(CheckboxPart::Box)
+  }
+
+  /// The behavior of a checkbox pressed as a whole, with the style of its
+  /// root: what is pressed, focused and ringed, with nothing in it yet, the
+  /// box and the label to go in it. What [`control`](Self::control) is
+  /// otherwise.
+  pub fn whole_root(&self) -> components::Button {
+    self
+      .pressed(CheckboxPart::Root)
+      .justify(Justify::Start)
+      .align_items(Alignment::Center)
+  }
+
+  /// The checkbox's behavior with the style of `part`. A press of it is its own: it does not reach what is around it.
+  fn pressed(&self, part: CheckboxPart) -> components::Button {
     let checked = match (self.indeterminate, self.checked) {
       (true, _) => "mixed",
       (false, true) => "true",
       (false, false) => "false",
     };
-    let mut control = pressable(&self.part(CheckboxPart::Box), self.disabled)
+    let mut control = pressable(&self.part(part), self.disabled)
       .describe("a11y_role", "checkbox")
       .describe("a11y_name", self.label.clone())
-      .describe("a11y_checked", checked);
-    if let Some(press) = self.press() {
-      control = control.on_click(move |_| press());
-    }
+      .describe("a11y_checked", checked)
+      .on_click(own_press(self.press()));
     // The box is no checkbox of the engine's: it says itself what it gives the form.
     #[cfg(feature = "form")]
     if let Some(name) = &self.name {
@@ -365,8 +403,26 @@ impl CheckboxView {
     Some(glyph(&self.part(CheckboxPart::Indicator), Name::new(name), false))
   }
 
-  /// How the default renderer builds a checkbox: the box with its mark, and the label beside it.
+  /// The label in the style of its part: `None` where it is hidden.
+  fn label(&self) -> Option<Row> {
+    if self.label_hidden {
+      return None;
+    }
+    let part = self.part(CheckboxPart::Label);
+    Some(Row::new().part(&part).child(part.text(&self.label).nowrap()))
+  }
+
+  /// How the default renderer builds a checkbox: the box with its mark, and the label beside it; pressed as a whole,
+  /// both in what is pressed.
   pub fn render(self) -> Element {
+    if self.whole {
+      let square = Row::new()
+        .align_items(Alignment::Center)
+        .justify(Justify::Center)
+        .part(&self.part(CheckboxPart::Box))
+        .with_children(self.indicator());
+      return self.whole_root().child(square).with_children(self.label()).into();
+    }
     let mut control = self.control();
     if let Some(indicator) = self.indicator() {
       control = control.child(indicator);
@@ -375,13 +431,8 @@ impl CheckboxView {
       .align_items(Alignment::Center)
       .part(&self.part(CheckboxPart::Root))
       .child(control);
-    if !self.label_hidden {
-      let part = self.part(CheckboxPart::Label);
-      let mut label = Row::new().part(&part).child(part.text(&self.label).nowrap());
-      if let Some(press) = self.press() {
-        label = label.on_click(move |_| press());
-      }
-      root = root.child(label);
+    if let Some(label) = self.label() {
+      root = root.child(label.on_click(own_press(self.press())));
     }
     root.into()
   }
@@ -462,6 +513,12 @@ impl Themed for Checkbox {
       })
       .when(Selector::new().state(Indeterminate).state(Disabled), square, |s| {
         s.background(Primary)
+      })
+      // Pressed as a whole: the root is what the pointer presses and the ring goes round, the box only drawn.
+      .state(CheckboxState::Whole, root, |s| s.radius(RadiusSize::Sm).cursor(CursorIcon::Pointer))
+      .when(Selector::new().state(CheckboxState::Whole).focus_visible(), root, |s| s.focus_ring())
+      .when(Selector::new().state(CheckboxState::Whole).state(Disabled), root, |s| {
+        s.cursor(CursorIcon::Default)
       })
   }
 }
@@ -866,7 +923,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> super::FieldControl for Check
   /// Called by the field's label unless it has a name of its own, every box invalid where the field is, and
   /// disabled where the field is.
   fn in_field(mut self, field: &super::InField) -> Element {
-    if self.label.is_none() {
+    if self.label.is_none() && !field.label.is_empty() {
       self.label = Some(field.label.clone());
     }
     self.invalid |= field.judgment == Some(super::Judgment::Invalid);

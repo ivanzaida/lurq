@@ -14,7 +14,7 @@ use lurq::{
   core::Signal,
   layout::Alignment,
   node::Element,
-  ui::{Length, Skeleton, SkeletonAnimation, SkeletonPart},
+  ui::{Length, Skeleton, SkeletonAnimation, SkeletonMotion, SkeletonPart},
 };
 
 use crate::{
@@ -29,6 +29,12 @@ const ANIMATIONS: [(&str, SkeletonAnimation); 3] = [
   ("pulse", SkeletonAnimation::Pulse),
   ("shimmer", SkeletonAnimation::Shimmer),
   ("none", SkeletonAnimation::None),
+];
+
+const MOTIONS: [(&str, SkeletonMotion); 3] = [
+  ("smooth", SkeletonMotion::SMOOTH),
+  ("stepped(8)", SkeletonMotion::stepped(8)),
+  ("stepped(20)", SkeletonMotion::stepped(20)),
 ];
 
 /// The names of a list with the index of each: what a control of the panel chooses between.
@@ -105,11 +111,13 @@ pub struct SkeletonPage {
   lines: Signal<usize>,
   /// The index of the animation in [`ANIMATIONS`].
   animation: Signal<usize>,
+  /// The index of the motion in [`MOTIONS`].
+  motion: Signal<usize>,
 }
 
 impl SkeletonPage {
   /// The skeleton the panel's props make, and the Rust that builds it.
-  fn skeleton(form: usize, lines: usize, animation: SkeletonAnimation) -> (Skeleton, String) {
+  fn skeleton(form: usize, lines: usize, animation: SkeletonAnimation, motion: usize) -> (Skeleton, String) {
     let (skeleton, call) = match FORMS[form] {
       "circle" => (Skeleton::circle(40.0), "Skeleton::circle(40.0)".to_owned()),
       "block" => (
@@ -123,17 +131,24 @@ impl SkeletonPage {
       SkeletonAnimation::Pulse => call,
       other => format!("{call}.animation(SkeletonAnimation::{other:?})"),
     };
-    (skeleton.animation(animation), call)
+    let (name, chosen) = MOTIONS[motion];
+    if motion == 0 || animation == SkeletonAnimation::None {
+      return (skeleton.animation(animation), call);
+    }
+    (
+      skeleton.animation(animation).motion(chosen),
+      format!("{call}.motion(SkeletonMotion::{name})"),
+    )
   }
 
   /// The playground: the skeleton as the panel's props make it, in a column of 300.
   fn play(&self, ctx: &mut Ctx) -> Element {
-    let (form, lines) = (self.form.get(), self.lines.get());
+    let (form, lines, motion) = (self.form.get(), self.lines.get(), self.motion.get());
     let animation = ANIMATIONS[self.animation.get()].1;
     let shown = move || -> Element {
       Column::new()
         .width(300.0)
-        .child(Self::skeleton(form, lines, animation).0)
+        .child(Self::skeleton(form, lines, animation, motion).0)
         .into()
     };
     // On the stage the skeleton is in the row that is measured: the column gives it a width, and is not it.
@@ -142,11 +157,12 @@ impl SkeletonPage {
       .child(
         self
           .playground
-          .measure(self.playground.styled(Self::skeleton(form, lines, animation).0)),
+          .measure(self.playground.styled(Self::skeleton(form, lines, animation, motion).0)),
       )
       .into();
-    let (_, call) = Self::skeleton(form, lines, animation);
+    let (_, call) = Self::skeleton(form, lines, animation, motion);
     let (to_form, to_lines, to_animation) = (self.form.clone(), self.lines.clone(), self.animation.clone());
+    let to_motion = self.motion.clone();
     let counts: Vec<(&str, usize)> = vec![("2", 2), ("3", 3), ("4", 4), ("5", 5)];
     let paragraph = FORMS[form] == "paragraph";
     let mut controls = vec![prop(
@@ -173,6 +189,16 @@ impl SkeletonPage {
         move |chosen| to_animation.set(chosen),
       ),
     ));
+    // How it moves is a prop of what moves: a skeleton that stands still has no control for it.
+    if animation != SkeletonAnimation::None {
+      controls.push(prop(
+        "motion",
+        "SkeletonMotion",
+        segmented_fill(&indexed(&MOTIONS.map(|(name, _)| name)), &motion, move |chosen| {
+          to_motion.set(chosen)
+        }),
+      ));
+    }
     let bones = if paragraph { lines } else { 1 };
     let tree = vec![
       format!("root      {}   nothing to tooling", self.playground.measured()),
@@ -187,10 +213,12 @@ impl SkeletonPage {
     ];
     let reset = {
       let (form, lines, animation) = (self.form.clone(), self.lines.clone(), self.animation.clone());
+      let motion = self.motion.clone();
       Arc::new(move || {
         form.set(0);
         lines.set(4);
         animation.set(0);
+        motion.set(0);
       })
     };
     self.playground.card(
@@ -206,10 +234,15 @@ impl SkeletonPage {
         code: vec![call],
         tree,
         controls,
-        changed: [form != 0, paragraph && lines != 4, self.animation.get() != 0]
-          .into_iter()
-          .filter(|changed| *changed)
-          .count(),
+        changed: [
+          form != 0,
+          paragraph && lines != 4,
+          self.animation.get() != 0,
+          motion != 0,
+        ]
+        .into_iter()
+        .filter(|changed| *changed)
+        .count(),
         reset,
       },
     )
@@ -226,6 +259,7 @@ impl Component for SkeletonPage {
       form: ctx.signal(0),
       lines: ctx.signal(4),
       animation: ctx.signal(0),
+      motion: ctx.signal(0),
     }
   }
 
@@ -258,6 +292,22 @@ impl Component for SkeletonPage {
         Skeleton::status("Loading the article", card(SkeletonAnimation::Shimmer)).max_width(FILL),
         "card",
       ));
+    // A row of a list while it loads, its bones laid out as the row's own parts are, pulsing in 8 steps a second.
+    let stepped = SkeletonMotion::stepped(8);
+    let laid = Row::new()
+      .width(360.0)
+      .max_width(FILL)
+      .spacing(12.0)
+      .align_items(Alignment::Center)
+      .child(
+        Skeleton::block(28.0, 28.0)
+          .radius(RadiusSize::Md)
+          .flex_shrink(0.0)
+          .motion(stepped),
+      )
+      .child(Skeleton::line().flex(1.0).min_width(0.0).motion(stepped))
+      .child(Skeleton::line().max_width(64.0).height(8.0).motion(stepped))
+      .child(Skeleton::circle(6.0).flex_shrink(0.0).motion(stepped));
     let rows = [
       (
         "line()",
@@ -283,6 +333,24 @@ impl Component for SkeletonPage {
         "impl Into<Length>",
         "",
         "The app's size, over the shape's. For a paragraph the width of all of it and the height of each line.",
+      ),
+      (
+        "min_width, max_width, min_height, max_height, radius",
+        "impl Into<Length> / RadiusValue",
+        "",
+        "The rest of what an app lays on a bone, over the shape's.",
+      ),
+      (
+        "flex, flex_shrink",
+        "f32",
+        "",
+        "Its share of the room left in its row or column, and how much of its size it gives up.",
+      ),
+      (
+        "motion",
+        "SkeletonMotion",
+        "theme's",
+        "Smooth, or stepped(per_second) with no frame between the steps; .period(..) for how long a pulse takes.",
       ),
       (
         "animation",
@@ -372,6 +440,31 @@ impl Component for SkeletonPage {
               "        .child(Skeleton::line().width(210.0))",
               "        .child(Skeleton::block(88.0, 32.0).style(SkeletonPart::Bone, |s| s.radius(RadiusSize::Md))),",
               ")",
+            ],
+          ),
+        ),
+        Section::new(
+          "Laid out as a row's parts, pulsing in steps",
+          "A row while it loads: a tile that keeps its size and its own radius, a name that takes the room left, a \
+           count no wider than 64 and a state's dot. They pulse in 8 steps a second, all of them at once, and the \
+           window draws no frame between the steps. A theme gives every skeleton its motion with \
+           set_skeleton_motion.",
+          self.frame.demo(
+            3,
+            laid,
+            ".motion(SkeletonMotion::stepped(8))",
+            &[
+              "let stepped = SkeletonMotion::stepped(8);",
+              "Row::new()",
+              "    .spacing(12.0)",
+              "    .align_items(Alignment::Center)",
+              "    .child(Skeleton::block(28.0, 28.0).radius(RadiusSize::Md).flex_shrink(0.0).motion(stepped))",
+              "    .child(Skeleton::line().flex(1.0).min_width(0.0).motion(stepped))",
+              "    .child(Skeleton::line().max_width(64.0).height(8.0).motion(stepped))",
+              "    .child(Skeleton::circle(6.0).flex_shrink(0.0).motion(stepped))",
+              "",
+              "// Every skeleton of the app:",
+              "app.theme().set_skeleton_motion(SkeletonMotion::stepped(20).period(Duration::from_millis(1600)));",
             ],
           ),
         ),

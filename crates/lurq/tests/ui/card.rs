@@ -609,3 +609,110 @@ fn a_card_says_what_the_app_describes_to_tooling() {
   assert_eq!(said("read").as_deref(), Some("running"));
   assert_eq!(said("pressed").as_deref(), Some("stopped"));
 }
+
+#[test]
+fn a_card_of_a_height_gives_it_to_its_body_and_keeps_its_footer_at_the_bottom() {
+  let mut stage = Stage::new(|_| {
+    Row::new()
+      .child(
+        Card::new()
+          .height(118.0)
+          .width(160.0)
+          .padding(Padding::all(10.0))
+          .id("figure")
+          .child(Column::new().flex(1.0).id("fill")),
+      )
+      .child(
+        Card::new()
+          .height(200.0)
+          .width(200.0)
+          .on_click(|_| {})
+          .id("pressed")
+          .child(Column::new().flex(1.0).id("pressed-fill"))
+          .footer(Button::new("Save").id("save")),
+      )
+      .into()
+  });
+  let (_, y, _, height) = stage.bounds("figure");
+  let (_, fill_y, _, fill_height) = stage.bounds("fill");
+  assert_eq!(height, 118.0);
+  assert_eq!(
+    (fill_y - y, fill_height),
+    (10.0, 98.0),
+    "the body fills the card inside its padding"
+  );
+  let (_, y, _, height) = stage.bounds("pressed");
+  let (_, save_y, _, save_height) = stage.bounds("save");
+  let (_, fill_y, _, fill_height) = stage.bounds("pressed-fill");
+  assert!(
+    (y + height - (save_y + save_height) - 16.0).abs() < 0.5,
+    "the footer stays at the bottom of a pressed card"
+  );
+  assert!(fill_height > 60.0, "the body of a pressed card takes the height too");
+  assert!(fill_y + fill_height <= save_y);
+}
+
+#[test]
+fn a_card_as_high_as_its_content_is_as_before() {
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .child(
+        Card::new()
+          .padding(Padding::all(10.0))
+          .id("card")
+          .child(Row::new().size(50.0, 20.0)),
+      )
+      .into()
+  });
+  let (_, _, _, height) = stage.bounds("card");
+  assert_eq!(height, 40.0);
+}
+
+#[test]
+fn a_card_cuts_what_is_in_it_at_its_rounded_corners() {
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .child(
+        Card::new().padding(Padding::all(0.0)).id("card").child(
+          Row::new()
+            .size(100.0, 20.0)
+            .background(PaletteColor::Primary)
+            .id("inside"),
+        ),
+      )
+      .into()
+  });
+  let inside = stage.fill("inside").expect("the child is painted");
+  assert!(inside.clip.active, "a card clips what is in it");
+  assert!(
+    inside.clip.rounded.iter().any(Option::is_some),
+    "at its rounded corners"
+  );
+}
+
+#[test]
+fn a_card_of_a_least_height_is_as_high_as_what_is_in_it_and_no_higher() {
+  let mut stage = Stage::new(|_| {
+    Row::new()
+      .child(
+        Card::new()
+          .min_height(60.0)
+          .padding(Padding::all(10.0))
+          .id("short")
+          .child(Row::new().size(50.0, 20.0)),
+      )
+      .child(
+        Card::new()
+          .min_height(60.0)
+          .padding(Padding::all(10.0))
+          .gap(0.0)
+          .id("tall")
+          .child(Row::new().size(50.0, 100.0)),
+      )
+      .into()
+  });
+  let (_, _, _, short) = stage.bounds("short");
+  assert_eq!(short, 60.0, "its least height, in a row with room for more");
+  let (_, _, _, tall) = stage.bounds("tall");
+  assert_eq!(tall, 120.0, "as high as what is in it, over its least height");
+}

@@ -4,16 +4,17 @@ use std::{sync::Arc, time::Duration};
 
 use super::{
   names,
+  node_edits::NodeEdits,
   part_style::Length,
   recipe::{Case, Name, Recipe, ResolvedPart, ResolvedRecipe},
   theme::{Themed, current_theme},
 };
 use crate::{
-  animation::{AnimatableProperty, AnimatableValue, Animation, Easing, Keyframes, KeyframesId},
+  animation::{AnimatableProperty, AnimatableValue, Animation, Easing, Keyframes, KeyframesId, StepPosition},
   app::theme::{PaletteColor, RadiusSize, Theme},
   components::{Column, Row, Stack},
   layout::StackAlignment,
-  node::{BackgroundColor, Element, Gradient, GradientStop, dimension::Dimension},
+  node::{BackgroundColor, Element, Gradient, GradientStop, RadiusValue, dimension::Dimension, node::NodeUpdate},
 };
 
 /// The keyframes of a skeleton that pulses, which every window has: whole,
@@ -62,6 +63,88 @@ pub(crate) fn keyframes() -> [Keyframes; 2] {
       frame.set(AnimatableProperty::Width, AnimatableValue::Percent(200.0 / 3.0));
     });
   [pulse, shimmer]
+}
+
+/// How a skeleton pulses or shimmers: smoothly, or in steps, and how long one pulse or one crossing of the sheen
+/// takes. Every skeleton moves in one phase whatever its motion, for they all move on one clock: a stepped one holds
+/// each pose until the next and asks for no frame between, `per_second` frames a second however many skeletons are
+/// shown. A theme gives the motion of every skeleton not told its own ([`Theme::set_skeleton_motion`]). Where motion
+/// is reduced a skeleton stands still, whatever its motion.
+///
+/// ```
+/// use std::time::Duration;
+/// use lurq::{app::theme::Theme, ui::{Skeleton, SkeletonMotion}};
+///
+/// // A pulse of 1.6 s in 20 poses a second, for every skeleton of the app.
+/// let theme = Theme::new();
+/// theme.set_skeleton_motion(SkeletonMotion::stepped(20).period(Duration::from_millis(1600)));
+/// // One skeleton's own.
+/// let line = Skeleton::line().motion(SkeletonMotion::SMOOTH);
+/// ```
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct SkeletonMotion {
+  /// The poses a second, or `None` for a smooth motion.
+  steps_per_second: Option<u32>,
+  period: Duration,
+}
+
+impl Default for SkeletonMotion {
+  fn default() -> Self {
+    Self::SMOOTH
+  }
+}
+
+impl SkeletonMotion {
+  /// A smooth motion, a pulse in [`SKELETON_PULSE_PERIOD`]: what a skeleton does unless told otherwise.
+  pub const SMOOTH: Self = Self {
+    steps_per_second: None,
+    period: SKELETON_PULSE_PERIOD,
+  };
+
+  /// A motion in `per_second` poses a second, each held until the next. A half of a pulse that is no whole number
+  /// of steps is taken in the nearest number of them. Fewer than one a second is one.
+  pub const fn stepped(per_second: u32) -> Self {
+    Self {
+      steps_per_second: Some(if per_second == 0 { 1 } else { per_second }),
+      period: SKELETON_PULSE_PERIOD,
+    }
+  }
+
+  /// How long one pulse, whole to half and back, or one crossing of the sheen takes: [`SKELETON_PULSE_PERIOD`]
+  /// unless told. None at all is a millisecond.
+  pub const fn period(mut self, period: Duration) -> Self {
+    self.period = if period.is_zero() {
+      Duration::from_millis(1)
+    } else {
+      period
+    };
+    self
+  }
+
+  /// The poses a second; `None` where it is smooth.
+  pub const fn steps_per_second(&self) -> Option<u32> {
+    self.steps_per_second
+  }
+
+  /// How long one pulse or one crossing of the sheen takes.
+  pub const fn period_length(&self) -> Duration {
+    self.period
+  }
+
+  /// The easing of a run whose keyframes are `segments` spans of equal length: in its steps, each pose held from
+  /// its start, or `smooth`. An easing eases each span between two keyframes, so the steps are counted in one span.
+  fn easing(&self, segments: u32, smooth: Easing) -> Easing {
+    let Some(per_second) = self.steps_per_second else {
+      return smooth;
+    };
+    let span = self.period / segments.max(1);
+    // `as` saturates: a span of years in steps of a second is the most there are.
+    let count = ((span.as_secs_f64() * f64::from(per_second)).round() as u32).max(1);
+    Easing::Steps {
+      count,
+      position: StepPosition::JumpEnd,
+    }
+  }
 }
 
 /// The shape of a skeleton.
@@ -148,8 +231,12 @@ pub struct Skeleton {
   shape: SkeletonShape,
   lines: usize,
   animation: SkeletonAnimation,
+  motion: Option<SkeletonMotion>,
   width: Option<Length>,
   height: Option<Length>,
+  /// The app's rules of layout over the shape's (its least and most sizes, its radius), under what it styles.
+  layout: Recipe,
+  root_edits: NodeEdits,
   states: Vec<Name>,
   rules: Recipe,
   id: Option<Arc<str>>,
@@ -162,8 +249,11 @@ impl Skeleton {
       shape,
       lines: 1,
       animation: SkeletonAnimation::default(),
+      motion: None,
       width: None,
       height: None,
+      layout: Recipe::new(),
+      root_edits: NodeEdits::default(),
       states: Vec::new(),
       rules: Recipe::new(),
       id: None,
@@ -216,6 +306,12 @@ impl Skeleton {
     self
   }
 
+  /// How it pulses or shimmers, in place of the theme's ([`Theme::skeleton_motion`]): smoothly, or in steps.
+  pub fn motion(mut self, motion: SkeletonMotion) -> Self {
+    self.motion = Some(motion);
+    self
+  }
+
   /// How wide the skeleton is: a number of logical pixels, or `Length::Fill`. For a paragraph, the width of
   /// all of it.
   pub fn width(mut self, width: impl Into<Length>) -> Self {
@@ -227,6 +323,67 @@ impl Skeleton {
   pub fn height(mut self, height: impl Into<Length>) -> Self {
     self.height = Some(height.into());
     self
+  }
+
+  /// The least it is wide: `0.0` lets a line that shares a row with others give its room up. For a paragraph,
+  /// of all of it.
+  pub fn min_width(mut self, width: impl Into<Length>) -> Self {
+    let width = width.into();
+    self.sized(move |s| s.min_width(width));
+    self
+  }
+
+  /// The most it is wide, however much room it has. For a paragraph, all of it.
+  pub fn max_width(mut self, width: impl Into<Length>) -> Self {
+    let width = width.into();
+    self.sized(move |s| s.max_width(width));
+    self
+  }
+
+  /// The least it is high. For a paragraph, each line.
+  pub fn min_height(mut self, height: impl Into<Length>) -> Self {
+    let height = height.into();
+    self.layout = self.layout.base(SkeletonPart::Bone, move |s| s.min_height(height));
+    self
+  }
+
+  /// The most it is high. For a paragraph, each line.
+  pub fn max_height(mut self, height: impl Into<Length>) -> Self {
+    let height = height.into();
+    self.layout = self.layout.base(SkeletonPart::Bone, move |s| s.max_height(height));
+    self
+  }
+
+  /// How round its corners are, in place of its shape's: a step of the theme's radii, or logical pixels. For a
+  /// paragraph, each line's.
+  pub fn radius(mut self, radius: impl Into<RadiusValue>) -> Self {
+    let radius = radius.into();
+    self.layout = self.layout.base(SkeletonPart::Bone, move |s| s.radius(radius));
+    self
+  }
+
+  /// Its share of the room left in the row or the column it is in, as an element's `flex` is.
+  pub fn flex(mut self, factor: f32) -> Self {
+    self.root_edits.push(move |node| NodeUpdate::flex(node, factor));
+    self
+  }
+
+  /// How much of its size it gives up where the row or the column it is in has too little room: `0.0` keeps it
+  /// whole.
+  pub fn flex_shrink(mut self, factor: f32) -> Self {
+    self.root_edits.push(move |node| NodeUpdate::flex_shrink(node, factor));
+    self
+  }
+
+  /// Lays a rule of size on the root, and on the bone too where the skeleton is one shape: a paragraph's lines
+  /// keep theirs.
+  fn sized(&mut self, rule: impl Fn(super::PartStyle) -> super::PartStyle) {
+    let layout = std::mem::take(&mut self.layout).base(SkeletonPart::Root, &rule);
+    self.layout = if self.shape == SkeletonShape::Paragraph {
+      layout
+    } else {
+      layout.base(SkeletonPart::Bone, rule)
+    };
   }
 
   /// Puts the skeleton in a state the theme's recipe names, or takes it out.
@@ -284,10 +441,11 @@ impl Skeleton {
     if let Some(height) = self.height {
       sizes = sizes.base(SkeletonPart::Bone, |s| s.height(height));
     }
-    let rules = sizes.extend(&self.rules);
+    let rules = sizes.extend(&self.layout).extend(&self.rules);
     let view = SkeletonView {
       shape: self.shape,
       lines: self.lines,
+      motion: self.motion.unwrap_or_else(|| theme.skeleton_motion()),
       // Where motion is reduced, a skeleton stands still.
       animation: if theme.reduced_motion() {
         SkeletonAnimation::None
@@ -297,6 +455,7 @@ impl Skeleton {
       recipe: theme
         .resolve::<Skeleton>(&case, Some(&rules))
         .owned_by(self.id.as_ref()),
+      root_edits: self.root_edits,
       id: self.id,
       key: self.key,
     };
@@ -320,8 +479,11 @@ pub struct SkeletonView {
   pub lines: usize,
   /// How it moves: [`SkeletonAnimation::None`] where motion is reduced.
   pub animation: SkeletonAnimation,
+  /// How it pulses or shimmers: its own, else the theme's.
+  pub motion: SkeletonMotion,
   /// The style of each part of this skeleton.
   pub recipe: ResolvedRecipe,
+  root_edits: NodeEdits,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
@@ -363,8 +525,8 @@ impl SkeletonView {
     let full = Dimension::Pct(100.0);
     let room = Row::new().width(Dimension::Pct(0.0)).height(full).animation(
       Animation::new(SKELETON_SHIMMER)
-        .duration(SKELETON_SHIMMER_PERIOD)
-        .easing(Easing::Linear)
+        .duration(self.motion.period)
+        .easing(self.motion.easing(1, Easing::Linear))
         .infinite(),
     );
     // A stack lays a child wider than itself with its middle on its own: the row starts a width before it.
@@ -383,8 +545,8 @@ impl SkeletonView {
     match self.animation {
       SkeletonAnimation::Pulse => bone.animation(
         Animation::new(SKELETON_PULSE)
-          .duration(SKELETON_PULSE_PERIOD)
-          .easing(Easing::EASE_IN_OUT)
+          .duration(self.motion.period)
+          .easing(self.motion.easing(2, Easing::EASE_IN_OUT))
           .infinite(),
       ),
       // The bone clips the sheen to its corners.
@@ -397,7 +559,7 @@ impl SkeletonView {
   /// another, the next to last and the last shorter. Nothing of it is described, so tooling that reads the
   /// tree leaves it out, as it leaves out any box with no text, no id and no handler.
   pub fn render(self) -> Element {
-    let mut root = Column::new().part(&self.part(SkeletonPart::Root));
+    let mut root = self.root();
     let lines = if self.shape == SkeletonShape::Paragraph {
       self.lines
     } else {
@@ -412,13 +574,21 @@ impl SkeletonView {
       }
       root = root.child(bone);
     }
+    root.into()
+  }
+
+  /// The root in the style of its part, with its id, its key and where the app laid it out (its `flex`), with
+  /// nothing in it yet.
+  pub fn root(&self) -> Column {
+    let mut root = Column::new().part(&self.part(SkeletonPart::Root));
     if let Some(id) = &self.id {
       root = root.id(id.clone());
     }
     if let Some(key) = &self.key {
       root = root.key(key.clone());
     }
-    root.into()
+    root.update_node(|node| self.root_edits.apply(node));
+    root
   }
 }
 

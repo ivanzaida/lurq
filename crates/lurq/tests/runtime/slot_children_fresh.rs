@@ -21,6 +21,9 @@ struct Book {
   created: Mutex<Vec<&'static str>>,
 }
 
+// Props of a component are inspectable by DevTools in a build with it; this test needs nothing shown.
+impl lurq::app::component::DevtoolsInspectable for Book {}
+
 /// One book for the whole of a test.
 impl PartialEq for Book {
   fn eq(&self, _: &Self) -> bool {

@@ -1,5 +1,6 @@
 //! The page of the hover card: its playground, a person's card on a link in
-//! a line of text, a card with a button in it, and one open with its arrow.
+//! a line of text, a card with a button in it, one open with its arrow, and the cards of a status bar that the
+//! pointer passes through.
 
 use std::sync::Arc;
 
@@ -301,6 +302,33 @@ impl Component for HoverCardPage {
       ),
     );
 
+    // A status bar's items, each with a card of words over it that the pointer passes through to the next item.
+    let mut status = |name: &str, title: &str, description: &str| {
+      HoverCard::new()
+        .title(title)
+        .description(description)
+        .placement(Placement::TopStart)
+        .open_delay(std::time::Duration::from_millis(500))
+        .pass_through(true)
+        .mount(
+          ctx,
+          Button::new(name).variant(ButtonVariant::Ghost).size(ButtonSize::Sm),
+        )
+    };
+    let bar = Row::new().width(FILL).padding_top(150.0).child(
+      Row::new()
+        .width(FILL)
+        .spacing(4.0)
+        .background(lurq::app::theme::PaletteColor::Muted)
+        .child(status("Cloud", "Signed in", "Your projects are kept in the cloud."))
+        .child(status(
+          "Server",
+          "Running",
+          "Agents reach the app's tools on port 47821.",
+        ))
+        .child(status("Runner", "Online", "Started at 09:12, three runs today.")),
+    );
+
     let rows = [
       (
         "mount",
@@ -380,6 +408,12 @@ impl Component for HoverCardPage {
         "Shown whatever the pointer and the focus do, or never.",
       ),
       ("disabled", "bool", "false", "It never opens."),
+      (
+        "pass_through",
+        "bool",
+        "false",
+        "The pointer passes through it, and it goes as the pointer leaves the element.",
+      ),
       ("width", "impl Into<Length>", "300", "How wide the panel is."),
     ];
     let playground = self.play(ctx);
@@ -461,6 +495,24 @@ impl Component for HoverCardPage {
               "    .placement(Placement::Right)",
               "    .arrow(true)",
               "    .mount(ctx, file_button)",
+            ],
+          ),
+        ),
+        Section::new(
+          "That the pointer passes through",
+          "Along a status bar each item's card of words shows over the bar. The pointer passes through it to the \
+           next item, and it goes the moment the pointer leaves its own.",
+          self.frame.demo(
+            3,
+            bar,
+            ".pass_through(true)",
+            &[
+              "HoverCard::new()",
+              "    .title(\"Running\")",
+              "    .description(\"Agents reach the app's tools on port 47821.\")",
+              "    .placement(Placement::TopStart)",
+              "    .pass_through(true)",
+              "    .mount(ctx, Button::new(\"Server\").variant(ButtonVariant::Ghost).size(ButtonSize::Sm))",
             ],
           ),
         ),

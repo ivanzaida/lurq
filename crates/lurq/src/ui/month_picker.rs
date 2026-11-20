@@ -238,7 +238,7 @@ impl<U: Unit, V: FieldValue<U>> Periods<U, V> {
   /// Takes what the field it is in says: the field's label where the picker has no name of its own, invalid where
   /// the field is, and disabled where it is. A panel of a grid has no fluid form: a fluid field draws it plain.
   pub fn in_field(&mut self, field: &InField) {
-    if self.label.is_none() {
+    if self.label.is_none() && !field.label.is_empty() {
       self.label = Some(field.label.clone());
     }
     self.invalid |= field.judgment == Some(Judgment::Invalid);

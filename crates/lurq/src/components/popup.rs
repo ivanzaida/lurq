@@ -63,6 +63,18 @@ impl Popup {
     self
   }
 
+  /// Places the popup by the box of `element` in place of its anchor's: see [`Overlay::placed_by`].
+  pub fn placed_by(mut self, element: impl Into<ElementRef>) -> Self {
+    self.overlay = self.overlay.placed_by(element);
+    self
+  }
+
+  /// Keeps the popup clear of the box of `element` on the side it opens on: see [`Overlay::clear_of`].
+  pub fn clear_of(mut self, element: impl Into<ElementRef>) -> Self {
+    self.overlay = self.overlay.clear_of(element);
+    self
+  }
+
   pub fn collision(mut self, collision: CollisionStrategy) -> Self {
     self.overlay = self.overlay.collision(collision);
     self
