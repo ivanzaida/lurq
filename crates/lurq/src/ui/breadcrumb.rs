@@ -355,7 +355,8 @@ impl From<&str> for BreadcrumbStep {
 
 /// A breadcrumb: the way to where one is, a step for each place on it in
 /// order. Each step but the last is a link that a press follows; the last is
-/// the page one is on.
+/// the page one is on. A trail may end with a link ([`current(false)`](Breadcrumb::current)), and a step may be
+/// plain text that goes nowhere ([`BreadcrumbStep::link(false)`](BreadcrumbStep::link)).
 ///
 /// ```
 /// use lurq::{

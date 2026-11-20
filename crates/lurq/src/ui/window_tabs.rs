@@ -753,15 +753,17 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> WindowTabs<T> {
 
   /// Whether Ctrl+Shift+A (Cmd+Shift+A on macOS) opens and closes the More button's menu of the list mode, from
   /// anywhere in the window, apart from the window's other [`shortcuts`](Self::shortcuts): off unless told. The
-  /// menu of the hidden tabs opens only while a tab is hidden; the list of every tab opens at any time. The More
-  /// button's tooltip says the keys.
+  /// menu of the hidden tabs opens only while a tab is hidden; the list of every tab opens at any time, hanging from
+  /// the tabs, its end at theirs, while none is hidden and the More button is not laid out. The More button's tooltip
+  /// says the keys.
   pub fn list_shortcut(mut self, on: bool) -> Self {
     self.list_shortcut = on;
     self
   }
 
   /// Whether the More button's menu of the list mode is open: the app's signal, in place of one the strip keeps. The
-  /// strip sets it as the menu opens and closes, and the app may set it to open or close the menu. The list of every
+  /// strip sets it as the menu opens and closes, and the app may set it to open or close the menu: the list of every
+  /// tab opens whether a tab is hidden or not, as by the [`list_shortcut`](Self::list_shortcut). The list of every
   /// tab takes its keys while it has the focus (`keys_first`): Ctrl+W (Cmd+W), Enter, Escape, the arrows and every key
   /// without Ctrl, Alt or Cmd are not also heard by the page under it.
   pub fn menu_open(mut self, open: Signal<bool>) -> Self {
