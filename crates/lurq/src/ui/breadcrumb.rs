@@ -407,6 +407,10 @@ pub struct Breadcrumb {
   more_label: Arc<str>,
   disabled: bool,
   tab_stop: bool,
+  cut_links: bool,
+  /// The refs of the links' names a mounted breadcrumb keeps, by the step's index: what a tooltip reads whether the
+  /// name is cut from.
+  name_refs: Vec<ElementRef>,
   states: Vec<Name>,
   rules: Recipe,
   forced: Option<Interaction>,
@@ -437,6 +441,8 @@ impl Breadcrumb {
       more_label: super::current_locale().navigation.show_hidden_steps.clone(),
       disabled: false,
       tab_stop: true,
+      cut_links: false,
+      name_refs: Vec::new(),
       states: Vec::new(),
       rules: Recipe::new(),
       forced: None,
@@ -534,6 +540,17 @@ impl Breadcrumb {
   /// are the same to what reads the tree.
   pub fn tab_stop(mut self, stops: bool) -> Self {
     self.tab_stop = stops;
+    self
+  }
+
+  /// The most a link is wide: a longer name is cut there with an ellipsis, and
+  /// a tooltip says it whole while it is cut. A link keeps its room, so the
+  /// page one is on gives way where the row is short. A number of logical
+  /// pixels, or another [`Length`].
+  pub fn link_max_width(mut self, width: impl Into<Length>) -> Self {
+    let width = width.into();
+    self.rules = self.rules.base(BreadcrumbPart::Link, |s| s.max_width(width));
+    self.cut_links = true;
     self
   }
 
@@ -662,6 +679,8 @@ impl Breadcrumb {
       separator: self.separator,
       disabled: self.disabled,
       tab_stop: self.tab_stop,
+      cut_links: self.cut_links,
+      name_refs: self.name_refs,
       recipe,
       disabled_recipe,
       step_recipes,
@@ -720,6 +739,8 @@ struct BreadcrumbHost {
   open: Signal<bool>,
   dropped: Signal<Vec<bool>>,
   refs: Mutex<Vec<ElementRef>>,
+  /// The refs of the links' names, kept from render to render so that a tooltip reads what the last layout cut.
+  name_refs: Mutex<Vec<ElementRef>>,
 }
 
 impl Component for BreadcrumbHost {
@@ -731,6 +752,7 @@ impl Component for BreadcrumbHost {
       open: ctx.signal(false),
       dropped: ctx.signal(Vec::new()),
       refs: Mutex::new(Vec::new()),
+      name_refs: Mutex::new(Vec::new()),
     }
   }
 
@@ -739,15 +761,12 @@ impl Component for BreadcrumbHost {
     if breadcrumb.menu.is_none() {
       breadcrumb.menu = Some((self.anchor.clone(), self.open.clone()));
     }
+    if breadcrumb.cut_links {
+      breadcrumb.name_refs = kept(&self.name_refs, breadcrumb.steps.len());
+    }
     if breadcrumb.overflow {
       let count = breadcrumb.steps.len();
-      let refs = {
-        let mut refs = self.refs.lock();
-        while refs.len() < count {
-          refs.push(ElementRef::new());
-        }
-        refs[..count].to_vec()
-      };
+      let refs = kept(&self.refs, count);
       breadcrumb.fold = Some(Fold {
         read: self.dropped.get(),
         dropped: self.dropped.clone(),
@@ -756,6 +775,15 @@ impl Component for BreadcrumbHost {
     }
     breadcrumb.build(&current_theme())
   }
+}
+
+/// The first `count` of the refs `held` keeps, made where it has fewer.
+fn kept(held: &Mutex<Vec<ElementRef>>, count: usize) -> Vec<ElementRef> {
+  let mut refs = held.lock();
+  while refs.len() < count {
+    refs.push(ElementRef::new());
+  }
+  refs[..count].to_vec()
 }
 
 /// The steps the ellipsis stands for among `count`, where no more than `max`
@@ -781,6 +809,10 @@ pub struct BreadcrumbView {
   pub disabled: bool,
   /// Whether Tab stops at the links and the ellipsis.
   tab_stop: bool,
+  /// Whether a link's name is cut at its most width, with a tooltip of it whole while it is cut
+  /// ([`Breadcrumb::link_max_width`]).
+  pub cut_links: bool,
+  name_refs: Vec<ElementRef>,
   /// The style of each part of this breadcrumb.
   pub recipe: ResolvedRecipe,
   /// The style of the parts of a step that is disabled.
@@ -962,14 +994,27 @@ impl BreadcrumbView {
     if let Some(icon) = self.icon(index) {
       link = link.child(icon);
     }
-    link = link.child(part.text(&step.label).nowrap());
     if let Some(id) = &step.id {
       link = link.id(id.clone());
     }
     if let Some(key) = &step.key {
       link = link.key(key.clone());
     }
-    link.into()
+    if !self.cut_links {
+      return link.child(part.text(&step.label).nowrap()).into();
+    }
+    // Cut at the link's most width, which it keeps: the page gives way first. The name is said whole while it is cut.
+    let text = self.name_refs.get(index).cloned().unwrap_or_default();
+    let link = link.flex_shrink(0.0).child(
+      Row::new().flex_shrink(1.0).min_width(0.0).child(
+        part
+          .text(&step.label)
+          .nowrap()
+          .text_overflow(TextOverflow::Elipsis)
+          .ref_element(text.clone()),
+      ),
+    );
+    super::Tooltip::new(&step.label).when_cut(&text).declared(link)
   }
 
   /// What stands between two steps. A theme's renderer for
