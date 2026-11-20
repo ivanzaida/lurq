@@ -1,6 +1,7 @@
 //! A card: its surface, header, content and footer where the board has
 //! them, its variants and its small size, a title that wraps, a card that is
-//! pressed as a whole and one that is read, and a theme's rule and renderer.
+//! pressed as a whole and one that is read, a theme's rule and renderer, and
+//! a card laid out as a column from its own builder.
 
 use std::sync::{
   Arc,
@@ -12,9 +13,12 @@ use lurq::{
     App,
     theme::{OpacityLevel, PaletteColor, ShadowStyle, ThemePalette},
   },
-  components::{Column, Row},
-  layout::quad::{Quad, QuadContent},
-  node::{BoxShadowValue, color::Color},
+  components::{Column, Row, Stack},
+  layout::{
+    Alignment,
+    quad::{Quad, QuadContent},
+  },
+  node::{BoxShadowValue, color::Color, padding::Padding},
   ui::{
     Button, ButtonVariant, Card, CardPart, CardRenderer, CardSize, CardState, CardVariant, CardView, Case, Interaction,
     Opacity,
@@ -493,4 +497,114 @@ fn tooling_reads_a_card_called_by_its_title_or_its_label() {
   assert_eq!(said("titled", "a11y_name").as_deref(), Some("Appearance"));
   assert_eq!(said("labelled", "a11y_role").as_deref(), Some("button"));
   assert_eq!(said("labelled", "a11y_name").as_deref(), Some("Open lurq"));
+}
+
+#[test]
+fn a_card_lays_out_its_children_as_a_column_from_its_own_builder() {
+  let mut stage = Stage::new(|_| {
+    Row::new()
+      .width(400.0)
+      .child(
+        Card::new()
+          .padding(Padding::symmetric(16.0, 12.0))
+          .gap(6.0)
+          .align_items(Alignment::Center)
+          .flex(1.0)
+          .id("card")
+          .child(Row::new().size(50.0, 20.0).id("first"))
+          .child(Row::new().size(80.0, 20.0).id("second")),
+      )
+      .child(Row::new().size(100.0, 20.0).id("beside"))
+      .into()
+  });
+  let (x, y, width, height) = stage.bounds("card");
+  assert_eq!(width, 300.0, "its share of the row");
+  let (first_x, first_y, ..) = stage.bounds("first");
+  let (second_x, second_y, ..) = stage.bounds("second");
+  // Padded 16 at its sides and 12 over and under, the children centered across the 268 left, 6 apart.
+  assert!(
+    (first_x - (x + 16.0 + (268.0 - 50.0) / 2.0)).abs() < 0.5,
+    "{}",
+    first_x - x
+  );
+  assert!((second_x - (x + 16.0 + (268.0 - 80.0) / 2.0)).abs() < 0.5);
+  assert!((first_y - y - 12.0).abs() < 0.5);
+  assert!((second_y - (first_y + 20.0) - 6.0).abs() < 0.5);
+  assert!((height - (12.0 + 20.0 + 6.0 + 20.0 + 12.0)).abs() < 0.5);
+}
+
+#[test]
+fn a_cards_gap_is_also_between_its_header_and_its_body() {
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .child(
+        Card::new()
+          .width(300.0)
+          .gap(10.0)
+          .title("Storage")
+          .id("card")
+          .child(Row::new().size(50.0, 20.0).id("inside")),
+      )
+      .into()
+  });
+  let (_, header_y, _, header_height) = stage.bounds("card-header");
+  let (_, inside_y, ..) = stage.bounds("inside");
+  assert!((inside_y - (header_y + header_height) - 10.0).abs() < 0.5);
+}
+
+#[test]
+fn a_card_takes_a_height_its_most_width_and_a_place_of_its_own() {
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .child(
+        Card::new()
+          .height(120.0)
+          .max_width(150.0)
+          .id("tall")
+          .child(Row::new().size(50.0, 20.0)),
+      )
+      .child(
+        Stack::new().size(400.0, 300.0).id("layer").child(
+          Card::new()
+            .absolute(20.0, 200.0, 100.0, 60.0)
+            .on_click(|_| {})
+            .id("placed")
+            .child(Row::new().size(50.0, 20.0)),
+        ),
+      )
+      .into()
+  });
+  let (_, _, tall_width, tall_height) = stage.bounds("tall");
+  assert_eq!((tall_width, tall_height), (150.0, 120.0));
+  let (layer_x, layer_y, ..) = stage.bounds("layer");
+  let (x, y, width, height) = stage.bounds("placed");
+  assert_eq!(
+    (x - layer_x, y - layer_y, width, height),
+    (20.0, 200.0, 100.0, 60.0),
+    "a pressed card is placed too"
+  );
+}
+
+#[test]
+fn a_card_says_what_the_app_describes_to_tooling() {
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .child(Card::new().title("Run").describe("state", "running").id("read"))
+      .child(
+        Card::new()
+          .title("Run")
+          .describe("state", "stopped")
+          .on_click(|_| {})
+          .id("pressed"),
+      )
+      .into()
+  });
+  let mut said = |id: &str| {
+    stage
+      .tree
+      .get_element_by_id_mut(id)
+      .and_then(|element| element.description("state"))
+  };
+  assert_eq!(said("read").as_deref(), Some("running"));
+  assert_eq!(said("pressed").as_deref(), Some("stopped"));
 }

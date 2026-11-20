@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use super::{
   names,
+  node_edits::NodeEdits,
   part_style::Length,
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
   shared::{fading, pressable},
@@ -17,7 +18,10 @@ use crate::{
   },
   components::{self, Column, Row},
   layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
-  node::{CursorIcon, Element, EventHandler, IntoMouseEventHandler, border::Border as Edge, dimension::Dimension},
+  node::{
+    CursorIcon, Element, EventHandler, IntoMouseEventHandler, NodeUpdate, SpacingValue, border::Border as Edge,
+    dimension::Dimension, padding::Padding,
+  },
 };
 
 /// The parts of a card a recipe styles.
@@ -115,7 +119,12 @@ pub type CardRenderer = Arc<dyn Fn(CardView) -> Element + Send + Sync>;
 /// of a project, a form of a few fields.
 ///
 /// ```
-/// use lurq::ui::{Button, ButtonVariant, Card, CardVariant};
+/// use lurq::{
+///   components::Text,
+///   layout::Alignment,
+///   node::padding::Padding,
+///   ui::{Button, ButtonVariant, Card, CardVariant},
+/// };
 ///
 /// let appearance = Card::new()
 ///   .title("Appearance")
@@ -129,6 +138,14 @@ pub type CardRenderer = Arc<dyn Fn(CardView) -> Element + Send + Sync>;
 ///   .description("A Rust UI toolkit with GPU-backed rendering.")
 ///   .variant(CardVariant::Elevated)
 ///   .on_click(|_| println!("open the project"));
+/// // Laid out as a column is: its padding, the room between its children, their alignment, its share of a row.
+/// let figure = Card::new()
+///   .padding(Padding::symmetric(16.0, 12.0))
+///   .gap(4.0)
+///   .align_items(Alignment::Center)
+///   .flex(1.0)
+///   .child(Text::new("1,284"))
+///   .child(Text::new("Runs this week"));
 /// ```
 ///
 /// Every part is optional: a card with children alone is a padded surface.
@@ -140,6 +157,14 @@ pub type CardRenderer = Arc<dyn Fn(CardView) -> Element + Send + Sync>;
 /// keyboard; a press of a control in its action or its footer is that
 /// control's and not the card's. A card that is not pressed is read, and
 /// the controls in it are each a stop of Tab of their own.
+///
+/// A card is laid out as a column is, from its own builder: what lays out
+/// what is in it ([`padding`](Card::padding), [`gap`](Card::gap),
+/// [`align_items`](Card::align_items)) goes to its content and its body, and
+/// what places it in what holds it ([`width`](Card::width),
+/// [`height`](Card::height) and their least and most, [`flex`](Card::flex),
+/// [`flex_shrink`](Card::flex_shrink), [`absolute`](Card::absolute)) to its
+/// surface.
 pub struct Card {
   title: Option<Arc<str>>,
   label: Option<Arc<str>>,
@@ -154,6 +179,9 @@ pub struct Card {
   rules: Recipe,
   forced: Option<Interaction>,
   on_click: Vec<EventHandler<MouseEvent>>,
+  /// What the app laid on the surface and on the body besides their style.
+  root_edits: NodeEdits,
+  body_edits: NodeEdits,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
@@ -181,6 +209,8 @@ impl Card {
       rules: Recipe::new(),
       forced: None,
       on_click: Vec::new(),
+      root_edits: NodeEdits::default(),
+      body_edits: NodeEdits::default(),
       id: None,
       key: None,
     }
@@ -251,6 +281,110 @@ impl Card {
   pub fn width(mut self, width: impl Into<Length>) -> Self {
     let width = width.into();
     self.rules = self.rules.base(CardPart::Root, |s| s.width(width));
+    self
+  }
+
+  /// A height of its own in place of its content's: a number of logical
+  /// pixels, or another [`Length`].
+  pub fn height(mut self, height: impl Into<Length>) -> Self {
+    let height = height.into();
+    self.rules = self.rules.base(CardPart::Root, |s| s.height(height));
+    self
+  }
+
+  /// The least it is wide: `0.0` lets a card that shares a row with others
+  /// be narrower than its content, which then wraps.
+  pub fn min_width(mut self, width: impl Into<Length>) -> Self {
+    let width = width.into();
+    self.rules = self.rules.base(CardPart::Root, |s| s.min_width(width));
+    self
+  }
+
+  /// The most it is wide, however much room it is given.
+  pub fn max_width(mut self, width: impl Into<Length>) -> Self {
+    let width = width.into();
+    self.rules = self.rules.base(CardPart::Root, |s| s.max_width(width));
+    self
+  }
+
+  /// The least it is high.
+  pub fn min_height(mut self, height: impl Into<Length>) -> Self {
+    let height = height.into();
+    self.rules = self.rules.base(CardPart::Root, |s| s.min_height(height));
+    self
+  }
+
+  /// The most it is high.
+  pub fn max_height(mut self, height: impl Into<Length>) -> Self {
+    let height = height.into();
+    self.rules = self.rules.base(CardPart::Root, |s| s.max_height(height));
+    self
+  }
+
+  /// The room inside it around its header and its body, in place of its
+  /// size's: a [`Padding`], one number for every side, or a step of the
+  /// theme's spacing. Its footer keeps its own.
+  pub fn padding(mut self, padding: impl Into<Padding>) -> Self {
+    let padding = padding.into();
+    self.rules = self.rules.base(CardPart::Content, |s| {
+      s.padding_top(*padding.get_top())
+        .padding_end(*padding.get_right())
+        .padding_bottom(*padding.get_bottom())
+        .padding_start(*padding.get_left())
+    });
+    self
+  }
+
+  /// The room between its children, and between its header and its body, in
+  /// place of its size's: a number of logical pixels or a step of the theme's
+  /// spacing.
+  pub fn gap(mut self, gap: impl Into<SpacingValue>) -> Self {
+    let gap = gap.into();
+    self.rules = self
+      .rules
+      .base(CardPart::Content, |s| s.gap(gap))
+      .base(CardPart::Body, |s| s.gap(gap));
+    self
+  }
+
+  /// How its children are aligned across its width, as a column aligns
+  /// them: at the start unless told.
+  pub fn align_items(mut self, align: Alignment) -> Self {
+    self.body_edits.push(move |node| NodeUpdate::align_items(node, align));
+    self
+  }
+
+  /// Its share of the room a row or a column it is in has left, as an
+  /// element's `flex` is.
+  pub fn flex(mut self, factor: f32) -> Self {
+    self.root_edits.push(move |node| NodeUpdate::flex(node, factor));
+    self
+  }
+
+  /// How much of its size it gives up where a row or a column it is in has
+  /// too little room: `0.0` keeps it whole.
+  pub fn flex_shrink(mut self, factor: f32) -> Self {
+    self.root_edits.push(move |node| NodeUpdate::flex_shrink(node, factor));
+    self
+  }
+
+  /// Stands it at `x` and `y` in the [`Stack`](crate::components::Stack)
+  /// that holds it, `width` by `height`, as an element's `absolute` does.
+  pub fn absolute(mut self, x: f32, y: f32, width: impl Into<Dimension>, height: impl Into<Dimension>) -> Self {
+    let (width, height) = (width.into(), height.into());
+    self
+      .root_edits
+      .push(move |node| NodeUpdate::absolute(node, x, y, width, height));
+    self
+  }
+
+  /// Says `value` as `name` to tooling that reads the tree, on its surface:
+  /// the state of what it shows, for a test or an agent.
+  pub fn describe(mut self, name: impl Into<Arc<str>>, value: impl Into<Arc<str>>) -> Self {
+    let (name, value) = (name.into(), value.into());
+    self
+      .root_edits
+      .push(move |node| NodeUpdate::describe(node, name.clone(), value.clone()));
     self
   }
 
@@ -339,6 +473,8 @@ impl Card {
         .owned_by(self.id.as_ref()),
       forced: self.forced,
       on_click: self.on_click,
+      root_edits: self.root_edits,
+      body_edits: self.body_edits,
       id: self.id,
       key: self.key,
     };
@@ -375,6 +511,8 @@ pub struct CardView {
   pub recipe: ResolvedRecipe,
   forced: Option<Interaction>,
   on_click: Vec<EventHandler<MouseEvent>>,
+  root_edits: NodeEdits,
+  body_edits: NodeEdits,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
@@ -456,18 +594,18 @@ impl CardView {
     Some(header)
   }
 
-  /// The body: a column with what the app put there. `None` for a card
-  /// with nothing in it.
+  /// The body: a column with what the app put there, its children aligned
+  /// as the app said. `None` for a card with nothing in it.
   pub fn body(&mut self) -> Option<Column> {
     if self.body.is_empty() {
       return None;
     }
-    Some(
-      Column::new()
-        .width(Dimension::Pct(100.0))
-        .part(&self.part(CardPart::Body))
-        .with_children(std::mem::take(&mut self.body)),
-    )
+    let mut body = Column::new()
+      .width(Dimension::Pct(100.0))
+      .part(&self.part(CardPart::Body))
+      .with_children(std::mem::take(&mut self.body));
+    body.update_node(|node| self.body_edits.apply(node));
+    Some(body)
   }
 
   /// The content: the header over the body, padded. `None` for a card with
@@ -506,7 +644,7 @@ impl CardView {
   }
 
   /// The surface of a card that is pressed as a whole, in the style of its
-  /// root, with nothing in it yet: a click, Enter and Space press it, Tab
+  /// root and where the app placed it, with nothing in it yet: a click, Enter and Space press it, Tab
   /// reaches it, and a disabled one takes nothing. It is a button to what
   /// reads the tree, called by the card's label or its title.
   pub fn pressed_root(&self) -> components::Button {
@@ -530,11 +668,12 @@ impl CardView {
     if let Some(key) = &self.key {
       root = root.key(key.clone());
     }
+    root.update_node(|node| self.root_edits.apply(node));
     root
   }
 
-  /// The surface of a card that is read, in the style of its root, with
-  /// nothing in it yet: a group to what reads the tree, called by the card's
+  /// The surface of a card that is read, in the style of its root and where
+  /// the app placed it, with nothing in it yet: a group to what reads the tree, called by the card's
   /// label or its title.
   pub fn read_root(&self) -> Column {
     let mut root = Column::new()
@@ -549,6 +688,7 @@ impl CardView {
     if let Some(key) = &self.key {
       root = root.key(key.clone());
     }
+    root.update_node(|node| self.root_edits.apply(node));
     root
   }
 
