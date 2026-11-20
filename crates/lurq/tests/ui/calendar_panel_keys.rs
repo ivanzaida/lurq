@@ -173,3 +173,47 @@ fn the_month_first_and_both_buttons_at_the_end() {
   stage.click("cal-nav-next");
   assert!(stage.ids().contains(&cell(12, 1)), "they still turn the month");
 }
+
+#[test]
+fn in_a_popover_that_keeps_the_focus_enter_picks_the_day_and_the_picker_closes() {
+  use lurq::{core::ElementRef, ui::Popover};
+  let (value, open) = (Signal::new(Some(day(11, 12))), Signal::new(false));
+  let (held, shown, field) = (value.clone(), open.clone(), ElementRef::new());
+  let mut stage = Stage::new(move |ctx| {
+    let close = shown.clone();
+    let calendar = Calendar::new(held.clone())
+      .today(day(11, 9))
+      .id("cal")
+      .keys(CalendarKeys::Panel)
+      .on_choose(move |_| close.set(false))
+      .mount(ctx);
+    Column::new()
+      .padding(10.0)
+      .child(
+        TextInput::new(Signal::new(String::new()))
+          .id("field")
+          .width(200.0)
+          .ref_element(field.clone()),
+      )
+      .child(
+        Popover::new(shown.clone(), field.clone())
+          .keeps_focus(true)
+          .child(calendar),
+      )
+      .into()
+  });
+  stage
+    .tree
+    .set_layout_constraints_override(Some(Constraints::loose(Size::new(640.0, 520.0))));
+  stage.pass();
+  stage.click("field");
+  open.set(true);
+  stage.pass();
+  assert!(stage.ids().contains(&cell(11, 12)), "the picker is open");
+  assert_eq!(focused(&stage).as_deref(), Some("field"), "the popover took no focus");
+  press_key(&mut stage, "ArrowUp", false);
+  press_key(&mut stage, "Enter", false);
+  assert_eq!(value.get(), Some(day(11, 5)));
+  assert!(!open.get(), "the picker closed");
+  assert_eq!(focused(&stage).as_deref(), Some("field"));
+}
