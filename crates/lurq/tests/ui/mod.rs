@@ -87,6 +87,7 @@ mod input;
 mod input_kinds;
 mod input_otp;
 mod kbd;
+mod label_wraps;
 // Pictures decoded in the test: the feature that has `lurq::images`.
 #[cfg(feature = "raster")]
 mod lightbox;

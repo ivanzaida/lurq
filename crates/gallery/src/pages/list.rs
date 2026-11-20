@@ -10,7 +10,7 @@ use lurq::{
     ctx::Ctx,
     theme::{Density, TypographyStyle},
   },
-  components::{Column, Row},
+  components::{Column, Row, TextOverflow},
   core::Signal,
   layout::Alignment,
   node::Element,
@@ -526,6 +526,26 @@ impl Component for ListPage {
               .variant(ButtonVariant::Outline)
               .size(ButtonSize::Sm),
           ),
+      )
+      .item(
+        ListItem::new("Program path")
+          .subtitle(
+            // A path is cut with an ellipsis where the row is narrower than it.
+            muted(
+              "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+              TypographyStyle::Description,
+            )
+            .nowrap()
+            .text_overflow(TextOverflow::Elipsis)
+            .flex_shrink(1.0)
+            .min_width(0.0),
+          )
+          .description("Leave it empty to find the browser on its own")
+          .trailing(
+            Button::new("Browse")
+              .variant(ButtonVariant::Outline)
+              .size(ButtonSize::Sm),
+          ),
       );
 
     // Settings rows whose words are still read.
@@ -553,10 +573,11 @@ impl Component for ListPage {
          `trailing`, `shortcut`, `chevron`.",
       ),
       (
-        "tag / info / detail / below",
+        "tag / info / subtitle / detail / below",
         "impl Into<Element> / &str",
         "",
-        "Elements after the title, an (i) with its words in a tooltip after them, elements under the description, \
+        "Elements after the title, an (i) with its words in a tooltip after them, elements between the title's line \
+         and the description (a program's path), elements under the description, \
          and what the row says under itself, under its line, which a press of the row does not reach. A row with \
          something below is held with it in the part item (x-item); the row's id stays on the row.",
       ),
@@ -715,12 +736,12 @@ impl Component for ListPage {
         ),
         Section::new(
           "Saying more",
-          "Tags and an (i) after the title, a link under the description, and what the row says under itself: a \
-           problem, a code to copy. It stands under the row's line, and a press of it is not the row's.",
+          "Tags and an (i) after the title, a path between the title and the description, a link under the \
+           description, and what the row says under itself: a problem, a code to copy. It stands under the row's line, and a press of it is not the row's.",
           self.frame.demo(
             5,
             said,
-            ".tag(..).info(..).detail(..).below(..)",
+            ".tag(..).info(..).subtitle(..).detail(..).below(..)",
             &[
               "List::new()",
               "    .contained(true)",
@@ -737,6 +758,12 @@ impl Component for ListPage {
               "            .detail(Link::new(\"What it can reach\"))",
               "            .below(muted(\"The token expired on 18 November: pull requests are not opened.\", ..))",
               "            .trailing(Button::new(\"Renew\").variant(ButtonVariant::Outline).size(ButtonSize::Sm)),",
+              "    )",
+              "    .item(",
+              "        ListItem::new(\"Program path\")",
+              "            .subtitle(muted(\"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome\", ..).nowrap().text_overflow(TextOverflow::Elipsis))",
+              "            .description(\"Leave it empty to find the browser on its own\")",
+              "            .trailing(Button::new(\"Browse\").variant(ButtonVariant::Outline).size(ButtonSize::Sm)),",
               "    )",
             ],
           ),

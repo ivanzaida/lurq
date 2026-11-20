@@ -13,8 +13,8 @@ use crate::{
   app::theme::{IconSize, MotionDuration},
   components::{self, Row, TextOverflow},
   core::{ElementRef, Signal, SignalValue},
-  layout::layout_kind::Justify,
-  node::{Element, EventHandler},
+  layout::{Alignment, layout_kind::Justify},
+  node::{Element, EventHandler, dimension::Dimension, padding::Padding},
 };
 
 /// Which way a component runs: along a row, or down a column. One type for every component that has a way, of
@@ -198,6 +198,49 @@ pub(crate) fn one_line(part: &ResolvedPart, text: &str) -> Element {
     .min_width(0.0)
     .child(part.text(text).nowrap().text_overflow(TextOverflow::Elipsis).part(part))
     .into()
+}
+
+/// The label of a checkbox, a radio or a switch in the style of its `part`: on one line, or, where it wraps
+/// (`Some`), on as many as the width the control is given asks, taking the room the mark leaves it, as far down as
+/// it is told so that its first line stands in the middle of a mark taller than it.
+pub(crate) fn control_label(part: &ResolvedPart, label: &str, wraps: Option<f32>) -> Row {
+  let Some(top) = wraps else {
+    return Row::new().part(part).child(part.text(label).nowrap());
+  };
+  let fill = Dimension::Pct(100.0);
+  let label = Row::new().part(part).width(fill).child(part.text(label).width(fill));
+  Row::new()
+    .flex_shrink(1.0)
+    .min_width(0.0)
+    .padding(Padding::new().top(top))
+    .child(label)
+}
+
+/// The height of the first line of a label in the style of `label`.
+fn first_line(label: &ResolvedPart) -> f32 {
+  let style = label.rest().text.resolve(label.theme());
+  style.font_size * if style.trim_line_box { 1.0 } else { style.line_height }
+}
+
+/// How far down a label that wraps (`label`, its part) starts beside a mark in the style of `mark`: half of what
+/// the mark is taller than its first line, so that the line stands in the mark's middle; nothing beside a mark no
+/// taller than the line, which [`beside_first_line`] centers on it.
+pub(crate) fn label_top(label: &ResolvedPart, mark: &ResolvedPart) -> f32 {
+  let height = match mark.rest().height.and_then(|height| height.resolve(mark.theme())) {
+    Some(Dimension::Px(height)) => height,
+    _ => return 0.0,
+  };
+  ((height - first_line(label)) / 2.0).max(0.0)
+}
+
+/// What holds the mark of a checkbox, a radio or a switch beside the first line of a label that wraps (`label`, the
+/// label's part): a row as high as that line at the least, the mark centered in it.
+pub(crate) fn beside_first_line(label: &ResolvedPart, mark: impl Into<Element>) -> Row {
+  Row::new()
+    .flex_shrink(0.0)
+    .min_height(first_line(label))
+    .align_items(Alignment::Center)
+    .child(mark)
 }
 
 /// An icon of the theme's set in the style of `part`, at the side the recipe gives that part.
