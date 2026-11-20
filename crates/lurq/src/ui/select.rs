@@ -969,7 +969,7 @@ impl<V: 'static> super::FieldControl for Select<V> {
   /// Called by the field's label unless it has a name of its own, judged as the field is unless the app judged the
   /// select itself, and disabled where the field is.
   fn in_field(mut self, field: &super::InField) -> Element {
-    if self.label.is_none() {
+    if self.label.is_none() && !field.label.is_empty() {
       self.label = Some(field.label.clone());
     }
     if !(self.invalid || self.warning || self.valid) {

@@ -121,6 +121,10 @@ pub enum ButtonState {
   Pill,
   /// It has a description under its label, and is as high as the two lines are.
   Description,
+  /// Its label takes the room it has: its content starts at its start, and what is after the label at its end.
+  FillLabel,
+  /// Its description goes on to the next lines, in place of one line cut short.
+  DescriptionWraps,
 }
 
 names!(ButtonState {
@@ -130,7 +134,12 @@ names!(ButtonState {
   IconOnly => "icon_only",
   Pill => "pill",
   Description => "description",
+  FillLabel => "fill_label",
+  DescriptionWraps => "description_wraps",
 });
+
+/// What a button runs as it takes the focus.
+type FocusHandler = Arc<dyn Fn() + Send + Sync>;
 
 /// How much of a button shows while it is loading, in the design's recipe.
 const LOADING_OPACITY: f32 = 0.75;
@@ -187,11 +196,14 @@ pub struct Button {
   trailing: Option<Element>,
   disabled: bool,
   full_width: bool,
+  fill_label: bool,
+  description_wraps: bool,
   states: Vec<Name>,
   rules: Recipe,
   forced: Option<Interaction>,
   on_click: Vec<EventHandler<crate::app::events::MouseEvent>>,
   on_open_aside: Vec<EventHandler<crate::app::events::MouseEvent>>,
+  on_focus: Vec<FocusHandler>,
   tab_stop: bool,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
@@ -218,11 +230,14 @@ impl Button {
       trailing: None,
       disabled: false,
       full_width: false,
+      fill_label: false,
+      description_wraps: false,
       states: Vec::new(),
       rules: Recipe::new(),
       forced: None,
       on_click: Vec::new(),
       on_open_aside: Vec::new(),
+      on_focus: Vec::new(),
       tab_stop: true,
       id: None,
       key: None,
@@ -251,6 +266,13 @@ impl Button {
   /// high as the two lines, with a larger icon beside them.
   pub fn description(mut self, description: &str) -> Self {
     self.description = Some(Arc::from(description));
+    self
+  }
+
+  /// Whether the description goes on to the next lines in the room the button has, in place of one line cut with an
+  /// ellipsis: an answer that says what a press of it leads to. The button is as high as its lines.
+  pub fn description_wraps(mut self, wraps: bool) -> Self {
+    self.description_wraps = wraps;
     self
   }
 
@@ -315,6 +337,16 @@ impl Button {
     self
   }
 
+  /// Whether the label takes the room the button has: what is before it stands at the button's start, and what is
+  /// after it (a [`trailing_icon`](Self::trailing_icon), a [`trailing`](Self::trailing) element) at its end, as a
+  /// select's chevron does. Its description, where it has one, takes that room too. A button as wide as its content
+  /// looks the same; one that is wider (`full_width`, or a width of the app's) puts its room between the label and
+  /// what is after it.
+  pub fn fill_label(mut self, fill: bool) -> Self {
+    self.fill_label = fill;
+    self
+  }
+
   /// Puts the button in a state the theme's recipe names, or takes it out.
   pub fn state(mut self, state: impl Into<Name>, on: bool) -> Self {
     let state = state.into();
@@ -339,6 +371,15 @@ impl Button {
   /// after the first.
   pub fn on_open_aside(mut self, handler: impl IntoMouseEventHandler) -> Self {
     self.on_open_aside.push(handler.into_event_handler());
+    self
+  }
+
+  /// Called when the button takes the focus: from Tab, from the arrows of a group it is in, or from the app. A press
+  /// of a button that is a stop of Tab focuses it too; one that is not ([`tab_stop`](Self::tab_stop)) is focused by
+  /// no press. What it says beside it may follow the button the keyboard is on. A second handler is called after
+  /// the first.
+  pub fn on_focus(mut self, handler: impl Fn() + Send + Sync + 'static) -> Self {
+    self.on_focus.push(Arc::new(handler));
     self
   }
 
@@ -470,7 +511,12 @@ impl Button {
     .state(ButtonState::Loading, self.loading)
     .state(ButtonState::IconOnly, self.icon_only)
     .state(ButtonState::Pill, self.shape == ButtonShape::Pill)
-    .state(ButtonState::Description, self.description.is_some());
+    .state(ButtonState::Description, self.description.is_some())
+    .state(ButtonState::FillLabel, self.fill_label && !self.icon_only)
+    .state(
+      ButtonState::DescriptionWraps,
+      self.description_wraps && self.description.is_some(),
+    );
     let recipe = theme
       .resolve::<Button>(&case, Some(&self.rules))
       .owned_by(self.id.as_ref());
@@ -486,12 +532,15 @@ impl Button {
       loading: self.loading,
       disabled: self.disabled,
       full_width: self.full_width,
+      fill_label: self.fill_label && !self.icon_only,
+      description_wraps: self.description_wraps,
       leading: self.leading,
       trailing: self.trailing,
       recipe,
       forced: self.forced,
       on_click: self.on_click,
       on_open_aside: self.on_open_aside,
+      on_focus: self.on_focus,
       tab_stop: self.tab_stop,
       id: self.id,
       key: self.key,
@@ -532,6 +581,10 @@ pub struct ButtonView {
   pub loading: bool,
   pub disabled: bool,
   pub full_width: bool,
+  /// Whether the label takes the room the button has, what is after it at the end.
+  pub fill_label: bool,
+  /// Whether the description goes on to the next lines in place of one line cut short.
+  pub description_wraps: bool,
   /// The element before the label, if the button has one.
   pub leading: Option<Element>,
   /// The element after the label, if the button has one.
@@ -541,6 +594,7 @@ pub struct ButtonView {
   forced: Option<Interaction>,
   on_click: Vec<EventHandler<crate::app::events::MouseEvent>>,
   on_open_aside: Vec<EventHandler<crate::app::events::MouseEvent>>,
+  on_focus: Vec<FocusHandler>,
   tab_stop: bool,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
@@ -586,6 +640,13 @@ impl ButtonView {
         .shrink_limit(crate::layout::layout_kind::ShrinkLimit::Content)
         .max_width(crate::node::dimension::Dimension::Pct(100.0));
     }
+    for handler in &self.on_focus {
+      let handler = handler.clone();
+      root = root.on_focus(move || handler());
+    }
+    if self.fill_label {
+      root = root.justify(crate::layout::layout_kind::Justify::Start);
+    }
     // A button that is an icon alone draws no label, and is still called by it.
     if self.icon_only && !self.label.is_empty() {
       root = root.describe("a11y_name", self.label.clone());
@@ -605,10 +666,21 @@ impl ButtonView {
     root
   }
 
-  /// The line under the label, in the typography of the description, if the button has one.
+  /// The line under the label, in the typography of the description, if the button has one: one line cut with an
+  /// ellipsis, or the lines it takes in the room the button has where it wraps.
   pub fn description(&self) -> Option<Element> {
     let description = self.description.as_ref()?;
     let part = self.part(ButtonPart::Description);
+    if self.description_wraps {
+      let fill = crate::node::dimension::Dimension::Pct(100.0);
+      return Some(
+        crate::components::Column::new()
+          .width(fill)
+          .min_width(0.0)
+          .child(part.text(description).width(fill).part(&part))
+          .into(),
+      );
+    }
     Some(super::shared::one_line(&part, description))
   }
 
@@ -696,14 +768,23 @@ impl ButtonView {
     if let Some(leading) = self.leading.take() {
       root = root.child(Row::new().part(&self.part(ButtonPart::Leading)).child(leading));
     }
+    // A label that takes the room grows into it, and gives way where there is less; so does a description that
+    // wraps, whose column is as wide as the room.
+    let grows = self.fill_label || (self.description_wraps && self.description.is_some());
     root = match self.description() {
       // The label with its description under it, both at the start of their column.
-      Some(description) => root.child(
-        crate::components::Column::new()
+      Some(description) => {
+        let column = crate::components::Column::new()
           .spacing(2.0)
           .child(self.label())
-          .child(description),
-      ),
+          .child(description);
+        root.child(if grows {
+          column.flex_full(1.0, 1.0, None).min_width(0.0)
+        } else {
+          column
+        })
+      }
+      None if grows => root.child(Row::new().flex_full(1.0, 1.0, None).min_width(0.0).child(self.label())),
       None => root.child(self.label()),
     };
     if let Some(trailing) = self.trailing.take() {

@@ -5,16 +5,17 @@ use std::sync::Arc;
 use super::{
   names,
   part_style::PartTransition,
-  recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe},
+  recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
   shared::{Choice, Orientation, fading, pressable},
   theme::{Themed, current_theme},
 };
 use crate::{
   animation::Transition,
+  app::events::MouseEvent,
   app::theme::{BorderSize, MotionDuration, OpacityLevel, PaletteColor, RadiusSize, Theme, TypographyStyle},
   components::{self, Column, Row},
   core::{ElementRef, Signal, SignalValue},
-  layout::Alignment,
+  layout::{Alignment, layout_kind::Justify},
   node::{CursorIcon, Element, FocusGroup, border::Border},
 };
 
@@ -51,12 +52,15 @@ pub enum RadioState {
   Invalid,
   /// It takes no input.
   Disabled,
+  /// It is pressed as a whole: its root is what is pressed and focused, with the mark and the label in it.
+  Whole,
 }
 
 names!(RadioState {
   Selected => "selected",
   Invalid => "invalid",
   Disabled => "disabled",
+  Whole => "whole",
 });
 
 /// What builds a radio's nodes: a theme's in place of the default one.
@@ -76,11 +80,14 @@ pub type RadioRenderer = Arc<dyn Fn(RadioView) -> Element + Send + Sync>;
 /// [`Radio::selected`], and is told with [`Radio::on_change`], given `true`,
 /// that it was pressed while it was not. A press of one that is selected
 /// already does nothing: a radio is not unselected by a press. A press of its
-/// label is a press of the radio. Radios that are one choice are a
-/// [`RadioGroup`].
+/// label is a press of the radio, and a press of either is the radio's alone:
+/// a row around it that is pressed is not. [`Radio::whole`] makes the mark and
+/// its label one control, its id on the whole. Radios that are one choice are
+/// a [`RadioGroup`].
 pub struct Radio {
   label: Arc<str>,
   label_hidden: bool,
+  whole: bool,
   count: Option<Arc<str>>,
   element: Option<ElementRef>,
   selected: bool,
@@ -100,6 +107,7 @@ impl Radio {
     Self {
       label: Arc::from(label),
       label_hidden: false,
+      whole: false,
       count: None,
       element: None,
       selected: false,
@@ -117,6 +125,16 @@ impl Radio {
   /// Whether the radio is its mark alone. Its label stays what it is called.
   pub fn label_hidden(mut self, hidden: bool) -> Self {
     self.label_hidden = hidden;
+    self
+  }
+
+  /// Whether the mark and its label are one control: what is pressed,
+  /// focused and ringed is the whole of them, one stop of Tab, and its id is
+  /// on the whole, the mark, the dot, the label and the count named after it
+  /// (`x-mark`, `x-dot`, `x-label`, `x-count`), the element ref referring to
+  /// the whole. Not unless told: the mark is what is pressed, and has the id.
+  pub fn whole(mut self, whole: bool) -> Self {
+    self.whole = whole;
     self
   }
 
@@ -187,7 +205,8 @@ impl Radio {
     self
   }
 
-  /// The id of the mark: what is pressed.
+  /// The id of the mark: what is pressed. The id of the whole where it is
+  /// [`whole`](Self::whole).
   pub fn id(mut self, id: impl Into<Arc<str>>) -> Self {
     self.id = Some(id.into());
     self
@@ -211,10 +230,12 @@ impl Radio {
     }
     .state(RadioState::Selected, self.selected)
     .state(RadioState::Invalid, self.invalid)
-    .state(RadioState::Disabled, self.disabled);
+    .state(RadioState::Disabled, self.disabled)
+    .state(RadioState::Whole, self.whole);
     let view = RadioView {
       label: self.label,
       label_hidden: self.label_hidden,
+      whole: self.whole,
       count: self.count,
       element: self.element,
       selected: self.selected,
@@ -246,6 +267,8 @@ impl From<Radio> for Element {
 pub struct RadioView {
   pub label: Arc<str>,
   pub label_hidden: bool,
+  /// Whether the mark and its label are one control, its id on the whole.
+  pub whole: bool,
   /// The number after the label, where the radio has one.
   pub count: Option<Arc<str>>,
   element: Option<ElementRef>,
@@ -286,26 +309,53 @@ impl RadioView {
   /// pressed, focused and disabled, with nothing in it yet. It is a radio to
   /// what reads the tree, called by its label, and says whether it is selected.
   pub fn mark(&self) -> components::Button {
-    let mut mark = pressable(&self.part(RadioPart::Mark), self.disabled)
+    self.control(RadioPart::Mark)
+  }
+
+  /// The behavior of a radio pressed as a whole, with the style of its root:
+  /// what is pressed, focused and ringed, with nothing in it yet, the mark and
+  /// the label to go in it. What [`mark`](Self::mark) is otherwise.
+  pub fn whole_root(&self) -> components::Button {
+    self.control(RadioPart::Root).justify(Justify::Start)
+  }
+
+  /// The radio's behavior with the style of `part`, its id, its key and its
+  /// element ref. A press of it is its own: it does not reach what is around it.
+  fn control(&self, part: RadioPart) -> components::Button {
+    let mut control = pressable(&self.part(part), self.disabled)
       .align_items(Alignment::Center)
       .describe("a11y_role", "radio")
       .describe("a11y_name", self.label.clone())
       .describe("a11y_checked", if self.selected { "true" } else { "false" })
       // In a group, which Tab stops at once, the selected radio is where Tab enters.
-      .focus_entry(self.selected);
-    if let Some(press) = self.press() {
-      mark = mark.on_click(move |_| press());
-    }
+      .focus_entry(self.selected)
+      .on_click(own_press(self.press()));
     if let Some(id) = &self.id {
-      mark = mark.id(id.clone());
+      control = control.id(id.clone());
     }
     if let Some(key) = &self.key {
-      mark = mark.key(key.clone());
+      control = control.key(key.clone());
     }
     if let Some(element) = &self.element {
-      mark = mark.ref_element(element.clone());
+      control = control.ref_element(element.clone());
     }
-    mark
+    control
+  }
+
+  /// The label in the style of its part: `None` where it is hidden.
+  fn label(&self) -> Option<Row> {
+    if self.label_hidden {
+      return None;
+    }
+    let part = self.part(RadioPart::Label);
+    Some(Row::new().part(&part).child(part.text(&self.label).nowrap()))
+  }
+
+  /// The count after the label, in the style of its part: `None` where it has none.
+  fn count(&self) -> Option<Row> {
+    let count = self.count.as_ref()?;
+    let part = self.part(RadioPart::Count);
+    Some(Row::new().part(&part).child(part.text(count).nowrap()))
   }
 
   /// The dot in the style of its part.
@@ -314,29 +364,43 @@ impl RadioView {
   }
 
   /// How the default renderer builds a radio: the mark, with the dot in it
-  /// while the radio is selected, and the label beside it.
+  /// while the radio is selected, and the label beside it; pressed as a whole,
+  /// all of them in what is pressed.
   pub fn render(self) -> Element {
-    let mut mark = self.mark();
-    if self.selected {
-      mark = mark.child(self.dot());
+    let dot = self.selected.then(|| self.dot());
+    if self.whole {
+      let mark = Row::new()
+        .align_items(Alignment::Center)
+        .justify(Justify::Center)
+        .part(&self.part(RadioPart::Mark))
+        .with_children(dot);
+      return self
+        .whole_root()
+        .child(mark)
+        .with_children(self.label())
+        .with_children(self.count())
+        .into();
     }
+    let mark = self.mark().with_children(dot);
     let mut root = Row::new()
       .align_items(Alignment::Center)
       .part(&self.part(RadioPart::Root))
       .child(mark);
-    if !self.label_hidden {
-      let part = self.part(RadioPart::Label);
-      let mut label = Row::new().part(&part).child(part.text(&self.label).nowrap());
-      if let Some(press) = self.press() {
-        label = label.on_click(move |_| press());
-      }
-      root = root.child(label);
+    if let Some(label) = self.label() {
+      root = root.child(label.on_click(own_press(self.press())));
     }
-    if let Some(count) = &self.count {
-      let part = self.part(RadioPart::Count);
-      root = root.child(Row::new().part(&part).child(part.text(count).nowrap()));
+    root.with_children(self.count()).into()
+  }
+}
+
+/// What a press of a radio or its label does: `press`, where it has one, and nothing more. It is its own, and does
+/// not reach what is around it (a row that is pressed).
+fn own_press(press: Option<impl Fn() + Send + Sync + 'static>) -> impl Fn(MouseEvent) + Send + Sync + 'static {
+  move |event: MouseEvent| {
+    event.stop_propagation();
+    if let Some(press) = &press {
+      press();
     }
-    root.into()
   }
 }
 
@@ -401,6 +465,12 @@ impl Themed for Radio {
       .state(RadioState::Disabled, Root, |s| s.opacity(OpacityLevel::Disabled))
       .state(RadioState::Disabled, Mark, |s| s.cursor(CursorIcon::Default))
       .state(RadioState::Disabled, Label, |s| s.cursor(CursorIcon::Default))
+      // Pressed as a whole: the root is what the pointer presses and the ring goes round, the mark only drawn.
+      .state(RadioState::Whole, Root, |s| s.radius(RadiusSize::Sm).cursor(CursorIcon::Pointer))
+      .when(Selector::new().state(RadioState::Whole).focus_visible(), Root, |s| s.focus_ring())
+      .when(Selector::new().state(RadioState::Whole).state(RadioState::Disabled), Root, |s| {
+        s.cursor(CursorIcon::Default)
+      })
   }
 }
 
@@ -519,6 +589,7 @@ pub struct RadioGroup<T = ()> {
   orientation: Orientation,
   invalid: bool,
   disabled: bool,
+  whole: bool,
   states: Vec<Name>,
   rules: Recipe,
   forced: Option<Interaction>,
@@ -541,6 +612,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> RadioGroup<T> {
       orientation: Orientation::Vertical,
       invalid: false,
       disabled: false,
+      whole: false,
       states: Vec::new(),
       rules: Recipe::new(),
       forced: None,
@@ -597,6 +669,13 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> RadioGroup<T> {
   /// Whether the whole group takes no input.
   pub fn disabled(mut self, disabled: bool) -> Self {
     self.disabled = disabled;
+    self
+  }
+
+  /// Whether each radio is pressed as a whole, its mark and its label one control with a choice's id on it
+  /// ([`Radio::whole`]). The group is one stop of Tab still, and the arrow keys move between the wholes.
+  pub fn whole(mut self, whole: bool) -> Self {
+    self.whole = whole;
     self
   }
 
@@ -675,6 +754,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> RadioGroup<T> {
           .selected(selected)
           .invalid(self.invalid)
           .disabled(self.disabled || choice.disabled)
+          .whole(self.whole)
           .rules(&item);
         if let Some(id) = &choice.id {
           radio = radio.id(id.clone());
@@ -821,7 +901,7 @@ impl super::FieldControl for Radio {
   /// Called by the field's label where its own is hidden, since the label a person reads is then the field's;
   /// invalid where the field is, and disabled where the field is.
   fn in_field(mut self, field: &super::InField) -> Element {
-    if self.label_hidden {
+    if self.label_hidden && !field.label.is_empty() {
       self.label = field.label.clone();
     }
     self.invalid |= field.judgment == Some(super::Judgment::Invalid);
@@ -834,7 +914,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> super::FieldControl for Radio
   /// Called by the field's label unless it has a name of its own, every radio invalid where the field is, and
   /// disabled where the field is.
   fn in_field(mut self, field: &super::InField) -> Element {
-    if self.label.is_none() {
+    if self.label.is_none() && !field.label.is_empty() {
       self.label = Some(field.label.clone());
     }
     self.invalid |= field.judgment == Some(super::Judgment::Invalid);

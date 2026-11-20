@@ -1558,6 +1558,8 @@ A press of a control that copies (the copy button of a [code block](../design-sy
 
 `Ctrl+V` and `Shift+Insert` on such an element deliver a `PasteEvent` to it and its ancestors where one of them has an `on_paste` handler, as to a text input, with nothing inserted by default; `Tree::paste(content)` does the same. The copy writes the OS clipboard (feature `clipboard`), or what a test installs with `tree.set_clipboard_writer(Some(Arc::new(writer)))`, a `lurq::app::ClipboardWriter` with `write_text(&str)`, which a text input's copy goes to as well; a copy that keeps its formatting calls `write_rich(text, markdown)`, which writes the text unless the writer keeps the Markdown too, and a test's `ClipboardReader` answers `read_markdown(text)` with it.
 
+An app says once where all of its copies go, in every window: `app.set_clipboard_writer(Some(Arc::new(writer)))`, and `app.set_clipboard_reader(..)` for what its pastes read. Every copy goes there in place of the OS clipboard: a copy shortcut in a field, the copy button of a code block (a Markdown document's too), a table's copy, `window.copy_to_clipboard`. A copy button says it copied, or could not, by what `write_text` answers. A QA copy of an app or a gallery gives a clipboard of its own here, so it never touches the person's. A test's writer on its tree stays over the app's.
+
 #### Input Methods
 
 Text inputs take input method (IME) composition on Windows and macOS: Japanese, Chinese and Korean input, dead keys and the macOS accent menu. While a text input that is not masked has focus, the winit shell lets the window's input method compose and places its candidate window at the input's caret; password fields (`.mask()`) take no composition, like the platforms' native ones.

@@ -164,6 +164,10 @@ pub(crate) struct AppShared {
   pub(crate) pointer: super::pointer::AppPointer,
   /// How long a pause in typing ends a step of undo: [`App::set_typing_undo_pause`].
   pub(crate) typing_undo_pause: Mutex<Option<std::time::Duration>>,
+  /// Where copies write in place of the system's clipboard: [`App::set_clipboard_writer`].
+  pub(crate) clipboard_writer: Mutex<Option<Arc<dyn crate::app::ClipboardWriter>>>,
+  /// Where pastes read in place of the system's clipboard: [`App::set_clipboard_reader`].
+  pub(crate) clipboard_reader: Mutex<Option<Arc<dyn crate::app::ClipboardReader>>>,
   /// The phone or tablet the app is run as on a desktop: [`App::emulate`].
   pub(crate) emulated: Mutex<Option<super::Device>>,
   pub(crate) window_opener: WindowOpener,
@@ -200,6 +204,8 @@ impl App {
         locale: crate::core::AppLocale::new(),
         pointer: super::pointer::AppPointer::new(),
         typing_undo_pause: Mutex::new(crate::node::node_kind::text_input::TYPING_UNDO_PAUSE),
+        clipboard_writer: Mutex::new(None),
+        clipboard_reader: Mutex::new(None),
         emulated: Mutex::new(None),
         window_opener: WindowOpener::default(),
         i18n: I18n::new(),
@@ -232,6 +238,41 @@ impl App {
   /// ```
   pub fn set_typing_undo_pause(&self, pause: Option<std::time::Duration>) {
     *self.shared.typing_undo_pause.lock() = pause;
+  }
+
+  /// Where every copy of the app writes, in place of the system's clipboard: a copy shortcut in a field, a code
+  /// block's copy button, a table's copy, [`WindowHandle::copy_to_clipboard`](crate::app::window::WindowHandle::copy_to_clipboard),
+  /// in every window of the app. A copy says it was written by what `writer` answers. A QA copy of an app or a
+  /// gallery gives a clipboard of its own here, so that it never touches the person's. `None` goes back to the
+  /// system's clipboard (feature `clipboard`; nothing without it). A test's writer on its tree
+  /// ([`Tree::set_clipboard_writer`](crate::app::Tree::set_clipboard_writer)) stays over this one.
+  ///
+  /// ```
+  /// use std::sync::Arc;
+  /// use lurq::app::{App, ClipboardWriter};
+  /// use parking_lot::Mutex;
+  ///
+  /// struct Own(Mutex<String>);
+  ///
+  /// impl ClipboardWriter for Own {
+  ///   fn write_text(&self, text: &str) -> bool {
+  ///     *self.0.lock() = text.to_owned();
+  ///     true
+  ///   }
+  /// }
+  ///
+  /// let app = App::new();
+  /// app.set_clipboard_writer(Some(Arc::new(Own(Mutex::new(String::new())))));
+  /// ```
+  pub fn set_clipboard_writer(&self, writer: Option<Arc<dyn crate::app::ClipboardWriter>>) {
+    *self.shared.clipboard_writer.lock() = writer;
+  }
+
+  /// Where every paste of the app reads, in place of the system's clipboard: the clipboard an app gave
+  /// [`set_clipboard_writer`](Self::set_clipboard_writer), so that what it copied is what it pastes. `None` goes
+  /// back to the system's clipboard. A test's reader on its tree stays over this one.
+  pub fn set_clipboard_reader(&self, reader: Option<Arc<dyn crate::app::ClipboardReader>>) {
+    *self.shared.clipboard_reader.lock() = reader;
   }
 
   pub fn menu_bar_support(&self) -> super::menu::MenuBarSupport {

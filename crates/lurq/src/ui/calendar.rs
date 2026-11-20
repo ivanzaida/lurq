@@ -95,6 +95,9 @@ pub enum CalendarState {
   RangeEnd,
   /// The day is between the ends of the range.
   InRange,
+  /// The day is the other end of a range the calendar's date is one end of, which this calendar does not choose: the
+  /// end a range's other picker holds ([`Calendar::other_end`]).
+  OtherEnd,
 }
 
 names!(CalendarState {
@@ -107,6 +110,7 @@ names!(CalendarState {
   RangeStart => "range_start",
   RangeEnd => "range_end",
   InRange => "in_range",
+  OtherEnd => "other_end",
 });
 
 /// What builds a calendar's nodes: a theme's in place of the default one.
@@ -316,6 +320,7 @@ pub struct Calendar<V: Picked = Date> {
   pub(crate) week_numbers: bool,
   pub(crate) outside_days: bool,
   pub(crate) today: Option<Date>,
+  pub(crate) other_end: Option<Date>,
   pub(crate) disabled: bool,
   on_change: Vec<Arc<dyn Fn(CalendarChoice) + Send + Sync>>,
   /// Told of every choice, of what is chosen already too: a date picker's, which closes its panel.
@@ -354,6 +359,7 @@ impl<V: Picked> Calendar<V> {
       week_numbers: false,
       outside_days: true,
       today: None,
+      other_end: None,
       disabled: false,
       on_change: Vec::new(),
       on_choose: Vec::new(),
@@ -669,6 +675,7 @@ impl<V: Picked> Calendar<V> {
       chosen,
       draft,
       hover,
+      other_end: self.other_end,
       week_numbers: self.week_numbers,
       outside_days: self.outside_days && self.months == 1,
       disabled: self.disabled,
@@ -702,6 +709,18 @@ impl<V: Picked> Calendar<V> {
       id: self.id,
       key: self.key,
     }
+  }
+}
+
+impl Calendar<Date> {
+  /// The other end of a range this calendar's date is one end of: a day the calendar marks, in the state
+  /// [`CalendarState::OtherEnd`], tinted as the days inside a range are, while a person chooses this end. A range
+  /// chosen in two pickers of one date each (a start and an end) gives each the date of the other; with
+  /// [`min`](Self::min) or [`max`](Self::max) at it, the days past it cannot be chosen. `None` marks none. The day
+  /// that is chosen is drawn chosen, whatever this says. Tooling reads it on the day as `range_other_end`.
+  pub fn other_end(mut self, other_end: impl Into<Option<Date>>) -> Self {
+    self.other_end = other_end.into();
+    self
   }
 }
 
@@ -865,6 +884,8 @@ pub struct CalendarView {
   pub draft: Option<Date>,
   /// Where the pointer or the keys are while the second press of a range is to come.
   pub hover: Option<Date>,
+  /// The other end of a range the date chosen is one end of, which the calendar marks: [`Calendar::other_end`].
+  pub other_end: Option<Date>,
   pub week_numbers: bool,
   /// Whether the first and the last week are filled with the days of the months before and after.
   pub outside_days: bool,
@@ -942,6 +963,9 @@ impl CalendarView {
         }
       }
       _ => {}
+    }
+    if self.other_end == Some(date) && !states.contains(&CalendarState::Selected) {
+      states.push(CalendarState::OtherEnd);
     }
     states
   }
@@ -1122,6 +1146,9 @@ impl CalendarView {
     }
     if !available {
       day = day.describe("a11y_disabled", "true");
+    }
+    if states.contains(&CalendarState::OtherEnd) {
+      day = day.describe("range_other_end", "true");
     }
     if outside {
       // Of the month beside: the pointer chooses it, the keys reach it in its own month.
@@ -1330,11 +1357,12 @@ impl<V: Picked> Themed for Calendar<V> {
   /// (the board's accent), and today is too; the chosen one is on the primary fill, its number in the primary's
   /// foreground at medium weight. A day of the month beside is in the muted foreground at half opacity, and one that
   /// cannot be chosen is the same, with no fill under the pointer. A range's ends are chosen days, and the days
-  /// between them are on the highlight with no radius, so that they make one band (Date Range Picker). A footer the
+  /// between them are on the highlight with no radius, so that they make one band (Date Range Picker); the other end
+  /// a calendar of one date marks is on the highlight with its radius. A footer the
   /// app gives is under the months, 8 under a line of 1 in the border's color across the panel.
   fn recipe() -> Recipe {
     use CalendarPart::{Day, Footer, Grid, Header, Months, Nav, NavIcon, Root, Title, WeekNumber, Weekday};
-    use CalendarState::{Bare, Current, Disabled, InRange, Outside, Selected, Unavailable};
+    use CalendarState::{Bare, Current, Disabled, InRange, OtherEnd, Outside, Selected, Unavailable};
     use PaletteColor::{
       Border as Edge, Foreground, Highlight, HighlightForeground, Input, MutedForeground, Popover, PopoverForeground,
       Primary, PrimaryForeground,
@@ -1407,6 +1435,9 @@ impl<V: Picked> Themed for Calendar<V> {
         s.background(Highlight)
           .foreground(HighlightForeground)
           .radius(RadiusValue::Px(0.0))
+      })
+      .state(OtherEnd, Day, |s| {
+        s.background(Highlight).foreground(HighlightForeground)
       })
       .state(Selected, Day, |s| {
         s.background(Primary)

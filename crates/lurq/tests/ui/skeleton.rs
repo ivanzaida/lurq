@@ -14,7 +14,8 @@ use lurq::{
   },
   node::color::Color,
   ui::{
-    Length, SKELETON_PULSE_PERIOD, SKELETON_SHIMMER_PERIOD, Skeleton, SkeletonAnimation, SkeletonPart, SkeletonShape,
+    Length, SKELETON_PULSE_PERIOD, SKELETON_SHIMMER_PERIOD, Skeleton, SkeletonAnimation, SkeletonMotion, SkeletonPart,
+    SkeletonShape,
   },
 };
 
@@ -232,4 +233,121 @@ fn a_theme_rule_changes_every_skeleton() {
   });
   assert_eq!(stage.bounds("line").3, 16.0);
   assert_eq!(stage.fill_color("line"), Some(light(PaletteColor::Secondary)));
+}
+
+/// How many times the opacity of the bones painted changed over `span`, in passes 2 ms apart.
+fn pulse_changes(stage: &mut Stage, span: std::time::Duration) -> usize {
+  let opacities =
+    |stage: &Stage| -> Vec<String> { bones(stage).iter().map(|bone| format!("{:.4}", bone.opacity)).collect() };
+  let mut last = opacities(stage);
+  let mut changed = 0;
+  let mut at = std::time::Duration::ZERO;
+  while at < span {
+    at += std::time::Duration::from_millis(2);
+    stage.pass_after(at);
+    let now = opacities(stage);
+    if now != last {
+      changed += 1;
+      last = now;
+    }
+  }
+  changed
+}
+
+#[test]
+fn stepped_skeletons_pulse_together_a_pose_a_step_and_ask_for_no_frame_between() {
+  let motion = SkeletonMotion::stepped(20).period(std::time::Duration::from_millis(1600));
+  let mut stage = Stage::new(move |_| {
+    Column::new()
+      .width(200.0)
+      .spacing(8.0)
+      .child(Skeleton::line().motion(motion))
+      .child(Skeleton::circle(24.0).motion(motion))
+      .into()
+  });
+  stage.pass_after(std::time::Duration::from_millis(3));
+  let next = stage
+    .next_change_after(std::time::Duration::from_millis(3))
+    .expect("it pulses");
+  assert!(
+    next > std::time::Duration::ZERO && next <= std::time::Duration::from_millis(50),
+    "the next frame is at the next step: {next:?}"
+  );
+  // Half a pulse (0.8 s) is 16 steps at 20 a second, and the two bones change together, in one phase.
+  let changed = pulse_changes(&mut stage, std::time::Duration::from_millis(800));
+  assert!((15..=17).contains(&changed), "{changed} changes in half a pulse");
+  let opacities: Vec<f32> = bones(&stage).iter().map(|bone| bone.opacity).collect();
+  assert_eq!(opacities[0], opacities[1], "in one phase");
+
+  // Where motion is reduced it stands still, stepped or not.
+  stage.app.theme().set_reduced_motion(Some(true));
+  stage.pass();
+  assert_eq!(
+    stage.next_change_after(std::time::Duration::from_millis(3)),
+    None,
+    "nothing moves"
+  );
+}
+
+#[test]
+fn a_theme_gives_every_skeleton_its_motion() {
+  let app = App::new();
+  app.theme().set_skeleton_motion(SkeletonMotion::stepped(10));
+  assert_eq!(app.theme().skeleton_motion().steps_per_second(), Some(10));
+  let mut stage = Stage::in_app(app, |_| Column::new().width(200.0).child(Skeleton::line()).into());
+  stage.pass_after(std::time::Duration::from_millis(3));
+  let next = stage
+    .next_change_after(std::time::Duration::from_millis(3))
+    .expect("it pulses");
+  assert!(
+    next > std::time::Duration::from_millis(10),
+    "in steps of a tenth of a second: {next:?}"
+  );
+
+  // A skeleton's own motion wins.
+  let mut smooth = Stage::new(|_| {
+    Column::new()
+      .width(200.0)
+      .child(Skeleton::line().motion(SkeletonMotion::SMOOTH))
+      .into()
+  });
+  smooth.pass_after(std::time::Duration::from_millis(3));
+  assert_eq!(
+    smooth.next_change_after(std::time::Duration::from_millis(3)),
+    Some(std::time::Duration::ZERO)
+  );
+}
+
+#[test]
+fn a_skeleton_takes_the_layout_an_app_chains_on_a_bone() {
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .width(300.0)
+      .spacing(8.0)
+      .child(
+        Row::new()
+          .width(300.0)
+          .child(Skeleton::block(40.0, 20.0).radius(6.0).flex_shrink(0.0).id("tile"))
+          .child(Skeleton::line().flex(1.0).min_width(0.0).id("rest")),
+      )
+      .child(Skeleton::line().max_width(120.0).id("capped"))
+      .child(
+        Skeleton::block(Length::Fill, 4.0)
+          .min_height(10.0)
+          .max_width(200.0)
+          .id("bar"),
+      )
+      .into()
+  });
+  assert_eq!(stage.bounds("tile").2, 40.0);
+  let (x, _, width, _) = stage.bounds("rest");
+  assert_eq!((x, width), (40.0, 260.0), "a line that takes the room left in its row");
+  assert_eq!(stage.bounds("capped").2, 120.0);
+  let (_, _, width, height) = stage.bounds("bar");
+  assert_eq!((width, height), (200.0, 10.0));
+  let tile = bones(&stage)
+    .into_iter()
+    .find(|bone| bone.width == 40.0)
+    .expect("the tile's bone");
+  assert_eq!(radius(&tile), 6.0, "its own radius");
 }

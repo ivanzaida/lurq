@@ -1352,6 +1352,13 @@ impl DatePicker {
 
   picker_methods!(Date);
 
+  /// The other end of a range this picker's date is one end of, which its calendar marks while a person chooses
+  /// this end: the date of the range's other picker. See [`Calendar::other_end`](crate::ui::Calendar::other_end).
+  pub fn other_end(mut self, other_end: impl Into<Option<Date>>) -> Self {
+    self.core.calendar = self.core.calendar.other_end(other_end);
+    self
+  }
+
   /// Builds the picker in `theme`, with nothing kept but what the app gives it. Converting a picker into an element
   /// does this in the theme of what is being rendered.
   pub fn build(self, theme: &Theme) -> Element {

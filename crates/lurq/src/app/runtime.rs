@@ -9409,6 +9409,18 @@ fn build_overlays_from_layout_index(
         if anchor.width <= 0.0 || anchor.height <= 0.0 {
           continue;
         }
+        // Placed by another element's box where it has one (`Overlay::placed_by`, `Overlay::clear_of`).
+        let anchor = match &spec.frame {
+          Some(frame) => {
+            let element = frame.element();
+            // An element of another layer is not in the index: its box as it was last laid out.
+            let laid_out = find_element_record(index, element)
+              .map(|record| record.rect)
+              .or_else(|| element.is_attached().then(|| element.bounds()));
+            frame.rect(anchor, laid_out, spec.placement)
+          }
+          None => anchor,
+        };
         let dismiss_anchor = spec.anchor.clone();
         let layer_anchor = spec.anchor.clone();
         let dismiss_signal = spec.open_signal.clone();

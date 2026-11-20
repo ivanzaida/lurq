@@ -19,6 +19,9 @@ use lurq::{
 #[derive(Clone, Default)]
 struct Seen(Arc<Mutex<Vec<String>>>);
 
+// Props of a component are inspectable by DevTools in a build with it; this test needs nothing shown.
+impl lurq::app::component::DevtoolsInspectable for Seen {}
+
 impl PartialEq for Seen {
   fn eq(&self, _: &Self) -> bool {
     true

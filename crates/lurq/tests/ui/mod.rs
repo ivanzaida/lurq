@@ -101,6 +101,7 @@ mod media_speed_menu;
 mod media_time;
 mod media_volume;
 mod menu;
+mod menu_content;
 mod menu_item_detail;
 mod menubar;
 mod message_box;
@@ -115,6 +116,7 @@ mod notification_center;
 mod number_input;
 mod outcome;
 mod pagination;
+mod part_foreground;
 mod part_ids;
 mod path_field;
 mod persona;
@@ -134,6 +136,7 @@ mod radar_chart;
 mod radio;
 mod rating;
 mod reopened_layers;
+mod rows_and_forms;
 #[cfg(feature = "markdown")]
 mod rich_text_editor;
 #[cfg(feature = "canvas")]
@@ -191,3 +194,4 @@ mod waveform;
 mod window_chrome;
 mod window_tabs;
 mod window_tabs_hosted;
+mod window_tabs_list;

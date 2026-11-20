@@ -420,6 +420,20 @@ impl Component for BadgePage {
         Badge::count(0).label("notifications").on(bell("Notifications")),
         "0: the button alone",
       ));
+    let narrow = items()
+      .child(item(
+        Row::new().width(96.0).child(
+          Badge::new("Waiting for a review")
+            .variant(BadgeVariant::Warning)
+            .dot(true)
+            .truncate(true),
+        ),
+        "truncate · 96",
+      ))
+      .child(item(
+        Row::new().width(96.0).child(Badge::new("Merged").variant(BadgeVariant::Success).truncate(true)),
+        "room enough",
+      ));
     let rows = [
       (
         "label",
@@ -471,6 +485,12 @@ impl Component for BadgePage {
         "The most a count shows: past it, the maximum and a plus.",
       ),
       ("show_zero", "bool", "false", "Whether a count of 0 is drawn."),
+      (
+        "truncate",
+        "bool",
+        "false",
+        "Gives way where it has less room, its word cut with an ellipsis; still called by the whole word.",
+      ),
       (
         "on",
         "impl Into<Element>",
@@ -608,6 +628,24 @@ impl Component for BadgePage {
               "Badge::count(3).label(\"notifications\").on(bell())",
               "Badge::count(120).label(\"unread messages\").on(bell())",
               "Badge::count(0).label(\"notifications\").on(bell())",
+            ],
+          ),
+        ),
+        Section::new(
+          "Where it has less room",
+          "A badge keeps its width unless told to truncate: then it gives way down to its dot, its icon and its \
+           padding, and its word ends in an ellipsis. Tooling is still told the whole word.",
+          self.frame.demo(
+            6,
+            narrow,
+            ".truncate(true)",
+            &[
+              "Row::new().width(96.0).child(",
+              "  Badge::new(\"Waiting for a review\")",
+              "    .variant(BadgeVariant::Warning)",
+              "    .dot(true)",
+              "    .truncate(true),",
+              ")",
             ],
           ),
         ),

@@ -443,6 +443,7 @@ impl ContextMenuView {
         MenuEntry::Item(item) => menu.item(item),
         MenuEntry::Separator => menu.separator(),
         MenuEntry::Heading(heading) => menu.heading(&heading),
+        MenuEntry::Element(element) => menu.child(element),
       };
     }
     if let Some(id) = &self.id {
@@ -503,6 +504,7 @@ impl ContextMenuView {
             .build(self.theme()),
         ),
         MenuEntry::Heading(_) => panel,
+        MenuEntry::Element(element) => panel.child(element),
       };
     }
     if let Some(key) = &self.key {

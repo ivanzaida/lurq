@@ -972,3 +972,133 @@ fn a_label_is_what_a_message_is_called_to_tooling() {
   assert_eq!(said("banner").as_deref(), Some("Update"));
   assert_eq!(said("callout").as_deref(), Some("Blur tip"));
 }
+
+/// Words long enough to take several lines of an alert 300 wide.
+const LONG: &str = "The token this project signs in with expires in three days, and a run that starts after that fails.";
+
+#[test]
+fn an_alert_aligned_to_the_top_has_its_icon_and_actions_on_its_first_line() {
+  let alert = |top: bool, id: &str| {
+    Alert::new("Token expires")
+      .description(LONG)
+      .variant(AlertVariant::Warning)
+      .align_top(top)
+      .action(small("Rotate", &format!("{id}-rotate")))
+      .id(id.to_owned())
+  };
+  let mut stage = Stage::new(move |_| {
+    Column::new()
+      .width(300.0)
+      .child(alert(false, "middle"))
+      .child(alert(true, "top"))
+      .into()
+  });
+  let (_, middle_y, _, middle_height) = stage.bounds("middle");
+  let (_, rotate_y, _, rotate_height) = stage.bounds("middle-rotate");
+  assert!(
+    ((rotate_y + rotate_height / 2.0) - (middle_y + middle_height / 2.0)).abs() < 1.0,
+    "centered unless told"
+  );
+  let (_, y, ..) = stage.bounds("top");
+  let (_, rotate_y, ..) = stage.bounds("top-rotate");
+  assert!((rotate_y - y - 16.0).abs() < 0.5, "the action at the top: {}", rotate_y - y);
+  let (_, icon_y, ..) = stage.bounds("top-icon");
+  assert!((icon_y - y - 16.0).abs() < 2.0, "the icon at the top too");
+}
+
+#[test]
+fn a_note_comes_after_the_actions() {
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .width(300.0)
+      .child(
+        Alert::new("Rotate the token?")
+          .stacked(true)
+          .action(small("Rotate", "rotate"))
+          .note("A new token is shown once.")
+          .id("stacked"),
+      )
+      .child(
+        Alert::new("Signed out")
+          .description("Sign in to sync.")
+          .action(small("Sign in", "sign-in"))
+          .note("Nothing is lost.")
+          .id("end"),
+      )
+      .into()
+  });
+  let (_, rotate_y, _, rotate_height) = stage.bounds("rotate");
+  let (note_x, note_y, ..) = stage.bounds("stacked-note");
+  let title = stage.text_quad("Rotate the token?").unwrap();
+  assert!(note_y >= rotate_y + rotate_height, "under the actions");
+  assert!((note_x - title.x).abs() < 0.5, "at the words' start");
+  let (_, note_y, ..) = stage.bounds("end-note");
+  let (_, description_y, _, description_height) = stage.bounds("end-description");
+  assert!(note_y >= description_y + description_height, "under the words where the actions are at the end");
+  assert_eq!(
+    stage.text("Nothing is lost.").0,
+    light(PaletteColor::MutedForeground),
+    "in the muted color"
+  );
+}
+
+#[test]
+fn an_untitled_alert_draws_no_title() {
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .width(300.0)
+      .child(Alert::untitled().description("The token expires in 3 days.").id("alert"))
+      .into()
+  });
+  assert!(!stage.ids().contains(&"alert-title".to_owned()), "no title part");
+  let (_, y, ..) = stage.bounds("alert");
+  let (_, description_y, ..) = stage.bounds("alert-description");
+  assert!((description_y - y - 16.0).abs() < 0.5, "the words at the top");
+}
+
+#[cfg(any(feature = "mcp", feature = "devtools"))]
+#[test]
+fn an_untitled_alert_is_called_by_its_description() {
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .width(300.0)
+      .child(Alert::untitled().description("The token expires in 3 days.").id("alert"))
+      .into()
+  });
+  let name = stage
+    .tree
+    .get_element_by_id_mut("alert")
+    .and_then(|element| element.description("a11y_name"));
+  assert_eq!(name.as_deref(), Some("The token expires in 3 days."));
+}
+
+#[test]
+fn a_compact_alert_has_its_icon_beside_the_title_alone_and_its_actions_at_the_end() {
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .width(300.0)
+      .child(
+        Alert::new("Not synced")
+          .description(LONG)
+          .variant(AlertVariant::Info)
+          .compact(true)
+          .actions_end(true)
+          .action(small("Push", "push"))
+          .id("alert"),
+      )
+      .into()
+  });
+  let (x, y, width, height) = stage.bounds("alert");
+  let (icon_x, icon_y, ..) = stage.bounds("alert-icon");
+  let title = stage.text_quad("Not synced").unwrap();
+  let (description_x, description_y, ..) = stage.bounds("alert-description");
+  assert!(title.y - y < 20.0 && (icon_y - y - 16.0).abs() < 2.0, "the icon and the title on the first line");
+  assert!(title.x > icon_x + 16.0, "the title beside the icon");
+  assert!((description_x - icon_x).abs() < 0.5, "the words under them from the icon's start: {description_x} {x}");
+  assert!(description_y > title.y + title.height - 1.0, "the words under the title");
+  let (push_x, push_y, push_width, push_height) = stage.bounds("push");
+  assert!((x + width - 16.0 - (push_x + push_width)).abs() < 0.5, "the action at the far end");
+  assert!(push_y > description_y, "under the words");
+  assert!((y + height - 16.0 - (push_y + push_height)).abs() < 0.5, "and the box holds it");
+  assert!(stage.ids().contains(&"alert-head".to_owned()));
+}

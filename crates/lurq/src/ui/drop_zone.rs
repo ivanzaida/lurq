@@ -362,6 +362,14 @@ impl DropZone {
     self
   }
 
+  /// Called by the label of the field it is in, unless it has a label of its own or the field has none.
+  pub(crate) fn named_by(self, field: &super::InField) -> Self {
+    if self.label.is_some() || field.label.is_empty() {
+      return self;
+    }
+    self.label(&field.label)
+  }
+
   /// Whether what it was given is wrong: its edge in the destructive color.
   pub fn invalid(mut self, invalid: bool) -> Self {
     self.invalid = invalid;

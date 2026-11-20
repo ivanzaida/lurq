@@ -286,3 +286,86 @@ fn an_invalid_switch_and_one_in_a_field_with_an_error_have_the_destructive_edge(
   // On, it keeps its fill: the edge says it is wrong.
   assert_eq!(stage.fill_color("invalid"), Some(light(PaletteColor::Primary)));
 }
+
+#[test]
+fn a_switch_pressed_as_a_whole_has_its_id_on_the_whole_and_its_parts_after_it() {
+  let asked = Arc::new(Mutex::new(Vec::new()));
+  let told = asked.clone();
+  let mut stage = Stage::new(move |_| {
+    let told = told.clone();
+    Column::new()
+      .padding(8.0)
+      .child(
+        Switch::new("Sync")
+          .whole(true)
+          .id("sync")
+          .on_change(move |next| told.lock().unwrap().push(next)),
+      )
+      .into()
+  });
+  let ids = stage.ids();
+  for id in ["sync", "sync-track", "sync-thumb", "sync-label"] {
+    assert!(ids.contains(&id.to_owned()), "{id} in {ids:?}");
+  }
+  let (x, _, width, _) = stage.bounds("sync");
+  let (_, _, track_width, _) = stage.bounds("sync-track");
+  let (label_x, _, label_width, _) = stage.bounds("sync-label");
+  assert_eq!(track_width, 36.0);
+  assert!((x + width - (label_x + label_width)).abs() < 0.5, "the whole holds the label: {width}");
+  stage.key("Tab");
+  let ring = stage
+    .quads()
+    .into_iter()
+    .find(|quad| {
+      matches!(&quad.content, QuadContent::Rect { color, gradient: None } if color.a() == 0)
+        && quad.border.and_then(|border| border.top).map(|side| side.color) == Some(light(PaletteColor::Ring))
+    })
+    .expect("the keyboard rings it");
+  assert!(ring.width >= width, "the ring is round the whole: {} {width}", ring.width);
+  stage.key(" ");
+  stage.click("sync-label");
+  stage.click("sync-track");
+  assert_eq!(*asked.lock().unwrap(), [true, true, true]);
+}
+
+#[test]
+fn a_press_of_a_switch_does_not_reach_a_row_around_it() {
+  let (rows, switched) = (Arc::new(Mutex::new(0)), Arc::new(Mutex::new(0)));
+  let (row_told, switch_told) = (rows.clone(), switched.clone());
+  let mut stage = Stage::new(move |_| {
+    let (row_told, switch_told, whole_told) = (row_told.clone(), switch_told.clone(), switch_told.clone());
+    Column::new()
+      .padding(8.0)
+      .child(
+        Row::new()
+          .id("row")
+          .padding(8.0)
+          .spacing(12.0)
+          .on_click(move |_| *row_told.lock().unwrap() += 1)
+          .child(
+            Switch::new("Sync")
+              .id("track")
+              .on_change(move |_| *switch_told.lock().unwrap() += 1),
+          )
+          .child(
+            Switch::new("Pause")
+              .whole(true)
+              .id("whole")
+              .on_change(move |_| *whole_told.lock().unwrap() += 1),
+          ),
+      )
+      .into()
+  });
+  stage.click("track");
+  let label = stage.text_quad("Sync").unwrap();
+  let (x, y) = (label.x + label.width / 2.0, label.y + label.height / 2.0);
+  stage.tree.mouse_move(x, y);
+  stage.tree.mouse_down(x, y, MouseButton::Left);
+  stage.tree.mouse_up(x, y, MouseButton::Left);
+  stage.pass();
+  stage.click("whole");
+  assert_eq!(*switched.lock().unwrap(), 3);
+  assert_eq!(*rows.lock().unwrap(), 0, "the row is not pressed");
+  stage.click("row");
+  assert_eq!(*rows.lock().unwrap(), 1, "the row is pressed beside them");
+}

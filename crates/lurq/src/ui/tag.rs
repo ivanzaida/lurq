@@ -12,7 +12,7 @@ use super::{
 };
 use crate::{
   app::{
-    events::KeyboardEvent,
+    events::{KeyboardEvent, MouseEvent},
     theme::{BorderSize, IconSize, OpacityLevel, PaletteColor, RadiusSize, Theme, TypographyStyle},
   },
   components::{self, Row},
@@ -103,6 +103,38 @@ names!(TagSize {
   Lg => "lg",
 });
 
+/// What took a tag away, given to [`Tag::on_remove_event`]: the press of its remove button (a click, or Enter or
+/// Space on it), or Backspace or Delete while it has the focus. A handler that stops it keeps it from what is around
+/// the tag: a row a press opens hears nothing of it.
+#[derive(Clone)]
+pub enum TagRemoveEvent {
+  /// A press of the remove button.
+  Press(MouseEvent),
+  /// Backspace or Delete on the focused remove button.
+  Key(KeyboardEvent),
+}
+
+impl TagRemoveEvent {
+  /// Keeps the press or the key from reaching what is around the tag.
+  pub fn stop_propagation(&self) {
+    match self {
+      Self::Press(event) => event.stop_propagation(),
+      Self::Key(event) => event.stop_propagation(),
+    }
+  }
+
+  /// Says that the press or the key was used: what else hears it may leave it alone.
+  pub fn prevent_default(&self) {
+    match self {
+      Self::Press(event) => event.prevent_default(),
+      Self::Key(event) => event.prevent_default(),
+    }
+  }
+}
+
+/// What is told a tag was taken away.
+type Removed = Arc<dyn Fn(&TagRemoveEvent) + Send + Sync>;
+
 /// What builds a tag's nodes: a theme's in place of the default one.
 pub type TagRenderer = Arc<dyn Fn(TagView) -> Element + Send + Sync>;
 
@@ -149,7 +181,7 @@ pub struct Tag {
   states: Vec<Name>,
   rules: Recipe,
   forced: Option<Interaction>,
-  on_remove: Vec<Arc<dyn Fn() + Send + Sync>>,
+  on_remove: Vec<Removed>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
@@ -241,6 +273,14 @@ impl Tag {
 
   /// Called on a press of its remove button, which a tag with a handler has.
   pub fn on_remove(mut self, handler: impl Fn() + Send + Sync + 'static) -> Self {
+    self.on_remove.push(Arc::new(move |_: &TagRemoveEvent| handler()));
+    self
+  }
+
+  /// [`on_remove`](Self::on_remove) given what took the tag away: the press of its remove button or the key on it.
+  /// A tag in a row a press opens stops it (`event.stop_propagation()`), so the row hears nothing. A second handler
+  /// is called after the first, and with `on_remove`'s in the order they were given.
+  pub fn on_remove_event(mut self, handler: impl Fn(&TagRemoveEvent) + Send + Sync + 'static) -> Self {
     self.on_remove.push(Arc::new(handler));
     self
   }
@@ -350,7 +390,7 @@ pub struct TagView {
   /// The style of each part of this tag.
   pub recipe: ResolvedRecipe,
   forced: Option<Interaction>,
-  on_remove: Vec<Arc<dyn Fn() + Send + Sync>>,
+  on_remove: Vec<Removed>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
@@ -396,9 +436,10 @@ impl TagView {
     if !self.disabled {
       let (clicked, keyed) = (self.on_remove.clone(), self.on_remove.clone());
       remove = remove
-        .on_click(move |_| {
+        .on_click(move |event: MouseEvent| {
+          let event = TagRemoveEvent::Press(event);
           for handler in &clicked {
-            handler();
+            handler(&event);
           }
         })
         // A key reaches every node: these two take the tag away only while the focus is on its button.
@@ -406,8 +447,9 @@ impl TagView {
           let plain = !event.ctrl && !event.alt && !event.meta && !event.shift;
           if event.focus_within && plain && matches!(event.key.as_str(), "Backspace" | "Delete") {
             event.prevent_default();
+            let event = TagRemoveEvent::Key(event);
             for handler in &keyed {
-              handler();
+              handler(&event);
             }
           }
         });

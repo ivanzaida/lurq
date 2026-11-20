@@ -121,6 +121,9 @@ struct Feed {
 /// The state the feed scrolls by, which the test holds too.
 struct FeedProps(ScrollState);
 
+// Props of a component are inspectable by DevTools in a build with it; this test needs nothing shown.
+impl lurq::app::component::DevtoolsInspectable for FeedProps {}
+
 impl PartialEq for FeedProps {
   fn eq(&self, _: &Self) -> bool {
     true

@@ -549,6 +549,14 @@ impl ResolvedRecipe {
     self
   }
 
+  /// This recipe with its root at `part` in place of the one the component declares: for a component that is laid
+  /// out with its id on another part in one of its forms (a switch pressed as a whole, its id on the whole and not on
+  /// its track). Called before [`owned_by`](Self::owned_by).
+  pub(crate) fn rooted_at(mut self, part: impl Into<Name>) -> Self {
+    self.root = part.into();
+    self
+  }
+
   /// The recipe of a component whose id is `id`, which names the nodes of its parts after it: `x-label`, `x-dot`,
   /// and `x-label-2` for a second node of a part. The root's node is not named: the component puts `id` on it.
   /// Given no id, the component takes the id of the part of the component it is built in that it stands for (as
@@ -755,10 +763,43 @@ impl ResolvedPart {
     self.recipe.theme()
   }
 
-  /// A text in the part's typography. It names no color: it takes the
-  /// foreground of the part it is in.
+  /// A text in the part's typography, in the color of the part it is in.
+  ///
+  /// A part that sets a `foreground`, at rest or in any of its states, colors
+  /// its own text: the color of its typography role is dropped, so the text
+  /// takes the foreground. Where the part sets one only in a state, the role's
+  /// color is the text's at rest. A part that sets none leaves the text in its
+  /// role's color, or, where the role names none, in the foreground of what it
+  /// is in.
   pub fn text(&self, content: &str) -> Text {
-    Text::styled(content, self.rest().text.resolve(self.theme()))
+    let rest = self.rest();
+    let mut style = rest.text.resolve(self.theme());
+    if !self.sets_foreground(&rest) {
+      return Text::styled(content, style);
+    }
+    let role = std::mem::replace(&mut style.color, crate::layout::text_style::DEFAULT_TEXT_COLOR);
+    let text = Text::styled(content, style);
+    if rest.foreground.is_none() && role != crate::layout::text_style::DEFAULT_TEXT_COLOR {
+      text.foreground(role)
+    } else {
+      text
+    }
+  }
+
+  /// Whether the part sets a foreground, at rest (`rest`, as [`rest`](Self::rest) gives it) or in a state.
+  fn sets_foreground(&self, rest: &PartStyle) -> bool {
+    let styles = self.styles();
+    rest.foreground.is_some()
+      || [
+        &styles.hovered,
+        &styles.pressed,
+        &styles.focus_visible,
+        &styles.within,
+        &styles.within_hovered,
+        &styles.within_pressed,
+      ]
+      .iter()
+      .any(|style| style.foreground.is_some())
   }
 
   /// Gives a node the part's style: what it shows at rest, and what it shows

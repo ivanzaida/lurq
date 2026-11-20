@@ -82,10 +82,12 @@ enum Shown {
 ///
 /// Side by side, the terms are in one column as wide as the widest of them, and the values in the column of the
 /// rest of the room; a line runs under each item but the last. To what reads the tree each term is a term and each
-/// value its definition.
+/// value its definition. A term is centered on its value's height unless the list is told
+/// [`align(Alignment::Start)`](Self::align), which puts it at the top of a value that wraps.
 pub struct DataList {
   items: Vec<(Arc<str>, Shown)>,
   orientation: Orientation,
+  align: Alignment,
   label: Option<Arc<str>>,
   states: Vec<Name>,
   rules: Recipe,
@@ -105,6 +107,7 @@ impl DataList {
     Self {
       items: Vec::new(),
       orientation: Orientation::Horizontal,
+      align: Alignment::Center,
       label: None,
       states: Vec::new(),
       rules: Recipe::new(),
@@ -145,6 +148,14 @@ impl DataList {
   /// (`Vertical`), for a narrow column.
   pub fn orientation(mut self, orientation: Orientation) -> Self {
     self.orientation = orientation;
+    self
+  }
+
+  /// How a term and its value stand to each other across, side by side: `Center` (unless told), the term centered
+  /// on its value's height; or `Start`, the term at the top of its value, where values wrap onto several lines or
+  /// are elements of several lines.
+  pub fn align(mut self, align: Alignment) -> Self {
+    self.align = align;
     self
   }
 
@@ -222,14 +233,22 @@ impl DataList {
         })
         .collect(),
       orientation: self.orientation,
+      align: self.align,
       label: self.label,
       recipe,
       separator,
-      id: self.id,
+      id: self.id.clone(),
       key: self.key,
     };
     match theme.renderer::<DataList>() {
-      Some(renderer) => renderer(view),
+      // A theme's root that puts no id of its own on itself keeps the list's.
+      Some(renderer) => {
+        let list = renderer(view);
+        match self.id {
+          Some(id) if list.root_id().is_none() => list.id(id),
+          _ => list,
+        }
+      }
       None => view.render(),
     }
   }
@@ -255,13 +274,17 @@ pub struct DataListView {
   pub items: Vec<DataListItem>,
   /// Which way each term stands to its value.
   pub orientation: Orientation,
+  /// How a term and its value stand to each other across.
+  pub align: Alignment,
   pub label: Option<Arc<str>>,
   /// The style of each part, with no line under it: of the last item.
   pub recipe: ResolvedRecipe,
   /// The style of each part with a line under it: of every item but the last.
   pub separator: ResolvedRecipe,
-  id: Option<Arc<str>>,
-  key: Option<Arc<str>>,
+  /// The id the app gave the list, which its root has: one a renderer does not put there is put on the root it
+  /// builds.
+  pub id: Option<Arc<str>>,
+  pub key: Option<Arc<str>>,
 }
 
 impl DataListView {
@@ -279,7 +302,7 @@ impl DataListView {
   pub fn term(&self, item: &DataListItem, lined: bool) -> Row {
     let part = self.of(lined).part(DataListPart::Term);
     Row::new()
-      .align_items(Alignment::Center)
+      .align_items(self.align)
       .describe("a11y_role", "term")
       .part(&part)
       .child(part.text(&item.term))
@@ -291,7 +314,7 @@ impl DataListView {
     let part = self.of(lined).part(DataListPart::Value);
     let fill = Dimension::Pct(100.0);
     let mut value = Row::new()
-      .align_items(Alignment::Center)
+      .align_items(self.align)
       .min_width(Dimension::Px(0.0))
       .describe("a11y_role", "definition")
       .part(&part);

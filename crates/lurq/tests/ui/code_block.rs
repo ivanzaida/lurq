@@ -399,6 +399,95 @@ fn the_copy_text_is_copied_in_place_of_the_code_shown() {
   assert_eq!(*told.lock().unwrap(), ["deploy --env prod --token $TOKEN"]);
 }
 
+/// A clipboard of the app's own: what it was written, and the text it gives a paste.
+#[derive(Default)]
+struct AppClipboard(Mutex<Vec<String>>);
+
+impl lurq::app::ClipboardWriter for AppClipboard {
+  fn write_text(&self, text: &str) -> bool {
+    self.0.lock().unwrap().push(text.to_owned());
+    true
+  }
+}
+
+impl lurq::app::ClipboardReader for AppClipboard {
+  fn read_text(&self) -> Option<String> {
+    self.0.lock().unwrap().last().cloned()
+  }
+
+  fn read(&self) -> Option<lurq::app::events::ClipboardContent> {
+    self.read_text().map(lurq::app::events::ClipboardContent::text)
+  }
+}
+
+#[cfg(any(feature = "mcp", feature = "devtools"))]
+#[test]
+fn a_copy_goes_to_the_clipboard_the_app_gives_and_says_what_it_answered() {
+  let app = App::new();
+  let own = Arc::new(AppClipboard::default());
+  app.set_clipboard_writer(Some(own.clone()));
+  let mut stage = Stage::in_app(app.clone(), |ctx| CodeBlock::new(MAIN).id("block").mount(ctx));
+  stage.click("block-copy");
+  stage.pass();
+  assert_eq!(*own.0.lock().unwrap(), [MAIN], "the app's clipboard has the code");
+  let name = stage
+    .tree
+    .get_element_by_id_mut("block-copy")
+    .and_then(|element| element.description("a11y_name"));
+  assert_eq!(name.as_deref(), Some("Copied"));
+
+  // A clipboard of the app's that refuses: the button says it could not copy.
+  app.set_clipboard_writer(Some(Arc::new(Refusing)));
+  stage
+    .tree
+    .tick_timers_at(std::time::Instant::now() + lurq::ui::CODE_BLOCK_COPIED_FOR + std::time::Duration::from_millis(10));
+  stage.pass();
+  stage.click("block-copy");
+  stage.pass();
+  let name = stage
+    .tree
+    .get_element_by_id_mut("block-copy")
+    .and_then(|element| element.description("a11y_name"));
+  assert_eq!(name.as_deref(), Some("Couldn't copy"));
+}
+
+#[test]
+fn a_test_writer_on_the_tree_stays_over_the_apps() {
+  let app = App::new();
+  let own = Arc::new(AppClipboard::default());
+  app.set_clipboard_writer(Some(own.clone()));
+  let mut stage = Stage::in_app(app, |_| CodeBlock::new("cargo add lurq").id("block").into());
+  let written = Arc::new(Written::default());
+  stage.tree.set_clipboard_writer(Some(written.clone()));
+  stage.click("block-copy");
+  stage.pass();
+  assert_eq!(*written.0.lock().unwrap(), ["cargo add lurq"]);
+  assert!(own.0.lock().unwrap().is_empty(), "the app's is passed by");
+}
+
+#[test]
+fn the_keys_copy_and_paste_through_the_clipboard_the_app_gives() {
+  let app = App::new();
+  let own = Arc::new(AppClipboard::default());
+  app.set_clipboard_writer(Some(own.clone()));
+  app.set_clipboard_reader(Some(own.clone()));
+  let value = Signal::new("lurq".to_owned());
+  let typed = value.clone();
+  let mut stage = Stage::in_app(app, move |_| {
+    Column::new()
+      .width(300.0)
+      .child(lurq::components::TextInput::new(typed.clone()).id("field"))
+      .into()
+  });
+  stage.click("field");
+  stage.shortcut("a");
+  stage.shortcut("c");
+  assert_eq!(*own.0.lock().unwrap(), ["lurq"], "Ctrl+C wrote the app's clipboard");
+  stage.key("End");
+  stage.shortcut("v");
+  assert_eq!(value.get_untracked(), "lurqlurq", "Ctrl+V read it");
+}
+
 /// The character lurq's font has for an icon.
 fn glyph(name: &str) -> String {
   lurq::ui::icons::ALL

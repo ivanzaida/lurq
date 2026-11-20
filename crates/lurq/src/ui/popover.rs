@@ -103,6 +103,8 @@ pub struct Popover {
   offset: SpacingValue,
   collision: CollisionStrategy,
   within: Option<ElementRef>,
+  placed_by: Option<ElementRef>,
+  at: Option<(f32, f32)>,
   width: Option<Length>,
   alert: bool,
   inline: bool,
@@ -131,6 +133,8 @@ impl Popover {
       offset: SpacingSize::Xs.into(),
       collision: CollisionStrategy::FlipThenClamp,
       within: None,
+      placed_by: None,
+      at: None,
       width: None,
       alert: false,
       inline: false,
@@ -203,6 +207,24 @@ impl Popover {
   /// flips and clamps it, it does so in that box too ([`Overlay::within`](crate::app::ctx::Overlay::within)).
   pub fn within(mut self, element: impl Into<ElementRef>) -> Self {
     self.within = Some(element.into());
+    self
+  }
+
+  /// Places the popover by the box of `element` in place of its anchor's, as it was last laid out: at its placement
+  /// of that box, and flipped and clamped there. The anchor stays its trigger and where the focus goes back. A
+  /// popover over a status bar and at its end, opened by an item of the bar
+  /// ([`Overlay::placed_by`](crate::app::ctx::Overlay::placed_by)).
+  pub fn placed_by(mut self, element: impl Into<ElementRef>) -> Self {
+    self.placed_by = Some(element.into());
+    self
+  }
+
+  /// A point of the window, in logical pixels, that the popover stands at in place of its anchor: down and toward
+  /// the end from it, `offset` away on both axes, and on the other side where the window has no room
+  /// ([`Overlay::at`](crate::app::ctx::Overlay::at)). The placement is not used. `None`, the default, places it by its
+  /// anchor.
+  pub fn at(mut self, point: Option<(f32, f32)>) -> Self {
+    self.at = point;
     self
   }
 
@@ -332,6 +354,7 @@ impl Popover {
     // The offset is away from the anchor: along the side the popover is on.
     let offset = self.offset.resolve(&theme.spacing(), 0.0);
     let (x, y) = match self.placement {
+      _ if self.at.is_some() => (offset, offset),
       Placement::LeftStart
       | Placement::Left
       | Placement::LeftEnd
@@ -350,6 +373,12 @@ impl Popover {
       .takes_focus(true);
     if let Some(within) = self.within {
       popup = popup.within(within);
+    }
+    if let Some(frame) = self.placed_by {
+      popup = popup.placed_by(frame);
+    }
+    if self.at.is_some() {
+      popup = popup.at(self.at);
     }
     if !self.on_dismiss.is_empty() {
       let handlers = self.on_dismiss;

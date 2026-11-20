@@ -15,7 +15,7 @@ use super::{
 use crate::{
   app::theme::{BorderSize, IconSize, PaletteColor, RadiusSize, Theme, TypographyStyle},
   components::{self, Column, Row},
-  layout::{Alignment, text_style::FontWeight},
+  layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
   node::{CursorIcon, Element, border::Border, dimension::Dimension},
 };
 
@@ -167,6 +167,10 @@ pub enum AlertPart {
   Action,
   /// What closes it, at the end.
   Close,
+  /// A quieter line after the actions: what the actions do not say.
+  Note,
+  /// Of a compact alert: the icon and the title beside it, over the rest.
+  Head,
 }
 
 names!(AlertPart {
@@ -178,6 +182,8 @@ names!(AlertPart {
   Body => "body",
   Action => "action",
   Close => "close",
+  Note => "note",
+  Head => "head",
 });
 
 /// The states of an alert a recipe styles, besides what the pointer and the
@@ -188,11 +194,23 @@ pub enum AlertState {
   Action,
   /// Its actions are under its words, at their start, and not at its end.
   Stacked,
+  /// What is in it stands at the top: its actions at its end are on its first line.
+  AlignTop,
+  /// It has a note after its actions.
+  Note,
+  /// The icon is beside the title alone, and the rest under them across the alert: an inspector's.
+  Compact,
+  /// Its actions under its words stand at their end.
+  ActionsEnd,
 }
 
 names!(AlertState {
   Action => "action",
   Stacked => "stacked",
+  AlignTop => "align_top",
+  Note => "note",
+  Compact => "compact",
+  ActionsEnd => "actions_end",
 });
 
 /// What builds an alert's nodes: a theme's in place of the default one.
@@ -216,6 +234,19 @@ pub type AlertRenderer = Arc<dyn Fn(AlertView) -> Element + Send + Sync>;
 ///   .stacked(true)
 ///   .action(Button::new("Details").variant(ButtonVariant::Ghost).size(ButtonSize::Sm))
 ///   .action(Button::new("Reconnect").variant(ButtonVariant::Outline).size(ButtonSize::Sm));
+/// // No title, the icon and the action at the top of its first line, and a note after the action.
+/// let token = Alert::untitled()
+///   .description("The token expires in 3 days.")
+///   .variant(AlertVariant::Warning)
+///   .align_top(true)
+///   .action(Button::new("Rotate").variant(ButtonVariant::Outline).size(ButtonSize::Sm))
+///   .note("A new token is shown once.");
+/// // An inspector's: the icon beside the title alone, the rest under them, the actions at the end.
+/// let narrow = Alert::new("Not synced")
+///   .description("This profile has changes the team has not seen.")
+///   .compact(true)
+///   .actions_end(true)
+///   .action(Button::new("Push").size(ButtonSize::Sm));
 /// let shortcut = Alert::new("New shortcut")
 ///   .description("Press Ctrl+K to open the command palette.")
 ///   .variant(AlertVariant::Info)
@@ -227,7 +258,8 @@ pub type AlertRenderer = Arc<dyn Fn(AlertView) -> Element + Send + Sync>;
 /// the tree for a warning and for what went wrong, a `status` for the
 /// others, called by its title ([`Alert::label`] and [`Alert::role`] say
 /// otherwise). It has a close control once it is given
-/// [`on_close`](Alert::on_close), and none until then.
+/// [`on_close`](Alert::on_close), and none until then. An alert with an empty
+/// title ([`Alert::untitled`]) draws none, and is called by its description.
 pub struct Alert {
   title: Arc<str>,
   description: Option<Arc<str>>,
@@ -235,6 +267,10 @@ pub struct Alert {
   icon: Option<IconChoice>,
   actions: Vec<Element>,
   stacked: bool,
+  align_top: bool,
+  note: Option<Arc<str>>,
+  compact: bool,
+  actions_end: bool,
   body: Vec<Element>,
   role: Option<Arc<str>>,
   label: Option<Arc<str>>,
@@ -256,6 +292,10 @@ impl Alert {
       icon: None,
       actions: Vec::new(),
       stacked: false,
+      align_top: false,
+      note: None,
+      compact: false,
+      actions_end: false,
       body: Vec::new(),
       role: None,
       label: None,
@@ -266,6 +306,12 @@ impl Alert {
       id: None,
       key: None,
     }
+  }
+
+  /// An alert with no title: its description says it all. It draws no title,
+  /// and is called by its description to tooling that reads the tree.
+  pub fn untitled() -> Self {
+    Self::new("")
   }
 
   /// More of it, under the title.
@@ -308,6 +354,37 @@ impl Alert {
   /// to need the alert's width, or more actions than its end has room for.
   pub fn stacked(mut self, stacked: bool) -> Self {
     self.stacked = stacked;
+    self
+  }
+
+  /// Whether what is in it stands at the top and not on the middle of its
+  /// actions: the icon, the words, the actions at its end and the close
+  /// control on its first line, however many lines the words take.
+  pub fn align_top(mut self, top: bool) -> Self {
+    self.align_top = top;
+    self
+  }
+
+  /// A quieter line after its actions, under its words: what a press of them
+  /// does not say ("A new token is shown once").
+  pub fn note(mut self, note: &str) -> Self {
+    self.note = (!note.is_empty()).then(|| Arc::from(note));
+    self
+  }
+
+  /// Whether it is laid out for a narrow column, as an inspector has it: the
+  /// icon beside the title alone, and the description, the body, the actions
+  /// and the note under them across the whole alert. Its actions are under
+  /// its words, as a [`stacked`](Self::stacked) one's are.
+  pub fn compact(mut self, compact: bool) -> Self {
+    self.compact = compact;
+    self
+  }
+
+  /// Whether its actions, where they are under its words (a stacked or a
+  /// compact alert), stand at their far end and not at their start.
+  pub fn actions_end(mut self, end: bool) -> Self {
+    self.actions_end = end;
     self
   }
 
@@ -400,7 +477,11 @@ impl Alert {
       states: self.states.clone(),
     }
     .state(AlertState::Action, !self.actions.is_empty())
-    .state(AlertState::Stacked, self.stacked);
+    .state(AlertState::Stacked, self.stacked)
+    .state(AlertState::AlignTop, self.align_top)
+    .state(AlertState::Note, self.note.is_some())
+    .state(AlertState::Compact, self.compact)
+    .state(AlertState::ActionsEnd, self.actions_end);
     let view = AlertView {
       title: self.title,
       description: self.description,
@@ -408,6 +489,10 @@ impl Alert {
       icon: shown_icon(self.icon, tone.icon()),
       actions: self.actions,
       stacked: self.stacked,
+      align_top: self.align_top,
+      note: self.note,
+      compact: self.compact,
+      actions_end: self.actions_end,
       body: self.body,
       role: self.role.unwrap_or_else(|| Arc::from(tone.role())),
       label: self.label,
@@ -446,6 +531,14 @@ pub struct AlertView {
   pub actions: Vec<Element>,
   /// Whether its actions are under its words and not at its end.
   pub stacked: bool,
+  /// Whether what is in it stands at the top, its actions at its end on its first line.
+  pub align_top: bool,
+  /// A quieter line after its actions.
+  pub note: Option<Arc<str>>,
+  /// Whether the icon is beside the title alone, the rest under them.
+  pub compact: bool,
+  /// Whether its actions under its words stand at their end.
+  pub actions_end: bool,
   /// What the app put under the description.
   pub body: Vec<Element>,
   /// What it is to tooling that reads the tree: `alert` or `status`, or what the app said.
@@ -477,15 +570,51 @@ impl AlertView {
     self.icon.map(|icon| glyph(&self.part(AlertPart::Icon), icon, false))
   }
 
+  /// Whether its actions are under its words, and not at its end: it is
+  /// stacked, or compact.
+  pub fn actions_under(&self) -> bool {
+    self.stacked || self.compact
+  }
+
+  /// What it is called to tooling: its label, its title, or its description
+  /// where it has no title.
+  pub fn name(&self) -> Arc<str> {
+    match (&self.label, &self.description) {
+      (Some(label), _) => label.clone(),
+      (None, Some(description)) if self.title.is_empty() => description.clone(),
+      _ => self.title.clone(),
+    }
+  }
+
+  /// The title in the style of its part: `None` where it is empty.
+  pub fn title(&self) -> Option<Column> {
+    (!self.title.is_empty()).then(|| wrapping(&self.part(AlertPart::Title), &self.title))
+  }
+
+  /// The note in the style of its part, if it has one.
+  pub fn note(&self) -> Option<Column> {
+    let note = self.note.as_ref()?;
+    Some(wrapping(&self.part(AlertPart::Note), note))
+  }
+
   /// The title over the description, and the body under them, as wide as the
   /// room the icon, the actions and the close control leave. A stacked
-  /// alert's actions are under the body.
+  /// alert's actions are under the body, and the note is last. A compact
+  /// alert's title is in its head, and not here.
   pub fn text(&mut self) -> Column {
     let mut text = Column::new()
-      .flex(1.0)
       .min_width(Dimension::Px(0.0))
-      .part(&self.part(AlertPart::Text))
-      .child(wrapping(&self.part(AlertPart::Title), &self.title));
+      .part(&self.part(AlertPart::Text));
+    // Beside the icon it takes the room left of the row; under the head of a compact alert it is as wide as the
+    // alert already, and a column that grew would take all the height it may.
+    if !self.compact {
+      text = text.flex(1.0);
+    }
+    if !self.compact
+      && let Some(title) = self.title()
+    {
+      text = text.child(title);
+    }
     if let Some(description) = &self.description {
       text = text.child(wrapping(&self.part(AlertPart::Description), description));
     }
@@ -497,26 +626,30 @@ impl AlertView {
           .with_children(std::mem::take(&mut self.body)),
       );
     }
-    if self.stacked
+    if self.actions_under()
       && let Some(actions) = self.actions()
     {
       text = text.child(actions);
+    }
+    if let Some(note) = self.note() {
+      text = text.child(note);
     }
     text
   }
 
   /// The actions it was given, in a row in the style of its part: as wide as
-  /// the words and wrapping in a stacked alert, as wide as they are at the end
-  /// of another. `None` for an alert with none.
+  /// the words and wrapping under them, at their start or at their end, in a
+  /// stacked or a compact alert, as wide as they are at the end of another.
+  /// `None` for an alert with none.
   pub fn actions(&mut self) -> Option<Row> {
     if self.actions.is_empty() {
       return None;
     }
     let row = Row::new().align_items(Alignment::Center);
-    let row = if self.stacked {
-      row.width(Dimension::Pct(100.0)).wrap()
-    } else {
-      row
+    let row = match (self.actions_under(), self.actions_end) {
+      (true, true) => row.width(Dimension::Pct(100.0)).wrap().justify(Justify::End),
+      (true, false) => row.width(Dimension::Pct(100.0)).wrap(),
+      (false, _) => row,
     };
     Some(
       row
@@ -530,20 +663,66 @@ impl AlertView {
     close_control(&self.part(AlertPart::Close), &self.on_close)
   }
 
+  /// The head of a compact alert: its icon and its title beside it, and its
+  /// close control at the end.
+  pub fn head(&self) -> Row {
+    let mut head = Row::new()
+      .width(Dimension::Pct(100.0))
+      .align_items(Alignment::Start)
+      .part(&self.part(AlertPart::Head));
+    if let Some(icon) = self.icon() {
+      head = head.child(icon);
+    }
+    match self.title() {
+      Some(title) => head = head.child(title.flex(1.0).min_width(Dimension::Px(0.0))),
+      None => head = head.child(Row::new().flex(1.0)),
+    }
+    if self.close_button {
+      head = head.child(self.close());
+    }
+    head
+  }
+
   /// How the default renderer builds an alert: its icon, its text, its
   /// actions and its close control side by side, or its actions under its
-  /// words where it is stacked. It is what its role says to what reads the
-  /// tree, called by its label or its title.
+  /// words where it is stacked; a compact one its head over the rest. It is
+  /// what its role says to what reads the tree, called by its label, its
+  /// title or its description.
   pub fn render(mut self) -> Element {
+    let root = if self.compact {
+      let rest =
+        self.description.is_some() || !self.body.is_empty() || !self.actions.is_empty() || self.note.is_some();
+      let mut root = Column::new()
+        .align_items(Alignment::Stretch)
+        .part(&self.part(AlertPart::Root))
+        .describe("a11y_role", self.role.clone())
+        .describe("a11y_name", self.name())
+        .child(self.head());
+      if rest {
+        root = root.child(self.text());
+      }
+      root.into()
+    } else {
+      self.side_by_side()
+    };
+    let root = match &self.id {
+      Some(id) => root.id(id.clone()),
+      None => root,
+    };
+    match &self.key {
+      Some(key) => root.key(key.clone()),
+      None => root,
+    }
+  }
+
+  /// The icon, the text, the actions and the close control in a row.
+  fn side_by_side(&mut self) -> Element {
+    let centered = !self.actions.is_empty() && !self.actions_under() && !self.align_top;
     let mut root = Row::new()
-      .align_items(if !self.actions.is_empty() && !self.stacked {
-        Alignment::Center
-      } else {
-        Alignment::Start
-      })
+      .align_items(if centered { Alignment::Center } else { Alignment::Start })
       .part(&self.part(AlertPart::Root))
       .describe("a11y_role", self.role.clone())
-      .describe("a11y_name", self.label.clone().unwrap_or_else(|| self.title.clone()));
+      .describe("a11y_name", self.name());
     if let Some(icon) = self.icon() {
       root = root.child(icon);
     }
@@ -553,12 +732,6 @@ impl AlertView {
     }
     if self.close_button {
       root = root.child(self.close());
-    }
-    if let Some(id) = &self.id {
-      root = root.id(id.clone());
-    }
-    if let Some(key) = &self.key {
-      root = root.key(key.clone());
     }
     root.into()
   }
@@ -598,7 +771,9 @@ impl Themed for Alert {
   /// that went wrong keeps the card's color, with an edge, an icon and a
   /// title of the destructive color. The close control is the toast's: 16 in
   /// the muted color. Its actions are 8 apart; a stacked alert's are 8 under
-  /// its words, as its body is.
+  /// its words, as its body is. The board draws no note and no compact
+  /// alert: a note is 12 in the muted color, 4 under what is over it; a
+  /// compact alert's icon is 8 from its title, and its head 6 over the rest.
   fn recipe() -> Recipe {
     use AlertPart as P;
     use AlertVariant::{Destructive, Info, Success, Warning};
@@ -631,7 +806,17 @@ impl Themed for Alert {
       })
       .base(P::Body, |s| s.gap(8.0).padding_top(4.0))
       .base(P::Action, |s| s.gap(8.0))
-      .state(AlertState::Stacked, P::Action, |s| s.padding_top(4.0));
+      .state(AlertState::Stacked, P::Action, |s| s.padding_top(4.0))
+      .state(AlertState::Compact, P::Action, |s| s.padding_top(4.0))
+      .base(P::Note, |s| {
+        s.typography(TypographyStyle::Body)
+          .font_size(12.0)
+          .line_height(1.5)
+          .foreground(MutedForeground)
+      })
+      .base(P::Head, |s| s.gap(8.0))
+      // Compact, the head is 6 over the rest.
+      .state(AlertState::Compact, P::Root, |s| s.gap(6.0));
     recipe = close_style(recipe, P::Close);
     for variant in [Info, Success, Warning] {
       recipe = recipe

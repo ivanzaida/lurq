@@ -1,11 +1,11 @@
 //! The page of the tabs: their playground, tabs bound to a signal with a
 //! panel each, the three variants the board draws, the list down the side,
-//! their states, and the overflowing form.
+//! their states, a page's line with its note, dots and counts still read, and the overflowing form.
 
 use std::sync::Arc;
 
 use lurq::{
-  app::{component::Component, ctx::Ctx},
+  app::{component::Component, ctx::Ctx, theme::PaletteColor},
   components::{Column, Row},
   core::Signal,
   layout::{Alignment, text_style::FontWeight},
@@ -422,6 +422,26 @@ impl Component for TabsPage {
         "icons and a count",
       ));
 
+    // A page's line: a count, a count still read, a dot of what it counts, the tab of the page shown that a press
+    // leaves alone, a group set apart, and a note at the end.
+    let page_line = Column::new().width(FILL).child(
+      Tabs::controlled(
+        0,
+        [
+          Tab::new(0, "Overview").inert(true),
+          Tab::new(1, "Runs").count(24),
+          Tab::new(2, "Services").count(3).dot(PaletteColor::Destructive),
+          Tab::new(3, "Reviews").count_pending(true),
+          Tab::new(4, "Archived").separated(true),
+        ],
+        |_| {},
+      )
+      .variant(TabsVariant::Line)
+      .note("Archived opens on its own page")
+      .key("page_line")
+      .mount(ctx),
+    );
+
     let overflowing = Column::new().width(420.0).max_width(FILL).child(
       Tabs::new(
         self.canvas.clone(),
@@ -500,6 +520,18 @@ impl Component for TabsPage {
         "&str",
         "\"Scroll back\" / \"Scroll on\"",
         "The names of the scroll buttons of the overflowing form.",
+      ),
+      (
+        "note",
+        "&str",
+        "",
+        "Quiet words at the end of the list's line, which give way first where it is short.",
+      ),
+      (
+        "end",
+        "impl Into<Element>",
+        "",
+        "An element of the app's at the end of the line, after the note. No tab: the arrows pass it by.",
       ),
     ];
     let playground = self.play(ctx);
@@ -615,11 +647,33 @@ impl Component for TabsPage {
           ),
         ),
         Section::new(
+          "On a page's line",
+          "The tabs of a page: a quiet count, a count still being read (a bone as wide as a digit), a dot of what a \
+           tab counts, a rule before a group set apart, and quiet words at the end of the line. The tab of the page \
+           shown is inert: it is drawn as selected, and a press of it does nothing.",
+          self.frame.demo(
+            5,
+            page_line,
+            ".note(\"..\")",
+            &[
+              "Tabs::controlled(0, [",
+              "    Tab::new(0, \"Overview\").inert(true),",
+              "    Tab::new(1, \"Runs\").count(24),",
+              "    Tab::new(2, \"Services\").count(3).dot(PaletteColor::Destructive),",
+              "    Tab::new(3, \"Reviews\").count_pending(true),",
+              "    Tab::new(4, \"Archived\").separated(true),",
+              "], |_| {})",
+              ".variant(TabsVariant::Line)",
+              ".note(\"Archived opens on its own page\")",
+            ],
+          ),
+        ),
+        Section::new(
           "Overflow",
           "More tabs than the width holds: the list scrolls between two scroll buttons, and More opens a menu of every \
            tab with the selected one marked. The arrow keys scroll the list to the tab they select.",
           self.frame.demo(
-            4,
+            6,
             overflowing,
             ".overflow(true).mount(ctx)",
             &[

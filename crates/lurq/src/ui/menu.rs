@@ -78,6 +78,9 @@ pub enum MenuEntry {
   Separator,
   /// A heading over the items after it.
   Heading(Arc<str>),
+  /// An element of the app's, drawn as it is given: a foot under the items, a section of its own, a field. One that
+  /// takes the focus is reached by the arrows as an item is.
+  Element(Element),
 }
 
 /// What closes a menu: sets its open signal to `false` and tells the app's `on_open_change`.
@@ -145,6 +148,8 @@ pub struct Menu {
   offset: Option<SpacingValue>,
   collision: Option<CollisionStrategy>,
   within: Option<ElementRef>,
+  placed_by: Option<ElementRef>,
+  at: Option<(f32, f32)>,
   inline: bool,
   submenu: bool,
   label: Option<Arc<str>>,
@@ -196,6 +201,8 @@ impl Menu {
       offset: None,
       collision: None,
       within: None,
+      placed_by: None,
+      at: None,
       inline: false,
       submenu: false,
       label: None,
@@ -227,6 +234,24 @@ impl Menu {
   /// A line that ends one group of items and starts the next.
   pub fn separator(mut self) -> Self {
     self.entries.push(MenuEntry::Separator);
+    self
+  }
+
+  /// An element of the app's after what the menu holds already, drawn as it is given: a foot that says why the items
+  /// above cannot be chosen, a section of the app's own, a field that filters. It is no item: choosing it does what
+  /// the app wires, and does not close the menu. One that takes the focus is reached by the arrows as an item is,
+  /// and Tab still stops in the menu once. A row of the app's that is a command is an item with its
+  /// [`content`](MenuItem::content), which the menu closes on.
+  pub fn child(mut self, element: impl Into<Element>) -> Self {
+    self.entries.push(MenuEntry::Element(element.into()));
+    self
+  }
+
+  /// Elements of the app's, in order, after what the menu holds already: see [`child`](Self::child).
+  pub fn children(mut self, elements: impl IntoIterator<Item = impl Into<Element>>) -> Self {
+    self
+      .entries
+      .extend(elements.into_iter().map(|element| MenuEntry::Element(element.into())));
     self
   }
 
@@ -264,8 +289,6 @@ impl Menu {
     self
   }
 
-  /// Called when a person closes the menu other than by choosing: Escape, a press outside it, or Tab. Not
-  /// when the app sets its signal. A second handler is called after the first.
   /// Keeps the menu inside the box of `element` besides the window, a panel it belongs in: where its collision flips
   /// and clamps it, it does so in that box too ([`Overlay::within`](crate::app::ctx::Overlay::within)). A submenu is
   /// kept inside what its own menu is given.
@@ -274,6 +297,26 @@ impl Menu {
     self
   }
 
+  /// Places the menu by the box of `element` in place of its anchor's, as it was last laid out: at its placement of
+  /// that box, `offset` away, and flipped and clamped there
+  /// ([`Overlay::placed_by`](crate::app::ctx::Overlay::placed_by)). The anchor stays what opens it and where the focus
+  /// goes back. A menu at the end of a row that a button inside the row opens.
+  pub fn placed_by(mut self, element: impl Into<ElementRef>) -> Self {
+    self.placed_by = Some(element.into());
+    self
+  }
+
+  /// A point of the window, in logical pixels, that the menu stands at in place of its anchor: its corner there,
+  /// `offset` away on both axes, opening down and toward the end, and the other way where the window has no room
+  /// ([`Overlay::at`](crate::app::ctx::Overlay::at)). The placement is not used. The anchor is still what opens it.
+  /// `None`, the default, places it by its anchor.
+  pub fn at(mut self, point: Option<(f32, f32)>) -> Self {
+    self.at = point;
+    self
+  }
+
+  /// Called when a person closes the menu other than by choosing: Escape, a press outside it, or Tab. Not
+  /// when the app sets its signal. A second handler is called after the first.
   pub fn on_dismiss(mut self, handler: impl Fn() + Send + Sync + 'static) -> Self {
     self.on_dismiss.push(Arc::new(handler));
     self
@@ -414,6 +457,8 @@ impl Menu {
       offset: self.offset,
       collision: self.collision,
       within: self.within,
+      placed_by: self.placed_by,
+      at: self.at,
       on_open_change: self.on_open_change,
       on_dismiss: self.on_dismiss,
       dismiss_on_escape: self.dismiss_on_escape,
@@ -458,6 +503,8 @@ pub struct MenuView {
   offset: Option<SpacingValue>,
   collision: Option<CollisionStrategy>,
   within: Option<ElementRef>,
+  placed_by: Option<ElementRef>,
+  at: Option<(f32, f32)>,
   on_open_change: Vec<Arc<dyn Fn(bool) + Send + Sync>>,
   on_dismiss: Vec<Handler>,
   dismiss_on_escape: bool,
@@ -705,7 +752,7 @@ impl MenuView {
   /// context menu's corner is at the point it was asked for, or its `offset` from it on both axes.
   fn offset(&self) -> (f32, f32) {
     let gap = self.offset.map(|offset| offset.resolve(&self.theme().spacing(), 0.0));
-    if let Some(Some(_)) = self.context {
+    if matches!(self.context, Some(Some(_))) || self.at.is_some() {
       let gap = gap.unwrap_or(0.0);
       return (gap, gap);
     }
@@ -770,6 +817,7 @@ impl MenuView {
             }
             MenuEntry::Separator => self.separator(),
             MenuEntry::Heading(heading) => self.heading(&heading),
+            MenuEntry::Element(element) => element,
           });
         }
       }
@@ -792,6 +840,12 @@ impl MenuView {
     }
     if let Some(within) = &self.within {
       popup = popup.within(within.clone());
+    }
+    if let Some(frame) = &self.placed_by {
+      popup = popup.placed_by(frame.clone());
+    }
+    if self.at.is_some() {
+      popup = popup.at(self.at);
     }
     if self.submenu {
       // A press on the menu it hangs from closes the submenu and still reaches the item pressed there; the item
@@ -928,6 +982,8 @@ pub enum MenuItemState {
   Detail,
   /// It cannot be chosen, for a reason it says: it is disabled too.
   Unavailable,
+  /// What it shows is the app's own element ([`MenuItem::content`]): it is as high as that, and never lower than a row.
+  Content,
 }
 
 names!(MenuItemState {
@@ -939,6 +995,7 @@ names!(MenuItemState {
   Open => "open",
   Detail => "detail",
   Unavailable => "unavailable",
+  Content => "content",
 });
 
 /// What builds a menu item's nodes: a theme's in place of the default one.
@@ -963,6 +1020,7 @@ pub struct MenuItem {
   label: Arc<str>,
   icon: Option<Name>,
   leading: Option<Box<Element>>,
+  content: Option<Box<Element>>,
   detail: Option<Arc<str>>,
   reason: Option<Arc<str>>,
   shortcut: Option<Arc<str>>,
@@ -992,6 +1050,7 @@ impl MenuItem {
       label: Arc::from(label),
       icon: None,
       leading: None,
+      content: None,
       detail: None,
       reason: None,
       shortcut: None,
@@ -1025,6 +1084,18 @@ impl MenuItem {
   /// item is about, a mark of a service. It is drawn in the part [`MenuItemPart::Leading`].
   pub fn leading(mut self, element: impl Into<Element>) -> Self {
     self.leading = Some(Box::new(element.into()));
+    self
+  }
+
+  /// All the item shows, the app's own element, in place of its icon, its label, its detail and what is at its end:
+  /// a row of the app's design that is still the menu's item. The item keeps the rest: it is pressed, reached by the
+  /// arrows and matched by typing its label, called by its label to tooling, checked, disabled or unavailable for its
+  /// reason (which it says to tooling, and the app draws or not), destructive, and choosing it closes the menu and
+  /// calls its handlers; a submenu still hangs from it. Its root has the item's style, the fill under the pointer and
+  /// the keyboard's focus included, and is as high as the element and never lower than a row (the state
+  /// [`MenuItemState::Content`]). What the element draws in a state (dimmed, the destructive color) is the app's.
+  pub fn content(mut self, element: impl Into<Element>) -> Self {
+    self.content = Some(Box::new(element.into()));
     self
   }
 
@@ -1224,11 +1295,13 @@ impl MenuItem {
     .state(MenuItemState::Disabled, disabled)
     .state(MenuItemState::Open, open)
     .state(MenuItemState::Detail, detail.is_some())
-    .state(MenuItemState::Unavailable, self.reason.is_some());
+    .state(MenuItemState::Unavailable, self.reason.is_some())
+    .state(MenuItemState::Content, self.content.is_some());
     let view = MenuItemView {
       label: self.label,
       icon: self.icon,
       leading: self.leading.map(|leading| *leading),
+      content: self.content.map(|content| *content),
       detail,
       reason: self.reason,
       shortcut: self.shortcut,
@@ -1273,6 +1346,8 @@ pub struct MenuItemView {
   pub icon: Option<Name>,
   /// The app's element before the label, in place of the icon, if it has one.
   pub leading: Option<Element>,
+  /// The app's element that is all the item shows, if it was given one ([`MenuItem::content`]).
+  pub content: Option<Element>,
   /// The line under the label: its detail, or why it cannot be chosen.
   pub detail: Option<Arc<str>>,
   /// Why it cannot be chosen, if it is unavailable: it is disabled then.
@@ -1538,6 +1613,17 @@ impl MenuItemView {
   /// it, and not by a part that grows: an item is as wide as what it holds,
   /// and the panel as its widest item or its least width, never as the window.
   pub fn render(mut self) -> Element {
+    if let Some(content) = self.content.take() {
+      let root = self.root().child(content);
+      return match self.submenu() {
+        Some(submenu) => Column::new()
+          .align_items(Alignment::Stretch)
+          .child(root)
+          .child(submenu)
+          .into(),
+        None => root.into(),
+      };
+    }
     // The ends hold their parts as far apart as the item holds the ends.
     let gap = self.part(MenuItemPart::Root).rest().gap.unwrap_or_default();
     // The start gives way where the menu has no room for the item, its label with an ellipsis; the end keeps its
@@ -1664,6 +1750,10 @@ impl Themed for MenuItem {
       // Two lines: as high as they are, and never lower than a row of one.
       .state(MenuItemState::Detail, Root, |s| {
         s.height(Length::Auto).min_height(32.0).padding_y(6.0)
+      })
+      // The app's element: as high as it is, and never lower than a row.
+      .state(MenuItemState::Content, Root, |s| {
+        s.height(Length::Auto).min_height(32.0)
       })
       // An element of the app's is as large as it is, centered on the label's line.
       .base(Leading, |s| s.foreground(MutedForeground))

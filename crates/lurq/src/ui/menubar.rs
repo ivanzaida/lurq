@@ -649,6 +649,7 @@ impl MenubarView {
         MenuEntry::Item(item) => built.item(item.autofocus(Some(at) == last)),
         MenuEntry::Separator => built.separator(),
         MenuEntry::Heading(heading) => built.heading(&heading),
+        MenuEntry::Element(element) => built.child(element),
       };
     }
     let titled = self.menus.get(index).map(|menu| menu.title.clone());

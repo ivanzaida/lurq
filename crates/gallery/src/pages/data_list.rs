@@ -6,6 +6,7 @@ use std::sync::Arc;
 use lurq::{
   app::{component::Component, ctx::Ctx},
   core::Signal,
+  layout::Alignment,
   node::Element,
   ui::{Badge, DataList, DataListPart, Length, Link, Orientation, Tag},
 };
@@ -171,6 +172,16 @@ impl Component for DataListPage {
       )
       .item("Status", Badge::new("Preview").variant("warning"))
       .style(DataListPart::Root, |s| s.width(360.0).max_width(Length::Fill));
+    // Values of several lines: each term at the top of its value.
+    let wrapping = DataList::new()
+      .align(Alignment::Start)
+      .text("Branch", "orc-128-retry")
+      .text(
+        "Prompt",
+        "Read the failing test, find the cause, fix it and run the whole suite again before you hand it back.",
+      )
+      .text("Started", "2 minutes ago")
+      .style(DataListPart::Root, |s| s.width(360.0).max_width(Length::Fill));
 
     let rows = [
       (
@@ -197,6 +208,13 @@ impl Component for DataListPage {
         "Horizontal",
         "Vertical: each term over its value, for a narrow column. Side by side, the terms' column is as wide as the \
          widest.",
+      ),
+      (
+        "align",
+        "Alignment",
+        "Center",
+        "How a term stands to its value across: Center, on the value's height; Start, at the top of a value that \
+         wraps.",
       ),
       ("label", "&str", "", "What the list is called, to tooling."),
       ("style / rules", "DataListPart", "", "Root, Item, Term, Value."),
@@ -267,6 +285,23 @@ impl Component for DataListPage {
               "    .item(\"Repository\", Link::new(\"github.com/lurq/lurq\"))",
               "    .item(\"Keywords\", Row::new().spacing(6.0).child(Tag::new(\"gui\"))..)",
               "    .item(\"Status\", Badge::new(\"Preview\").variant(\"warning\"))",
+            ],
+          ),
+        ),
+        Section::new(
+          "Terms at the top of their values",
+          "Where values wrap onto several lines, align(Alignment::Start) puts each term at the top of its value, on \
+           its first line, in place of the middle of its height.",
+          self.frame.demo(
+            3,
+            wrapping,
+            "DataList::new().align(Alignment::Start)",
+            &[
+              "DataList::new()",
+              "    .align(Alignment::Start)",
+              "    .text(\"Branch\", \"orc-128-retry\")",
+              "    .text(\"Prompt\", \"Read the failing test, find the cause, fix it and run the whole suite..\")",
+              "    .text(\"Started\", \"2 minutes ago\")",
             ],
           ),
         ),

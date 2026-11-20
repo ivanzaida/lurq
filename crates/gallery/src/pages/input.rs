@@ -363,6 +363,17 @@ impl Component for InputPage {
           }
         })
         .child(Field::new("Bio", showing("").placeholder("Tell us what happened").full_width(true)).optional(true))
+        .child(
+          // No label: the input keeps its own name, and the app's rows stand under the description.
+          Field::unlabeled(
+            showing("deploy")
+              .label("Search tasks")
+              .placeholder("Search tasks")
+              .full_width(true),
+          )
+          .description("Finds by title and key.")
+          .below(quiet("3 tasks match", 12.0)),
+        )
     });
     let judged = crate::kit::apart(|| {
       items()
@@ -805,7 +816,8 @@ impl Component for InputPage {
           "Field",
           "A control with its label above and its description under it, 6 apart. An error takes the place of the \
            description and makes the input invalid; the email here is checked as it is typed. A required field has \
-           a mark, an optional one says so.",
+           a mark, an optional one says so. A field with no label is its control alone, which keeps its own name, \
+           and the app's rows stand under its description.",
           self.frame.demo(
             3,
             fields,
@@ -826,6 +838,10 @@ impl Component for InputPage {
               "}",
               "",
               "Field::new(\"Bio\", Input::new(bio.clone()).full_width(true)).optional(true)",
+              "",
+              "Field::unlabeled(Input::new(query.clone()).label(\"Search tasks\").full_width(true))",
+              "    .description(\"Finds by title and key.\")",
+              "    .below(text(\"3 tasks match\"))",
             ],
           ),
         ),
