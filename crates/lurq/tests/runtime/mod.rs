@@ -80,6 +80,7 @@ mod smooth_wheel_scroll;
 mod stack_depth;
 mod system_appearance;
 mod text_reflow;
+mod two_axis_finger;
 mod visibility;
 mod text_scale_wrap;
 mod text_shadow;

@@ -1189,8 +1189,9 @@ impl Component for ScrollPage {
           "A strip whose ScrollState pages: a finger scrolls it a page at a time (run the gallery with --device \
            phone, and the mouse is a finger; a touchpad scrolls it sideways as any strip). Beside it, the page it \
            came to rest on, the one it is going to, known as the finger lifts, and whether it moves; and what its \
-           container told: one start, an on_scroll for every step with what moved it, one end when it is at rest, \
-           and the page. An offset the app sets changes the page with no scroll told.",
+           container told: one start, an on_scroll for every step with what moved it, the page once the strip is \
+           within a fiftieth of a page of it, and one end when it is at rest, a quarter of a second after that. \
+           An offset the app sets changes the page with no scroll told.",
           self.frame.demo(
             6,
             pages,

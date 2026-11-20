@@ -41,17 +41,30 @@ impl Tree {
     for target in heard {
       self.dispatch_scroll_handlers_for_node(*target, at.0, at.1, 0.0, 0.0, ScrollPhase::End, source);
     }
-    self.rest_page_of(state, heard.last().copied());
+    self.rest_page_of(state, heard.last().copied(), false);
+    self.apply_reactive_updates_after_event();
+  }
+
+  /// A list on its way to a page is within a fiftieth of a page of it: it is on that page to the eye, and
+  /// what follows its page is told now. Its content goes on to the page itself, and its scroll ends there.
+  pub(super) fn page_arrives(&mut self, state: &ScrollState, container: Option<NodeId>) {
+    self.rest_page_of(state, container, true);
     self.apply_reactive_updates_after_event();
   }
 
   /// Takes the page `state`'s content is at as the one it rests on, and tells the container's
   /// `on_page_change` handlers when it is another: `container`, or the node of the tree that has the state.
-  fn rest_page_of(&mut self, state: &ScrollState, container: Option<NodeId>) {
-    let Some((before, page)) = state.rest_page() else {
+  /// `arriving` for a list still on the last of its way to that page.
+  fn rest_page_of(&mut self, state: &ScrollState, container: Option<NodeId>, arriving: bool) {
+    let taken = if arriving {
+      state.arrive_at_page()
+    } else {
+      state.rest_page()
+    };
+    let Some((before, page)) = taken else {
       return;
     };
-    tracing::debug!(target: "lurq::scroll", from = ?before, to = ?page, "page");
+    tracing::debug!(target: "lurq::scroll", from = ?before, to = ?page, arriving, "page");
     let calls = self.root.as_ref().and_then(|root| {
       let node = container
         .and_then(|id| find_node_by_id(root, id))

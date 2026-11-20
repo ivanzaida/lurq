@@ -33,6 +33,10 @@ const TO_TOP: Duration = Duration::from_millis(350);
 /// the slowest lift, in logical pixels per second, that throws it at the next one. Both set by eye.
 const PAGE_FREQUENCY: f32 = 14.0;
 const PAGE_FLICK: f32 = 200.0;
+/// A list on its way to a page has arrived there, to the eye, once it is this share of a page from it: the
+/// page it rests on is told then, and not a quarter of a second later, when the spring's tail has died away
+/// under [`SPRING_REST`]. From a page away and at rest that is 0.42 s after the lift where the rest is 0.65 s.
+const PAGE_ARRIVED: f32 = 0.02;
 
 /// How a finger's scroll goes on after the finger lifts. The default is a scroll view of the platform's:
 /// `UIScrollView` at its normal deceleration rate.
@@ -170,6 +174,14 @@ impl PageMove {
       self.to.1 + within(self.spring.from.1, left.1),
     );
     (at, false)
+  }
+}
+
+impl PageMove {
+  /// Whether a list of `state` at `offset` has arrived at the page it is on its way to, to the eye.
+  fn arrived(&self, offset: (f32, f32), state: &ScrollState) -> bool {
+    let near = |at: f32, to: f32, page: f32| (at - to).abs() <= (page * PAGE_ARRIVED).max(SPRING_REST);
+    near(offset.0, self.to.0, state.viewport_width()) && near(offset.1, self.to.1, state.viewport_height())
   }
 }
 
@@ -971,6 +983,9 @@ impl Tree {
         let heard: Vec<NodeId> = aside.node.into_iter().collect();
         self.scroll_rests(&state, &heard, (0.0, 0.0), ScrollSource::Snap);
       } else {
+        if aside.page.arrived(to, &state) {
+          self.page_arrives(&state, aside.node);
+        }
         going.push(aside);
       }
     }
@@ -1042,6 +1057,8 @@ impl Tree {
     let (to, rests) = page.at(now);
     let (was, was_end) = (taker.offsets(), taker.ends().1);
     taker.state.set_scroll(to.0, to.1);
+    // On the last of its way it is on its page to the eye: the page is told, and the rest comes later.
+    let arrived = (!rests && page.arrived(to, &taker.state)).then(|| taker.state.clone());
     if rests {
       self.touch_scroll.page = None;
     }
@@ -1064,6 +1081,10 @@ impl Tree {
         ScrollSource::Snap,
       );
       self.apply_reactive_updates_after_event();
+    }
+    if let Some(state) = arrived {
+      let list = self.touch_scroll_node();
+      self.page_arrives(&state, list);
     }
     !rests
   }

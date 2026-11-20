@@ -181,9 +181,21 @@ fn a_short_flick_tells_the_page_it_goes_to_at_the_lift_and_every_step_of_the_way
     Some("scroll snap 100"),
     "the last one on the page"
   );
-  // Then, once: the end, and the page.
-  let tail: Vec<&str> = told.iter().rev().take(2).rev().map(String::as_str).collect();
-  assert_eq!(tail, ["end snap 100", "page 1"], "{told:?}");
+  // The page is told once, when the list is on it to the eye: within a fiftieth of a page of it, with the
+  // tail of its way still to come. The end comes last, on the page itself.
+  let paged = told.iter().position(|line| line == "page 1").expect("the page is told");
+  let before: f32 = told[paged - 1]
+    .strip_prefix("scroll snap ")
+    .and_then(|offset| offset.parse().ok())
+    .unwrap_or_else(|| panic!("the step before the page: {told:?}"));
+  assert!((98.0..100.0).contains(&before), "the page was told at {before}");
+  let after = told[paged + 1..]
+    .iter()
+    .filter(|line| line.starts_with("scroll snap"))
+    .count();
+  // Every step is 8 ms: the page is told a good while before the list is still.
+  assert!(after >= 12, "the page is told {after} steps before the rest: {told:?}");
+  assert_eq!(told.last().map(String::as_str), Some("end snap 100"), "{told:?}");
   assert_eq!(
     stage.count("start"),
     1,
@@ -395,5 +407,45 @@ fn a_scroll_event_tells_what_moves_the_content() {
       "autoscroll",
       "code"
     ]
+  );
+}
+
+#[test]
+fn a_finger_that_takes_the_list_back_after_its_page_was_told_tells_the_page_it_rests_on() {
+  let mut stage = Stage::new(true, 5.0, true);
+  flick(&mut stage, true, 90.0, -20.0);
+  // Until the page is told, and no further: the list is still on the last of its way.
+  let mut steps = 0;
+  while stage.count("page") == 0 {
+    steps += 1;
+    assert!(steps < 400, "the page is never told");
+    stage.now += Duration::from_millis(8);
+    stage.tree.finger_tick(stage.now);
+    stage.tree.pass(&mut stage.app, &TestSurface);
+  }
+  assert_eq!(stage.state.rested_page(), (1, 0));
+  assert!(stage.state.moving(), "its scroll has not ended");
+  assert_eq!(stage.count("end"), 0);
+
+  // A finger catches it there and drags it back to the first page.
+  stage.finger(8, TouchPhase::Start, 20.0, 50.0);
+  for step in 1..=8 {
+    stage.finger(40, TouchPhase::Move, 20.0 + 10.0 * step as f32, 50.0);
+  }
+  stage.finger(200, TouchPhase::End, 100.0, 50.0);
+  stage.run(3000);
+  assert_eq!(stage.state.scroll_x(), 0.0);
+  assert_eq!(stage.state.rested_page(), (0, 0));
+  let pages: Vec<String> = stage
+    .told()
+    .into_iter()
+    .filter(|line| line.starts_with("page"))
+    .collect();
+  assert_eq!(pages, ["page 1", "page 0"]);
+  assert_eq!(
+    stage.count("end"),
+    1,
+    "one scroll, which ended once: {:?}",
+    stage.told()
   );
 }

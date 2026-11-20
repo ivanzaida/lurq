@@ -1197,9 +1197,14 @@ ScrollVertical::new(pages)
 ```
 
 - `ScrollState::rested_page()` is the page the content last came to rest on, along each axis. It does not
-  change while a finger drags the content, during its momentum, on the way to a page or while a wheel's notch
-  is drawn: it changes when they are over, and at once for what moves the content at once (a touchpad, the
-  keys, `set_scroll`).
+  change while a finger drags the content, during its momentum or while a wheel's notch is drawn: it changes
+  when they are over, and at once for what moves the content at once (a touchpad, the keys, `set_scroll`).
+- **A list on its way to a page is on it when it has arrived to the eye.** The spring that brings it there is
+  within a fiftieth of a page of it 0.42 s after a lift at rest a page away, and goes on for a quarter of a
+  second more before it is still: the page is told at the first, with `on_scroll` going on for the steps that
+  are left and `on_scroll_end` at the second. What a feed starts on `on_page_change` starts as the page
+  stands there, and not a quarter of a second later. A finger that catches the list in those last pixels and
+  takes it back has the page told again where it rests.
 - `ScrollState::page_signal()` is the same as a signal, for a render, and `on_page_change` is called when it
   changes, with the page along the way the container scrolls (down, where it scrolls both ways). It follows
   every source, the app's own `set_scroll` among them, and needs no paging: any container has pages.

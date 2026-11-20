@@ -583,8 +583,10 @@ impl ScrollState {
   }
 
   /// The page the content last came to rest on along each axis. It does not change while the content moves: a
-  /// finger that drags the content, its momentum, the way to a page and a wheel's scroll on its way leave it
-  /// as it is until they are over. `on_page_change` is called when it changes, and
+  /// finger that drags the content, its momentum and a wheel's scroll on its way leave it as it is until they
+  /// are over. A list on its way to a page is on it once it is within a fiftieth of a page of it: it has
+  /// arrived to the eye then, a quarter of a second before the spring that brings it there has died away, and
+  /// `on_scroll_end` is still to come. `on_page_change` is called when it changes, and
   /// [`page_signal`](Self::page_signal) holds it for a render.
   pub fn rested_page(&self) -> (usize, usize) {
     self.inner.lock().unwrap().rested_page
@@ -633,9 +635,21 @@ impl ScrollState {
   /// Takes the page the content is at as the one it rests on, where nothing moves it. Tells the page it
   /// rested on before and the one it rests on now when they differ; the signal has heard by then.
   pub(crate) fn rest_page(&self) -> Option<((usize, usize), (usize, usize))> {
+    self.take_page(false)
+  }
+
+  /// Takes the page the content is at as the one it rests on while the content is still on the last of its
+  /// way there: a list that scrolls by pages has arrived at its page to the eye well before the spring that
+  /// brings it there has died away, and what waits for the page (a feed that plays the video of it) is told
+  /// then. The same answer as [`rest_page`](Self::rest_page).
+  pub(crate) fn arrive_at_page(&self) -> Option<((usize, usize), (usize, usize))> {
+    self.take_page(true)
+  }
+
+  fn take_page(&self, moving: bool) -> Option<((usize, usize), (usize, usize))> {
     let (before, page, signal) = {
       let mut inner = self.inner.lock().unwrap();
-      if inner.moves() {
+      if inner.moves() && !moving {
         return None;
       }
       let page = inner.page_of((inner.scroll_x, inner.scroll_y));
