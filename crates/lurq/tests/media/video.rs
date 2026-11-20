@@ -211,6 +211,8 @@ pub struct Pages {
   pub refusing: Arc<AtomicBool>,
   /// How long it waits before it answers, in milliseconds.
   pub slow: Arc<AtomicU64>,
+  /// The parts of the file it was asked for, each from its first byte to its last.
+  pub asked: Arc<std::sync::Mutex<Vec<(usize, usize)>>>,
 }
 
 pub fn serve_to_its_pages(body: Vec<u8>) -> Pages {
@@ -222,7 +224,9 @@ pub fn serve_to_its_pages(body: Vec<u8>) -> Pages {
     served: Arc::new(AtomicUsize::new(0)),
     refusing: Arc::new(AtomicBool::new(false)),
     slow: Arc::new(AtomicU64::new(0)),
+    asked: Arc::default(),
   };
+  let asked = pages.asked.clone();
   let body = Arc::new(body);
   let (refused, refusing, slow) = (pages.refused.clone(), pages.refusing.clone(), pages.slow.clone());
   let served = pages.served.clone();
@@ -232,7 +236,7 @@ pub fn serve_to_its_pages(body: Vec<u8>) -> Pages {
         return;
       };
       let (body, refused, refusing, slow) = (body.clone(), refused.clone(), refusing.clone(), slow.clone());
-      let served = served.clone();
+      let (served, asked) = (served.clone(), asked.clone());
       std::thread::spawn(move || {
         let (mut request, mut chunk) = (Vec::new(), [0_u8; 1024]);
         while !request.windows(4).any(|window| window == b"\r\n\r\n") {
@@ -261,6 +265,7 @@ pub fn serve_to_its_pages(body: Vec<u8>) -> Pages {
             ))
           })
           .unwrap_or((0, len - 1));
+        asked.lock().unwrap().push((from, to));
         let head = format!(
           "HTTP/1.1 206 Partial Content\r\nContent-Type: video/mp4\r\nAccept-Ranges: bytes\r\nContent-Range: bytes {from}-{to}/{len}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
           to + 1 - from
@@ -391,6 +396,46 @@ pub fn a_clip_whose_reads_ahead_come_in_time_does_not_wait_while_it_plays() {
     "it plays on while it reads ahead; it waited at {waited:?}"
   );
   assert!(media.state().position > 3.0, "{}", media.state().position);
+}
+
+/// On Windows, where the app's loader reads what a media plays.
+pub fn a_clip_opened_ahead_and_left_paused_reads_its_start_and_no_more() {
+  let body = std::fs::read(clip()).expect("the clip");
+  let len = body.len();
+  let pages = serve_to_its_pages(body);
+  // The loader's own blocks: 256 KiB first, which is what Media Foundation reads of a file at a time.
+  let loader = Loader::new();
+  let media = quiet_with(&loader, &Source::url(&pages.address).header("Referer", PAGES));
+  until(&media, "opened", |state| !state.waiting && state.error.is_none());
+  let started = Instant::now();
+  while !media.has_frame() {
+    assert!(
+      started.elapsed() < Duration::from_secs(10),
+      "its first frame never came"
+    );
+    std::thread::sleep(Duration::from_millis(5));
+  }
+  assert!(!media.state().playing, "it opens paused, at its start");
+
+  // Left alone it asks for nothing more: what it read is its start.
+  std::thread::sleep(Duration::from_millis(300));
+  let read = pages.asked.lock().unwrap().clone();
+  std::thread::sleep(Duration::from_millis(500));
+  assert_eq!(*pages.asked.lock().unwrap(), read, "paused, it reads nothing more");
+  assert_eq!(
+    read,
+    [(0, (256 << 10) - 1)],
+    "one request, of its first block, shows its first frame"
+  );
+
+  // Told to play, it reads ahead of what plays at once, and goes on from what it has.
+  media.play();
+  until(&media, "playing", |state| state.position > 0.3);
+  let read = pages.asked.lock().unwrap().clone();
+  assert!(
+    read.contains(&(256 << 10, len - 1)),
+    "the rest of it was asked for as it started to play: {read:?}"
+  );
 }
 
 /// Plays `media` from near its end, and gives how its state went until it has played on from its start: whether it

@@ -651,9 +651,9 @@ pub use tree_view::{
 };
 pub use video_player::{
   VIDEO_PLAYER_COMPACT_BELOW, VIDEO_PLAYER_HIDE_AFTER, VIDEO_PLAYER_MINIMAL_BELOW, VIDEO_PLAYER_SEEK_STEP,
-  VIDEO_PLAYER_VOLUME_FOLDS_BELOW, VIDEO_PLAYER_VOLUME_STEP, VideoFullscreen, VideoPlayer, VideoPlayerBar,
-  VideoPlayerMenu, VideoPlayerPart, VideoPlayerRenderer, VideoPlayerSize, VideoPlayerState, VideoPlayerTouch,
-  VideoPlayerView,
+  VIDEO_PLAYER_VOLUME_FOLDS_BELOW, VIDEO_PLAYER_VOLUME_STEP, VideoFullscreen, VideoPlayback, VideoPlayer,
+  VideoPlayerBar, VideoPlayerMenu, VideoPlayerPart, VideoPlayerRenderer, VideoPlayerSize, VideoPlayerState,
+  VideoPlayerTouch, VideoPlayerView,
 };
 pub use watermark::{
   WATERMARK_ANGLE, WATERMARK_GAP, WATERMARK_OFFSET, WATERMARK_STAGGER, Watermark, WatermarkPart, WatermarkRenderer,

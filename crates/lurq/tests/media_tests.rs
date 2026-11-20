@@ -137,6 +137,12 @@ fn a_looped_clip_at_an_address_asks_the_server_for_nothing_again() {
   video::a_looped_clip_at_an_address_asks_the_server_for_nothing_again();
 }
 
+#[cfg(all(windows, feature = "http"))]
+#[test]
+fn a_clip_opened_ahead_and_left_paused_reads_its_start_and_no_more() {
+  video::a_clip_opened_ahead_and_left_paused_reads_its_start_and_no_more();
+}
+
 #[test]
 fn a_sound_plays_from_a_file_and_from_bytes_to_its_end_and_again() {
   let wav = tone(1.2);

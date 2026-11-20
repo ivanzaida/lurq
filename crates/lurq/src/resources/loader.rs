@@ -38,7 +38,10 @@ use crate::time::Instant;
 pub const DEFAULT_LOAD_TIMEOUT: Duration = Duration::from_secs(30);
 /// The most bytes [`Loader::load`] reads of one source, unless the app says: 64 MiB. A reader has no such limit.
 pub const DEFAULT_MAX_LOAD_BYTES: u64 = 64 * 1024 * 1024;
-/// How much of an address one request of a reader asks for.
+/// How much of an address one request of a reader asks for: its first two, and the most, which the ones
+/// after them grow to. On a host that sends about 600 KB a second a first block of 1 MiB kept a video's first
+/// frame waiting two seconds; smaller than a quarter of one, the requests cost more than they save.
+const DEFAULT_FIRST_READ_BLOCK: u64 = 256 << 10;
 const DEFAULT_READ_BLOCK: u64 = 1 << 20;
 /// The threads that read: how many loads are read at a time, on the loader's own threads or on the app's
 /// runtime.
@@ -243,7 +246,9 @@ struct Settings {
   /// How many loads run at once, and how many HTTP agents are kept: see [`Loader::pool_size`].
   pool_size: usize,
   headers: Option<HeaderRule>,
-  /// How much of an address one request of a reader asks for.
+  /// How much of an address one request of a reader asks for: at first, and at most.
+  #[cfg_attr(not(all(feature = "http", not(target_arch = "wasm32"))), allow(dead_code))]
+  first_block: u64,
   #[cfg_attr(not(all(feature = "http", not(target_arch = "wasm32"))), allow(dead_code))]
   block: u64,
 }
@@ -313,6 +318,7 @@ impl Loader {
           proxy: None,
           pool_size: LOADER_THREADS,
           headers: None,
+          first_block: DEFAULT_FIRST_READ_BLOCK,
           block: DEFAULT_READ_BLOCK,
         }),
         entries: Mutex::new(HashMap::new()),
@@ -457,11 +463,22 @@ impl Loader {
     headers
   }
 
-  /// How much of an address one request of a [reader](Self::open) asks for: 1 MiB unless told. For a test that
-  /// reads a small file in many requests.
+  /// How much of an address one request of a [reader](Self::open) asks for, every one of them: for a test that
+  /// reads a small file in many requests. An app says [`read_blocks`](Self::read_blocks).
   #[doc(hidden)]
   pub fn read_block(&self, bytes: u64) -> &Self {
-    self.shared.settings.write().block = bytes.max(1);
+    self.read_blocks(bytes, bytes)
+  }
+
+  /// How much of an address one request of a [reader](Self::open) asks for: `first` bytes in each of its first
+  /// two, twice as much in each one after them up to `most`, and `most` from there on. 256 KiB and 1 MiB unless
+  /// told. What opens a video reads its start, and a small first block is there sooner where the host is slow;
+  /// what plays it reads on, and larger blocks are fewer requests. For the readers opened from then on.
+  pub fn read_blocks(&self, first: u64, most: u64) -> &Self {
+    let mut settings = self.shared.settings.write();
+    settings.block = most.max(1);
+    settings.first_block = first.clamp(1, settings.block);
+    drop(settings);
     self
   }
 
@@ -722,16 +739,20 @@ impl Loader {
     {
       return Ok(Arc::new(reader));
     }
-    let (timeout, block) = {
+    let (timeout, cut) = {
       let settings = self.shared.settings.read();
-      (settings.timeout, settings.block)
+      let cut = super::http::Cut {
+        first: settings.first_block,
+        most: settings.block,
+      };
+      (settings.timeout, cut)
     };
     Ok(Arc::new(super::http::HttpReader::open(
       self.shared.agents.clone(),
       self.fetched_from(address),
       self.headers_of(source),
       timeout,
-      block,
+      cut,
     )?))
   }
 

@@ -326,6 +326,81 @@ pub type VideoPlayerRenderer = Arc<dyn Fn(VideoPlayerView) -> Element + Send + S
 
 type Handler<T> = Arc<dyn Fn(T) + Send + Sync>;
 type Action = Arc<dyn Fn() + Send + Sync>;
+/// What builds a layer of the app's from what the player is doing: see [`VideoPlayer::child_with`].
+type Layer = Arc<Mutex<Box<dyn FnMut(&VideoPlayback) -> Element + Send>>>;
+
+/// What a player is doing, as a layer of the app's own is built from it ([`VideoPlayer::child_with`]): where
+/// it is and how long, whether it plays, and the ways to move it. It is what the player's own bar would show,
+/// so a seek line and a time of the app's are in step with the picture, with a source or without one.
+#[derive(Clone)]
+pub struct VideoPlayback {
+  /// Whether it plays.
+  pub playing: bool,
+  /// Whether it waits for what it plays.
+  pub waiting: bool,
+  /// Whether it played to its end.
+  pub ended: bool,
+  /// Whether it cannot play.
+  pub failed: bool,
+  /// Whether its source has shown no frame yet: it opens, or its first frame is still to come.
+  pub opening: bool,
+  /// Whether the poster is over the picture.
+  pub poster_shown: bool,
+  /// Where it is, in seconds.
+  pub position: f64,
+  /// How long it is, in seconds, once that is known.
+  pub duration: Option<f64>,
+  /// How far it is loaded, in seconds, where that is known.
+  pub buffered: Option<f64>,
+  /// How loud it is, from 0 to 1, and whether it is silenced.
+  pub volume: f64,
+  pub muted: bool,
+  /// How fast it goes: 1 is as it was made.
+  pub rate: f64,
+  seek: Handler<f64>,
+  play: Handler<bool>,
+  mute: Handler<bool>,
+}
+
+impl VideoPlayback {
+  /// Sends it to `seconds`, kept within what it plays, as its own seek bar does: its source goes there, and the
+  /// app's handlers of its position are told.
+  pub fn seek(&self, seconds: f64) {
+    (self.seek)(seconds);
+  }
+
+  /// Plays or pauses it, as its own button does: one that ended starts over.
+  pub fn set_playing(&self, playing: bool) {
+    (self.play)(playing);
+  }
+
+  /// Silences it, or not.
+  pub fn set_muted(&self, muted: bool) {
+    (self.mute)(muted);
+  }
+
+  /// The share of it that is played, from 0 to 1: nothing where its length is not known.
+  pub fn progress(&self) -> f64 {
+    match self.duration {
+      Some(duration) if duration > 0.0 => (self.position / duration).clamp(0.0, 1.0),
+      _ => 0.0,
+    }
+  }
+}
+
+impl std::fmt::Debug for VideoPlayback {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.debug_struct("VideoPlayback")
+      .field("playing", &self.playing)
+      .field("waiting", &self.waiting)
+      .field("ended", &self.ended)
+      .field("failed", &self.failed)
+      .field("opening", &self.opening)
+      .field("position", &self.position)
+      .field("duration", &self.duration)
+      .finish_non_exhaustive()
+  }
+}
 
 /// A value the app holds and the handlers told what a person makes it.
 #[derive(Clone)]
@@ -502,6 +577,10 @@ pub struct VideoPlayer {
   media: Option<Element>,
   poster: Option<Element>,
   children: Vec<Element>,
+  /// The layers of the app's built from what it is doing, over its other children.
+  layers: Vec<Layer>,
+  /// Its source has shown no frame yet: it opens, or its first frame is to come.
+  opening: bool,
   controls: bool,
   playing: Held<bool>,
   position: Held<f64>,
@@ -609,6 +688,8 @@ impl VideoPlayer {
       media: None,
       poster: None,
       children: Vec::new(),
+      layers: Vec::new(),
+      opening: false,
       controls: true,
       playing: Held::new(false),
       position: Held::new(0.0),
@@ -689,6 +770,39 @@ impl VideoPlayer {
   pub fn children(mut self, children: impl IntoIterator<Item = impl Into<Element>>) -> Self {
     self.children.extend(children.into_iter().map(Into::into));
     self
+  }
+
+  /// A layer of the app's own over the picture, built from what the player is doing each time the player is
+  /// rendered: its time and its length, whether it plays, waits or ended, and the ways to move it
+  /// ([`VideoPlayback`]). It is how an app's own controls show and set the time of a player with a
+  /// [`source`](Self::source), whose time is the media's and no signal of the app's:
+  ///
+  /// ```
+  /// use lurq::ui::{MediaTime, SeekBar, VideoPlayer};
+  ///
+  /// let feed = VideoPlayer::new().controls(false).child_with(|playback| {
+  ///   let to = playback.clone();
+  ///   let line = SeekBar::controlled(playback.position, playback.duration.unwrap_or(0.0), move |at| to.seek(at));
+  ///   lurq::components::Column::new()
+  ///     .child(MediaTime::new(playback.position, playback.duration))
+  ///     .child(line)
+  /// });
+  /// ```
+  ///
+  /// It lies over the layers given with [`child`](Self::child), in the order it was added among its like.
+  pub fn child_with<E: Into<Element>>(mut self, mut layer: impl FnMut(&VideoPlayback) -> E + Send + 'static) -> Self {
+    let build: Box<dyn FnMut(&VideoPlayback) -> Element + Send> = Box::new(move |playback| layer(playback).into());
+    self.layers.push(Arc::new(Mutex::new(build)));
+    self
+  }
+
+  /// What is behind the picture: the box's fill where the picture does not cover it (beside a video of another
+  /// shape than the box, and before its first frame). Black unless told. With a clear color
+  /// (`Color::new(0, 0, 0, 0)`) what the app has under the player shows there, a blurred still of the same
+  /// video as in a feed. The same as styling the part: `style(VideoPlayerPart::Root, |s| s.background(..))`.
+  pub fn background(self, color: impl Into<crate::node::BackgroundColor>) -> Self {
+    let color = color.into();
+    self.style(VideoPlayerPart::Root, move |s| s.background(color))
   }
 
   /// Whether the bar and the middle of the picture are drawn. Without them the player is its picture and the
@@ -1230,14 +1344,13 @@ impl VideoPlayer {
     self
   }
 
-  /// Whether it shows the poster: given one, before it first plays.
+  /// Whether it shows the poster: given one, before it first plays, and for as long as its source has shown no
+  /// frame, whether or not it was told to play already.
   fn shows_poster(&self) -> bool {
     self.poster.is_some()
-      && !self.playing.value
-      && self.position.value <= 0.0
-      && !self.waiting
       && !self.ended
       && self.error.is_none()
+      && (self.opening || (!self.playing.value && self.position.value <= 0.0 && !self.waiting))
   }
 
   /// Builds a still picture of the player in `theme`, for a test or a screenshot: its controls shown, its menus
@@ -1903,7 +2016,11 @@ fn playing(mut player: VideoPlayer, live: &Live, ctx: &mut Ctx) -> VideoPlayer {
       None => super::current_locale().media.error(why),
     });
   }
-  if let Some(image) = media.frame() {
+  // Its picture is there once its first frame is: until then its image is black, and is not drawn. What has
+  // no picture (a sound) has nothing to wait for.
+  let pictured = media.has_frame();
+  player.opening = state.error.is_none() && (!media.is_open() || (state.size.is_some() && !pictured));
+  if let Some(image) = media.frame().filter(|_| pictured) {
     player.media = Some(
       crate::components::Video::new(image)
         .contain()
@@ -2148,6 +2265,35 @@ fn view(mut player: VideoPlayer, theme: &Theme, live: &Live, ctx: Option<&mut Ct
   let tap = (player.is_touch() && player.controls && player.error.is_none()).then(|| make.tap());
   let retry = make.retry();
   let root_keys: Arc<dyn Fn(KeyboardEvent) + Send + Sync> = Arc::new(make.keys());
+  // The app's layers that follow what it is doing, over its other children.
+  let mut children = player.children.clone();
+  if !player.layers.is_empty() {
+    let playback = VideoPlayback {
+      playing: player.playing.value,
+      waiting: player.waiting,
+      ended: player.ended,
+      failed: player.error.is_some(),
+      opening: player.opening,
+      poster_shown: poster,
+      position: if player.ended {
+        player.duration.unwrap_or(player.position.value)
+      } else {
+        player.position.value
+      },
+      duration: player.duration,
+      buffered: player.buffered,
+      volume: player.volume.value,
+      muted: player.muted.value,
+      rate: player.rate.value,
+      seek: Arc::new(make.seeker()),
+      play: Arc::new(player.playing.teller()),
+      mute: Arc::new(player.muted.teller()),
+    };
+    children.extend(player.layers.iter().map(|layer| {
+      let mut build = layer.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+      build(&playback)
+    }));
+  }
   VideoPlayerView {
     form,
     narrow,
@@ -2176,9 +2322,11 @@ fn view(mut player: VideoPlayer, theme: &Theme, live: &Live, ctx: Option<&mut Ct
     height: player.height,
     max_width: player.max_width,
     aspect: player.aspect,
-    media: player.media.clone(),
+    // Under the poster nothing of the picture is drawn: a poster that does not cover the box would show it
+    // at its sides.
+    media: player.media.clone().filter(|_| !poster),
     poster: player.poster.clone().filter(|_| poster),
-    children: player.children.clone(),
+    children,
     bar,
     center,
     retry,

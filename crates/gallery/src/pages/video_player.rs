@@ -18,8 +18,8 @@ use lurq::{
   layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
   node::{Element, Gradient, HitTestBehavior, color::Color, dimension::Dimension, gradient::GradientStop},
   ui::{
-    Button, ButtonPart, ButtonShape, ButtonVariant, Length, MediaCaptions, PlayButton, PlayButtonVariant,
-    VideoFullscreen, VideoPlayer, VideoPlayerSize, icons, media_time_text,
+    Button, ButtonPart, ButtonShape, ButtonVariant, Length, MediaCaptions, MediaTime, PlayButton, PlayButtonVariant,
+    SeekBar, SeekBarSize, VideoFullscreen, VideoPlayback, VideoPlayer, VideoPlayerSize, icons, media_time_text,
   },
 };
 
@@ -1047,34 +1047,98 @@ impl VideoPlayerPage {
           .child(Self::feed_action(icons::MESSAGE, "Comments", "318"))
           .child(Self::feed_action(icons::SHARE, "Share", "Share")),
       );
-    let progress = Row::new()
-      .width(FILL)
-      .height(2.0)
-      .background(Color::new(255, 255, 255, 0x33))
-      .child(Row::new().width(Dimension::Pct(34.0)).height(2.0).background(white));
-    // The play button is the top of the layer: the shade behind the words reaches up under it, and would take
-    // its presses from above. What holds it is as large as the picture and is nothing to the pointer itself, so
-    // the buttons at the two ends are pressed through it.
-    let layer = Stack::new()
-      .size(Dimension::Pct(100.0), Dimension::Pct(100.0))
-      .child(
-        Column::new()
-          .size(Dimension::Pct(100.0), Dimension::Pct(100.0))
-          .justify(Justify::SpaceBetween)
-          .child(top)
-          .child(Column::new().width(FILL).child(bottom).child(progress)),
-      )
-      .child(center.hit_test(HitTestBehavior::ContentOnly));
-    VideoPlayer::new()
+    let (top, bottom, center): (Element, Element, Element) = (
+      top.into(),
+      bottom.into(),
+      center.hit_test(HitTestBehavior::ContentOnly).into(),
+    );
+    // The app's layer is built from what the player is doing: its seek line and its time are the video's own,
+    // and a drag of the line sends the video there.
+    let layer = move |playback: &VideoPlayback| {
+      let to = playback.clone();
+      let line = SeekBar::controlled(playback.position, playback.duration.unwrap_or(0.0), move |at| {
+        to.seek(at)
+      })
+      .on_media(true)
+      .size(SeekBarSize::Md)
+      .id("feed-seek");
+      let time = Row::new().width(FILL).padding_horizontal(12.0).child(
+        MediaTime::new(playback.position, playback.duration)
+          .on_media(true)
+          .id("feed-time"),
+      );
+      // The play button is the top of the layer: the shade behind the words reaches up under it, and would
+      // take its presses from above. What holds it is as large as the picture and is nothing to the pointer
+      // itself, so the buttons at the two ends are pressed through it.
+      Stack::new()
+        .size(Dimension::Pct(100.0), Dimension::Pct(100.0))
+        .child(
+          Column::new()
+            .size(Dimension::Pct(100.0), Dimension::Pct(100.0))
+            .justify(Justify::SpaceBetween)
+            .child(top.clone())
+            .child(
+              Column::new().width(FILL).child(bottom.clone()).child(time).child(
+                Row::new()
+                  .width(FILL)
+                  .padding_horizontal(12.0)
+                  .padding_bottom(8.0)
+                  .child(line),
+              ),
+            ),
+        )
+        .child(center.clone())
+    };
+    // The gallery's clip where this system plays one, its poster over it until its first frame is there; in a
+    // browser, a drawn picture the page's own state plays.
+    #[cfg(not(target_arch = "wasm32"))]
+    let player = VideoPlayer::new()
+      .source(&clip())
+      .looped(true)
+      .poster(poster())
+      .playing(self.feed_playing.clone())
+      .muted(self.feed_muted.clone());
+    #[cfg(target_arch = "wasm32")]
+    let player = VideoPlayer::new()
       .media(poster())
+      .duration(LENGTH)
+      .playing_controlled(playing, |_| {})
+      .muted_controlled(muted, |_| {});
+    let _ = (playing, muted, white);
+    player
+      .id("feed")
       .width(243.0)
       .max_width(Length::Fill)
       // Upright, as a feed's picture is.
       .aspect(9.0 / 16.0)
       .controls(false)
-      .playing_controlled(playing, |_| {})
-      .muted_controlled(muted, |_| {})
-      .child(layer)
+      .child_with(layer)
+  }
+
+  /// A wide clip in an upright box, on the black a player has behind its picture and on a fill of the app's.
+  #[cfg(not(target_arch = "wasm32"))]
+  fn behind(ctx: &mut Ctx) -> Row {
+    let boxed = |id: &str| {
+      VideoPlayer::new()
+        .id(id)
+        .source(&clip())
+        .width(160.0)
+        .max_width(Length::Fill)
+        .aspect(3.0 / 4.0)
+        .controls(false)
+    };
+    items()
+      .child(item(boxed("behind-black").mount(ctx), "black, unless told"))
+      .child(item(
+        boxed("behind-clear").background(Color::new(0, 0, 0, 0)).mount(ctx),
+        ".background(clear): what is under it shows",
+      ))
+      .child(item(
+        boxed("behind-muted")
+          .background(lurq::app::theme::PaletteColor::Muted)
+          .mount(ctx),
+        ".background(PaletteColor::Muted)",
+      ))
   }
 }
 
@@ -1395,6 +1459,8 @@ impl Component for VideoPlayerPage {
     ));
     let feed = self.feed().key("feed").mount(ctx);
     let own = items().child(item(feed, "your own controls in the overlay"));
+    #[cfg(not(target_arch = "wasm32"))]
+    let behind = Self::behind(ctx);
     let rows = [
       (
         "media",
@@ -1634,7 +1700,8 @@ impl Component for VideoPlayerPage {
         source: file!(),
       },
       crate::kit::apart(|| {
-        vec![
+        #[allow(unused_mut)]
+        let mut sections = vec![
           Section::new(
             "Playground",
             "Every prop of VideoPlayer is a control on the right. With no source nothing is decoded: a clock of the \
@@ -1803,28 +1870,66 @@ impl Component for VideoPlayerPage {
           Section::new(
             "Your own controls",
             "With no controls of its own, the player holds the app's over its picture: here made of the system's \
-           parts, the overlay play button and round buttons on dark discs.",
+           parts, the overlay play button, round buttons on dark discs, a seek line and a time. The layer is \
+           built from what the player is doing (child_with), so the line and the time are the video's own with a \
+           source too, and a drag of the line sends the video there. Its poster stays until the first frame is \
+           there, and it goes on from its start at its end.",
             self.frame.demo(
               3,
               own,
-              ".controls(false).child(layer)",
+              ".controls(false).child_with(|playback| layer)",
               &[
                 "VideoPlayer::new()",
-                "    .media(frame)",
+                "    .source(&Source::file(\"clips/lake.mp4\"))",
+                "    .poster(still)              // stays until its first frame is there",
+                "    .looped(true)",
+                "    .playing(playing.clone())   // the app's signal: its own button sets it",
                 "    .width(243.0)",
                 "    .aspect(9.0 / 16.0)",
                 "    .controls(false)",
-                "    .child(",
+                "    .child_with(move |playback| {",
+                "        let to = playback.clone();",
                 "        Stack::new()",
-                "            .child(PlayButton::new().variant(PlayButtonVariant::Overlay).on_change(play))",
-                "            .child(your_column_of_actions),",
-                "    )",
+                "            .child(PlayButton::new().variant(PlayButtonVariant::Overlay).on_change(play.clone()))",
+                "            .child(MediaTime::new(playback.position, playback.duration).on_media(true))",
+                "            .child(",
+                "                SeekBar::controlled(playback.position, playback.duration.unwrap_or(0.0), move |at| {",
+                "                    to.seek(at)",
+                "                })",
+                "                .on_media(true),",
+                "            )",
+                "    })",
                 "    .mount(ctx)",
               ],
             ),
           ),
           Section::new("Props", "", props_table(&rows, &[], self.frame.room())),
-        ]
+        ];
+        #[cfg(not(target_arch = "wasm32"))]
+        sections.insert(
+          sections.len() - 1,
+          Section::new(
+            "Behind the picture",
+            "A video of another shape than its box leaves room beside it, and so does a player whose video has not \
+             opened. The box is black there unless the player is told what is behind its picture: a clear color, \
+             through which what the app has under the player shows, or a fill of the theme's.",
+            self.frame.demo(
+              4,
+              behind,
+              ".background(Color::new(0, 0, 0, 0))",
+              &[
+                "// A wide clip in an upright box: the box shows over and under it.",
+                "VideoPlayer::new()",
+                "    .source(&Source::file(\"clips/lake.mp4\"))",
+                "    .aspect(3.0 / 4.0)",
+                "    .controls(false)",
+                "    .background(Color::new(0, 0, 0, 0))   // or PaletteColor::Muted",
+                "    .mount(ctx)",
+              ],
+            ),
+          ),
+        );
+        sections
       }),
     )
   }

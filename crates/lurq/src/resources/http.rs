@@ -6,7 +6,7 @@ use std::{
   ops::Range,
   sync::{
     Arc,
-    atomic::{AtomicUsize, Ordering},
+    atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
   },
   time::{Duration, Instant},
 };
@@ -209,6 +209,98 @@ const HELD_BLOCKS: usize = 16;
 /// each.
 const READ_AHEAD: u64 = 2;
 
+/// How what is at an address is cut into the blocks it is asked for in. The first two are `first` long and each
+/// one after them twice the one before, up to `most`; from there on they are all `most`. What opens a file reads
+/// its start, and on a slow connection a small first block is there sooner; what plays it reads on, and larger
+/// blocks are fewer requests. With `first` no smaller than `most` every block is `most` long.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct Cut {
+  pub first: u64,
+  pub most: u64,
+}
+
+impl Cut {
+  /// Blocks of one size.
+  pub(super) fn even(size: u64) -> Self {
+    Self {
+      first: size,
+      most: size,
+    }
+  }
+
+  fn sizes(self) -> (u64, u64) {
+    let most = self.most.max(1);
+    (self.first.clamp(1, most), most)
+  }
+
+  /// Where the block at `index` starts, and how long it is.
+  fn block(self, index: u64) -> (u64, u64) {
+    let (first, most) = self.sizes();
+    let (mut start, mut size) = (0, first);
+    for at in 0..index {
+      if size == most {
+        // All of one size from here on.
+        return (start + (index - at) * most, most);
+      }
+      start += size;
+      if at > 0 {
+        size = (size * 2).min(most);
+      }
+    }
+    (start, size)
+  }
+
+  /// The block that holds the byte at `offset`.
+  fn index_of(self, offset: u64) -> u64 {
+    let (first, most) = self.sizes();
+    let (mut index, mut start, mut size) = (0, 0, first);
+    while offset >= start + size {
+      if size == most {
+        return index + (offset - start) / most;
+      }
+      start += size;
+      if index > 0 {
+        size = (size * 2).min(most);
+      }
+      index += 1;
+    }
+    index
+  }
+}
+
+/// Where the index of an MP4 file is, when it is not at its start: the offset of its `moov` box, read from the
+/// boxes at the start of the file. A file written for the network has it before its pictures (`mdat`) and
+/// needs nothing more to open; one that has it after them is opened only once its end is read too, which a
+/// decoder asks for after the start, one request after the other. `None` for what is not an MP4, for one whose
+/// index is at its start, and where the start read does not say.
+fn index_at_the_end(start: &[u8]) -> Option<u64> {
+  let mut at = 0usize;
+  let mut seen_type = false;
+  // A few boxes at most stand before the pictures: the type, a free one, the index or the pictures.
+  for _ in 0..8 {
+    let header = start.get(at..at + 8)?;
+    let short = u64::from(u32::from_be_bytes(header[..4].try_into().ok()?));
+    let kind = &header[4..8];
+    let size = match short {
+      // To the end of the file: nothing is after it.
+      0 => return None,
+      1 => u64::from_be_bytes(start.get(at + 8..at + 16)?.try_into().ok()?),
+      short => short,
+    };
+    match kind {
+      b"ftyp" | b"styp" => seen_type = true,
+      b"moov" => return None,
+      // The pictures come first: the index is what follows them.
+      b"mdat" if seen_type => return (at as u64).checked_add(size),
+      b"free" | b"skip" | b"wide" | b"mdat" => {}
+      _ if !seen_type => return None,
+      _ => {}
+    }
+    at = usize::try_from((at as u64).checked_add(size)?).ok()?;
+  }
+  None
+}
+
 /// What is at an address, read by ranges as it is asked for, with its headers on every request: what a decoder
 /// reads as it plays.
 pub(super) struct HttpReader(Arc<Ranges>);
@@ -217,12 +309,16 @@ struct Ranges {
   address: String,
   headers: Vec<(Arc<str>, Arc<str>)>,
   timeout: Duration,
-  block: u64,
+  cut: Cut,
   /// The loader's agents: each request goes over a connection one of them kept, where it has one to the host.
   agents: Arc<Agents>,
   blocks: Mutex<Blocks>,
   /// A block that was on its way came, or failed.
   came: Condvar,
+  /// Whether what follows a read is fetched before it is asked for ([`Reader::read_ahead`]), and the block
+  /// read last.
+  eager: AtomicBool,
+  last: AtomicU64,
 }
 
 #[derive(Default)]
@@ -244,25 +340,40 @@ struct Fetched {
 }
 
 impl HttpReader {
-  /// Asks for the first block of what is at `address`, `block` bytes, and gives a reader of it: the answer's
-  /// status, length and type are known when it returns, and a server that refuses it fails here.
+  /// Asks for the first block of what is at `address`, cut as `cut` says, and gives a reader of it: the
+  /// answer's status, length and type are known when it returns, and a server that refuses it fails here.
+  ///
+  /// Where the first block says the file is an MP4 with its index at its end, the blocks of the index are asked
+  /// for at once, beside the blocks that follow the first: a decoder that opens it finds them there, or on
+  /// their way.
   pub(super) fn open(
     agents: Arc<Agents>,
     address: String,
     headers: Vec<(Arc<str>, Arc<str>)>,
     timeout: Duration,
-    block: u64,
+    cut: Cut,
   ) -> Result<Self, LoadError> {
     let ranges = Arc::new(Ranges {
       address,
       headers,
       timeout,
-      block: block.max(1),
+      cut,
       agents,
       blocks: Mutex::new(Blocks::default()),
       came: Condvar::new(),
+      eager: AtomicBool::new(true),
+      last: AtomicU64::new(0),
     });
-    ranges.block(0)?;
+    let start = ranges.block(0)?;
+    if let Some(index) = index_at_the_end(&start)
+      && ranges.blocks.lock().len.is_some_and(|len| index < len)
+    {
+      tracing::debug!(target: "lurq::resources", address = %ranges.address, at = index, "the index is at the end: read ahead");
+      let first = ranges.cut.index_of(index);
+      for ahead in 0..=READ_AHEAD {
+        ranges.ahead(first + ahead);
+      }
+    }
     Ok(Self(ranges))
   }
 }
@@ -280,27 +391,33 @@ impl Reader for HttpReader {
     if buf.is_empty() || self.0.blocks.lock().len.is_some_and(|len| offset >= len) {
       return Ok(0);
     }
-    let size = self.0.block;
-    let index = offset / size;
+    let index = self.0.cut.index_of(offset);
+    let (start, _) = self.0.cut.block(index);
     let block = self.0.block(index).map_err(io::Error::other)?;
-    for ahead in 1..=READ_AHEAD {
-      self.0.ahead(index + ahead);
+    self.0.last.store(index, Ordering::Relaxed);
+    if self.0.eager.load(Ordering::Relaxed) {
+      for ahead in 1..=READ_AHEAD {
+        self.0.ahead(index + ahead);
+      }
     }
-    let rest = block.get((offset - index * size) as usize..).unwrap_or(&[]);
+    let rest = block.get((offset - start) as usize..).unwrap_or(&[]);
     let count = rest.len().min(buf.len());
     buf[..count].copy_from_slice(&rest[..count]);
     Ok(count)
   }
 
   fn buffered(&self) -> Vec<Range<u64>> {
-    let size = self.0.block;
+    let cut = self.0.cut;
     let mut held: Vec<Range<u64>> = self
       .0
       .blocks
       .lock()
       .held
       .iter()
-      .map(|(index, bytes)| index * size..index * size + bytes.len() as u64)
+      .map(|(index, bytes)| {
+        let (start, _) = cut.block(*index);
+        start..start + bytes.len() as u64
+      })
       .collect();
     held.sort_by_key(|range| range.start);
     let mut joined: Vec<Range<u64>> = Vec::new();
@@ -311,6 +428,17 @@ impl Reader for HttpReader {
       }
     }
     joined
+  }
+
+  fn read_ahead(&self, ahead: bool) {
+    if self.0.eager.swap(ahead, Ordering::Relaxed) == ahead || !ahead {
+      return;
+    }
+    // What follows the last read is asked for now: what starts to play does not wait for its second block.
+    let last = self.0.last.load(Ordering::Relaxed);
+    for ahead in 1..=READ_AHEAD {
+      self.0.ahead(last + ahead);
+    }
   }
 }
 
@@ -340,7 +468,7 @@ impl Ranges {
   fn ahead(self: &Arc<Self>, index: u64) {
     {
       let mut blocks = self.blocks.lock();
-      if blocks.len.is_some_and(|len| index * self.block >= len)
+      if blocks.len.is_some_and(|len| self.cut.block(index).0 >= len)
         || blocks.fetching.contains(&index)
         || blocks.held.iter().any(|(held, _)| *held == index)
       {
@@ -375,10 +503,12 @@ impl Ranges {
       }
       let bytes: Arc<[u8]> = Arc::from(fetched.bytes);
       blocks.held.push_back((index, bytes.clone()));
-      // The first block is kept whatever was read since: a file's start says what it is, and a media that goes
-      // on from its start at its end, or is sent there, starts from it at once.
+      // The start is kept whatever was read since, as far as the largest block is long (the first megabyte): a
+      // file's start says what it is, and a media that goes on from its start at its end, or is sent there,
+      // starts from it at once.
+      let (_, most) = self.cut.sizes();
       if blocks.held.len() > HELD_BLOCKS
-        && let Some(oldest) = blocks.held.iter().position(|(held, _)| *held != 0)
+        && let Some(oldest) = blocks.held.iter().position(|(held, _)| self.cut.block(*held).0 >= most)
       {
         blocks.held.remove(oldest);
       }
@@ -391,17 +521,18 @@ impl Ranges {
 
   /// The bytes of the block at `index`, fewer at the end.
   fn fetch(&self, index: u64) -> Result<Fetched, LoadError> {
-    let start = index * self.block;
+    let (start, size) = self.cut.block(index);
     let mut fetched = Fetched {
-      bytes: Vec::with_capacity(self.block as usize),
+      bytes: Vec::with_capacity(size as usize),
       len: None,
       content_type: None,
     };
     let filled = |fetched: &Fetched| fetched.bytes.len() as u64;
     // A server may answer a range with less of it than was asked: the rest is asked for again.
-    while filled(&fetched) < self.block && fetched.len.is_none_or(|len| start + filled(&fetched) < len) {
+    while filled(&fetched) < size && fetched.len.is_none_or(|len| start + filled(&fetched) < len) {
       let from = start + filled(&fetched);
-      let range = format!("bytes={from}-{}", start + self.block - 1);
+      let range = format!("bytes={from}-{}", start + size - 1);
+      let asked = Instant::now();
       let agent = self.agents.lend();
       let response = match ask(
         &agent,
@@ -435,9 +566,18 @@ impl Ranges {
       }
       let before = fetched.bytes.len();
       (&mut reader)
-        .take(self.block - before as u64)
+        .take(size - before as u64)
         .read_to_end(&mut fetched.bytes)
         .map_err(read_failed)?;
+      // Each request with what it asked for and how long it took: what a slow start is made of.
+      tracing::debug!(
+        target: "lurq::resources",
+        address = %self.address,
+        range = %range,
+        bytes = fetched.bytes.len() - before,
+        ms = asked.elapsed().as_millis() as u64,
+        "range"
+      );
       if !ranged {
         break;
       }
@@ -720,7 +860,7 @@ mod tests {
       address.to_owned(),
       vec![(Arc::from("X-Asked-By"), Arc::from("lurq"))],
       SECOND,
-      SMALL,
+      Cut::even(SMALL),
     )
   }
 
@@ -775,9 +915,156 @@ mod tests {
   }
 
   #[test]
+  fn the_first_blocks_are_small_and_the_ones_after_them_grow_to_the_largest() {
+    let cut = Cut { first: 256, most: 1024 };
+    // 256, 256, 512, and 1024 from there on.
+    let blocks: Vec<(u64, u64)> = (0..6).map(|index| cut.block(index)).collect();
+    assert_eq!(
+      blocks,
+      [
+        (0, 256),
+        (256, 256),
+        (512, 512),
+        (1024, 1024),
+        (2048, 1024),
+        (3072, 1024)
+      ]
+    );
+    for (index, (start, size)) in blocks.iter().enumerate() {
+      for offset in [*start, start + size / 2, start + size - 1] {
+        assert_eq!(cut.index_of(offset), index as u64, "the byte at {offset}");
+      }
+    }
+    assert_eq!(
+      cut.index_of(1024 * 100 + 5),
+      3 + 99,
+      "far in, where every block is the largest"
+    );
+    assert_eq!(cut.block(3 + 99), (1024 * 100, 1024));
+
+    // Of one size, as before.
+    let even = Cut::even(4096);
+    assert_eq!((even.block(0), even.block(3)), ((0, 4096), (12288, 4096)));
+    assert_eq!(even.index_of(12288 + 17), 3);
+    // A first block larger than the largest is the largest.
+    let wide = Cut {
+      first: 4096,
+      most: 1024,
+    };
+    assert_eq!((wide.block(0), wide.block(2)), ((0, 1024), (2048, 1024)));
+  }
+
+  #[test]
+  fn an_address_cut_into_growing_blocks_is_read_whole_and_asks_for_its_start_first_in_a_small_block() {
+    let body = numbered(5000);
+    let (address, asked, _) = serve_file(body.clone(), true);
+    let cut = Cut { first: 256, most: 1024 };
+    let reader = HttpReader::open(
+      Agents::new(4),
+      address,
+      vec![(Arc::from("X-Asked-By"), Arc::from("lurq"))],
+      SECOND,
+      cut,
+    )
+    .unwrap();
+    assert_eq!(*asked.lock(), ["0-255"], "its start, in the small first block");
+    assert_eq!(read(&reader, 0, body.len()).unwrap(), body);
+    // Across the blocks of different sizes.
+    for at in [250, 500, 1020, 2040, 4990] {
+      assert_eq!(
+        read(&reader, at, 16).unwrap(),
+        &body[at as usize..(at as usize + 16).min(body.len())],
+        "at {at}"
+      );
+    }
+    let asked = asked.lock().clone();
+    for range in ["256-511", "512-1023", "1024-2047", "2048-3071"] {
+      assert!(asked.iter().any(|asked| asked == range), "{range} of {asked:?}");
+    }
+  }
+
+  /// The start of an MP4 file: its type, then `boxes`, each a name and how long it says it is.
+  fn mp4_start(boxes: &[(&[u8; 4], u32)]) -> Vec<u8> {
+    let mut start = Vec::new();
+    start.extend_from_slice(&24u32.to_be_bytes());
+    start.extend_from_slice(b"ftypisom");
+    start.extend_from_slice(&[0; 12]);
+    for (name, size) in boxes {
+      start.extend_from_slice(&size.to_be_bytes());
+      start.extend_from_slice(*name);
+    }
+    start
+  }
+
+  #[test]
+  fn where_the_index_of_an_mp4_is_after_its_pictures_is_read_from_its_start() {
+    // Written for the network: the index first.
+    assert_eq!(index_at_the_end(&mp4_start(&[(b"moov", 900), (b"mdat", 50_000)])), None);
+    // The pictures first: the index is what follows them.
+    assert_eq!(index_at_the_end(&mp4_start(&[(b"mdat", 50_000)])), Some(24 + 50_000));
+    let mut after_free = mp4_start(&[(b"free", 8)]);
+    after_free.extend_from_slice(&50_000u32.to_be_bytes());
+    after_free.extend_from_slice(b"mdat");
+    assert_eq!(index_at_the_end(&after_free), Some(24 + 8 + 50_000));
+    // A long box says its length in the eight bytes after its name.
+    let mut long = mp4_start(&[(b"mdat", 1)]);
+    long.extend_from_slice(&(6_000_000_000u64).to_be_bytes());
+    assert_eq!(index_at_the_end(&long), Some(24 + 6_000_000_000));
+    // Not an MP4, and a start too short to say.
+    assert_eq!(index_at_the_end(b"GIF89a, and then what a picture holds"), None);
+    assert_eq!(index_at_the_end(&mp4_start(&[])[..20]), None);
+  }
+
+  #[test]
+  fn an_mp4_with_its_index_at_its_end_has_its_end_asked_for_as_it_opens() {
+    // Its pictures take the file to 9000, and its index is the 1000 bytes after them.
+    let mut body = mp4_start(&[(b"mdat", 9000 - 24)]);
+    body.resize(10_000, 7);
+    let (address, asked, _) = serve_file(body, true);
+    let cut = Cut { first: 256, most: 1024 };
+    let reader = HttpReader::open(
+      Agents::new(4),
+      address,
+      vec![(Arc::from("X-Asked-By"), Arc::from("lurq"))],
+      SECOND,
+      cut,
+    )
+    .unwrap();
+    // The block of the index is on its way, or there, with nothing read past the start yet.
+    let until = Instant::now() + SECOND;
+    while !asked.lock().iter().any(|range| range == "8192-9215") {
+      assert!(Instant::now() < until, "the end was not asked for: {:?}", asked.lock());
+      thread::sleep(Duration::from_millis(5));
+    }
+    drop(reader);
+  }
+
+  #[test]
+  fn told_not_to_read_ahead_it_asks_for_what_is_read_and_no_more_until_it_is_told_to() {
+    let body = numbered(10 * SMALL as usize);
+    let (address, asked, _) = serve_file(body.clone(), true);
+    let reader = asking(&address).unwrap();
+    reader.read_ahead(false);
+    assert_eq!(read(&reader, 100, 8).unwrap(), &body[100..108]);
+    thread::sleep(Duration::from_millis(150));
+    assert_eq!(*asked.lock(), ["0-4095"], "its first block, and nothing after it");
+
+    // Told to, what follows its last read is asked for at once, with nothing read.
+    reader.read_ahead(true);
+    let until = Instant::now() + SECOND;
+    while asked.lock().len() < 3 {
+      assert!(Instant::now() < until, "nothing was read ahead: {:?}", asked.lock());
+      thread::sleep(Duration::from_millis(5));
+    }
+    let mut ahead = asked.lock().clone();
+    ahead.sort();
+    assert_eq!(ahead, ["0-4095", "4096-8191", "8192-12287"]);
+  }
+
+  #[test]
   fn an_address_opened_without_the_header_it_needs_fails_with_what_the_server_answered() {
     let (address, ..) = serve_file(numbered(1000), true);
-    let refused = HttpReader::open(Agents::new(4), address, Vec::new(), SECOND, SMALL);
+    let refused = HttpReader::open(Agents::new(4), address, Vec::new(), SECOND, Cut::even(SMALL));
     assert_eq!(refused.err(), Some(LoadError::Status(403)));
   }
 
