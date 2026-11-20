@@ -25,7 +25,10 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   one line does not hold them. A renderer is given them as `AlertView::actions`.
 - **Why.** Orchester's kit builds its notices on `ui::Alert` only if the alert holds what a notice holds; a notice
   of one button is the exception there, not the rule. The two places are the two the kit draws.
-- **State.** In work on `claude/k4-c-alert-card`.
+- **State.** Built on `claude/k4-c-alert-card` (2026-11-20): `Alert::action` adds, `Alert::actions`,
+  `Alert::stacked` and `AlertState::Stacked`, `AlertView::actions` (field and method, in place of `action`). A
+  breaking change of the renderer's view and of a second `action` call, in the changelog. What the kit's Settings
+  notice has after its actions (a quieter note) is not part of it.
 
 ### A card takes the layout of what is in it from its own builder
 
@@ -44,7 +47,10 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   not changed: no call site of the kit asks it of them, and they take it the same way when one does.
 - **Why.** A card the app cannot lay out as it lays out a column is not used: the kit kept its own column because of
   it.
-- **State.** In work on `claude/k4-c-alert-card`.
+- **State.** Built on `claude/k4-c-alert-card` (2026-11-20): `Card::padding`, `gap`, `align_items`, `height`,
+  `min_width`, `max_width`, `min_height`, `max_height`, `flex`, `flex_shrink`, `absolute` and `describe`, on a read
+  card and a pressed one. A length in percent is not a `Length`, so a call site's `Dimension::Pct(100.0)` is
+  `Length::Fill`.
 
 ## 2026-11-19
 
