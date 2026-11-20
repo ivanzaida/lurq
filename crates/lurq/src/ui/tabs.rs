@@ -77,6 +77,8 @@ pub enum TabsPart {
   Icon,
   /// The count of a tab, after its label: how many things are in it.
   Count,
+  /// The count of a tab in a pill, after its label: how many things in it wait for the person.
+  Badge,
   /// The line that sets a tab apart from those before it.
   Separator,
   /// The panel of the selected tab.
@@ -102,6 +104,7 @@ names!(TabsPart {
   Label => "label",
   Icon => "icon",
   Count => "count",
+  Badge => "badge",
   Separator => "separator",
   Panel => "panel",
   Bar => "bar",
@@ -151,12 +154,17 @@ type PanelBuilder = Arc<dyn Fn() -> Element + Send + Sync>;
 ///   .icon(icons::INBOX)
 ///   .count(12)
 ///   .panel(|| Text::new("What came in").into());
+/// // Three things wait for the person; the next tab is not there yet, and says why.
+/// let review = Tab::new("review", "Review").badge(3);
+/// let later = Tab::new("insights", "Insights").disabled_reason("Comes with the next release");
 /// ```
 pub struct Tab<T> {
   value: T,
   label: Arc<str>,
   icon: Option<Name>,
   count: Option<Arc<str>>,
+  badge: Option<Arc<str>>,
+  reason: Option<Arc<str>>,
   disabled: bool,
   separated: bool,
   panel: Option<PanelBuilder>,
@@ -173,6 +181,8 @@ impl<T> Tab<T> {
       label: Arc::from(label),
       icon: None,
       count: None,
+      badge: None,
+      reason: None,
       disabled: false,
       separated: false,
       panel: None,
@@ -194,9 +204,26 @@ impl<T> Tab<T> {
     self
   }
 
+  /// A count after the label in a pill: how many things in the tab wait for the person. "3", "99+". Beside a
+  /// [`count`](Self::count), after it.
+  pub fn badge(mut self, count: impl Display) -> Self {
+    self.badge = Some(Arc::from(count.to_string()));
+    self
+  }
+
   /// Whether the tab cannot be selected: it is dimmed, and the arrow keys pass it by.
   pub fn disabled(mut self, disabled: bool) -> Self {
     self.disabled = disabled;
+    self
+  }
+
+  /// The tab cannot be selected, for `reason`: it is disabled, and the reason is its tooltip and its description to
+  /// tooling: "Comes with the next release". An empty reason is none, and leaves the tab as it was.
+  pub fn disabled_reason(mut self, reason: &str) -> Self {
+    if !reason.is_empty() {
+      self.reason = Some(Arc::from(reason));
+      self.disabled = true;
+    }
     self
   }
 
@@ -406,6 +433,10 @@ pub struct TabEntry {
   pub label: Arc<str>,
   pub icon: Option<Name>,
   pub count: Option<Arc<str>>,
+  /// The count in a pill, of what waits for the person.
+  pub badge: Option<Arc<str>>,
+  /// Why the tab cannot be selected, where the app said.
+  pub reason: Option<Arc<str>>,
   pub disabled: bool,
   pub separated: bool,
   pub selected: bool,
@@ -683,6 +714,8 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Tabs<T> {
           label: tab.label,
           icon: tab.icon,
           count: tab.count,
+          badge: tab.badge,
+          reason: tab.reason,
           disabled: tab.disabled,
           separated: tab.separated,
           selected: chosen,
@@ -782,6 +815,7 @@ impl Prepared {
       (
         &tab.label,
         &tab.count,
+        &tab.badge,
         tab.icon.map(|icon| icon.as_str()),
         tab.separated,
       )
@@ -1041,6 +1075,13 @@ impl TabsView {
       let style = part(TabsPart::Count);
       tab = tab.child(Row::new().part(&style).child(style.text(count).nowrap()));
     }
+    if let Some(badge) = &entry.badge {
+      let style = part(TabsPart::Badge);
+      tab = tab.child(Row::new().part(&style).child(style.text(badge).nowrap()));
+    }
+    if let Some(reason) = &entry.reason {
+      tab = tab.describe("a11y_description", reason.clone());
+    }
     if let Some(id) = &entry.id {
       tab = tab.id(id.clone());
     }
@@ -1053,6 +1094,15 @@ impl TabsView {
       tab = tab.ref_element(last.clone());
     }
     tab
+  }
+
+  /// The tab at `index` as the list holds it: [`tab`](Self::tab), with its reason as its tooltip where it has one.
+  pub fn tab_element(&self, index: usize) -> Element {
+    let tab = self.tab(index);
+    match &self.tabs[index].reason {
+      Some(reason) => super::Tooltip::new(reason).declared(tab),
+      None => tab.into(),
+    }
   }
 
   /// The line that sets a tab apart from those before it.
@@ -1076,7 +1126,7 @@ impl TabsView {
       if index > 0 && self.tabs[index].separated {
         children.push(self.separator());
       }
-      children.push(self.tab(index).into());
+      children.push(self.tab_element(index));
     }
     let part = self.part(TabsPart::List);
     let orientation = if self.vertical() { "vertical" } else { "horizontal" };
@@ -1354,6 +1404,9 @@ impl<T: Send + Sync + 'static> Themed for Tabs<T> {
   ///   in the foreground and its count whole. A separator is 1 by 16 in the border's color. Down the side
   ///   (Tabs/Vertical) the list is at least 180 wide with its line at the start, a tab 32 high, padded 12, its label
   ///   13, the selected one marked at the start.
+  /// - A badge, in every form: a pill of the primary fill after the label and the count, padded 6 and 1, its number
+  ///   11/500 in the primary's foreground; on a selected pill tab the other way round. The board has none: it is
+  ///   lurq's.
   /// - Pill: round tabs 4 apart, 30 high, padded 14, the label 13/500; the selected one in the primary fill.
   /// - The overflowing form (Tabs/Overflow): a row 40 high, the list between two scroll buttons 28 wide with chevrons
   ///   of 14 in the foreground, its tabs 20 apart with labels of 13; at the end a More button set apart by a line,
@@ -1361,7 +1414,8 @@ impl<T: Send + Sync + 'static> Themed for Tabs<T> {
   fn recipe() -> Recipe {
     use PaletteColor::{Background, Foreground, Muted, MutedForeground, Primary, PrimaryForeground, Ring};
     use TabsPart::{
-      Bar, Count, Icon, Label, List, More, MoreIcon, MoreLabel, Panel, Root, ScrollButton, ScrollIcon, Separator, Tab,
+      Badge, Bar, Count, Icon, Label, List, More, MoreIcon, MoreLabel, Panel, Root, ScrollButton, ScrollIcon,
+      Separator, Tab,
     };
     use TabsState::{Disabled, Horizontal, Overflow, Selected, Vertical};
     use TabsVariant::{Default, Line, Pill};
@@ -1377,6 +1431,16 @@ impl<T: Send + Sync + 'static> Themed for Tabs<T> {
       .base(Label, |s| s.typography(TypographyStyle::Label))
       .base(Icon, |s| s.square(IconSize::Sm))
       .base(Count, |s| s.typography(TypographyStyle::Caption).foreground(MutedForeground))
+      .base(Badge, |s| {
+        s.padding_x(6.0)
+          .padding_y(1.0)
+          .radius(RadiusSize::Full)
+          .background(Primary)
+          .foreground(PrimaryForeground)
+          .typography(TypographyStyle::Caption)
+          .font_size(11.0)
+          .weight(FontWeight::Medium)
+      })
       .base(Separator, |s| s.width(1.0).height(16.0).background(PaletteColor::Border))
       .base(Panel, |s| s.radius(RadiusSize::Md))
       .base(Bar, |s| s.width(Length::Fill))
@@ -1471,6 +1535,8 @@ impl<T: Send + Sync + 'static> Themed for Tabs<T> {
         s.background(Primary).foreground(PrimaryForeground)
       })
       .when(when(Pill, &[Selected]).hovered(), Tab, |s| s.foreground(PrimaryForeground))
+      // On the primary fill the badge is the other way round.
+      .when(when(Pill, &[Selected]), Badge, |s| s.background(PrimaryForeground).foreground(Primary))
       .when(when(Pill, &[Selected]), Count, |s| {
         s.foreground(PrimaryForeground).opacity(OpacityLevel::Muted)
       })

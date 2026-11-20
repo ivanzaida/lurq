@@ -362,6 +362,15 @@ impl Tooltip {
     })
   }
 
+  /// Puts the tooltip on `element` as [`mount`](Self::mount) does, where no `Ctx` is at hand: it is mounted where a
+  /// component renders the element, a builder's own element too.
+  pub(crate) fn declared(self, element: impl Into<Element>) -> Element {
+    Element::component::<TooltipHost>(TooltipProps {
+      tooltip: Arc::new(self),
+      child: element.into(),
+    })
+  }
+
   /// The tooltip as it is drawn on `side`, in `theme`, its text wrapped or not.
   fn view(&self, theme: &Theme, side: TooltipSide, multiline: bool) -> TooltipView {
     let case = Case {

@@ -12,7 +12,7 @@ use crate::{
   app::events::{MouseButton, MouseEvent},
   app::theme::{IconSize, MotionDuration},
   components::{self, Row, TextOverflow},
-  core::{Signal, SignalValue},
+  core::{ElementRef, Signal, SignalValue},
   layout::layout_kind::Justify,
   node::{Element, EventHandler},
 };
@@ -206,7 +206,13 @@ pub(crate) fn glyph(part: &ResolvedPart, name: Name, spin: bool) -> Element {
 ///
 /// let plain: Choice<u8> = (1, "Day").into();
 /// let with_icon = Choice::new("bold", "Bold").icon(icons::BOLD).icon_only(true);
+/// // A segment or a radio of its own id, with a count after its label and a state of the theme's.
+/// let all = Choice::new("all", "All").id("filter-all").count(24).state("warned", false);
 /// ```
+///
+/// What a group draws of a choice: a [`SegmentedControl`](super::SegmentedControl) and a
+/// [`RadioGroup`](super::RadioGroup) all of it; a toggle group and a chip group its label, its icon, `disabled`,
+/// `id` and `state`, and not its count or its element ref.
 #[derive(Clone)]
 pub struct Choice<T> {
   pub(crate) value: T,
@@ -214,6 +220,10 @@ pub struct Choice<T> {
   pub(crate) icon: Option<Name>,
   pub(crate) icon_only: bool,
   pub(crate) disabled: bool,
+  pub(crate) id: Option<Arc<str>>,
+  pub(crate) count: Option<Arc<str>>,
+  pub(crate) states: Vec<Name>,
+  pub(crate) element: Option<ElementRef>,
 }
 
 impl<T> Choice<T> {
@@ -225,7 +235,40 @@ impl<T> Choice<T> {
       icon: None,
       icon_only: false,
       disabled: false,
+      id: None,
+      count: None,
+      states: Vec::new(),
+      element: None,
     }
+  }
+
+  /// The id of what is pressed to make the choice (a segment, a radio's mark), after which its parts are named:
+  /// `<id>-label`, `<id>-count`.
+  pub fn id(mut self, id: impl Into<Arc<str>>) -> Self {
+    self.id = Some(id.into());
+    self
+  }
+
+  /// A number after the label: how many things the choice holds. "24", "99+".
+  pub fn count(mut self, count: impl std::fmt::Display) -> Self {
+    self.count = Some(Arc::from(count.to_string()));
+    self
+  }
+
+  /// Puts the choice alone in a state the theme's recipe names, or takes it out: a choice that warns.
+  pub fn state(mut self, state: impl Into<Name>, on: bool) -> Self {
+    let state = state.into();
+    self.states.retain(|held| *held != state);
+    if on {
+      self.states.push(state);
+    }
+    self
+  }
+
+  /// Refers to what is pressed to make the choice, once it is laid out: what a popup it opens hangs from.
+  pub fn element_ref(mut self, element: ElementRef) -> Self {
+    self.element = Some(element);
+    self
   }
 
   /// An icon before the label, by its name in the theme's set.

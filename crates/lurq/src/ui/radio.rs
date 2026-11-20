@@ -13,7 +13,7 @@ use crate::{
   animation::Transition,
   app::theme::{BorderSize, MotionDuration, OpacityLevel, PaletteColor, RadiusSize, Theme, TypographyStyle},
   components::{self, Column, Row},
-  core::{Signal, SignalValue},
+  core::{ElementRef, Signal, SignalValue},
   layout::Alignment,
   node::{CursorIcon, Element, FocusGroup, border::Border},
 };
@@ -29,6 +29,8 @@ pub enum RadioPart {
   Dot,
   /// Its text, beside the mark.
   Label,
+  /// The number after the label of a radio that has one: how many things the choice holds.
+  Count,
 }
 
 names!(RadioPart {
@@ -36,6 +38,7 @@ names!(RadioPart {
   Mark => "mark",
   Dot => "dot",
   Label => "label",
+  Count => "count",
 });
 
 /// The states of a radio a recipe styles, besides what the pointer and the
@@ -78,6 +81,8 @@ pub type RadioRenderer = Arc<dyn Fn(RadioView) -> Element + Send + Sync>;
 pub struct Radio {
   label: Arc<str>,
   label_hidden: bool,
+  count: Option<Arc<str>>,
+  element: Option<ElementRef>,
   selected: bool,
   invalid: bool,
   disabled: bool,
@@ -95,6 +100,8 @@ impl Radio {
     Self {
       label: Arc::from(label),
       label_hidden: false,
+      count: None,
+      element: None,
       selected: false,
       invalid: false,
       disabled: false,
@@ -110,6 +117,18 @@ impl Radio {
   /// Whether the radio is its mark alone. Its label stays what it is called.
   pub fn label_hidden(mut self, hidden: bool) -> Self {
     self.label_hidden = hidden;
+    self
+  }
+
+  /// A number after the label: how many things the choice holds. "24", "99+".
+  pub fn count(mut self, count: impl std::fmt::Display) -> Self {
+    self.count = Some(Arc::from(count.to_string()));
+    self
+  }
+
+  /// Refers to the mark, what is pressed, once it is laid out: what a popup the radio opens hangs from.
+  pub fn element_ref(mut self, element: ElementRef) -> Self {
+    self.element = Some(element);
     self
   }
 
@@ -196,6 +215,8 @@ impl Radio {
     let view = RadioView {
       label: self.label,
       label_hidden: self.label_hidden,
+      count: self.count,
+      element: self.element,
       selected: self.selected,
       invalid: self.invalid,
       disabled: self.disabled,
@@ -225,6 +246,9 @@ impl From<Radio> for Element {
 pub struct RadioView {
   pub label: Arc<str>,
   pub label_hidden: bool,
+  /// The number after the label, where the radio has one.
+  pub count: Option<Arc<str>>,
+  element: Option<ElementRef>,
   pub selected: bool,
   pub invalid: bool,
   pub disabled: bool,
@@ -278,6 +302,9 @@ impl RadioView {
     if let Some(key) = &self.key {
       mark = mark.key(key.clone());
     }
+    if let Some(element) = &self.element {
+      mark = mark.ref_element(element.clone());
+    }
     mark
   }
 
@@ -304,6 +331,10 @@ impl RadioView {
         label = label.on_click(move |_| press());
       }
       root = root.child(label);
+    }
+    if let Some(count) = &self.count {
+      let part = self.part(RadioPart::Count);
+      root = root.child(Row::new().part(&part).child(part.text(count).nowrap()));
     }
     root.into()
   }
@@ -340,8 +371,8 @@ impl Themed for Radio {
   /// color. Its label is 8 beside it, in the body's type.
   fn recipe() -> Recipe {
     // Not every role: the palette has a `Border` too.
-    use PaletteColor::{Background, Destructive, Foreground, Input, Primary};
-    use RadioPart::{Dot, Label, Mark, Root};
+    use PaletteColor::{Background, Destructive, Foreground, Input, MutedForeground, Primary};
+    use RadioPart::{Count, Dot, Label, Mark, Root};
     Recipe::new()
       .base(Root, |s| s.gap(8.0).foreground(Foreground))
       .base(Mark, |s| {
@@ -358,6 +389,8 @@ impl Themed for Radio {
       .base(Label, |s| {
         s.typography(TypographyStyle::Body).cursor(CursorIcon::Pointer)
       })
+      // A count is quieter than the label it follows.
+      .base(Count, |s| s.typography(TypographyStyle::Caption).foreground(MutedForeground))
       .focus_visible(Mark, |s| s.focus_ring())
       .state(RadioState::Selected, Mark, |s| {
         s.border(Border::inside(BorderSize::Sm, Primary))
@@ -470,7 +503,9 @@ pub type RadioGroupRenderer = Arc<dyn Fn(RadioGroupView) -> Element + Send + Syn
 /// # }
 /// ```
 ///
-/// A choice's icon is not drawn: a radio is its mark and its label.
+/// A choice's icon is not drawn: a radio is its mark and its label, and the count after it where the choice has one.
+/// A choice's id is its radio's (its mark's), after which the radio's parts are named; its states are the radio's,
+/// and its element ref refers to the mark.
 ///
 /// The group is one stop of Tab, at the selected radio or the first; the arrow
 /// keys move the focus to the next radio and select it, Home and End the
@@ -641,6 +676,18 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> RadioGroup<T> {
           .invalid(self.invalid)
           .disabled(self.disabled || choice.disabled)
           .rules(&item);
+        if let Some(id) = &choice.id {
+          radio = radio.id(id.clone());
+        }
+        if let Some(count) = &choice.count {
+          radio = radio.count(count);
+        }
+        if let Some(element) = &choice.element {
+          radio = radio.element_ref(element.clone());
+        }
+        for state in &choice.states {
+          radio = radio.state(state.clone(), true);
+        }
         if Some(index) == entry {
           radio = radio.force(self.forced);
         }
