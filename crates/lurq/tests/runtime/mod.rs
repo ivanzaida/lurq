@@ -34,6 +34,7 @@ mod futures {
   #[cfg(feature = "tokio")]
   mod tokio_tasks;
 }
+mod gesture_through_rebuild;
 mod headless_pass;
 mod hidden_overlay;
 mod hover_after_scroll;
