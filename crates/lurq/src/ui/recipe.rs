@@ -260,7 +260,12 @@ pub struct Recipe {
   rules: Vec<Rule>,
   /// The part of another component this recipe was lent from, which names a component given no id of its own.
   lent: Option<Lent>,
+  /// What the component's root says of itself to tooling that reads the tree: see [`Recipe::describe`].
+  descriptions: Vec<Description>,
 }
+
+/// What a node says of itself to tooling under a name: `("tone", "warning")`.
+type Description = (Arc<str>, Arc<str>);
 
 impl Recipe {
   pub fn new() -> Self {
@@ -383,7 +388,24 @@ impl Recipe {
   pub fn extend(mut self, other: &Recipe) -> Self {
     self.rules.extend(other.rules.iter().cloned());
     self.lent = Lent::over(self.lent, other.lent.as_ref());
+    self.descriptions.extend(other.descriptions.iter().cloned());
     self
+  }
+
+  /// Says `value` of the component's root under `name` to tooling that reads the tree, the DevTools and the MCP
+  /// tree, as an element's own `describe` does: the state an app's tests and an agent read, `("tone", "warning")`.
+  /// It is said on the node of the root part ([`Themed::ROOT`](super::Themed::ROOT)) when the renderer gives it the
+  /// part's style, before what the component says of itself, so a reader that takes the first value of a name takes
+  /// this one. What [`Styled::describe`](super::Styled::describe) lays over an instance. Like an element's
+  /// `describe`, it says nothing unless a tooling feature (`devtools`, `mcp`) is on.
+  pub fn describe(mut self, name: impl Into<Arc<str>>, value: impl Into<Arc<str>>) -> Self {
+    self.descriptions.push((name.into(), value.into()));
+    self
+  }
+
+  /// What the recipe says of the component's root to tooling, in the order it was said.
+  pub fn descriptions(&self) -> &[(Arc<str>, Arc<str>)] {
+    &self.descriptions
   }
 
   pub fn rules(&self) -> &[Rule] {
@@ -414,6 +436,7 @@ pub(crate) fn resolve(recipes: &[&Recipe], case: &Case, theme: &Theme) -> Resolv
     ROOT,
     lent,
   )
+  .described(recipes)
 }
 
 /// The part a component puts its id on, unless it says another ([`Themed::ROOT`](super::Themed::ROOT)).
@@ -500,6 +523,8 @@ pub struct ResolvedRecipe {
   owner: Option<Owner>,
   /// The part of the component it is built in that it stands for, if it was lent one.
   lent: Option<Lent>,
+  /// What the root's node says of itself to tooling: what the recipes said with [`Recipe::describe`].
+  descriptions: Option<Arc<[Description]>>,
 }
 
 impl ResolvedRecipe {
@@ -510,7 +535,18 @@ impl ResolvedRecipe {
       root: root.into(),
       owner: None,
       lent,
+      descriptions: None,
     }
+  }
+
+  /// This recipe saying on its root's node what `recipes` said with [`Recipe::describe`], the earlier first.
+  pub(crate) fn described(mut self, recipes: &[&Recipe]) -> Self {
+    let said: Vec<Description> = recipes
+      .iter()
+      .flat_map(|recipe| recipe.descriptions.iter().cloned())
+      .collect();
+    self.descriptions = (!said.is_empty()).then(|| Arc::from(said));
+    self
   }
 
   /// The recipe of a component whose id is `id`, which names the nodes of its parts after it: `x-label`, `x-dot`,
@@ -578,6 +614,7 @@ impl ResolvedRecipe {
     Recipe {
       rules: Vec::new(),
       lent: self.lent_part(part.into(), true),
+      descriptions: Vec::new(),
     }
   }
 
@@ -728,13 +765,21 @@ impl ResolvedPart {
   /// under the pointer, held down and focused from the keyboard.
   ///
   /// A node with no id is given the part's id, where the component has one: see
-  /// [`ResolvedRecipe::owned_by`].
+  /// [`ResolvedRecipe::owned_by`]. The node of the root part says what the recipe describes
+  /// ([`Recipe::describe`]).
   pub(crate) fn apply(&self, node: &mut Node) {
     if self.named
       && node.element_id.is_none()
       && let Some(id) = self.id()
     {
       NodeUpdate::id(node, id);
+    }
+    if self.part == self.recipe.root
+      && let Some(descriptions) = &self.recipe.descriptions
+    {
+      for (name, value) in descriptions.iter() {
+        NodeUpdate::describe(node, name.clone(), value.clone());
+      }
     }
     let theme = self.theme();
     let styles = self.styles();

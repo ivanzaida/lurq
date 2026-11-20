@@ -78,6 +78,37 @@ fn an_avatar_is_the_initials_of_the_name_on_a_round_muted_face() {
 }
 
 #[test]
+fn the_app_gives_the_letters_and_the_name_stays_who_it_is() {
+  let stage = Stage::new(|_| {
+    Row::new()
+      .padding(8.0)
+      .spacing(8.0)
+      .child(Avatar::new("Ada King Lovelace").initials("AK").id("ada"))
+      .child(Avatar::new("Ivan Zaida").initials("").id("blank"))
+      .into()
+  });
+  assert!(stage.paints("AK"), "the app's letters");
+  assert!(!stage.paints("AL"), "not the ones taken from the name");
+  assert!(
+    stage.paints(&glyph(icons::USER)),
+    "empty letters show the icon of a person"
+  );
+  #[cfg(any(feature = "devtools", feature = "mcp"))]
+  {
+    let mut stage = stage;
+    let name = stage
+      .tree
+      .get_element_by_id_mut("ada")
+      .and_then(|element| element.description("a11y_name"));
+    assert_eq!(
+      name.as_deref(),
+      Some("Ada King Lovelace"),
+      "tooling calls it by the name"
+    );
+  }
+}
+
+#[test]
 fn each_size_has_the_side_and_the_letters_of_the_board() {
   let sizes = [
     (AvatarSize::Xs, "xs", "Anna", 20.0, 9.0),

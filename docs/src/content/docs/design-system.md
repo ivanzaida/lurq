@@ -272,6 +272,7 @@ Column::new().theme(&dark).background(PaletteColor::Background).child(nav);
 
 - The order, later over earlier: the theme's recipe, the rules of the place (`.rules(...)`), the instance's own (`.style(...)`).
 - Every builder of `lurq::ui` is `Styled`: a trait with `rules`, `state` and `style`, so what styles any component (a helper of the app's over several kinds, the gallery's playground) is written once: `fn pill<C: Styled>(c: C, part: impl Into<Name>) -> C { Styled::style(c, part, |s| s.radius(RadiusSize::Full)) }`.
+- `Styled::describe(name, value)` says a state of any component to tooling that reads the tree, the DevTools and the MCP tree, as an element's own `describe` does: `Callout::new(..).describe("tone", "warning")`, `Progress::new(0.4).describe("share", "40")`. It is said on the node of the component's root part, where its id is, when the renderer gives that node the part's style, so a theme's renderer says it too; it comes before what the component says of itself there (its `a11y_role`, its `a11y_name`), and a reader that takes the first value of a name takes the app's. The instance's `Recipe` carries it (`Recipe::describe`), laid as its `rules` are. Like an element's `describe`, it says nothing unless a tooling feature (`devtools`, `mcp`) is on.
 - `ctx.in_theme(&theme, |ctx| ...)` is the theme of everything the closure builds and mounts, and returns it as an `Element`. Components mounted in it keep the theme when they render again on their own, the one the closure returns as its root too (`ctx.in_theme(&theme, |ctx| ctx.mount::<Panel>(props))`): what it paints is in the theme after a render of its own as at its first.
 - The theme reaches the whole of the subtree. A component built in it takes its recipe and its renderers, the sizes, type, opacity and motion of its parts, its density and its icons from that theme; and the roles left on the nodes, a color of the palette, a radius, a border width, a shadow, a spacing role, a typography style, the scroll bar and the caret, are laid out and painted with that theme's values. A subtree in a dark theme inside a light window is dark.
 - `.theme(&theme)` on any element does the second half alone: the element and what is in it are laid out and painted with the values of that theme. What was built outside `in_theme` keeps the recipes it was built with, so this is for plain elements, and `in_theme` is for components.
@@ -314,6 +315,7 @@ Icon::new(icons::SEARCH);                             // 16 high, in the foregro
 Icon::new(icons::SETTINGS).size(IconSize::Lg);        // a step of the theme's icon sizes
 Icon::new(icons::CHECK).color(PaletteColor::Success); // a color of its own
 Icon::new(icons::SPINNER).spin(true);                 // a spinner
+Icon::new(icons::SPINNER).spin(true).spin_motion(SpinMotion::stepped(24)); // in 24 poses a second
 ```
 
 | Builder | |
@@ -322,6 +324,7 @@ Icon::new(icons::SPINNER).spin(true);                 // a spinner
 | `size(size)` | An [`IconSize`](../theme/#icon-size) (`Md`, 16, by default) or a number of logical pixels. The icon is a square of that side |
 | `color(color)` | A color in place of the foreground of what it is in |
 | `spin(bool)` | It turns once in `ui::SPIN_PERIOD`, a second |
+| `spin_motion(SpinMotion)` | How it turns, in place of the theme's: [in steps, and still where motion is reduced](#spin-motion) |
 | `id(id)`, `key(key)` | Its id and key |
 
 - An icon names no color: it is drawn in the `.foreground(..)` of what it is in, as text is, so the icon of a button is the color of its label.
@@ -330,6 +333,27 @@ Icon::new(icons::SPINNER).spin(true);                 // a spinner
 - A name the theme has no glyph for takes its room and draws nothing.
 - Most icons are lines. `icons::STAR_FILL` is a solid star, the shape a [rating](#rating) lights: a glyph that is filled where `icons::STAR` is drawn.
 - Spinning icons are in phase: spinners that appear at different moments turn together. `ui::SPIN` is the keyframes of the turn, registered in every window; keyframe identifiers from `0xFF00` up are lurq's own.
+
+### Spin Motion
+
+How a spinning icon and a [spinner](#spinner) (its ring, its dots, its bars) move: a `SpinMotion`.
+
+```rust
+use lurq::ui::{Icon, SpinMotion, Spinner, SpinnerKind, icons};
+
+// 24 poses a second and none between, and still where the system asks for reduced motion.
+let motion = SpinMotion::stepped(24).still_when_reduced(true);
+Icon::new(icons::SPINNER).spin(true).spin_motion(motion);
+Spinner::new().kind(SpinnerKind::Dots).motion(motion);
+
+// Every spinner that is not told its own, the ring of a loading button too.
+app.theme().set_spin_motion(motion);
+```
+
+- `SpinMotion::SMOOTH`, the default, moves at every frame the display has, so the window draws every frame while a spinner is shown.
+- `SpinMotion::stepped(per_second)` holds each pose until the next, `per_second` of them a second, and asks for no frame between: a ring of 24 turns 15 degrees at each of 24 steps of its second, and the window draws 24 frames a second whatever the number of spinners, for they all move on one clock. A period that is no whole number of steps is taken in the nearest number of them (the dots' 1.2 seconds are 28 steps at 24, 14 there and 14 back), and the dots and the bars start on a step, so that all of them change at the same moment.
+- `.still_when_reduced(true)` leaves them in their pose at rest where motion is reduced (`Theme::reduced_motion`): the ring unturned, the dots and the bars as the design draws them still. Unless told so, a spinner moves under reduced motion too: one that stood still would say nothing, where nothing else says that something is under way.
+- `Theme::set_spin_motion(motion)` (and `UiDefinition::set_spin_motion`) is the motion of every spinning icon and spinner given none of its own; `Icon::spin_motion` and `Spinner::motion` are one's own.
 
 ```rust
 use lurq::{app::theme::IconGlyph, ui::{Icon, icons}};
@@ -2043,6 +2067,8 @@ use lurq::{components::Image, ui::{Avatar, AvatarPresence, AvatarShape, AvatarSi
 Avatar::new("Ivan Zaida");
 Avatar::new("Ivan Zaida").image(Image::from_file("ivan.png")).presence(AvatarPresence::Online);
 Avatar::new("Ivy Chen").size(AvatarSize::Xl);
+// The app's letters; tooling still calls it "Ada King Lovelace".
+Avatar::new("Ada King Lovelace").initials("AK");
 
 // What is not a person: an icon in place of the initials, in a square.
 Avatar::new("Build bot").icon(icons::TERMINAL).shape(AvatarShape::Square);
@@ -2051,6 +2077,7 @@ Avatar::new("Build bot").icon(icons::TERMINAL).shape(AvatarShape::Square);
 | Builder | |
 | --- | --- |
 | `new(&str)` | Who it is. The initials are the first letters of the first word and the last: "Ivan Zaida" is "IZ", "Ivan" is "I". A name with no letters shows the icon of a person |
+| `initials(&str)` | The letters the face shows, in place of those taken from the name: the app's own way of making them. The name stays what tooling calls the avatar. Empty letters show the icon of a person |
 | `image(Image)` | A picture in place of the initials, which fills the face, cropped to it (`cover`) and clipped to its shape: the engine's image element as the app builds it, from pixels (`Image::new`) or from a file or bytes it decodes (`Image::from_file`, `Image::from_bytes`, feature `image`), with a cache key and a size to decode to where it wants them. Feature `raster` |
 | `icon(IconChoice)` | An icon of the theme's set in place of the initials, for what is not a person: a bot, a team. `None` is no icon, not even the person a name with no letters shows |
 | `size(AvatarSize)` | `Xs` 20, `Sm` 24, `Md` 32 (the default), `Lg` 40, `Xl` 56, or a size the theme's recipe names |
@@ -2339,10 +2366,11 @@ PageLoader::new("Starting lurq").description("Loading your workspace…");
 | `label(&str)` | What is being done, drawn 8 beside it, and what it is called |
 | `label_hidden(bool)` | The label is its name and is not drawn |
 | `decorative(bool)` | No status of its own, where what it is in says what is under way: a button that loads |
+| `motion(SpinMotion)` | How the ring, the dots or the bars move, in place of the theme's: [in steps, and still where motion is reduced](#spin-motion) |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them |
 
 - To what reads the tree a spinner is a `status`, called by its label, or "Loading" when it has none.
-- The ring is the glyph a [button](#button) turns while it loads, and `Button::loading` draws a `Spinner`: a rule a theme lays over the spinner reaches the button's. It turns with `ui::SPIN` once in `SPIN_PERIOD`. The dots fade one after another with `ui::SPINNER_DOTS`, the bars shrink about their middle one after another with `ui::SPINNER_BARS`; all of them play on the animation clock, so every spinner on screen moves as one. A spinner moves whether or not motion is reduced: one that stood still would say nothing.
+- The ring is the glyph a [button](#button) turns while it loads, and `Button::loading` draws a `Spinner`: a rule a theme lays over the spinner reaches the button's. It turns with `ui::SPIN` once in `SPIN_PERIOD`. The dots fade one after another with `ui::SPINNER_DOTS`, the bars shrink about their middle one after another with `ui::SPINNER_BARS`; all of them play on the animation clock, so every spinner on screen moves as one. A spinner moves whether or not motion is reduced, unless its [motion](#spin-motion) says to stand still: one that stood still would say nothing.
 - A spinner is drawn in the color of the text around it, so a spinner in a button is the color of its label: the ring as text is, and the dots and the bars by the fill `BackgroundColor::CurrentForeground`. Where nothing around it names a color, that is `Foreground`. A variant gives it a color of its own.
 - Parts: `SpinnerPart::Root` (the spinner and its label), `Indicator` (the ring as a square of its side, or the row of the dots or of the bars), `Dot`, `Bar`, `Label`. States: `SpinnerState::Dots`, `Bars`.
 - In the design the ring is 16, 24 or 32; the dots are 8, 6 apart, in a row 16 high, at 1, 0.6 and 0.3 of their color at rest; the bars are 3 wide and round, 3 apart, 8, 18, 12, 20 and 10 high in a row of 20; the label is 13 in `MutedForeground`.

@@ -391,6 +391,18 @@ impl Stage {
     self.text_quad(content).is_some()
   }
 
+  /// How long after the moment `later` after the stage's clock what moves next draws something else, as of the
+  /// last pass ([`Tree::next_timeline_change`]): `Some(ZERO)` for what changes at every frame, `None` when nothing
+  /// moves.
+  #[allow(dead_code)]
+  pub fn next_change_after(&self, later: Duration) -> Option<Duration> {
+    let at = self.now + later;
+    self
+      .tree
+      .next_timeline_change()
+      .map(|next| next.saturating_duration_since(at))
+  }
+
   /// Paints once more, `later` after the last pass: for what moves on its own.
   pub fn pass_after(&mut self, later: Duration) {
     self.clock(self.now + later);

@@ -24,7 +24,8 @@ use lurq::{
   node::{color::Color, dimension::Dimension},
   ui::{
     Button, Case, FADE_IN, FADE_OUT, LoadingOverlay, LoadingOverlayPart, LoadingOverlayState, SPIN_PERIOD,
-    SPINNER_BARS_PERIOD, SPINNER_DOTS_PERIOD, Spinner, SpinnerKind, SpinnerPart, SpinnerSize, SpinnerVariant, icons,
+    SPINNER_BARS_PERIOD, SPINNER_DOTS_PERIOD, SpinMotion, Spinner, SpinnerKind, SpinnerPart, SpinnerSize,
+    SpinnerVariant, icons,
   },
 };
 
@@ -501,6 +502,138 @@ fn a_spinner_and_a_loading_buttons_move_while_motion_is_reduced_too() {
     assert!(most - least > 0.3, "dot {index} fades and comes back: {seen:?}");
   }
   assert_eq!(shrunk, [true; 5], "every bar shrinks at some moment of its period");
+}
+
+/// How many times what `look` reads changes over `span`, read every 2 milliseconds.
+fn changes(stage: &mut Stage, span: Duration, look: impl Fn(&Stage) -> Vec<String>) -> usize {
+  let mut last = look(stage);
+  let mut changes = 0;
+  let mut at = Duration::ZERO;
+  while at < span {
+    at += Duration::from_millis(2);
+    stage.pass_after(at);
+    let now = look(stage);
+    if now != last {
+      changes += 1;
+      last = now;
+    }
+  }
+  changes
+}
+
+fn ring_poses(stage: &Stage) -> Vec<String> {
+  stage
+    .quads()
+    .into_iter()
+    .filter(|quad| matches!(&quad.content, QuadContent::Text { text, .. } if *text == glyph(icons::SPINNER)))
+    .map(|ring| format!("{:?}", ring.transform))
+    .collect()
+}
+
+fn dot_opacities(stage: &Stage) -> Vec<String> {
+  rects(stage, 8.0, 8.0)
+    .iter()
+    .map(|dot| format!("{:.4}", dot.opacity))
+    .collect()
+}
+
+#[test]
+fn a_stepped_ring_turns_a_pose_a_step_and_asks_for_no_frame_between() {
+  let mut stage = Stage::new(|_| Row::new().child(Spinner::new().motion(SpinMotion::stepped(24))).into());
+  let step = SPIN_PERIOD / 24;
+  stage.pass_after(Duration::from_millis(5));
+  let next = stage.next_change_after(Duration::from_millis(5)).expect("it moves");
+  assert!(
+    next > Duration::ZERO && next <= step,
+    "the next frame is at the next step, not at once: {next:?}"
+  );
+  // Half a second is 12 steps: 12 poses, give or take the one it starts in.
+  let poses = changes(&mut stage, SPIN_PERIOD / 2, ring_poses);
+  assert!((11..=13).contains(&poses), "{poses} poses in half a turn");
+
+  // A smooth ring asks for the next frame at once, and has a pose at every one.
+  let mut smooth = Stage::new(|_| Row::new().child(Spinner::new()).into());
+  smooth.pass_after(Duration::from_millis(5));
+  assert_eq!(smooth.next_change_after(Duration::from_millis(5)), Some(Duration::ZERO));
+  assert!(changes(&mut smooth, SPIN_PERIOD / 2, ring_poses) > 100);
+}
+
+#[test]
+fn stepped_dots_and_bars_change_together_on_the_steps() {
+  let mut stage = Stage::new(|_| {
+    Row::new()
+      .child(Spinner::new().kind(SpinnerKind::Dots).motion(SpinMotion::stepped(24)))
+      .into()
+  });
+  stage.pass_after(Duration::from_millis(3));
+  let next = stage.next_change_after(Duration::from_millis(3)).expect("they move");
+  assert!(next > Duration::ZERO && next <= SPINNER_DOTS_PERIOD / 28, "{next:?}");
+  // A period of the dots (1.2 seconds) is 28 steps at 24 a second, 14 there and 14 back: every dot starts on a
+  // step, so the three change together, about 28 times, not twice or three times as often.
+  let changed = changes(&mut stage, SPINNER_DOTS_PERIOD, dot_opacities);
+  assert!((27..=29).contains(&changed), "{changed} changes in a period");
+
+  let mut bars = Stage::new(|_| {
+    Row::new()
+      .child(Spinner::new().kind(SpinnerKind::Bars).motion(SpinMotion::stepped(12)))
+      .into()
+  });
+  bars.pass_after(Duration::from_millis(3));
+  let next = bars.next_change_after(Duration::from_millis(3)).expect("they move");
+  assert!(next > Duration::ZERO && next <= SPINNER_BARS_PERIOD / 12, "{next:?}");
+}
+
+#[test]
+fn a_spinner_told_to_stays_still_where_motion_is_reduced_and_a_theme_tells_every_one() {
+  let app = App::new();
+  app.theme().set_reduced_motion(Some(true));
+  let still = SpinMotion::stepped(24).still_when_reduced(true);
+  let mut stage = Stage::in_app(app, move |_| {
+    Column::new()
+      .spacing(12.0)
+      .child(Spinner::new().motion(still))
+      .child(Spinner::new().kind(SpinnerKind::Dots).motion(still))
+      .child(Spinner::new().kind(SpinnerKind::Bars).motion(still))
+      .into()
+  });
+  stage.pass_after(SPIN_PERIOD / 4);
+  assert_eq!(stage.next_change_after(SPIN_PERIOD / 4), None, "nothing moves");
+  assert!(
+    ring_poses(&stage).iter().all(|pose| *pose == ring_poses(&stage)[0]),
+    "the ring at rest"
+  );
+  let rings: Vec<Quad> = stage
+    .quads()
+    .into_iter()
+    .filter(|quad| matches!(&quad.content, QuadContent::Text { text, .. } if *text == glyph(icons::SPINNER)))
+    .collect();
+  assert!(rings.iter().all(|ring| ring.transform.is_identity()), "unturned");
+  assert_eq!(
+    dot_opacities(&stage),
+    ["1.0000", "0.6000", "0.3000"],
+    "the dots as drawn still"
+  );
+
+  // The theme's motion is every spinner's that has none of its own, a loading button's ring too.
+  let app = App::new();
+  app.theme().set_reduced_motion(Some(true));
+  app.theme().set_spin_motion(still);
+  let mut stage = Stage::in_app(app, |_| {
+    Column::new()
+      .child(Spinner::new())
+      .child(Button::new("Saving…").loading(true))
+      .into()
+  });
+  stage.pass_after(SPIN_PERIOD / 4);
+  assert_eq!(stage.next_change_after(SPIN_PERIOD / 4), None, "nothing moves");
+  // Where motion is not reduced, they turn, in the theme's steps.
+  let app = App::new();
+  app.theme().set_reduced_motion(Some(false));
+  app.theme().set_spin_motion(still);
+  let mut stage = Stage::in_app(app, |_| Row::new().child(Button::new("Saving…").loading(true)).into());
+  stage.pass_after(Duration::from_millis(5));
+  let next = stage.next_change_after(Duration::from_millis(5)).expect("it turns");
+  assert!(next > Duration::ZERO && next <= SPIN_PERIOD / 24, "{next:?}");
 }
 
 mod page_loader {
