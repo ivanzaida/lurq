@@ -59,6 +59,9 @@ pub enum DialogPart {
   NoteIcon,
   /// A key cap in the note and the words of what the key does after it: the room before them and between them.
   NoteKey,
+  /// The key cap of a [`NoteKey`](Self::NoteKey): what a [`Kbd`] built in it is named by (`x-note_key_cap`,
+  /// `x-note_key_cap-2`), and rules over its root.
+  NoteKeyCap,
 }
 
 names!(DialogPart {
@@ -77,7 +80,20 @@ names!(DialogPart {
   Note => "note",
   NoteIcon => "note_icon",
   NoteKey => "note_key",
+  NoteKeyCap => "note_key_cap",
 });
+
+/// Where the focus goes as a dialog opens.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum DialogFocus {
+  /// To the control marked to take it (a [`Button::autofocus`](super::Button::autofocus), the main action), else to
+  /// the first stop of Tab in it: the close button, or what the body or the footer holds first.
+  #[default]
+  FirstControl,
+  /// To the panel itself, no control: Enter then runs what the dialog confirms with ([`Dialog::on_confirm`]), and
+  /// Tab goes on to its first control. The panel is a stop of Tab, before its first control, and shows no ring.
+  Panel,
+}
 
 /// The states of a dialog a recipe styles.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -173,6 +189,7 @@ pub struct Dialog {
   note_pieces: Vec<NotePiece>,
   inset_top: f32,
   on_confirm: Vec<Confirm>,
+  initial_focus: DialogFocus,
   body: Vec<Element>,
   footer: Vec<Element>,
   size: Option<Name>,
@@ -198,6 +215,8 @@ pub struct Dialog {
 enum NotePiece {
   /// A key cap of these keys, and the words of what the key does.
   Key(Arc<str>, Arc<str>),
+  /// A key cap that says the app's own word for the key, and the words of what the key does.
+  Worded(Arc<str>, Arc<str>),
   /// An element of the app's.
   Element(Element),
 }
@@ -222,6 +241,7 @@ impl Dialog {
       note_pieces: Vec::new(),
       inset_top: 0.0,
       on_confirm: Vec::new(),
+      initial_focus: DialogFocus::FirstControl,
       body: Vec::new(),
       footer: Vec::new(),
       size: None,
@@ -291,7 +311,17 @@ impl Dialog {
     self
   }
 
-  /// An element of the app's in the note, after its words and what was added before: a link, a mark of its own.
+  /// A key cap that says `cap`, the app's own word for the key as it is written ("Enter", "Введення"), in place of
+  /// the platform's name or glyph, and the words of what the key does after it, as [`note_key`](Self::note_key)
+  /// puts them. An empty `words` is the key cap alone.
+  pub fn note_key_worded(mut self, cap: &str, words: &str) -> Self {
+    self.note_pieces.push(NotePiece::Worded(Arc::from(cap), Arc::from(words)));
+    self
+  }
+
+  /// An element of the app's in the note, after its words and what was added before: a link, a mark of its own, a
+  /// reason. It gives way where the note is short, down to nothing, so that a text in it wraps on to the next lines,
+  /// and it is never wider than the note.
   pub fn note_child(mut self, element: impl Into<Element>) -> Self {
     self.note_pieces.push(NotePiece::Element(element.into()));
     self
@@ -312,6 +342,14 @@ impl Dialog {
   /// method composes, nor with Ctrl, Alt or Cmd held. A second handler is called after the first.
   pub fn on_confirm(mut self, handler: impl Fn() + Send + Sync + 'static) -> Self {
     self.on_confirm.push(Arc::new(handler));
+    self
+  }
+
+  /// Where the focus goes as the dialog opens: to the control marked [`autofocus`](super::Button::autofocus), else its
+  /// first stop of Tab, by default; or to the panel itself ([`DialogFocus::Panel`]), so that Enter confirms and no
+  /// control is pressed by it. As the dialog closes the focus goes back to what had it, either way.
+  pub fn initial_focus(mut self, focus: DialogFocus) -> Self {
+    self.initial_focus = focus;
     self
   }
 
@@ -492,6 +530,7 @@ impl Dialog {
       note_pieces: self.note_pieces,
       inset_top: self.inset_top,
       on_confirm: self.on_confirm,
+      initial_focus: self.initial_focus,
       body: self.body,
       footer: self.footer,
       scrollable: self.scrollable,
@@ -543,6 +582,8 @@ pub struct DialogView {
   /// How much of the top of the window the veil leaves to what is under it.
   pub inset_top: f32,
   on_confirm: Vec<Confirm>,
+  /// Where the focus goes as the dialog opens.
+  pub initial_focus: DialogFocus,
   /// What the app put in the body.
   pub body: Vec<Element>,
   /// What the app put in the footer.
@@ -644,6 +685,10 @@ impl DialogView {
     if let Some(confirm) = self.confirmer() {
       panel = panel.on_key_down(confirm);
     }
+    // The panel takes the focus as it opens, a stop of Tab before its first control.
+    if self.initial_focus == DialogFocus::Panel {
+      panel = panel.tab_index(0).autofocus(true);
+    }
     panel
   }
 
@@ -705,10 +750,18 @@ impl DialogView {
     for piece in &self.note_pieces {
       let leads = std::mem::take(&mut first);
       row = row.child(match piece {
-        NotePiece::Key(keys, words) => self.note_key(keys, words, leads),
-        NotePiece::Element(element) => Row::new()
-          .flex_shrink(0.0)
-          .align_items(Alignment::Center)
+        NotePiece::Key(keys, words) => {
+          let cap = Kbd::shortcut(keys).platform(KeyPlatform::current());
+          self.note_key(cap, words, leads)
+        }
+        NotePiece::Worded(cap, words) => self.note_key(Kbd::new(cap), words, leads),
+        // It gives way where the note is short, and is never wider than the note.
+        NotePiece::Element(element) => Column::new()
+          .flex_full(0.0, 1.0, None)
+          .min_width(Dimension::Px(0.0))
+          .max_width(Dimension::Pct(100.0))
+          .align_items(Alignment::Stretch)
+          .justify(Justify::Center)
           .child(element.clone())
           .into(),
       });
@@ -716,11 +769,13 @@ impl DialogView {
     Some(row)
   }
 
-  /// A key cap of `keys` in the note and the words of what it does after it, in the note's type: in the style of
-  /// [`DialogPart::NoteKey`], the cap a [`Kbd`] in the style of the theme's.
+  /// A key cap, `cap`, in the note and the words of what it does after it, in the note's type: in the style of
+  /// [`DialogPart::NoteKey`], the cap a [`Kbd`] in the style of the theme's, named by [`DialogPart::NoteKeyCap`].
   /// The pair that `leads` the note has no room before it.
-  fn note_key(&self, keys: &str, words: &str, leads: bool) -> Element {
-    let cap = Kbd::shortcut(keys).platform(KeyPlatform::current()).build(self.theme());
+  fn note_key(&self, cap: Kbd, words: &str, leads: bool) -> Element {
+    let cap = cap
+      .rules(&self.recipe.rules_for(DialogPart::NoteKeyCap, super::kbd::KbdPart::Root))
+      .build(self.theme());
     // A pair is whole on its line where it can be; in a note narrower than it its words are cut.
     let mut pair = Row::new()
       .flex_shrink(1.0)

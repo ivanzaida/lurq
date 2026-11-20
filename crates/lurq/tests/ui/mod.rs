@@ -50,6 +50,7 @@ mod date_picker;
 mod date_range_picker;
 mod dialog;
 mod dialog_field_details;
+mod dialog_focus_note;
 mod dock_layout;
 mod dock_state;
 mod document_tabs;

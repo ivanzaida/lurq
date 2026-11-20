@@ -323,7 +323,7 @@ pub use date_picker::{
   PickerRenderer, PickerView,
 };
 pub use date_range_picker::{DateRangePicker, DateRangePickerRenderer, DateRangePickerView};
-pub use dialog::{Dialog, DialogPart, DialogRenderer, DialogSize, DialogState, DialogView};
+pub use dialog::{Dialog, DialogFocus, DialogPart, DialogRenderer, DialogSize, DialogState, DialogView};
 pub use dock_layout::{
   DockCloseEvent, DockDocuments, DockFloat, DockGroup, DockHidden, DockLayout, DockLayoutPart, DockLayoutRenderer,
   DockLayoutState, DockLayoutView, DockNode, DockPanel, DockPlace, DockSide, DockSplit, DockState, DockStateParseError,
