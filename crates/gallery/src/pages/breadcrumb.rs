@@ -451,6 +451,33 @@ impl Component for BreadcrumbPage {
       "links at most 160, the whole name in a tooltip while cut; the page gives way, then links go into the menu",
     ));
 
+    // A trail that ends with a link, and one that starts with a place that cannot be gone to.
+    let ends = items()
+      .child(item(
+        mounted(
+          Breadcrumb::new([
+            BreadcrumbStep::new("Tasks").value("/tasks"),
+            BreadcrumbStep::new("KON-12").value("/tasks/KON-12"),
+          ])
+          .separator(BreadcrumbSeparator::slash())
+          .current(false),
+          ctx,
+        ),
+        "current(false): an edit form's trail ends with a link back to the task",
+      ))
+      .child(item(
+        mounted(
+          Breadcrumb::new([
+            BreadcrumbStep::new("~/projects/kon").link(false),
+            BreadcrumbStep::new("Settings").value("/settings"),
+            BreadcrumbStep::new("Sharing").value("/settings/sharing"),
+            BreadcrumbStep::new("Upload to the team server"),
+          ]),
+          ctx,
+        ),
+        "link(false): the local folder is plain text, which Tab passes and nothing follows",
+      ));
+
     let rows = [
       (
         "step",
@@ -557,6 +584,19 @@ impl Component for BreadcrumbPage {
         "&str",
         "\"Show the hidden steps\"",
         "What the ellipsis is called to what reads the tree.",
+      ),
+      (
+        "current",
+        "bool",
+        "true",
+        "Whether the last step is the page one is on. false ends the trail with a link like the steps before it.",
+      ),
+      (
+        "BreadcrumbStep::link",
+        "bool",
+        "by its place",
+        "Whether the step is a link: true on the last ends the trail with one; false on a step before it makes it \
+         plain text, which nothing follows and Tab passes.",
       ),
       (
         "BreadcrumbStep::disabled",
@@ -722,6 +762,37 @@ impl Component for BreadcrumbPage {
               "    .link_max_width(160.0)",
               "    .overflow(true)",
               "    .mount(ctx)",
+            ],
+          ),
+        ),
+        Section::new(
+          "Links and plain steps",
+          "Not every trail ends with the page one is on: an edit form's ends with a link back to what it edits \
+           (current(false), or link(true) on the last step). A step before the last can be plain text that goes \
+           nowhere, a place on the way that is no page of the app (link(false)): no stop of Tab, and a disabled \
+           item where it is hidden in the menu.",
+          self.frame.demo(
+            5,
+            ends,
+            ".current(false), BreadcrumbStep::link(false)",
+            &[
+              "Breadcrumb::new([",
+              "    BreadcrumbStep::new(\"Tasks\").value(\"/tasks\"),",
+              "    BreadcrumbStep::new(\"KON-12\").value(\"/tasks/KON-12\"),",
+              "])",
+              ".separator(BreadcrumbSeparator::slash())",
+              ".current(false)",
+              ".overflow(true)",
+              ".mount(ctx)",
+              "",
+              "Breadcrumb::new([",
+              "    BreadcrumbStep::new(\"~/projects/kon\").link(false),",
+              "    BreadcrumbStep::new(\"Settings\").value(\"/settings\"),",
+              "    BreadcrumbStep::new(\"Sharing\").value(\"/settings/sharing\"),",
+              "    BreadcrumbStep::new(\"Upload to the team server\"),",
+              "])",
+              ".overflow(true)",
+              ".mount(ctx)",
             ],
           ),
         ),
