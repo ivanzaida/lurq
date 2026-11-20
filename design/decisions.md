@@ -11,6 +11,203 @@ dropped). When a decision is replaced, the old entry stays and says what replace
 
 ## 2026-11-20
 
+### The list of every open tab: the app's to know, its keys first, its rows, its place and its words
+
+- **Question.** Orchester's title bar moved onto `ui::WindowTabs` in its list mode with the list of every open tab
+  (`WindowTabsMenu::All`), and had to work round what the list could not do: the app could not know whether the list
+  was open; its keys (Ctrl/Cmd+W on a row, Enter) reached the page first, so the window's Ctrl+W closed the active
+  tab as well and a question's Enter under the list confirmed it; a row said one text, where Orchester's says the page
+  and, quieter, the project, with its mark that something waits; the panel stood under the More button, 4 below it,
+  where Orchester's stands 4 under the title bar, 8 inside the window's edge and never lower than 48 above its
+  bottom; a search moved no row into view, and the rows under the search field stood 2 apart where the design has
+  them abut; the More button's tooltip said lurq's words. Should lurq's list do these?
+- **Decision (Ivan, 2026-11-20: "роби", on the K6 list).**
+  1. `WindowTabs::menu_open(Signal<bool>)`: whether the More button's menu is open is the app's signal, which the
+     strip sets as it opens and closes and the app may set; `on_menu_open_change(bool)` hears each change a person
+     makes. An element built with `keys_first(true)` (the engine's, `NodeUpdate::keys_first`) hears a key before the
+     rest of the tree while the focus is in it, and what it stops (`stop_propagation`) the rest of the tree does not
+     hear; what the window does by default with the key still happens unless it is prevented. The list is one: the
+     keys it acts on while the focus is in it (Ctrl/Cmd+W, Enter, Escape, the arrows, and every key without Ctrl,
+     Alt or Cmd) are its own.
+  2. `WindowTab::list_label(&str)` and `list_detail(&str)`: what the tab's row says in place of its label, and a
+     quiet text after it (the part `item_detail`), both searched; `WindowTab::list_trailing(element)`: the app's
+     elements in the row, after the mark of a tab not in the strip (the part `item_marks`). They are elements of
+     their own, apart from the tab's `trailing`, so their ids do not collide with the tab's.
+  3. `WindowTabs::list_clear_of(element)`: the list stands clear of that element's box (the title bar) on the side
+     it opens on, not of the More button's, lined up with the button along it; `list_inset(f32)`: how far it stays
+     inside the window's edges (8 unless told), which it is never lower than either, its rows scrolling.
+  4. While the list is open, the row of the selected tab, or the first that matches the search, is scrolled into
+     view, after each change of the search too. A state of the strip, `searchable`, is on while the list leads with
+     its search field; the default recipe makes the rows abut then.
+  5. `WindowTabs::more_tooltip(Fn(usize) -> String)`: what the More button's tooltip says for the count of hidden
+     tabs, and what it says of itself to what reads the tree; the locale's words unless told.
+  6. A `within` rule of a part in no interaction group answers to the innermost button around it, as to a group:
+     `within_hovered(ButtonPart::Label, ..)` paints the label of a hovered `ui::Button`, and so does a rule of the
+     More button's label. Where a group is around the part, it answers to the group as before.
+- **Why.** What Orchester's kit needs to drop its workarounds (`navigation/input.rs`'s check of a layer over the page,
+  the question's check of where the focus is) and its own sizing of the list, and to keep the design's rows. None of
+  it is Orchester's alone: a browser's tab search says a page and its site, stands under its bar, and takes its keys.
+- **State.** Built on `claude/k6-a-tabs-list` (2026-11-20): `WindowTabs::menu_open`, `on_menu_open_change`,
+  `list_clear_of`, `list_inset`, `more_tooltip`; `WindowTab::list_label`, `list_detail`, `list_trailing`; the parts
+  `ItemDetail` and `ItemMarks` and the state `Searchable`; the engine's `keys_first`; a `within` rule in no group
+  answering to its button. The gallery's "Every open tab in a list" says each file's folder.
+### A checkbox's and a switch's element ref, and a mark alone for a row pressed as a whole
+
+- **Question.** Orchester's toggles take an element ref, so a screen can move the focus to one; `ui::Radio` has one,
+  `ui::Checkbox` and `ui::Switch` do not. And its rows pressed as a whole (a filter's option, a choice of an export)
+  draw a checkbox's or a radio's mark alone (`check_mark`, `radio_mark` of its kit): no press, no label and no focus
+  of its own, the row saying that it is checked. Can lurq's give both?
+- **Decision (Ivan, 2026-11-20: "роби", after the K6 list was put to him).** `Checkbox::element_ref` and
+  `Switch::element_ref`, as `Radio::element_ref`: the ref is on what is pressed and focused (the box, the track, or
+  the whole where it is `whole`). The mark alone is a form of the components that already draw it, not a new
+  component: `Checkbox::mark_only(true)` and `Radio::mark_only(true)` draw the box with its check or dash, the round
+  mark with its dot, in their recipes' parts and states, with no press, no focus, no stop of Tab and no label; the
+  mark is hidden from what reads the tree, for the row around it is the control and says it is checked. Its id is
+  on the box or the mark, its check `x-indicator`, its dot `x-dot`; its element ref, where it has one, on the box.
+- **Why.** What Orchester's kit needs to drop its own toggle; a mark of the same recipe keeps one look for the
+  checkbox and the row that only shows one, which a new component would have had to copy.
+- **State.** Built on `claude/k6-c-controls` (2026-11-20): `Checkbox::element_ref`, `Switch::element_ref`, `Checkbox::mark_only`, `Radio::mark_only`, `CheckboxView::mark_alone()`, `RadioView::mark_alone()`; the gallery's "Its mark alone" on the Checkbox and Radio pages.
+
+### The page a breadcrumb is on says its whole name while it is cut, and the ids of its separators
+
+- **Question.** K5 gave a breadcrumb's links a tooltip with their whole name while they are cut
+  (`Breadcrumb::link_max_width`). The page one is on, its last step, is cut too where the row is short, and says
+  nothing. And Orchester's kit numbers its separators from `-separator-1`, where lurq's part-ids rule names them
+  `x-separator`, `x-separator-2`. Should the page say its name, and which ids do the separators keep?
+- **Decision (Ivan, 2026-11-20: "роби", after the K6 list was put to him).** The page's name has a tooltip that
+  shows only while it is cut, in every breadcrumb, as a link's has with `link_max_width`: the page is cut in any of
+  them. The separators keep lurq's ids, the part-ids rule's (`x-separator`, `x-separator-2`, ...): a repeated part
+  with no key of its own is numbered from its second node, in every component, and the app reads those. This is
+  written in the breadcrumb's page.
+- **Why.** What Orchester's kit needs; one rule for the ids of repeated parts is what lets a test or an agent guess
+  them, and a breadcrumb that numbered from 1 would be the only one.
+- **State.** Built on `claude/k6-c-controls` (2026-11-20): the page's tooltip in `BreadcrumbView::step`, the refs kept by a mounted breadcrumb for every step; the ids written in `Breadcrumb::id` and the breadcrumb's page, held by a test.
+
+### A list item whose title and description are still read, and the ids of a row that says something under it
+
+- **Question.** Orchester's settings rows show a skeleton's bone in place of their label or their hint while it is
+  read (`label_reading`, `hint_reading`). And they have two ids: `<id>-row`, the frame of the row and of what it
+  says under itself, and `<id>-open`, the part that is pressed. `ui::ListItem` has neither the bones nor a second
+  id. What does lurq give, and how does the app map its ids?
+- **Decision (Ivan, 2026-11-20: "роби", after the K6 list was put to him).** `ListItem::title_pending(true)` and
+  `ListItem::description_pending(true)` put a bone in place of the title's words or the description's, as long as
+  the recipe's parts `title_skeleton` and `description_skeleton` say (a line of the title's height, a share of the
+  room), the row saying to tooling that it is busy and still called by its title. Ids keep the part-ids rule: the
+  row that is pressed is the list item's root and has its id `x`, as every pressed component of lurq has its id on
+  what is pressed; a row that says something under itself is held with it in a part `item`, `x-item`. The app maps
+  its `<id>-open` to `<id>`, and its `<id>-row` to `<id>-item` where the row has something below, and to `<id>`
+  where it has not (the row is the whole item then). A second id for one node (a `-press` beside the root's) would
+  be two names for it.
+- **Why.** What Orchester's kit needs to move its settings rows onto `ui::ListItem`; a row of a list that loads its
+  words is common.
+- **State.** Built on `claude/k6-c-controls` (2026-11-20): `ListItem::title_pending`, `description_pending`, `ListItemView::bone`; parts `title_skeleton`, `description_skeleton` and `item`. A description still read draws the row as one of two lines.
+
+### A badge's and a status label's word say themselves whole while they are cut
+
+- **Question.** Orchester's cut badges and status chips put their whole word in a tooltip while it is cut. A
+  `ui::Badge` that gives way (`truncate`) and a `ui::StatusLabel` cut their word and say nothing. Should they?
+- **Decision (Ivan, 2026-11-20: "роби", after the K6 list was put to him).** Both: `tooltip_when_cut(true)` puts
+  the whole word in a tooltip that shows only while the word is cut, as `Tooltip::when_cut` does; and
+  `word_ref(ElementRef)` refers to the word's text, so that an app can put a tooltip of its own on it
+  (`Tooltip::when_cut(&word)`, with a hint), or read whether it is cut. Off unless told.
+- **Why.** What Orchester's kit needs; the built-in one is what most apps want, and the ref what the rest need.
+- **State.** Built on `claude/k6-c-controls` (2026-11-20): `Badge::tooltip_when_cut`, `Badge::word_ref`, `StatusLabel::tooltip_when_cut`, `StatusLabel::word_ref`. A badge on an element (`on`) has no such tooltip.
+
+### How far a skeleton's pulse dims
+
+- **Question.** A skeleton pulses from whole to half its opacity and back. Orchester's design dims to 0.55. Can an
+  app or a theme say how far?
+- **Decision (Ivan, 2026-11-20: "роби", after the K6 list was put to him).** A part of `SkeletonMotion`:
+  `SkeletonMotion::dim_to(0.55)` is the opacity the pulse dims to at its middle, 0.5 unless told, in hundredths
+  between 0 and 1; a theme gives it with the rest of the motion (`Theme::set_skeleton_motion`), a skeleton its own
+  with `Skeleton::motion`. Skeletons that dim alike still pulse in one phase.
+- **Why.** What Orchester's kit needs; how far a placeholder dims is part of its motion, which a theme already says.
+- **State.** Built on `claude/k6-c-controls` (2026-11-20): `SkeletonMotion::dim_to`, `dimmed`; a pulse's keyframes for each hundredth, lurq's ids `0xFF9B` to `0xFFFF` (`SKELETON_PULSE` stays the one of half).
+### A menu that leaves the focus in the app's field
+
+- **Question.** Orchester's slash commands, @mentions and filter fields open a menu under a text field while the
+  person goes on typing in it: the arrow keys move a highlighted row, Enter chooses it, Escape closes the menu, and the
+  focus never leaves the field (a combobox's `aria-activedescendant`). `ui::Menu` takes the focus as it opens, and its
+  rows are reached by moving the focus. Can a menu leave the focus where it is?
+- **Decision (Ivan, 2026-11-20: "роби", after the K6 list was put to him).** `Menu::keeps_focus(&MenuKeys)`: the panel
+  opens without taking the focus, its items take none (a press of one leaves it in the field), and one item is the
+  active one (state `active`, `a11y_selected`), the first that can be chosen, again whenever what the menu holds
+  changes. `MenuKeys::new(field)` is made once by the app, as a `DateMemory` is, with the element the focus stays in:
+  while that element has the focus the panel reads the keys, Up and Down move the active item round the list, Enter
+  chooses it, Ctrl+Enter (Cmd+Enter on macOS) asks for it aside, Escape closes the menu, and the rest go on to the
+  field. A field whose own keys come first (Enter sends) forwards the key with `MenuKeys::key_down(&event)`, which says
+  whether it took it; the panel then leaves that key alone. The pointer on an item makes it the active one.
+- **Why.** What Orchester's kit needs to put its slash and mention menus on `ui::Menu`; every app with a search field
+  over a list of choices needs the same.
+- **State.** Built on `claude/k6-b-menus-calendar` (2026-11-20): `Menu::keeps_focus`, `MenuKeys` (`new`, `field`,
+  `active`, `key_down`), `MenuItemState::Active`; and `Popover::keeps_focus(bool)`, a popover that leaves the focus
+  where it is. A menu that keeps the focus does not tell the field an `a11y_activedescendant`: the field is the app's,
+  and the active item says `a11y_selected`.
+
+### A menu item asked for aside
+
+- **Question.** `Button`, `ListItem`, `Tab` and the sidebar's items have `on_open_aside`, the middle button and a press
+  with Ctrl (Cmd) that opens what they stand for beside what is open. Orchester's menu items open places by the same
+  rules. `ui::MenuItem` has only `on_select`.
+- **Decision (Ivan, 2026-11-20: "роби", after the K6 list was put to him).** `MenuItem::on_open_aside(handler)`, as
+  `Button`'s: the middle button, a press with Ctrl (Cmd on macOS), and Ctrl+Enter (Cmd+Enter) on the focused item, or
+  on the active item of a menu that keeps the focus elsewhere. Such a press is the handler's alone (`on_select` is not
+  called) and the menu closes, as after a choice. An item that opens a submenu or a page has none.
+- **Why.** What Orchester's kit needs (its `MenuItem::opens`); the same press means the same thing on every control.
+- **State.** Built on `claude/k6-b-menus-calendar` (2026-11-20): `MenuItem::on_open_aside`.
+
+### A calendar's heading with its buttons at the end, and its keys read without the focus
+
+- **Question.** Orchester's date picker puts the month first and both buttons after it at the heading's end, and reads
+  the calendar's keys at its panel while the focus stays where the app keeps it (the panel, a field): a ring marks the
+  day the keys are on, Enter picks it and the picker closes. `ui::Calendar` has the month between its buttons, and its
+  keys move the focus from day to day.
+- **Decision (Ivan, 2026-11-20: "роби", after the K6 list was put to him).** `Calendar::heading(CalendarHeading::MonthThenNav)`
+  lays a heading out as the month, then the button before and the button after at its end; `CalendarHeading::Centered`,
+  the month between them, stays the default. `Calendar::keys(CalendarKeys::Panel)`: the days take no focus, a day is
+  the one the keys are on (state `cursor`, the chosen one or today to begin with), and the panel reads the keys
+  wherever the focus is while the calendar is shown: the arrows, PageUp and PageDown (a year with Shift) move that day,
+  showing its month, and Enter chooses it, which tells `Calendar::on_choose` (now the app's too, told of every choice,
+  of what is chosen already as well) so that a picker closes. A key a handler before it took (`prevent_default`) is
+  left alone, and so is Enter where the focus is on what takes Enter itself (a button of the footer). `CalendarKeys::Days`
+  stays the default. The day the keys are on is kept in a `DateMemory` or by a mounted calendar.
+- **Why.** What Orchester's kit needs to put its picker's grid on `ui::Calendar`.
+- **State.** Built on `claude/k6-b-menus-calendar` (2026-11-20): `CalendarHeading`, `CalendarKeys`,
+  `Calendar::heading`, `Calendar::keys`, `Calendar::on_choose`, states `cursor` and `nav_at_end`,
+  `CalendarView::cursor_day`. Of several months, both buttons stand at the end of the last month's heading.
+
+### Page tabs that keep their places, an icon after a label, and tabs at the line's end
+
+- **Question.** Orchester's page tabs keep the room of the selected label's heavier weight in every tab, so that
+  switching moves no tab (as a browser's tab bar does); a tab not built yet ends in a lock after its words; and a
+  page's Settings tab stands at the far end of the line after its lists. `ui::Tabs` widens a tab as it is selected, has
+  an icon only before the label, and puts only the app's element (`Tabs::end`) at the end.
+- **Decision (Ivan, 2026-11-20: "роби", after the K6 list was put to him).** `Tabs::reserve_selected_width(true)`: each
+  label holds the room it takes in the selected tab's style, so a switch moves nothing; off unless told, so what an app
+  sees does not change. `Tab::trailing_icon(name)`: an icon after the label and its count, badge and dot (part
+  `trailing_icon`). `Tab::at_end(true)`: the tab stands at the end of the line, after the note and the app's element,
+  with the tabs so placed; it is still a tab of the list, reached by its arrow keys and in the More menu in its order.
+- **Why.** What Orchester's kit needs to put its page tabs on `ui::Tabs`.
+- **State.** Built on `claude/k6-b-menus-calendar` (2026-11-20): `Tabs::reserve_selected_width`, `Tab::trailing_icon`
+  (part `trailing_icon`), `Tab::at_end`; mounted tabs count the tabs at the end in what the list needs to stand whole.
+
+### A dialog's first focus, key caps in the app's words, and a note's elements that wrap
+
+- **Question.** Orchester's dialogs that Enter confirms (delete, save) give the focus to their main action, or to no
+  control, so that Enter does what the note says; `ui::Dialog` gives it to its first stop of Tab (Cancel), and Enter
+  presses Cancel. Their note writes the keys in the app's own words ("Enter", "Esc", translated) and the caps have ids;
+  `note_key` writes the platform's names and glyphs, and its caps have none. A long reason in the note
+  (`note_child`) ran out of the note in place of wrapping.
+- **Decision (Ivan, 2026-11-20: "роби", after the K6 list was put to him).** `Button::autofocus(true)`: the focus goes to
+  the button as the dialog, popover or menu it is in opens (the engine's `autofocus`, which `ui::Button` did not pass
+  on). `Dialog::initial_focus(DialogFocus::Panel)`: the panel itself takes the focus, a stop of Tab before its first
+  control, so Enter confirms and presses no button; `DialogFocus::FirstControl` stays the default.
+  `Dialog::note_key_worded(cap, words)`: a cap that says the app's word as it is. Every cap of the note is named by
+  the new part `note_key_cap` (`x-note_key_cap`, `x-note_key_cap-2`). An element `note_child` puts in the note gives
+  way where the note is short and is never wider than it, so a text in it wraps.
+- **Why.** What Orchester's kit needs to put its dialogs on `ui::Dialog`.
+- **State.** Built on `claude/k6-b-menus-calendar` (2026-11-20).
+
 ### Window tabs that keep a gap between them, and fit by it
 
 - **Question.** Orchester's design puts 2 between its title-bar tabs and before the add button and the More button.

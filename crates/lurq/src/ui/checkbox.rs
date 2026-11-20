@@ -12,7 +12,7 @@ use super::{
 use crate::{
   app::theme::{BorderSize, IconSize, OpacityLevel, PaletteColor, RadiusSize, Theme, TypographyStyle},
   components::{self, Column, Row},
-  core::{Signal, SignalValue},
+  core::{ElementRef, Signal, SignalValue},
   layout::{Alignment, layout_kind::Justify},
   node::{CursorIcon, Element, border::Border},
 };
@@ -86,11 +86,13 @@ pub type CheckboxRenderer = Arc<dyn Fn(CheckboxView) -> Element + Send + Sync>;
 /// A press of its label is a press of the checkbox, and a press of either is
 /// the checkbox's alone: a row around it that is pressed is not.
 /// [`Checkbox::whole`] makes the box and its label one control, its id on the
-/// whole.
+/// whole. [`Checkbox::mark_only`] draws the box alone, for a row that is
+/// pressed as a whole and says it is checked.
 pub struct Checkbox {
   label: Arc<str>,
   label_hidden: bool,
   whole: bool,
+  mark_only: bool,
   checked: bool,
   indeterminate: bool,
   invalid: bool,
@@ -106,6 +108,7 @@ pub struct Checkbox {
   name: Option<Arc<str>>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
+  element: Option<ElementRef>,
 }
 
 impl Checkbox {
@@ -115,6 +118,7 @@ impl Checkbox {
       label: Arc::from(label),
       label_hidden: false,
       whole: false,
+      mark_only: false,
       checked: false,
       indeterminate: false,
       invalid: false,
@@ -127,6 +131,7 @@ impl Checkbox {
       name: None,
       id: None,
       key: None,
+      element: None,
     }
   }
 
@@ -233,6 +238,26 @@ impl Checkbox {
     self
   }
 
+  /// Whether the checkbox is its mark alone: the box with its check or its
+  /// dash, in the recipe's parts and states, for a row that is pressed as a
+  /// whole (a filter's option). It takes no press, no focus and no stop of
+  /// Tab, has no label, and is hidden from what reads the tree: the row around
+  /// it is the control, and says that it is checked. Its id is on the box, its
+  /// check `x-indicator`. Not unless told.
+  pub fn mark_only(mut self, mark_only: bool) -> Self {
+    self.mark_only = mark_only;
+    self
+  }
+
+  /// Refers to what is pressed and focused once it is laid out: the box, or
+  /// the whole where it is [`whole`](Self::whole). What a screen moves the
+  /// focus to, or a popup hangs from. The box where it is
+  /// [`mark_only`](Self::mark_only).
+  pub fn element_ref(mut self, element: ElementRef) -> Self {
+    self.element = Some(element);
+    self
+  }
+
   /// The id of the box: what is pressed. The id of the whole where it is
   /// [`whole`](Self::whole).
   pub fn id(mut self, id: impl Into<Arc<str>>) -> Self {
@@ -261,23 +286,30 @@ impl Checkbox {
     .state(CheckboxState::Invalid, self.invalid)
     .state(CheckboxState::Disabled, self.disabled)
     .state(CheckboxState::Whole, self.whole);
+    // Its mark alone, the id is on the box, and the mark in it is a part named after it.
+    let recipe = theme.resolve::<Checkbox>(&case, Some(&self.rules));
+    let recipe = if self.mark_only {
+      recipe.rooted_at(CheckboxPart::Box)
+    } else {
+      recipe
+    };
     let view = CheckboxView {
       label: self.label,
       label_hidden: self.label_hidden,
       whole: self.whole,
+      mark_only: self.mark_only,
       checked: self.checked,
       indeterminate: self.indeterminate,
       invalid: self.invalid,
       disabled: self.disabled,
-      recipe: theme
-        .resolve::<Checkbox>(&case, Some(&self.rules))
-        .owned_by(self.id.as_ref()),
+      recipe: recipe.owned_by(self.id.as_ref()),
       forced: self.forced,
       on_change: self.on_change,
       on_leave: self.on_leave,
       name: self.name,
       id: self.id,
       key: self.key,
+      element: self.element,
     };
     match theme.renderer::<Checkbox>() {
       Some(renderer) => renderer(view),
@@ -299,6 +331,8 @@ pub struct CheckboxView {
   pub label_hidden: bool,
   /// Whether the box and its label are one control, its id on the whole.
   pub whole: bool,
+  /// Whether the checkbox is its mark alone, with no press, focus or label.
+  pub mark_only: bool,
   pub checked: bool,
   pub indeterminate: bool,
   pub invalid: bool,
@@ -312,6 +346,7 @@ pub struct CheckboxView {
   name: Option<Arc<str>>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
+  element: Option<ElementRef>,
 }
 
 impl CheckboxView {
@@ -388,7 +423,34 @@ impl CheckboxView {
     if let Some(key) = &self.key {
       control = control.key(key.clone());
     }
+    if let Some(element) = &self.element {
+      control = control.ref_element(element.clone());
+    }
     control
+  }
+
+  /// The box alone with its mark, in the style of its part: nothing pressed,
+  /// focused or read by tooling, its id, its key and its element ref on it.
+  /// What [`render`](Self::render) draws where the checkbox is
+  /// [`mark_only`](CheckboxView::mark_only).
+  pub fn mark_alone(&self) -> Row {
+    let mut square = Row::new()
+      .align_items(Alignment::Center)
+      .justify(Justify::Center)
+      .flex_shrink(0.0)
+      .part(&self.part(CheckboxPart::Box))
+      .describe("a11y_hidden", "true")
+      .with_children(self.indicator());
+    if let Some(id) = &self.id {
+      square = square.id(id.clone());
+    }
+    if let Some(key) = &self.key {
+      square = square.key(key.clone());
+    }
+    if let Some(element) = &self.element {
+      square = square.ref_element(element.clone());
+    }
+    square
   }
 
   /// The mark in the box in the style of its part: the theme's dash while
@@ -415,6 +477,9 @@ impl CheckboxView {
   /// How the default renderer builds a checkbox: the box with its mark, and the label beside it; pressed as a whole,
   /// both in what is pressed.
   pub fn render(self) -> Element {
+    if self.mark_only {
+      return self.mark_alone().into();
+    }
     if self.whole {
       let square = Row::new()
         .align_items(Alignment::Center)

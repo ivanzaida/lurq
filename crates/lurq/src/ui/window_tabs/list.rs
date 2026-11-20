@@ -3,7 +3,9 @@
 
 use std::sync::atomic::Ordering;
 
-use super::{Place, WindowTabsMenu, WindowTabsOverflow, WindowTabsPart, WindowTabsView};
+use std::sync::Arc;
+
+use super::{OpenChange, Place, WindowTabsMenu, WindowTabsOverflow, WindowTabsPart, WindowTabsView};
 use crate::{
   app::{
     ctx::Placement,
@@ -84,6 +86,10 @@ impl WindowTabsView {
     let count = self.hidden_count();
     let open = self.kept.open.get();
     let locale = crate::ui::current_locale();
+    let says = self.list.more_tooltip.as_ref().map_or_else(
+      || locale.count(&locale.navigation.hidden_tabs, count),
+      |text| text(count),
+    );
     let label = self.part(WindowTabsPart::MoreLabel);
     let all = self.menu == WindowTabsMenu::All;
     let mut button = tab_stop(
@@ -93,7 +99,7 @@ impl WindowTabsView {
     .align_items(Alignment::Center)
     .ref_element(self.kept.anchor.clone())
     .describe("a11y_name", self.words.more.clone())
-    .describe("a11y_description", locale.count(&locale.navigation.hidden_tabs, count))
+    .describe("a11y_description", says.clone())
     .describe("a11y_haspopup", if all { "dialog" } else { "menu" })
     .describe("a11y_expanded", if open { "true" } else { "false" })
     // The title bar around the strip drags the window from a press: not from a press on the button.
@@ -111,7 +117,7 @@ impl WindowTabsView {
     if let Some(id) = &self.id {
       button = button.id(format!("{id}-more"));
     }
-    let mut tooltip = Tooltip::new(&locale.count(&locale.navigation.hidden_tabs, count))
+    let mut tooltip = Tooltip::new(&says)
       .placement(Placement::Bottom)
       .disabled(open);
     if self.list_shortcut {
@@ -137,7 +143,7 @@ impl WindowTabsView {
   /// What opens the More button's menu, or closes it. The list of every tab opens with its search empty, the focus
   /// on its search field where it has one, else on the row of the selected tab.
   pub(super) fn toggle_menu(&self) -> impl Fn() + Send + Sync + 'static {
-    let kept = self.kept.clone();
+    let (kept, told) = (self.kept.clone(), self.open_told());
     let focus = (self.menu == WindowTabsMenu::All).then(|| self.menu_entry());
     move || {
       let opening = !kept.open.get_untracked();
@@ -146,6 +152,17 @@ impl WindowTabsView {
         kept.focus_menu(focus);
       }
       kept.open.set(opening);
+      told(opening);
+    }
+  }
+
+  /// What tells the app's handlers that a person opened the More button's menu or closed it.
+  pub(super) fn open_told(&self) -> impl Fn(bool) + Send + Sync + 'static {
+    let handlers: Arc<[OpenChange]> = self.list.on_open_change.clone().into();
+    move |open| {
+      for handler in handlers.iter() {
+        handler(open);
+      }
     }
   }
 
@@ -184,7 +201,8 @@ impl WindowTabsView {
     let mut menu = Menu::new(self.kept.open.clone(), self.kept.anchor.clone())
       .rules(&self.owner.lend("menu"))
       .placement(Placement::BottomEnd)
-      .label(&self.words.more);
+      .label(&self.words.more)
+      .on_open_change(self.open_told());
     for (index, entry) in self.tabs.iter().enumerate() {
       if !self.hidden[index] {
         continue;

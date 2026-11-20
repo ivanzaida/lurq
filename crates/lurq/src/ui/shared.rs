@@ -9,7 +9,7 @@ use super::{
 };
 use crate::{
   animation::{KeyframesId, Transition},
-  app::events::{MouseButton, MouseEvent},
+  app::events::{KeyboardEvent, MouseButton, MouseEvent},
   app::theme::{IconSize, MotionDuration},
   components::{self, Row, TextOverflow},
   core::{ElementRef, Signal, SignalValue},
@@ -136,6 +136,16 @@ pub(crate) fn tab_stop(button: components::Button, stops: bool) -> components::B
 /// Whether a press asks for what it is on beside what is open, where a press of the primary button can: with Ctrl
 /// held, or Cmd where that is the platform's key (Ctrl and a press is the secondary press of a Mac).
 pub(crate) fn command_held(event: &MouseEvent) -> bool {
+  if cfg!(any(target_os = "macos", target_os = "ios")) {
+    event.meta
+  } else {
+    event.ctrl
+  }
+}
+
+/// Whether a key was pressed with the platform's key that asks for something aside held: Ctrl, or Cmd where that is
+/// the platform's key, as [`command_held`] says of a press.
+pub(crate) fn command_held_key(event: &KeyboardEvent) -> bool {
   if cfg!(any(target_os = "macos", target_os = "ios")) {
     event.meta
   } else {

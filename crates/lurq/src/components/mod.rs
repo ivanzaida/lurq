@@ -1517,6 +1517,16 @@ macro_rules! impl_into_node {
         self
       }
 
+      /// While the focus is on the element or in it, the element and what is in it hear a key before the rest of the
+      /// tree, and a key one of their handlers stops (`stop_propagation`) the rest of the tree does not hear. What the
+      /// window does with the key by default (Enter presses the focused button, Escape closes the top layer, Tab moves
+      /// the focus) is done as before, unless a handler prevents it. A panel over the page whose keys are its own
+      /// while it has the focus: its Enter and its Ctrl+W are not also those of the page under it.
+      pub fn keys_first(mut self, first: bool) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::keys_first(node, first));
+        self
+      }
+
       /// HTML `tabindex`. Inside a form, controls are in the Tab order
       /// without one; outside a form, only elements with `tab_index(0)` or
       /// higher are. Positive values come first in ascending order, then `0`

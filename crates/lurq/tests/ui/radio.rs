@@ -745,3 +745,41 @@ fn a_group_of_whole_radios_is_one_stop_whose_arrows_choose() {
   stage.click("daily-label");
   assert_eq!(value.get_untracked(), 0);
 }
+
+#[test]
+fn a_radio_s_mark_alone_is_its_mark_and_dot_with_no_press_focus_or_label() {
+  let pressed = Arc::new(Mutex::new(0));
+  let told = pressed.clone();
+  let mut stage = Stage::new(move |_| {
+    let told = told.clone();
+    Column::new()
+      .padding(8.0)
+      .child(
+        Row::new()
+          .id("option")
+          .spacing(8.0)
+          .on_click(move |_| *told.lock().unwrap() += 1)
+          .child(Radio::new("Messages only").selected(true).mark_only(true).id("chosen"))
+          .child(Radio::new("With tools").mark_only(true).id("other")),
+      )
+      .into()
+  });
+  let ids = stage.ids();
+  assert!(ids.contains(&"chosen".to_owned()) && ids.contains(&"chosen-dot".to_owned()), "{ids:?}");
+  assert!(!ids.iter().any(|id| id == "other-dot" || id.ends_with("-label")), "{ids:?}");
+  let (_, _, width, height) = stage.bounds("chosen");
+  assert_eq!((width, height), (16.0, 16.0), "the mark of the recipe");
+  assert!(!stage.paints("Messages only"), "no label");
+  #[cfg(feature = "mcp")]
+  {
+    let hidden = stage
+      .tree
+      .get_element_by_id_mut("chosen")
+      .and_then(|element| element.description("a11y_hidden"));
+    assert_eq!(hidden.as_deref(), Some("true"));
+  }
+  stage.click("other");
+  assert_eq!(*pressed.lock().unwrap(), 1, "a press of the mark is the row's");
+  stage.key("Tab");
+  assert!(stage.tree.focused_element().is_none(), "no stop of Tab");
+}

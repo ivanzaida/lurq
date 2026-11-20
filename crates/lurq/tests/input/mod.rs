@@ -9,6 +9,7 @@ mod text {
 mod clipboard_content;
 mod edit_commands;
 mod key_capture;
+mod keys_first;
 mod paste;
 
 mod synthetic {

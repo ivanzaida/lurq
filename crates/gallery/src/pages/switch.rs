@@ -322,6 +322,13 @@ impl Component for SwitchPage {
          and the parts named after it (x-track, x-thumb, x-label).",
       ),
       (
+        "element_ref",
+        "ElementRef",
+        "",
+        "Refers to what is pressed and focused: the track, or the whole. What the app moves the focus to \
+         (ctx.focus(&element)), or a popup hangs from.",
+      ),
+      (
         "disabled",
         "bool",
         "false",

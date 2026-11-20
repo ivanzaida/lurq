@@ -577,3 +577,98 @@ fn a_title_longer_than_its_room_is_cut_with_an_ellipsis_and_what_is_at_the_end_k
   let chevron = texts(&stage, CHEVRON_RIGHT).pop().expect("the chevron");
   assert!(chevron.x + chevron.width <= x + width - 12.0 + 0.5);
 }
+
+/// The shapes painted in the muted fill: a skeleton's bones.
+fn bones(stage: &Stage) -> Vec<lurq::layout::quad::Quad> {
+  let muted = light(PaletteColor::Muted);
+  stage
+    .quads()
+    .into_iter()
+    .filter(|quad| matches!(&quad.content, QuadContent::Rect { color, gradient: None } if *color == muted))
+    .collect()
+}
+
+#[test]
+fn a_row_shows_bones_where_its_title_and_description_are_still_read_and_moves_nothing_when_they_come() {
+  let read = Signal::new(false);
+  let held = read.clone();
+  let mut stage = stage_of(move || {
+    let done = held.get();
+    List::new()
+      .item(
+        ListItem::new("Backups")
+          .description("Every night at 2:00")
+          .title_pending(!done)
+          .description_pending(!done)
+          .on_click(|_| {})
+          .id("backups"),
+      )
+      .item(ListItem::new("Sync").description_pending(!done).id("sync"))
+  });
+  assert!(!stage.paints("Backups") && !stage.paints("Every night at 2:00"), "no words while they are read");
+  let shapes = bones(&stage);
+  assert_eq!(shapes.len(), 3, "a bone for each word still read");
+  let ids = stage.ids();
+  for id in [
+    "backups-title",
+    "backups-title_skeleton",
+    "backups-description",
+    "backups-description_skeleton",
+    "sync-title",
+    "sync-description_skeleton",
+  ] {
+    assert!(ids.contains(&id.to_owned()), "{id} in {ids:?}");
+  }
+  let (_, _, title_width, title_height) = stage.bounds("backups-title_skeleton");
+  assert_eq!((title_width, title_height), (140.0, 12.0), "the recipe's title bone");
+  let (_, _, width, height) = stage.bounds("backups-description_skeleton");
+  assert_eq!((width, height), (220.0, 10.0), "the recipe's description bone");
+  let pending = (stage.bounds("backups"), stage.bounds("sync"));
+  assert!(pending.1.3 >= 52.0, "a row whose description is read is drawn as two lines");
+  #[cfg(feature = "mcp")]
+  {
+    let mut said = |id: &str, name: &str| {
+      stage
+        .tree
+        .get_element_by_id_mut(id)
+        .and_then(|element| element.description(name))
+    };
+    assert_eq!(said("backups", "a11y_busy").as_deref(), Some("true"));
+    assert_eq!(said("backups", "a11y_name").as_deref(), Some("Backups"), "still called by its title");
+    assert_eq!(said("backups", "a11y_description"), None, "no description told while it is read");
+  }
+  read.set(true);
+  stage.pass();
+  assert!(stage.paints("Backups") && stage.paints("Every night at 2:00"), "the words in their place");
+  assert!(bones(&stage).is_empty());
+  assert_eq!(stage.bounds("backups"), pending.0, "the row did not move or grow");
+}
+
+#[test]
+fn a_row_that_says_something_below_is_held_with_it_in_the_item_part() {
+  let mut stage = stage_of(|| {
+    List::new()
+      .item(
+        ListItem::new("Certificate")
+          .on_click(|_| {})
+          .below(Row::new().size(80.0, 12.0).id("problem"))
+          .id("cert"),
+      )
+      .item(ListItem::new("Plain").on_click(|_| {}).id("plain"))
+  });
+  let ids = stage.ids();
+  assert!(ids.contains(&"cert-item".to_owned()), "{ids:?}");
+  assert!(!ids.contains(&"plain-item".to_owned()), "a row with nothing below is the whole item: {ids:?}");
+  let (item, row, problem) = (stage.bounds("cert-item"), stage.bounds("cert"), stage.bounds("problem"));
+  assert!(item.1 <= row.1 && item.1 + item.3 >= problem.1 + problem.3, "the item holds the row and what is below");
+  stage.key("Tab");
+  assert_eq!(
+    stage
+      .tree
+      .focused_element()
+      .and_then(|element| element.id().map(str::to_owned))
+      .as_deref(),
+    Some("cert"),
+    "the id of what is pressed is the row's"
+  );
+}

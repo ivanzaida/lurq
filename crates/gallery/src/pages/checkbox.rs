@@ -1,6 +1,8 @@
 //! The page of the checkbox: its playground, the checkbox bound to a signal,
 //! its states, a box over a list that is indeterminate while some of the
-//! list are picked, and a checkbox pressed as a whole in a row pressed of its own.
+//! list are picked, a checkbox pressed as a whole in a row pressed of its own,
+//! its mark alone in rows pressed as a whole, and one the app focuses by its
+//! element ref.
 
 use std::sync::Arc;
 
@@ -11,10 +13,10 @@ use lurq::{
     theme::{PaletteColor, RadiusSize},
   },
   components::{Column, Row},
-  core::Signal,
+  core::{ElementRef, Signal},
   layout::Alignment,
   node::Element,
-  ui::{Checkbox, CheckboxGroup, Choice, Interaction, Orientation},
+  ui::{Button, ButtonVariant, Checkbox, CheckboxGroup, Choice, Interaction, Orientation},
 };
 
 use crate::{
@@ -57,6 +59,10 @@ pub struct CheckboxPage {
   /// The checkbox pressed as a whole in a row of its own, and how many times the row was pressed.
   agreed: Signal<bool>,
   row_presses: Signal<usize>,
+  /// The options of a filter, each a row pressed as a whole with a checkbox's mark alone in it.
+  kinds: [Signal<bool>; 2],
+  /// What refers to a checkbox the page moves the focus to.
+  focused: ElementRef,
 }
 
 impl CheckboxPage {
@@ -187,6 +193,54 @@ impl CheckboxPage {
 
   /// A box over a list, and the list: the box is checked while all of the
   /// list are, indeterminate while some are, and a press of it picks all or none.
+  /// A filter's options, each a row pressed as a whole that says it is checked, with a checkbox's mark alone; and a
+  /// checkbox a button focuses by its element ref.
+  fn marks(&self, ctx: &mut Ctx) -> Column {
+    let option = |label: &str, kind: &Signal<bool>| {
+      let (on, set) = (kind.get(), kind.clone());
+      Row::new()
+        .width(240.0)
+        .max_width(FILL)
+        .padding_horizontal(8.0)
+        .padding_vertical(6.0)
+        .spacing(8.0)
+        .align_items(Alignment::Center)
+        .rounded(RadiusSize::Sm)
+        .describe("a11y_role", "checkbox")
+        .describe("a11y_name", label.to_owned())
+        .describe("a11y_checked", if on { "true" } else { "false" })
+        .on_click(move |_| set.update(|on| *on = !*on))
+        .child(Checkbox::new(label).checked(on).mark_only(true))
+        .child(quiet(label, 14.0))
+    };
+    let focus = ctx.focus_handle();
+    let target = self.focused.clone();
+    Column::new()
+      .width(FILL)
+      .spacing(16.0)
+      .child(
+        Column::new()
+          .spacing(2.0)
+          .child(option("Bug", &self.kinds[0]))
+          .child(option("Feature", &self.kinds[1])),
+      )
+      .child(
+        Row::new()
+          .spacing(16.0)
+          .align_items(Alignment::Center)
+          .child(
+            Button::new("Focus the checkbox")
+              .variant(ButtonVariant::Outline)
+              .on_click(move |_| focus.focus(&target)),
+          )
+          .child(
+            Checkbox::new("Send crash reports")
+              .element_ref(self.focused.clone())
+              .bind(self.reports.clone()),
+          ),
+      )
+  }
+
   fn select_all(&self) -> Column {
     let picked = self.files.iter().filter(|file| file.get()).count();
     let all = self.files.clone();
@@ -244,6 +298,8 @@ impl Component for CheckboxPage {
       days: ctx.signal(vec!["tue"]),
       agreed: ctx.signal(false),
       row_presses: ctx.signal(0),
+      kinds: [ctx.signal(true), ctx.signal(false)],
+      focused: ElementRef::new(),
     }
   }
 
@@ -359,6 +415,19 @@ impl Component for CheckboxPage {
          the parts named after it (x-box, x-indicator, x-label).",
       ),
       (
+        "mark_only",
+        "bool",
+        "false",
+        "The box alone, for a row pressed as a whole that says it is checked: no press, no focus, no label, hidden \
+         from tooling; its id on the box.",
+      ),
+      (
+        "element_ref",
+        "ElementRef",
+        "",
+        "Refers to what is pressed and focused: the box, or the whole. What the app moves the focus to.",
+      ),
+      (
         "disabled",
         "bool",
         "false",
@@ -366,6 +435,7 @@ impl Component for CheckboxPage {
       ),
     ];
     let playground = self.play(ctx);
+    let marks = self.marks(ctx);
     let select_all = self.select_all();
     let picked = self.days.get();
     let group = items()
@@ -517,6 +587,31 @@ impl Component for CheckboxPage {
               "            .id(\"read\") // read-box, read-indicator, read-label",
               "            .bind(agreed),",
               "    )",
+            ],
+          ),
+        ),
+        Section::new(
+          "Its mark alone, and focused by the app",
+          "In a row pressed as a whole (a filter's option) the row is the control and says it is checked; the \
+           checkbox is its mark alone, with mark_only(true): the box in the recipe's look, with no press, focus or \
+           label of its own. element_ref refers to what a checkbox's focus is on, which the button moves the focus \
+           to.",
+          self.frame.demo(
+            5,
+            marks,
+            ".mark_only(true)",
+            &[
+              "Row::new()",
+              "    .describe(\"a11y_role\", \"checkbox\")",
+              "    .describe(\"a11y_checked\", if bug { \"true\" } else { \"false\" })",
+              "    .on_click(move |_| toggle_bug())",
+              "    .child(Checkbox::new(\"Bug\").checked(bug).mark_only(true))",
+              "    .child(Text::new(\"Bug\"))",
+              "",
+              "// A checkbox the app focuses: focus = ctx.focus_handle()",
+              "let reports_ref = ElementRef::new();",
+              "Checkbox::new(\"Send crash reports\").element_ref(reports_ref.clone()).bind(reports)",
+              "Button::new(\"Focus the checkbox\").on_click(move |_| focus.focus(&reports_ref))",
             ],
           ),
         ),

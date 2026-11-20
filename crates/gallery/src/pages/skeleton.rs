@@ -308,6 +308,13 @@ impl Component for SkeletonPage {
       .child(Skeleton::line().flex(1.0).min_width(0.0).motion(stepped))
       .child(Skeleton::line().max_width(64.0).height(8.0).motion(stepped))
       .child(Skeleton::circle(6.0).flex_shrink(0.0).motion(stepped));
+    let depths = Column::new()
+      .width(360.0)
+      .max_width(FILL)
+      .spacing(12.0)
+      .child(Skeleton::line().motion(SkeletonMotion::SMOOTH))
+      .child(Skeleton::line().motion(SkeletonMotion::SMOOTH.dim_to(0.55)))
+      .child(Skeleton::line().motion(SkeletonMotion::SMOOTH.dim_to(0.8)));
     let rows = [
       (
         "line()",
@@ -350,7 +357,8 @@ impl Component for SkeletonPage {
         "motion",
         "SkeletonMotion",
         "theme's",
-        "Smooth, or stepped(per_second) with no frame between the steps; .period(..) for how long a pulse takes.",
+        "Smooth, or stepped(per_second) with no frame between the steps; .period(..) for how long a pulse takes, \
+         .dim_to(opacity) for how far it dims (0.5 unless told).",
       ),
       (
         "animation",
@@ -465,6 +473,24 @@ impl Component for SkeletonPage {
               "",
               "// Every skeleton of the app:",
               "app.theme().set_skeleton_motion(SkeletonMotion::stepped(20).period(Duration::from_millis(1600)));",
+            ],
+          ),
+        ),
+        Section::new(
+          "How far the pulse dims",
+          "A pulse dims to half and back unless its motion says how far: 0.5, 0.55 (Orchester's design) and 0.8, from \
+           the top. A theme says it for every skeleton with the rest of the motion.",
+          self.frame.demo(
+            4,
+            depths,
+            ".dim_to(0.55)",
+            &[
+              "Skeleton::line().motion(SkeletonMotion::SMOOTH)",
+              "Skeleton::line().motion(SkeletonMotion::SMOOTH.dim_to(0.55))",
+              "Skeleton::line().motion(SkeletonMotion::SMOOTH.dim_to(0.8))",
+              "",
+              "// Every skeleton of the app:",
+              "app.theme().set_skeleton_motion(SkeletonMotion::stepped(8).dim_to(0.55));",
             ],
           ),
         ),

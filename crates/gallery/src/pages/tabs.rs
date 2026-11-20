@@ -1,6 +1,7 @@
 //! The page of the tabs: their playground, tabs bound to a signal with a
 //! panel each, the three variants the board draws, the list down the side,
-//! their states, a page's line with its note, dots and counts still read, and the overflowing form.
+//! their states, a page's line with its note, dots and counts still read, tabs that keep their places with a lock
+//! after a label and a tab at the line's end, and the overflowing form.
 
 use std::sync::Arc;
 
@@ -85,6 +86,7 @@ pub struct TabsPage {
   filter: Signal<usize>,
   side: Signal<usize>,
   canvas: Signal<usize>,
+  places: Signal<usize>,
 }
 
 impl TabsPage {
@@ -280,6 +282,7 @@ impl Component for TabsPage {
       filter: ctx.signal(0),
       side: ctx.signal(0),
       canvas: ctx.signal(1),
+      places: ctx.signal(0),
     }
   }
 
@@ -442,6 +445,24 @@ impl Component for TabsPage {
       .mount(ctx),
     );
 
+    // Tabs that keep their places as the selection moves, a lock after a label, and Settings at the line's end.
+    let places = Column::new().width(FILL).child(
+      Tabs::new(
+        self.places.clone(),
+        [
+          Tab::new(0, "Lists"),
+          Tab::new(1, "Members").count(4),
+          Tab::new(2, "Billing").trailing_icon(icons::LOCK).disabled_reason("Comes with the next release"),
+          Tab::new(9, "Settings").at_end(true),
+        ],
+      )
+      .variant(TabsVariant::Line)
+      .reserve_selected_width(true)
+      .note("Read 2 minutes ago")
+      .key("places")
+      .mount(ctx),
+    );
+
     let overflowing = Column::new().width(420.0).max_width(FILL).child(
       Tabs::new(
         self.canvas.clone(),
@@ -532,6 +553,18 @@ impl Component for TabsPage {
         "impl Into<Element>",
         "",
         "An element of the app's at the end of the line, after the note. No tab: the arrows pass it by.",
+      ),
+      (
+        "reserve_selected_width",
+        "bool",
+        "false",
+        "Each label keeps the room it takes in the selected style, so selecting another tab moves none after it.",
+      ),
+      (
+        "Tab::trailing_icon / Tab::at_end",
+        "impl Into<Name> / bool",
+        "",
+        "An icon after the label and its count; a tab that stands at the end of the line, still a tab of the list.",
       ),
     ];
     let playground = self.play(ctx);
@@ -665,6 +698,29 @@ impl Component for TabsPage {
               "], |_| {})",
               ".variant(TabsVariant::Line)",
               ".note(\"Archived opens on its own page\")",
+            ],
+          ),
+        ),
+        Section::new(
+          "Steady places, a lock after a label, a tab at the end",
+          "Each label keeps the room it takes selected, in the heavier weight, so selecting another tab moves none \
+           after it. A tab not built yet ends in a lock after its words, and Settings stands at the end of the line, \
+           after the note: still a tab of the list, which the arrows reach after the others.",
+          self.frame.demo(
+            7,
+            places,
+            ".reserve_selected_width(true) .trailing_icon(..) .at_end(true)",
+            &[
+              "Tabs::new(section, [",
+              "    Tab::new(0, \"Lists\"),",
+              "    Tab::new(1, \"Members\").count(4),",
+              "    Tab::new(2, \"Billing\").trailing_icon(icons::LOCK).disabled_reason(\"..\"),",
+              "    Tab::new(9, \"Settings\").at_end(true),",
+              "])",
+              ".variant(TabsVariant::Line)",
+              ".reserve_selected_width(true)",
+              ".note(\"Read 2 minutes ago\")",
+              ".mount(ctx)",
             ],
           ),
         ),

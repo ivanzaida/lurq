@@ -11,7 +11,7 @@ use super::{
 };
 use crate::{
   app::{
-    ctx::{CollisionStrategy, Placement},
+    ctx::{CollisionStrategy, OutsidePress, Placement},
     theme::{
       BorderSize, MotionDuration, MotionEasing, PaletteColor, RadiusSize, ShadowStyle, SpacingSize, Theme,
       TypographyStyle,
@@ -110,6 +110,7 @@ pub struct Popover {
   inline: bool,
   dismiss_on_escape: bool,
   dismiss_on_outside_press: bool,
+  keeps_focus: bool,
   label: Option<Arc<str>>,
   described: Option<Arc<str>>,
   on_dismiss: Vec<Arc<dyn Fn() + Send + Sync>>,
@@ -140,6 +141,7 @@ impl Popover {
       inline: false,
       dismiss_on_escape: true,
       dismiss_on_outside_press: true,
+      keeps_focus: false,
       label: None,
       described: None,
       on_dismiss: Vec::new(),
@@ -275,6 +277,15 @@ impl Popover {
     self
   }
 
+  /// Whether the popover leaves the focus where it is as it opens, in the app's field or panel, in place of taking it:
+  /// a list of choices under a field being typed in, a calendar whose keys the app reads where it keeps the focus
+  /// ([`Calendar::keys`](super::Calendar::keys)). A press outside it then closes it, where it closes it, and goes on
+  /// to what it was on. `false` by default: the focus goes into the popover and back as it closes.
+  pub fn keeps_focus(mut self, keeps: bool) -> Self {
+    self.keeps_focus = keeps;
+    self
+  }
+
   /// Draws the panel where the popover is declared, whether or not it is
   /// open, and not over the window beside its anchor: for a gallery, a
   /// screenshot, a test. Its trigger is not drawn, and Escape and a press
@@ -370,7 +381,10 @@ impl Popover {
       .collision(self.collision)
       .dismiss_on_escape(self.dismiss_on_escape)
       .dismiss_on_outside_click(self.dismiss_on_outside_press)
-      .takes_focus(true);
+      .takes_focus(!self.keeps_focus);
+    if self.keeps_focus {
+      popup = popup.outside_press(OutsidePress::PassThrough);
+    }
     if let Some(within) = self.within {
       popup = popup.within(within);
     }

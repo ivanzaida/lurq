@@ -251,7 +251,10 @@ pub use button::{
 pub use button_group::{
   ButtonGroup, ButtonGroupPart, ButtonGroupRenderer, ButtonGroupSize, ButtonGroupState, ButtonGroupVariant,
 };
-pub use calendar::{Calendar, CalendarChoice, CalendarPart, CalendarRenderer, CalendarState, CalendarView, DateMemory};
+pub use calendar::{
+  Calendar, CalendarChoice, CalendarHeading, CalendarKeys, CalendarPart, CalendarRenderer, CalendarState, CalendarView,
+  DateMemory,
+};
 pub use callout::{Callout, CalloutPart, CalloutRenderer, CalloutState, CalloutView};
 pub use card::{Card, CardPart, CardRenderer, CardSize, CardState, CardVariant, CardView};
 pub use carousel::{Carousel, CarouselPart, CarouselRenderer, CarouselState, CarouselView};
@@ -320,7 +323,7 @@ pub use date_picker::{
   PickerRenderer, PickerView,
 };
 pub use date_range_picker::{DateRangePicker, DateRangePickerRenderer, DateRangePickerView};
-pub use dialog::{Dialog, DialogPart, DialogRenderer, DialogSize, DialogState, DialogView};
+pub use dialog::{Dialog, DialogFocus, DialogPart, DialogRenderer, DialogSize, DialogState, DialogView};
 pub use dock_layout::{
   DockCloseEvent, DockDocuments, DockFloat, DockGroup, DockHidden, DockLayout, DockLayoutPart, DockLayoutRenderer,
   DockLayoutState, DockLayoutView, DockNode, DockPanel, DockPlace, DockSide, DockSplit, DockState, DockStateParseError,
@@ -413,7 +416,7 @@ pub use mentions::{
   MentionsState, MentionsView,
 };
 pub use menu::{
-  Menu, MenuEntry, MenuItem, MenuItemPart, MenuItemRenderer, MenuItemState, MenuItemView, MenuPart, MenuRenderer,
+  Menu, MenuEntry, MenuItem, MenuItemPart, MenuItemRenderer, MenuItemState, MenuItemView, MenuKeys, MenuPart, MenuRenderer,
   MenuState, MenuView,
 };
 pub use menubar::{Menubar, MenubarMenu, MenubarPart, MenubarRenderer, MenubarState, MenubarView};

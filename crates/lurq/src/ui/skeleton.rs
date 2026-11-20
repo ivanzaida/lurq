@@ -18,7 +18,9 @@ use crate::{
 };
 
 /// The keyframes of a skeleton that pulses, which every window has: whole,
-/// then half, then whole again.
+/// then half, then whole again. A pulse that dims to another opacity
+/// ([`SkeletonMotion::dim_to`]) has keyframes of its own, which every window
+/// has too.
 pub const SKELETON_PULSE: KeyframesId = KeyframesId::new(0xFF33);
 
 /// The keyframes of the sheen of a skeleton that shimmers, which every window
@@ -42,19 +44,42 @@ const SWEEP: f32 = 300.0;
 const NEXT_TO_LAST: f32 = 92.0;
 const LAST: f32 = 60.0;
 
-/// The keyframes of a skeleton: its pulse and its sheen. They play in phase, so every skeleton on screen
-/// pulses as one, and the sheen crosses every one at once.
-pub(crate) fn keyframes() -> [Keyframes; 2] {
-  let pulse = Keyframes::new(SKELETON_PULSE)
+/// How far a skeleton's pulse dims unless told, in hundredths of its opacity: to half.
+const DIM_DEFAULT: u8 = 50;
+
+/// The first of the keyframes of the pulses that dim to another opacity than half, one for each hundredth from 0 to
+/// 100: lurq's own, as every identifier from `0xFF00` up is.
+const PULSE_DEPTHS: u16 = 0xFF9B;
+
+/// The keyframes of the pulse that dims to `dim` hundredths of the opacity: [`SKELETON_PULSE`] for half.
+fn pulse_id(dim: u8) -> KeyframesId {
+  if dim == DIM_DEFAULT {
+    SKELETON_PULSE
+  } else {
+    KeyframesId::new(PULSE_DEPTHS + u16::from(dim.min(100)))
+  }
+}
+
+/// A pulse that dims to `dim` hundredths of the opacity at its middle, as `id`.
+fn pulse(id: KeyframesId, dim: u8) -> Keyframes {
+  Keyframes::new(id)
     .frame(0.0, |frame| {
       frame.set(AnimatableProperty::Opacity, 1.0);
     })
     .frame(0.5, |frame| {
-      frame.set(AnimatableProperty::Opacity, 0.5);
+      frame.set(AnimatableProperty::Opacity, f32::from(dim) / 100.0);
     })
     .frame(1.0, |frame| {
       frame.set(AnimatableProperty::Opacity, 1.0);
-    });
+    })
+}
+
+/// The keyframes of a skeleton: its pulses, one for each depth it may dim to, and its sheen. They play in phase, so
+/// every skeleton on screen that dims alike pulses as one, and the sheen crosses every one at once.
+pub(crate) fn keyframes() -> Vec<Keyframes> {
+  let pulses = (0..=100u8)
+    .filter(|dim| *dim != DIM_DEFAULT)
+    .map(|dim| pulse(pulse_id(dim), dim));
   let shimmer = Keyframes::new(SKELETON_SHIMMER)
     .frame(0.0, |frame| {
       frame.set(AnimatableProperty::Width, AnimatableValue::Percent(0.0));
@@ -62,7 +87,10 @@ pub(crate) fn keyframes() -> [Keyframes; 2] {
     .frame(1.0, |frame| {
       frame.set(AnimatableProperty::Width, AnimatableValue::Percent(200.0 / 3.0));
     });
-  [pulse, shimmer]
+  std::iter::once(pulse(SKELETON_PULSE, DIM_DEFAULT))
+    .chain(pulses)
+    .chain(std::iter::once(shimmer))
+    .collect()
 }
 
 /// How a skeleton pulses or shimmers: smoothly, or in steps, and how long one pulse or one crossing of the sheen
@@ -80,12 +108,16 @@ pub(crate) fn keyframes() -> [Keyframes; 2] {
 /// theme.set_skeleton_motion(SkeletonMotion::stepped(20).period(Duration::from_millis(1600)));
 /// // One skeleton's own.
 /// let line = Skeleton::line().motion(SkeletonMotion::SMOOTH);
+/// // A pulse that dims to 0.55 and not to half.
+/// theme.set_skeleton_motion(SkeletonMotion::stepped(8).dim_to(0.55));
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct SkeletonMotion {
   /// The poses a second, or `None` for a smooth motion.
   steps_per_second: Option<u32>,
   period: Duration,
+  /// The opacity the pulse dims to at its middle, in hundredths.
+  dim: u8,
 }
 
 impl Default for SkeletonMotion {
@@ -99,6 +131,7 @@ impl SkeletonMotion {
   pub const SMOOTH: Self = Self {
     steps_per_second: None,
     period: SKELETON_PULSE_PERIOD,
+    dim: DIM_DEFAULT,
   };
 
   /// A motion in `per_second` poses a second, each held until the next. A half of a pulse that is no whole number
@@ -107,6 +140,7 @@ impl SkeletonMotion {
     Self {
       steps_per_second: Some(if per_second == 0 { 1 } else { per_second }),
       period: SKELETON_PULSE_PERIOD,
+      dim: DIM_DEFAULT,
     }
   }
 
@@ -119,6 +153,19 @@ impl SkeletonMotion {
       period
     };
     self
+  }
+
+  /// The opacity a pulse dims to at its middle, from its whole at its start and its end: 0.5, half, unless told.
+  /// It is taken in hundredths, between 0 and 1. A sheen that crosses a skeleton does not dim it.
+  pub fn dim_to(mut self, opacity: f32) -> Self {
+    // `as` saturates, and NaN is 0; the hundredths are 0 to 100 after the clamp.
+    self.dim = (opacity.clamp(0.0, 1.0) * 100.0).round() as u8;
+    self
+  }
+
+  /// The opacity a pulse dims to at its middle.
+  pub fn dimmed(&self) -> f32 {
+    f32::from(self.dim) / 100.0
   }
 
   /// The poses a second; `None` where it is smooth.
@@ -544,7 +591,7 @@ impl SkeletonView {
     let bone = Row::new().part(&self.part(SkeletonPart::Bone));
     match self.animation {
       SkeletonAnimation::Pulse => bone.animation(
-        Animation::new(SKELETON_PULSE)
+        Animation::new(pulse_id(self.motion.dim))
           .duration(self.motion.period)
           .easing(self.motion.easing(2, Easing::EASE_IN_OUT))
           .infinite(),

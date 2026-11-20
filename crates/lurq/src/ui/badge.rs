@@ -12,6 +12,7 @@ use super::{
 use crate::{
   app::theme::{BorderSize, IconSize, PaletteColor, RadiusSize, Theme, TypographyStyle},
   components::{Row, Stack, TextOverflow},
+  core::ElementRef,
   layout::{Alignment, StackAlignment, layout_kind::Justify, text_style::FontWeight},
   node::{Element, border::Border as Line, dimension::Dimension, outline::Outline},
 };
@@ -155,6 +156,8 @@ pub struct Badge {
   max: usize,
   show_zero: bool,
   truncate: bool,
+  tooltip_when_cut: bool,
+  word: Option<ElementRef>,
   on: Option<Element>,
   states: Vec<Name>,
   rules: Recipe,
@@ -177,6 +180,8 @@ impl Badge {
       max: 99,
       show_zero: false,
       truncate: false,
+      tooltip_when_cut: false,
+      word: None,
       on: None,
       states: Vec::new(),
       rules: Recipe::new(),
@@ -252,6 +257,22 @@ impl Badge {
   /// keeps its width.
   pub fn truncate(mut self, truncate: bool) -> Self {
     self.truncate = truncate;
+    self
+  }
+
+  /// Whether the whole word is said in a tooltip while it is cut, as [`Tooltip::when_cut`](super::Tooltip::when_cut)
+  /// says: a badge that [gives way](Self::truncate) in a narrow row. It shows only while the last layout cut the
+  /// word, and not on a badge [on an element](Self::on). Off unless told.
+  pub fn tooltip_when_cut(mut self, tooltip: bool) -> Self {
+    self.tooltip_when_cut = tooltip;
+    self
+  }
+
+  /// Refers to the word's text once it is laid out: whether the last layout cut it
+  /// ([`ElementRef::text_cut`]), for a tooltip of the app's own (`Tooltip::when_cut(&word)`, with a hint while it
+  /// is whole). [`tooltip_when_cut`](Self::tooltip_when_cut) reads it too where it is given.
+  pub fn word_ref(mut self, word: ElementRef) -> Self {
+    self.word = Some(word);
     self
   }
 
@@ -337,6 +358,11 @@ impl Badge {
       count: self.count,
       shown: self.count.is_none_or(|n| n > 0 || self.show_zero),
       truncate: self.truncate,
+      tooltip_when_cut: self.tooltip_when_cut,
+      word: match self.word {
+        Some(word) => Some(word),
+        None => self.tooltip_when_cut.then(ElementRef::new),
+      },
       recipe: theme
         .resolve::<Badge>(&case, Some(&self.rules))
         .owned_by(self.id.as_ref()),
@@ -376,6 +402,10 @@ pub struct BadgeView {
   pub shown: bool,
   /// Whether it gives way where it has less room, its word cut with an ellipsis.
   pub truncate: bool,
+  /// Whether its whole word is said in a tooltip while it is cut.
+  pub tooltip_when_cut: bool,
+  /// What refers to its word's text: the app's, or the tooltip's where it says the word while it is cut.
+  word: Option<ElementRef>,
   /// The style of each part of this badge.
   pub recipe: ResolvedRecipe,
   /// The element the badge is on, if it is on one.
@@ -435,13 +465,15 @@ impl BadgeView {
       root = root.child(glyph(&self.part(BadgePart::Icon), name, false));
     }
     let part = self.part(BadgePart::Label);
+    let mut word = part.text(&self.text).nowrap();
+    if let Some(reference) = &self.word {
+      word = word.ref_element(reference.clone());
+    }
     if !self.truncate {
-      return root.child(Row::new().part(&part).child(part.text(&self.text).nowrap()));
+      return root.child(Row::new().part(&part).child(word));
     }
     // The word gives way, and the badge with it: its dot, its icon and its padding stay.
-    let word = part
-      .text(&self.text)
-      .nowrap()
+    let word = word
       .text_overflow(TextOverflow::Elipsis)
       .flex_shrink(1.0)
       .min_width(0.0);
@@ -493,7 +525,13 @@ impl BadgeView {
         let badge = self.badge();
         self.place(element, badge)
       }
-      (true, None) => self.badge().into(),
+      (true, None) => {
+        let badge = self.badge();
+        match self.word.as_ref().filter(|_| self.tooltip_when_cut && !self.dot_only) {
+          Some(word) => super::Tooltip::new(&self.text).when_cut(word).declared(badge),
+          None => badge.into(),
+        }
+      }
       (false, Some(element)) => element,
       (false, None) => Element::new(),
     }

@@ -93,3 +93,43 @@ fn to_tooling_it_is_a_status_called_by_its_words() {
   assert_eq!(said("a11y_role").as_deref(), Some("status"));
   assert_eq!(said("a11y_name").as_deref(), Some("Failed"));
 }
+
+#[test]
+fn a_cut_status_label_says_its_whole_words_in_a_tooltip_while_they_are_cut() {
+  use lurq::{core::ElementRef, layout::quad::QuadContent};
+  const WORDS: &str = "Running · 03 Implement the change";
+  let words = ElementRef::new();
+  let held = words.clone();
+  let mut stage = Stage::new(move |_| {
+    lurq::components::Column::new()
+      .padding(24.0)
+      .spacing(16.0)
+      .child(
+        lurq::components::Column::new().width(90.0).child(
+          StatusLabel::new(WORDS)
+            .icon(icons::SPINNER)
+            .id("cut")
+            .tooltip_when_cut(true)
+            .word_ref(held.clone()),
+        ),
+      )
+      .child(Row::new().width(400.0).child(StatusLabel::new("Done").id("whole").tooltip_when_cut(true)))
+      .into()
+  });
+  assert!(words.text_cut(), "the app's ref says the words are cut");
+  assert!(!stage.paints(WORDS), "nothing says them whole at rest");
+  stage.own_timers();
+  stage.hover("whole");
+  stage.tick_timers(std::time::Duration::from_secs(2));
+  stage.pass();
+  let said = stage
+    .quads()
+    .into_iter()
+    .filter(|quad| matches!(&quad.content, QuadContent::Text { text, .. } if text == "Done"))
+    .count();
+  assert_eq!(said, 1, "no tooltip over words that fit");
+  stage.hover("cut");
+  stage.tick_timers(std::time::Duration::from_secs(4));
+  stage.pass();
+  assert!(stage.paints(WORDS), "its tooltip says them whole");
+}

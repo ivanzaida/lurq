@@ -29,6 +29,11 @@ use crate::{
 };
 
 /// The names of the files the tabs hold, by their id.
+/// The folder of each of [`FILES`], which a row of the list of every tab says after the file's name.
+const FOLDERS: [&str; 12] = [
+  "ui", "ui", "canvas", "layout", "router", "text", "animation", "form", "charts", "ui", "media", "app",
+];
+
 const FILES: [&str; 12] = [
   "blur.rs",
   "theme.rs",
@@ -666,7 +671,9 @@ impl Component for WindowTabsPage {
       let open = self.all.open.get();
       WindowTabs::new(
         self.all.selected.clone(),
-        open.iter().map(|id| file(*id).fit_content(160.0)),
+        open
+          .iter()
+          .map(|id| file(*id).fit_content(160.0).list_detail(FOLDERS[*id])),
       )
       .label("Open files")
       .rules(&gapped())
@@ -739,6 +746,13 @@ impl Component for WindowTabsPage {
          its tooltip. It keeps its width; the label gives way first.",
       ),
       (
+        "WindowTab::list_label / list_detail / list_trailing",
+        "&str, &str, impl Into<Element>",
+        "",
+        "Of the list of every tab: what the tab's row says in place of its label, a quiet text after it (both \
+         searched), and the app's elements in the row, apart from trailing and with ids of their own.",
+      ),
+      (
         "WindowTab::describe",
         "(name, value)",
         "",
@@ -800,6 +814,26 @@ impl Component for WindowTabsPage {
         "false",
         "Ctrl+Shift+A (Cmd+Shift+A on macOS) opens and closes the More button's menu from anywhere in the window. \
          The button's tooltip says the keys.",
+      ),
+      (
+        "menu_open / on_menu_open_change",
+        "Signal<bool>, impl Fn(bool)",
+        "",
+        "Whether the More button's menu is open, as the app's signal, which the strip sets and the app may set; and \
+         what hears a person open or close it.",
+      ),
+      (
+        "list_clear_of / list_inset",
+        "impl Into<ElementRef>, f32",
+        "the More button, 8",
+        "The list of every tab stands 4 clear of that element's box (the title bar), lined up with the button, and \
+         stays that far inside the window's edges, never lower than that above its bottom.",
+      ),
+      (
+        "more_tooltip",
+        "impl Fn(usize) -> String",
+        "\"3 hidden tabs\"",
+        "What the More button's tooltip says for how many tabs are hidden, and what it says of itself to tooling.",
       ),
       (
         "dirty_mark",
@@ -978,15 +1012,20 @@ impl Component for WindowTabsPage {
           "Tabs as wide as what they show up to 160, 2 apart with no line between them (the gap of the list part, \
            which the strip counts as it fits them). The More button opens the list of every open tab: a search \
            field over twelve, a check on the selected tab, a mark on each tab not in the bar, and a close button \
-           on each row. Ctrl+Shift+A (Cmd+Shift+A) opens it; Up and Down move through it, Enter chooses, Ctrl+W \
-           closes the row's tab, Escape empties the search and then closes it.",
+           on each row, which says the file's folder after its name. Ctrl+Shift+A (Cmd+Shift+A) opens it; Up and \
+           Down move through it, Enter chooses, Ctrl+W closes the row's tab, Escape empties the search and then \
+           closes it. While it has the focus its keys are its own, and the selected tab's row is kept in view.",
           self.frame.demo(
             4,
             all,
             ".menu(WindowTabsMenu::All)",
             &[
               "WindowTabs::new(open, files.iter().map(|file| {",
-              "    WindowTab::new(file.id, &file.name).icon(icons::FILE_CODE).fit_content(160.0)",
+              "    WindowTab::new(file.id, &file.name)",
+              "        .icon(icons::FILE_CODE)",
+              "        .fit_content(160.0)",
+              "        // The row of the list says the folder after the name, quieter, and a search finds it.",
+              "        .list_detail(&file.folder)",
               "}))",
               "    // 2 between tabs and before the add button, no line between them.",
               "    .rules(",
