@@ -148,7 +148,11 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   what waits for the person, where `count` stays the quiet number of what is there.
 - **Why.** The kit's segments and tabs are found by the ids of their parts, and their counts, warnings, reasons and
   anchors are what they say and do; without them the kit keeps its own widgets.
-- **State.** Decided; in work on `claude/k4-e-choices-dialog`.
+- **State.** Built on `claude/k4-e-choices-dialog` (2026-11-20): `Choice::id`, `count`, `state` and `element_ref`,
+  drawn by `SegmentedControl` and `RadioGroup` (parts `count` of each, `Radio::count` and `Radio::element_ref`), a
+  choice's id and state taken by `ToggleGroup` and `ChipGroup`; `Tab::disabled_reason` (tooltip and
+  `a11y_description`, `TabsView::tab_element`) and `Tab::badge` (part `badge`). The menu of the overflowing tabs shows
+  a tab disabled for a reason as disabled, without the reason.
 
 ### A dialog has a mark, a note in its footer, and a confirm on Enter; a field an error icon and its control at the end
 
@@ -170,7 +174,11 @@ dropped). When a decision is replaced, the old entry stays and says what replace
 - **Why.** The kit builds its confirmations and its settings rows on lurq's dialog and field only where they hold what
   the design draws. A focused button keeps Enter as a press of itself, so a dialog that opens with the focus on
   Cancel (a question whose answer destroys) is not confirmed by Enter, as the playbook's rule of the focus wants.
-- **State.** Decided; in work on `claude/k4-e-choices-dialog`.
+- **State.** Built on `claude/k4-e-choices-dialog` (2026-11-20): `Dialog::icon`, `media`, `note`, `note_icon` and
+  `on_confirm` (parts `mark`, `icon`, `note`, `note_icon`, states `mark` and `note`; `DialogView::mark`, `note`,
+  `confirmer`), the engine's `KeyboardEvent::focus_takes_enter`; `Field::error_icon` (part `icon`) and
+  `Field::control_end` (part `text`, state `control_end`). The mark's well has one look; a tone (warning, info,
+  danger) is the app's rule on the part `mark`.
 
 ## 2026-11-19
 
