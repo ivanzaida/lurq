@@ -131,6 +131,7 @@ mod spinner;
 mod splitter;
 mod stat_card;
 mod status_bar;
+mod status_label;
 mod steps;
 mod styling;
 mod swatch_picker;
@@ -930,6 +931,14 @@ pub const PAGES: &[Page] = &[
     about: "badge status label count counter dot indicator unread notification variant success warning info destructive outline size shape icon dot_only adge max show_zero",
     group: Group::Data,
     mount: |ctx| ctx.mount::<badge::BadgePage>(()),
+  },
+  Page {
+    path: "/status-label",
+    name: "Status Label",
+    icon: Some("check-circle"),
+    about: "status label state run running queued completed failed waiting icon word tone variant neutral muted info success warning destructive size spin spinning spin_motion table row tatus abel",
+    group: Group::Data,
+    mount: |ctx| ctx.mount::<status_label::StatusLabelPage>(()),
   },
   Page {
     path: "/tag",
