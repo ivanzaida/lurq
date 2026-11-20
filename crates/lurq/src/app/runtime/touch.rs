@@ -7,8 +7,8 @@
 //! Both are a scroll view of the platform's: `UIScrollView` on iOS.
 
 use super::{
-  MouseModifiers, ScrollInput, Tree, find_node_by_id, find_scroll_node_id_by_state, hit_test_tree, scrollbar_hit_at,
-  trim_hits_to_scrollbar,
+  MouseModifiers, ScrollInput, Tree, find_node_by_id, find_scroll_node_id_by_state, hit_test_tree,
+  mark_scroll_layout_dirty, scrollbar_hit_at, trim_hits_to_scrollbar,
 };
 use crate::{
   app::events::{ScrollPhase, ScrollSource},
@@ -142,6 +142,56 @@ struct PageMove {
   spring: Spring,
 }
 
+impl PageMove {
+  /// A list at `offset` let go at rest, on its way to the page at `to` from `now`.
+  fn from_rest(offset: (f32, f32), to: (f32, f32), now: Instant) -> Self {
+    Self {
+      to,
+      spring: Spring {
+        from: (offset.0 - to.0, offset.1 - to.1),
+        velocity: (0.0, 0.0),
+        started: now,
+        released: false,
+      },
+    }
+  }
+
+  /// Where the list is at `now`, and whether that is its page, at rest.
+  fn at(&self, now: Instant) -> ((f32, f32), bool) {
+    let elapsed = now.saturating_duration_since(self.spring.started);
+    let left = self.spring.at_frequency(PAGE_FREQUENCY, elapsed.as_secs_f32());
+    if elapsed >= SPRING_MIN && left.0.abs() < SPRING_REST && left.1.abs() < SPRING_REST {
+      return (self.to, true);
+    }
+    // Thrown hard, the spring would carry the list past the page: it stops there.
+    let within = |from: f32, left: f32| if from * left < 0.0 { 0.0 } else { left };
+    let at = (
+      self.to.0 + within(self.spring.from.0, left.0),
+      self.to.1 + within(self.spring.from.1, left.1),
+    );
+    (at, false)
+  }
+}
+
+/// A list on its way to a page beside the gesture's own list: one the gesture moved along with its own, or one a
+/// finger stopped on its way before it went on to scroll another list.
+struct Aside {
+  state: ScrollState,
+  /// The list's node, which hears its steps and its end.
+  node: Option<NodeId>,
+  page: PageMove,
+}
+
+impl Aside {
+  /// `state`'s list goes on to the page at `to` from where it is: it is held until it is there.
+  fn to(state: ScrollState, node: Option<NodeId>, to: (f32, f32), now: Instant) -> Self {
+    state.set_held(true);
+    state.set_page_target(Some(to));
+    let page = PageMove::from_rest((state.scroll_x(), state.scroll_y()), to, now);
+    Self { state, node, page }
+  }
+}
+
 /// Along one axis: the offset of the page content at `offset` goes to when a finger that started on the page
 /// at `began` lifts at `speed`, in logical pixels per second of the offset. Thrown, it goes to the next page
 /// that way; let go, to the nearest; and no further than the page beside the one it started on.
@@ -185,6 +235,14 @@ pub(super) struct TouchScroll {
   source: ScrollSource,
   /// Where the gesture started, in logical pixels: where the events of what it leaves are from.
   at: (f32, f32),
+  /// Whether the gesture goes down, as its first travel did, and not across: its list, where it scrolls one
+  /// way, takes that part of the finger's travel and none of the other.
+  vertical: bool,
+  /// The lists other than the gesture's own that it moved: each is put on a page when the gesture is over, if
+  /// it scrolls by pages.
+  moved: Vec<(NodeId, ScrollState)>,
+  /// The lists on their way to a page beside the gesture.
+  asides: Vec<Aside>,
 }
 
 /// A list on its way to its top.
@@ -364,7 +422,9 @@ impl Tree {
 
     // A finger that catches content on its way back holds it where it is. Content of another container is
     // put back at once: one gesture, one container.
-    let previous = std::mem::take(&mut self.touch_scroll);
+    let now = self.press_now();
+    let mut previous = std::mem::take(&mut self.touch_scroll);
+    let mut asides = std::mem::take(&mut previous.asides);
     let caught = previous
       .taker
       .as_ref()
@@ -379,21 +439,41 @@ impl Tree {
     };
     if !caught && let Some(taker) = &previous.taker {
       taker.state.set_overscroll(0.0, 0.0);
-      // A list a finger stopped on its way to a page is put on that page, and what the gesture left it doing
-      // is over.
-      if let Some(page) = previous.caught_page {
-        taker.state.set_scroll(page.0, page.1);
-      }
-      if taker.state.held() {
-        let state = taker.state.clone();
-        self.scroll_rests(&state, &heard_before, previous.at, previous.source);
+      let going = previous.caught_page.or(previous.page.as_ref().map(|page| page.to));
+      match going {
+        // A list a finger stopped on its way to a page is not left between two: it goes on to that page
+        // beside the gesture, which is another list's.
+        Some(page) => asides.push(Aside::to(
+          taker.state.clone(),
+          previous.around.first().copied(),
+          page,
+          now,
+        )),
+        // What the last gesture left its list doing is over.
+        None if taker.state.held() => {
+          let state = taker.state.clone();
+          self.scroll_rests(&state, &heard_before, previous.at, previous.source);
+        }
+        None => {}
       }
     }
+    // The lists the last gesture moved beside its own are put on their pages, where it did not get to.
+    let moved = std::mem::take(&mut previous.moved);
+    Self::pages_of_moved(&mut asides, moved, taker.as_ref().map(|taker| &taker.state), now);
+    // A list on its way to a page beside the last gesture is this gesture's now.
+    let own = taker.as_ref().and_then(|taker| {
+      let at = asides.iter().position(|aside| aside.state.ptr_eq(&taker.state))?;
+      Some(asides.remove(at))
+    });
+    if let (Some(taker), Some(_)) = (&taker, &own) {
+      taker.state.set_page_target(None);
+    }
     // A list caught on its way to a page is still of the page it was going to.
-    let began = match (&taker, previous.caught_page) {
-      (Some(_), Some(page)) if caught => page,
-      (Some(taker), _) => taker.offsets(),
-      (None, _) => (0.0, 0.0),
+    let began = match (&taker, previous.caught_page, own) {
+      (Some(_), _, Some(own)) => own.page.to,
+      (Some(_), Some(page), None) if caught => page,
+      (Some(taker), ..) => taker.offsets(),
+      (None, ..) => (0.0, 0.0),
     };
     self.touch_scroll = TouchScroll {
       taker,
@@ -408,8 +488,54 @@ impl Tree {
       caught: false,
       source: ScrollSource::Finger,
       at: (lx, ly),
+      vertical,
+      moved: Vec::new(),
+      asides,
     };
     self.mark_touch_scroll_moved();
+  }
+
+  /// The gesture moved these lists: those other than its own are remembered, and put on a page when it is
+  /// over.
+  pub(super) fn touch_scrolled(&mut self, lists: &[(NodeId, ScrollState)]) {
+    let scroll = &mut self.touch_scroll;
+    for (node, state) in lists {
+      let own = scroll.taker.as_ref().is_some_and(|taker| taker.state.ptr_eq(state));
+      if !own && !scroll.moved.iter().any(|(_, moved)| moved.ptr_eq(state)) {
+        scroll.moved.push((*node, state.clone()));
+      }
+    }
+  }
+
+  /// Sends each of `moved` that scrolls by pages and is between two to the nearer one, beside the gesture:
+  /// all but `own`, the gesture's list, which goes where the finger threw it.
+  fn pages_of_moved(
+    asides: &mut Vec<Aside>,
+    moved: Vec<(NodeId, ScrollState)>,
+    own: Option<&ScrollState>,
+    now: Instant,
+  ) {
+    for (node, state) in moved {
+      if !state.paging()
+        || own.is_some_and(|own| own.ptr_eq(&state))
+        || asides.iter().any(|aside| aside.state.ptr_eq(&state))
+      {
+        continue;
+      }
+      let offset = (state.scroll_x(), state.scroll_y());
+      let viewport = (state.viewport_width(), state.viewport_height());
+      let ends = (
+        (state.content_width() - viewport.0).max(0.0),
+        (state.content_height() - viewport.1).max(0.0),
+      );
+      let to = (
+        page_target(offset.0, offset.0, viewport.0, ends.0, 0.0),
+        page_target(offset.1, offset.1, viewport.1, ends.1, 0.0),
+      );
+      if to != offset {
+        asides.push(Aside::to(state, Some(node), to, now));
+      }
+    }
   }
 
   /// The gesture's content starts to move, where it was at rest: what the gesture scrolls hears the scroll's
@@ -438,7 +564,15 @@ impl Tree {
   /// Tells the content of the gesture's container at rest once nothing has it any more: no finger, no
   /// momentum, no way to a page and no spring back. A shell that drives the gesture itself has this from
   /// [`touch_tick`](Self::touch_tick); [`finger`](Self::finger) and [`finger_tick`](Self::finger_tick) ask.
-  pub(super) fn touch_scroll_rest(&mut self) {
+  pub(super) fn touch_scroll_rest(&mut self, now: Instant) {
+    // The finger and its momentum are over: what they moved beside their own list is put on a page.
+    if !self.touch_scroll.moving && !self.touch_scroll.caught && !self.touch_scroll.moved.is_empty() {
+      let scroll = &mut self.touch_scroll;
+      let moved = std::mem::take(&mut scroll.moved);
+      let own = scroll.taker.as_ref().map(|taker| taker.state.clone());
+      Self::pages_of_moved(&mut scroll.asides, moved, own.as_ref(), now);
+      self.needs_redraw = true;
+    }
     let scroll = &self.touch_scroll;
     let Some(taker) = &scroll.taker else {
       return;
@@ -540,6 +674,18 @@ impl Tree {
     let scale = self.scale_factor();
     // How far the offset is asked to go.
     let mut change = (-delta_x / scale, -delta_y / scale);
+    // A list that scrolls one way takes the finger's travel that way and none of the other: the gesture is its
+    // own from the finger's first points, and a strip in the page does not creep sideways under a finger that
+    // scrolls the page down on a slant.
+    if let Some(taker) = &self.touch_scroll.taker
+      && taker.axes != (true, true)
+    {
+      if self.touch_scroll.vertical {
+        change.0 = 0.0;
+      } else {
+        change.1 = 0.0;
+      }
+    }
     let pulled = self.touch_scroll.pull;
     if !momentum {
       // Travel back toward the content first lets go of the pull.
@@ -775,8 +921,66 @@ impl Tree {
   pub fn touch_tick(&mut self, now: Instant) -> bool {
     let to_top = self.touch_to_top_tick(now) | self.touch_tap_highlight_tick(now) | self.touch_page_tick(now);
     let springs = self.touch_spring_tick(now);
-    self.touch_scroll_rest();
-    springs || to_top
+    self.touch_scroll_rest(now);
+    let asides = self.touch_asides_tick(now);
+    springs || to_top || asides
+  }
+
+  /// Moves the lists on their way to a page beside the gesture to where they are at `now`. Each hears its
+  /// steps as the gesture's own list does, and its end on its page.
+  fn touch_asides_tick(&mut self, now: Instant) -> bool {
+    if self.touch_scroll.asides.is_empty() {
+      return false;
+    }
+    let mut going = Vec::new();
+    let mut moved = false;
+    for mut aside in std::mem::take(&mut self.touch_scroll.asides) {
+      let (to, rests) = aside.page.at(now);
+      let state = aside.state.clone();
+      let was = (state.scroll_x(), state.scroll_y());
+      let was_end = (state.content_height() - state.viewport_height()).max(0.0);
+      state.set_scroll(to.0, to.1);
+      // The node it had or, where a rebuild replaced that, the one that has its state now.
+      aside.node = self.root.as_ref().and_then(|root| {
+        aside
+          .node
+          .filter(|id| find_node_by_id(root, *id).is_some())
+          .or_else(|| find_scroll_node_id_by_state(root, &state))
+      });
+      if let (Some(root), Some(node)) = (&self.root, aside.node) {
+        mark_scroll_layout_dirty(root, node);
+      }
+      if let Some(node) = aside.node
+        && (state.scroll_x(), state.scroll_y()) != was
+      {
+        moved = true;
+        self.dispatch_scroll_handlers_for_node(node, 0.0, 0.0, 0.0, 0.0, ScrollPhase::Scroll, ScrollSource::Snap);
+        self.dispatch_scroll_reach_handlers_for_node(
+          node,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          ScrollPhase::Scroll,
+          was.1,
+          was_end,
+          ScrollSource::Snap,
+        );
+      }
+      if rests {
+        let heard: Vec<NodeId> = aside.node.into_iter().collect();
+        self.scroll_rests(&state, &heard, (0.0, 0.0), ScrollSource::Snap);
+      } else {
+        going.push(aside);
+      }
+    }
+    self.needs_redraw = true;
+    if moved {
+      self.apply_reactive_updates_after_event();
+    }
+    let still = !going.is_empty();
+    self.touch_scroll.asides = going;
+    still
   }
 
   /// Moves content springing back from past an end to where it is at `now`.
@@ -835,20 +1039,11 @@ impl Tree {
     let (Some(taker), Some(page)) = (&self.touch_scroll.taker, &self.touch_scroll.page) else {
       return false;
     };
-    let elapsed = now.saturating_duration_since(page.spring.started);
-    let left = page.spring.at_frequency(PAGE_FREQUENCY, elapsed.as_secs_f32());
-    let rests = elapsed >= SPRING_MIN && left.0.abs() < SPRING_REST && left.1.abs() < SPRING_REST;
+    let (to, rests) = page.at(now);
     let (was, was_end) = (taker.offsets(), taker.ends().1);
+    taker.state.set_scroll(to.0, to.1);
     if rests {
-      taker.state.set_scroll(page.to.0, page.to.1);
       self.touch_scroll.page = None;
-    } else {
-      // Thrown hard, the spring would carry the list past the page: it stops there.
-      let within = |from: f32, left: f32| if from * left < 0.0 { 0.0 } else { left };
-      taker.state.set_scroll(
-        page.to.0 + within(page.spring.from.0, left.0),
-        page.to.1 + within(page.spring.from.1, left.1),
-      );
     }
     let moved = taker.offsets() != was;
     self.mark_touch_scroll_moved();
@@ -879,6 +1074,7 @@ impl Tree {
     self.touch_scroll.spring.is_some()
       || self.touch_scroll.to_top.is_some()
       || self.touch_scroll.page.is_some()
+      || !self.touch_scroll.asides.is_empty()
       || self.touch_tap_highlight_showing()
   }
 

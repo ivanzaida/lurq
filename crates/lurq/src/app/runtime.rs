@@ -6954,7 +6954,7 @@ impl Tree {
           }
           self.needs_redraw = true;
           if self.touch_scroll_latched {
-            moved_by_finger.push(node.node_id());
+            moved_by_finger.push((node.node_id(), state.clone()));
           }
         }
         pending_scroll_reach.push((
@@ -7000,7 +7000,8 @@ impl Tree {
     // The content is where the finger took it: its container hears an event with no delta, as it does after
     // every step of a wheel's scroll, and a handler that reads the offset there reads what is drawn. A
     // touchpad's and a wheel's own event stays the one with its delta, before the move.
-    for target_id in moved_by_finger {
+    self.touch_scrolled(&moved_by_finger);
+    for (target_id, _) in moved_by_finger {
       self.dispatch_scroll_handlers_for_node(target_id, evt.x, evt.y, 0.0, 0.0, ScrollPhase::Scroll, input.source);
     }
     for (target_id, x, y, delta_x, delta_y, phase, previous_scroll_y, previous_max_scroll_y) in pending_scroll_reach {

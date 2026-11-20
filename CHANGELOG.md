@@ -17,7 +17,8 @@ Added:
 
 Fixes:
 
-- A list on its way to a page that a finger stopped, when the finger then scrolled another list, stayed between two pages for good: it is put on the page it was going to. So is one a tap on the status bar interrupts.
+- **A list that scrolls by pages always comes to rest on a page.** A strip of pictures that scrolls across by pages, in a feed that scrolls down by pages, stayed between two pictures after a drag on a slant: the finger's gesture was the feed's, the strip took the sideways part of the travel all the same, and only the feed was sent to a page at the lift. A finger's gesture on a list that scrolls one way now takes that way's part of the travel and none of the other, from the finger's first points to the lift, and no list inside it takes what is left: a strip does not creep sideways under a finger that scrolls its page. A list that scrolls both ways follows the finger as before. Whatever a gesture did move beside its own list is sent to its nearest page when the gesture is over. See [Scrolling](docs/src/content/docs/ios.md#scrolling).
+- A list on its way to a page that a finger stopped, when the finger then scrolled another list, stayed between two pages for good: it goes on to the page it was going to, beside that gesture. One a tap on the status bar interrupts is put on its page.
 - A list that scrolls by pages and comes to its last page on its way there after the finger lifted reaches its bottom: `on_scroll_reach_bottom` (and `on_scroll_reach_top` on the first) was called only where the finger itself, or its momentum, brought the content to the end, so a feed that loads more at its end did not on a short flick.
 - `on_scroll_reach_top` and `on_scroll_reach_bottom` say what moved the content there (`event.source`).
 

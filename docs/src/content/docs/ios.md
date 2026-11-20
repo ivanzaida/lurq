@@ -189,6 +189,12 @@ Scroll containers scroll under a finger as `UIScrollView` does: the content foll
 momentum when it lifts, stretches past its ends and springs back, and stops under a finger that lands on it.
 One gesture scrolls one container, the innermost that has room in the finger's direction.
 
+- **One way.** The direction is the finger's first travel, the ten points that tell a scroll from a tap: more
+  down than across, the gesture is of a list that scrolls down, and the other way round. A list that scrolls
+  one way takes that part of the finger's travel for the whole gesture and none of the other, and no list
+  inside it takes what is left: a strip of pictures in a page does not creep sideways under a finger that
+  scrolls the page on a slant, and a drag to the left that turns downward stays the strip's. A list that
+  scrolls both ways (`ScrollBoth`) follows the finger both ways.
 - **The scroll indicator.** On iOS a bar is `ScrollBarStyle::indicator()` unless styled otherwise: thin, over
   the content, shown while it scrolls.
 - **A tap on the status bar** scrolls the outermost vertical list to its top.
@@ -206,6 +212,11 @@ One gesture scrolls one container, the innermost that has room in the finger's d
   `on_page_change` and `page_signal()` the one it came to rest on: see
   [What a scroll tells](../styling-events/#what-a-scroll-tells). A wheel and a scroll bar scroll such a list
   as any other.
+- **Always on a page.** A list that scrolls by pages comes to rest on a page whatever ended the gesture: a
+  lift, a touch the system took away (`TouchPhase::Cancel`), a press that stopped the list on its way. A list
+  a finger stopped on its way to a page, when the finger then scrolls another list (the strip of an album
+  still on its way to its next picture as the finger goes on to the next album), goes on to its page beside
+  that gesture.
 - **The end of a scroll** is when the content is at rest: `on_scroll_end` is called once the momentum has
   stopped, the list is on its page and content pulled past an end has sprung back, not when the finger
   lifts. Every step on the way is an `on_scroll` event with no delta.

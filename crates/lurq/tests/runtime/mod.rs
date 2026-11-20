@@ -58,6 +58,7 @@ mod middle_autoscroll;
 mod modal_resize;
 mod mouse_leave;
 mod navigation;
+mod nested_paging;
 mod nested_wheel_scroll;
 mod outside_press;
 mod overlay;

@@ -687,6 +687,97 @@ impl Component for Pages {
   }
 }
 
+/// How many albums the feed of strips has, and how many pictures an album.
+const ALBUMS: usize = 3;
+const PICTURES: usize = 3;
+
+/// A feed of albums that scrolls down by pages, each album a strip of pictures that scrolls across by pages:
+/// what a finger's gesture scrolls is one of the two, and both come to rest on a page.
+struct Nested {
+  feed: ScrollState,
+  strips: Vec<ScrollState>,
+}
+
+impl Component for Nested {
+  type Props = ();
+
+  fn create(_ctx: &mut Ctx) -> Self {
+    let paged = || {
+      let state = ScrollState::new();
+      state.set_paging(true);
+      state
+    };
+    Self {
+      feed: paged(),
+      strips: (0..ALBUMS).map(|_| paged()).collect(),
+    }
+  }
+
+  fn render(&self, _ctx: &mut Ctx) -> impl Into<Element> {
+    // Rendered again when the feed or a strip comes to rest on another page.
+    let (_, album) = self.feed.page_signal().get();
+    let pictures: Vec<usize> = self.strips.iter().map(|strip| strip.page_signal().get().0).collect();
+    let albums = Column::new().with_children(self.strips.iter().enumerate().map(|(album, strip)| {
+      let strip_of = Row::new().with_children((0..PICTURES).map(|picture| {
+        Row::new()
+          .size(PAGE_WIDTH, PAGE_HEIGHT)
+          .align_items(Alignment::Center)
+          .justify(Justify::Center)
+          .background(if (album + picture).is_multiple_of(2) {
+            PaletteColor::Muted
+          } else {
+            PaletteColor::Background
+          })
+          .child(text(
+            &format!("Album {album} · picture {picture}"),
+            13.0,
+            FontWeight::Bold,
+          ))
+      }));
+      ScrollHorizontal::new(strip_of)
+        .with_scroll_state(strip.clone())
+        .scrollbar(ScrollBarStyle::hidden())
+        .id(format!("scroll-nested-strip-{album}"))
+        .size(PAGE_WIDTH, PAGE_HEIGHT)
+    }));
+    let says = |name: &str, value: String, id: &str| {
+      Row::new()
+        .spacing(8.0)
+        .child(quiet(name, 12.0))
+        .child(mono(&value, 12.0).id(id))
+    };
+    samples()
+      .child(
+        ScrollVertical::new(albums)
+          .with_scroll_state(self.feed.clone())
+          .scrollbar(ScrollBarStyle::hidden())
+          .id("scroll-nested")
+          .size(PAGE_WIDTH, PAGE_HEIGHT)
+          .rounded(RadiusSize::Md)
+          .border(line()),
+      )
+      .child(
+        Column::new()
+          .spacing(6.0)
+          .child(says(
+            "the feed rests on album",
+            album.to_string(),
+            "scroll-nested-album",
+          ))
+          .child(says(
+            "its strip rests on picture",
+            pictures.get(album).copied().unwrap_or(0).to_string(),
+            "scroll-nested-picture",
+          ))
+          .child(says(
+            "every strip",
+            pictures.iter().map(usize::to_string).collect::<Vec<_>>().join(" "),
+            "scroll-nested-pictures",
+          )),
+      )
+  }
+}
+
 /// How many rows the list that is scrolled to a place has, and the one a button scrolls to.
 const PLACES_ROWS: usize = 60;
 const PLACES_ROW: usize = 40;
@@ -918,6 +1009,7 @@ impl Component for ScrollPage {
     let playground = self.play(ctx);
     let places = ctx.mount::<Places>(());
     let pages = ctx.mount::<Pages>(());
+    let nested = ctx.mount::<Nested>(());
     self.frame.page(
       ctx,
       Header {
@@ -1125,6 +1217,37 @@ impl Component for ScrollPage {
               "",
               "let (going, _) = state.target_page();  // known at the lift",
               "state.set_scroll(2.0 * 240.0, 0.0);    // the page follows, no scroll is told",
+            ],
+          ),
+        ),
+        Section::new(
+          "A strip in a feed",
+          "A feed of albums that scrolls down by pages, and in each album a strip of pictures that scrolls across \
+           by pages (run the gallery with --device phone, and the mouse is a finger). A gesture is one list's: the \
+           one along the way the finger went in its first points. A drag to the left that turns downward stays the \
+           strip's, a slanted drag down is the feed's and leaves the strip where it is, and whatever ends the \
+           gesture both come to rest on a page.",
+          self.frame.demo(
+            7,
+            nested,
+            "ScrollVertical::new(strips) // each a ScrollHorizontal",
+            &[
+              "// Kept by the component: the feed's state and one for each strip, all paging.",
+              "let feed = ScrollState::new();",
+              "feed.set_paging(true);",
+              "",
+              "let albums = Column::new().with_children(strips.iter().map(|strip| {",
+              "    ScrollHorizontal::new(pictures())",
+              "        .with_scroll_state(strip.clone())   // strip.set_paging(true)",
+              "        .size(240.0, 130.0)",
+              "}));",
+              "ScrollVertical::new(albums)",
+              "    .with_scroll_state(feed.clone())",
+              "    .size(240.0, 130.0)",
+              "",
+              "// In a render: the album the feed rests on, and the picture its strip rests on.",
+              "let (_, album) = feed.page_signal().get();",
+              "let (picture, _) = strips[album].page_signal().get();",
             ],
           ),
         ),
