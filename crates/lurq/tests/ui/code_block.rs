@@ -338,6 +338,71 @@ fn the_copy_button_copies_the_code_and_shows_it_did_for_a_while() {
   );
 }
 
+/// A clipboard that takes nothing.
+struct Refusing;
+
+impl lurq::app::ClipboardWriter for Refusing {
+  fn write_text(&self, _text: &str) -> bool {
+    false
+  }
+}
+
+#[cfg(any(feature = "mcp", feature = "devtools"))]
+#[test]
+fn a_copy_the_clipboard_refuses_says_so_for_a_while() {
+  let mut stage = Stage::in_app(App::new(), |ctx| CodeBlock::new(MAIN).id("block").mount(ctx));
+  stage.tree.set_clipboard_writer(Some(Arc::new(Refusing)));
+  let name = |stage: &mut Stage| {
+    stage
+      .tree
+      .get_element_by_id_mut("block-copy")
+      .and_then(|element| element.description("a11y_name"))
+  };
+  stage.click("block-copy");
+  stage.pass();
+  assert_eq!(name(&mut stage).as_deref(), Some("Couldn't copy"), "not Copied");
+  assert!(
+    stage.paints(&glyph(lurq::ui::icons::ALERT_CIRCLE)),
+    "an alert in place of the copy glyph"
+  );
+  assert_eq!(
+    stage.text(&glyph(lurq::ui::icons::ALERT_CIRCLE)).0,
+    light(PaletteColor::Destructive)
+  );
+  stage
+    .tree
+    .tick_timers_at(std::time::Instant::now() + lurq::ui::CODE_BLOCK_COPIED_FOR + std::time::Duration::from_millis(10));
+  stage.pass();
+  assert_eq!(name(&mut stage).as_deref(), Some("Copy code"), "and then it offers to copy again");
+}
+
+#[test]
+fn the_copy_text_is_copied_in_place_of_the_code_shown() {
+  let told = Arc::new(Mutex::new(Vec::new()));
+  let heard = told.clone();
+  let mut stage = staged(move || {
+    let heard = heard.clone();
+    CodeBlock::new("deploy --env prod")
+      .copy_text("deploy --env prod --token $TOKEN")
+      .id("block")
+      .on_copy(move |code| heard.lock().unwrap().push(code.to_owned()))
+  });
+  let written = Arc::new(Written::default());
+  stage.tree.set_clipboard_writer(Some(written.clone()));
+  stage.click("block-copy");
+  stage.pass();
+  assert_eq!(*written.0.lock().unwrap(), ["deploy --env prod --token $TOKEN"]);
+  assert_eq!(*told.lock().unwrap(), ["deploy --env prod --token $TOKEN"]);
+}
+
+/// The character lurq's font has for an icon.
+fn glyph(name: &str) -> String {
+  lurq::ui::icons::ALL
+    .iter()
+    .find_map(|(known, glyph)| (*known == name).then(|| glyph.to_string()))
+    .unwrap_or_else(|| panic!("lurq's font has no icon {name:?}"))
+}
+
 #[test]
 fn the_still_form_copies_too() {
   let mut stage = staged(|| CodeBlock::new("cargo add lurq").id("block"));
