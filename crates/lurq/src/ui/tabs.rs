@@ -81,6 +81,8 @@ pub enum TabsPart {
   Badge,
   /// The dot of a tab, after its count and its badge: the state of what it counts.
   Dot,
+  /// The icon of a tab after its label, its count, its badge and its dot: a lock on a tab not built yet.
+  TrailingIcon,
   /// The bone in the count's place while the count is read: its width, its height and its corners.
   CountSkeleton,
   /// The quiet words at the end of the list's line.
@@ -114,6 +116,7 @@ names!(TabsPart {
   Count => "count",
   Badge => "badge",
   Dot => "dot",
+  TrailingIcon => "trailing_icon",
   CountSkeleton => "count_skeleton",
   Note => "note",
   End => "end",
@@ -185,6 +188,8 @@ pub struct Tab<T> {
   dot: Option<PaletteColor>,
   count_pending: bool,
   inert: bool,
+  trailing_icon: Option<Name>,
+  at_end: bool,
   panel: Option<PanelBuilder>,
   on_open_aside: Vec<EventHandler<crate::app::events::MouseEvent>>,
   id: Option<Arc<str>>,
@@ -206,6 +211,8 @@ impl<T> Tab<T> {
       dot: None,
       count_pending: false,
       inert: false,
+      trailing_icon: None,
+      at_end: false,
       panel: None,
       on_open_aside: Vec::new(),
       id: None,
@@ -253,6 +260,23 @@ impl<T> Tab<T> {
   /// whatever is pressed; a tab that is there to be seen.
   pub fn inert(mut self, inert: bool) -> Self {
     self.inert = inert;
+    self
+  }
+
+  /// An icon after the label, and after its count, its badge and its dot, by its name in the theme's set: a lock on a
+  /// tab whose page is not built yet. It is drawn in the part [`TabsPart::TrailingIcon`], and is beside an
+  /// [`icon`](Self::icon) before the label.
+  pub fn trailing_icon(mut self, name: impl Into<Name>) -> Self {
+    self.trailing_icon = Some(name.into());
+    self
+  }
+
+  /// Whether the tab stands at the end of the list's line, with the other tabs so placed, after the room that grows
+  /// and after the [note](Tabs::note) and the app's [element](Tabs::end): a page's Settings after its lists. It is
+  /// still a tab of the list: its arrow keys reach it after the tabs at the start, and the menu of the overflowing
+  /// form lists it in its order. A list that runs down puts it after the others.
+  pub fn at_end(mut self, at_end: bool) -> Self {
+    self.at_end = at_end;
     self
   }
 
@@ -361,13 +385,30 @@ struct Held {
   plain: bool,
   /// What the tabs show that makes their list as wide as it is: `needs` is of these.
   shown: u64,
-  /// The ref of the last tab of the list alone: where it ends is how wide the list is.
+  /// The ref of the last tab at the start of the list alone: where it ends is how wide the list is, with the tabs at
+  /// its end.
   last: ElementRef,
+  /// Where the last tab at the start ends, and the padding after the list, as last laid out.
+  start: Option<f32>,
+  /// Of a list with tabs at its end: the ref of what holds them, and how wide it was last laid out.
+  group: ElementRef,
+  group_width: Option<f32>,
+  /// Of a list with tabs at its end, the room between them and the tabs at the start; `None` for a list with none.
+  tail: Option<f32>,
   /// Whether the list is to be scrolled to the selected tab: it has just become one that scrolls.
   reveal: bool,
 }
 
 impl Held {
+  /// How wide the list alone is, from where its tabs at the start end and how wide those at its end are.
+  fn measure(&mut self) {
+    self.needs = match (self.start, self.tail) {
+      (Some(start), None) => Some(start),
+      (Some(start), Some(gap)) => self.group_width.map(|group| start + gap + group),
+      (None, _) => None,
+    };
+  }
+
   /// Takes the form the room has room for, and says whether that is another.
   fn settle(&mut self) -> bool {
     let (Some(room), Some(needs)) = (self.room, self.needs) else {
@@ -395,6 +436,10 @@ impl Fits {
         plain: false,
         shown: 0,
         last: ElementRef::new(),
+        start: None,
+        group: ElementRef::new(),
+        group_width: None,
+        tail: None,
         reveal: false,
       })),
     };
@@ -414,9 +459,10 @@ impl Fits {
   }
 
   /// Whether tabs that show `shown`, whose list ends with a padding of `end`, are to be built as their
-  /// overflowing form. Tabs that show something else are built as their list alone, which is measured before
-  /// anything is painted.
-  fn scrolls(&self, shown: u64, end: f32) -> bool {
+  /// overflowing form. `ends` is of a list with tabs at its end: the room between them and those at the start, and
+  /// whether there are tabs at the start. Tabs that show something else are built as their list alone, which is
+  /// measured before anything is painted.
+  fn scrolls(&self, shown: u64, end: f32, ends: Option<(f32, bool)>) -> bool {
     let mut held = self.held.lock();
     held.end = end;
     if held.shown != shown {
@@ -424,7 +470,7 @@ impl Fits {
     }
     if !held.scrolls && !held.plain {
       // A ref that was laid out before tells of a box only where it is another: a new one tells of its first.
-      let last = ElementRef::new();
+      let (last, group) = (ElementRef::new(), ElementRef::new());
       let (state, turn) = (self.held.clone(), self.turn.clone());
       last.observe_rect_before_paint(move |rect| {
         let changed = {
@@ -432,14 +478,36 @@ impl Fits {
           if !held.plain {
             return;
           }
-          held.needs = Some(rect.relative_x + rect.width + held.end);
+          held.start = Some(rect.relative_x + rect.width + held.end);
+          held.measure();
           held.settle()
         };
         if changed {
           turn.update(|turn| *turn = turn.wrapping_add(1));
         }
       });
-      held.last = last;
+      let (state, turn) = (self.held.clone(), self.turn.clone());
+      group.observe_rect_before_paint(move |rect| {
+        let changed = {
+          let mut held = state.lock();
+          if !held.plain {
+            return;
+          }
+          held.group_width = Some(rect.width);
+          held.measure();
+          held.settle()
+        };
+        if changed {
+          turn.update(|turn| *turn = turn.wrapping_add(1));
+        }
+      });
+      (held.last, held.group, held.group_width) = (last, group, None);
+      // With no tab at the start, the tabs at the end are all the list holds.
+      (held.tail, held.start) = match ends {
+        Some((gap, true)) => (Some(gap), None),
+        Some((_, false)) => (Some(0.0), Some(end)),
+        None => (None, None),
+      };
     }
     held.plain = !held.scrolls;
     held.scrolls
@@ -491,6 +559,10 @@ pub struct TabEntry {
   pub count_pending: bool,
   /// Whether a press leaves the tab alone.
   pub inert: bool,
+  /// The icon after the label, if it has one.
+  pub trailing_icon: Option<Name>,
+  /// Whether the tab stands at the end of the line.
+  pub at_end: bool,
   select: Arc<dyn Fn() + Send + Sync>,
   aside: Vec<EventHandler<crate::app::events::MouseEvent>>,
   panel: Option<PanelBuilder>,
@@ -564,6 +636,7 @@ pub struct Tabs<T = ()> {
   overflow: bool,
   note: Option<Arc<str>>,
   end: Option<Element>,
+  reserve: bool,
   words: Words,
   states: Vec<Name>,
   rules: Recipe,
@@ -588,6 +661,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Tabs<T> {
       overflow: false,
       note: None,
       end: None,
+      reserve: false,
       words: Words {
         back: super::current_locale().navigation.scroll_back.clone(),
         on: super::current_locale().navigation.scroll_on.clone(),
@@ -706,6 +780,15 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Tabs<T> {
     self
   }
 
+  /// Whether each tab's label keeps the room it takes in the selected tab's style, a heavier weight, selected or not,
+  /// so that selecting another tab moves none after it, as a browser's tab bar keeps its tabs in place. Off unless
+  /// told: a tab is as wide as its label is drawn. A list that gives way in a room too narrow for it (tabs built with
+  /// nothing kept) keeps no room.
+  pub fn reserve_selected_width(mut self, reserve: bool) -> Self {
+    self.reserve = reserve;
+    self
+  }
+
   /// What the scroll button at the start of the overflowing list is called, to what reads the tree: "Scroll back".
   pub fn scroll_back_label(mut self, label: &str) -> Self {
     self.words.back = Arc::from(label);
@@ -793,6 +876,8 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Tabs<T> {
           dot: tab.dot,
           count_pending: tab.count_pending,
           inert: tab.inert,
+          trailing_icon: tab.trailing_icon,
+          at_end: tab.at_end,
           // A press of the selected tab asks for nothing, and tells nothing.
           select: Arc::new(move || {
             if chosen || write.as_ref().is_some_and(|write| !write(&value)) {
@@ -820,6 +905,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Tabs<T> {
       overflow: self.overflow,
       note: self.note,
       end: self.end,
+      reserve: self.reserve,
       words: self.words,
       states: self.states,
       rules: self.rules,
@@ -873,6 +959,7 @@ struct Prepared {
   overflow: bool,
   note: Option<Arc<str>>,
   end: Option<Element>,
+  reserve: bool,
   words: Words,
   states: Vec<Name>,
   rules: Recipe,
@@ -898,9 +985,12 @@ impl Prepared {
         tab.separated,
         tab.dot.is_some(),
         tab.count_pending,
+        tab.trailing_icon.map(|icon| icon.as_str()),
+        tab.at_end,
       )
         .hash(&mut hasher);
     }
+    self.reserve.hash(&mut hasher);
     hasher.finish()
   }
 
@@ -926,13 +1016,20 @@ impl Prepared {
     // A list that runs down, or one the app asked to overflow, has one form whatever its room is.
     let fits = fits.filter(|_| !vertical && !self.overflow);
     let scrolls = fits.is_some_and(|fits| {
-      let [_, end, _, _] = theme
+      let list = theme
         .resolve::<Tabs>(&self.case(false), Some(&self.rules))
-        .part(TabsPart::List)
-        .rest()
-        .paddings();
+        .part(TabsPart::List);
+      let [_, end, _, _] = list.rest().paddings();
       let end = end.map(|end| end.resolve(&theme.spacing(), 0.0)).unwrap_or(0.0);
-      fits.scrolls(self.shown(), end)
+      let ends = self.tabs.iter().any(|tab| tab.at_end).then(|| {
+        let gap = list
+          .rest()
+          .gap
+          .map(|gap| gap.resolve(&theme.spacing(), 0.0))
+          .unwrap_or(0.0);
+        (gap, self.tabs.iter().any(|tab| !tab.at_end))
+      });
+      fits.scrolls(self.shown(), end, ends)
     });
     let overflow = ((self.overflow || scrolls) && !vertical).then_some(kept);
     let case = self.case(overflow.is_some());
@@ -983,7 +1080,9 @@ impl Prepared {
       tab_refs,
       room: fits.map(|fits| fits.root.clone()),
       last: fits.filter(|_| alone).map(|fits| fits.held.lock().last.clone()),
+      group: fits.filter(|_| alone).map(|fits| fits.held.lock().group.clone()),
       gives: alone && fits.is_none(),
+      reserve: self.reserve,
       overflow,
       words: self.words,
       forced: self.forced,
@@ -1063,8 +1162,12 @@ pub struct TabsView {
   tab_refs: Vec<ElementRef>,
   /// Of mounted tabs that take the overflowing form themselves: the ref of the box whose width is their room.
   room: Option<ElementRef>,
-  /// Of those tabs, as their list alone: the ref of the last tab, which says how wide the list is.
+  /// Of those tabs, as their list alone: the ref of the last tab at the start, which says how wide the list is, and
+  /// of what holds the tabs at the end.
   last: Option<ElementRef>,
+  group: Option<ElementRef>,
+  /// Whether each label keeps the room it takes in the selected tab's style.
+  reserve: bool,
   /// Whether the tabs give way in a list too wide for its room, their labels ending in an ellipsis: tabs built
   /// with nothing kept, which cannot measure their room.
   gives: bool,
@@ -1167,6 +1270,8 @@ impl TabsView {
         .flex_shrink(1.0)
         .min_width(0.0)
         .child(one_line(&label, &entry.label))
+    } else if self.reserve {
+      tab.child(self.label_in_room(index, &label))
     } else {
       tab.child(label.text(&entry.label).nowrap().part(&label))
     };
@@ -1183,6 +1288,9 @@ impl TabsView {
     if let Some(color) = &entry.dot {
       tab = tab.child(Row::new().part(&part(TabsPart::Dot)).background(color.clone()));
     }
+    if let Some(name) = entry.trailing_icon {
+      tab = tab.child(glyph(&part(TabsPart::TrailingIcon), name, false));
+    }
     if let Some(reason) = &entry.reason {
       tab = tab.describe("a11y_description", reason.clone());
     }
@@ -1194,10 +1302,32 @@ impl TabsView {
     }
     if let Some(at) = self.tab_refs.get(index) {
       tab = tab.ref_element(at.clone());
-    } else if let Some(last) = self.last.as_ref().filter(|_| index + 1 == self.tabs.len()) {
+    } else if let Some(last) = self
+      .last
+      .as_ref()
+      .filter(|_| Some(index) == self.tabs.iter().rposition(|tab| !tab.at_end))
+    {
       tab = tab.ref_element(last.clone());
     }
     tab
+  }
+
+  /// The label of the tab at `index` in the style of `label`, in the room it takes in the selected tab's style: a copy
+  /// of it so drawn, no higher than nothing and hidden from tooling, holds the width.
+  fn label_in_room(&self, index: usize, label: &ResolvedPart) -> Column {
+    let entry = &self.tabs[index];
+    let disabled = self.disabled || entry.disabled;
+    let selected = self.recipes[1 + 2 * usize::from(disabled) + 4 * usize::from(entry.inert)].part(TabsPart::Label);
+    Column::new()
+      .align_items(Alignment::Stretch)
+      .child(label.text(&entry.label).nowrap().part(label))
+      .child(
+        Row::new()
+          .height(0.0)
+          .clip()
+          .describe("a11y_hidden", "true")
+          .child(selected.text(&entry.label).nowrap()),
+      )
   }
 
   /// The bone in the place of the count of the tab at `index` while its count is read: a skeleton of the size the
@@ -1256,6 +1386,36 @@ impl TabsView {
     Some(row)
   }
 
+  /// The end of a list with tabs at its end, along the top: a room that grows, with the note and the app's element at
+  /// its end, and the tabs at `end` after them, as far apart as the list's tabs are.
+  fn tail(&self, end: &[usize]) -> Element {
+    let gap = self.part(TabsPart::List).rest().gap.unwrap_or_default();
+    let mut group = Row::new()
+      .flex_shrink(0.0)
+      .align_items(Alignment::Center)
+      .overflow_visible()
+      .spacing(gap);
+    for (at, index) in end.iter().enumerate() {
+      if at > 0 && self.tabs[*index].separated {
+        group = group.child(self.separator());
+      }
+      group = group.child(self.tab_element(*index));
+    }
+    if let Some(measured) = &self.group {
+      group = group.ref_element(measured.clone());
+    }
+    Row::new()
+      .flex_full(1.0, 1.0, None)
+      .min_width(0.0)
+      .align_items(Alignment::Center)
+      .justify(Justify::End)
+      .overflow_visible()
+      .spacing(gap)
+      .with_children(self.end_of_line())
+      .child(group)
+      .into()
+  }
+
   /// The tab at `index` as the list holds it: [`tab`](Self::tab), with its reason as its tooltip where it has one.
   pub fn tab_element(&self, index: usize) -> Element {
     let tab = self.tab(index);
@@ -1282,13 +1442,20 @@ impl TabsView {
     .activate(!self.manual)
     .one_stop(true);
     let mut children: Vec<Element> = Vec::new();
-    for index in 0..self.tabs.len() {
-      if index > 0 && self.tabs[index].separated {
+    // Along the top, the tabs at the end stand after the room that grows; down the side, after the others.
+    let (start, end): (Vec<usize>, Vec<usize>) = (0..self.tabs.len())
+      .partition(|index| self.vertical() || !self.tabs[*index].at_end);
+    for (at, index) in start.into_iter().enumerate() {
+      if at > 0 && self.tabs[index].separated {
         children.push(self.separator());
       }
       children.push(self.tab_element(index));
     }
-    children.extend(self.end_of_line().map(Element::from));
+    if end.is_empty() {
+      children.extend(self.end_of_line().map(Element::from));
+    } else {
+      children.push(self.tail(&end));
+    }
     let part = self.part(TabsPart::List);
     let orientation = if self.vertical() { "vertical" } else { "horizontal" };
     let name = self.label.clone().unwrap_or_default();
@@ -1576,7 +1743,7 @@ impl<T: Send + Sync + 'static> Themed for Tabs<T> {
     use PaletteColor::{Background, Foreground, Muted, MutedForeground, Primary, PrimaryForeground, Ring};
     use TabsPart::{
       Badge, Bar, Count, CountSkeleton, Dot, End, Icon, Label, List, More, MoreIcon, MoreLabel, Note, Panel, Root,
-      ScrollButton, ScrollIcon, Separator, Tab,
+      ScrollButton, ScrollIcon, Separator, Tab, TrailingIcon,
     };
     use TabsState::{Disabled, Horizontal, Inert, Overflow, Selected, Vertical};
     use TabsVariant::{Default, Line, Pill};
@@ -1591,6 +1758,7 @@ impl<T: Send + Sync + 'static> Themed for Tabs<T> {
       .base(Tab, |s| fading(s.foreground(MutedForeground).cursor(CursorIcon::Pointer)))
       .base(Label, |s| s.typography(TypographyStyle::Label))
       .base(Icon, |s| s.square(IconSize::Sm))
+      .base(TrailingIcon, |s| s.square(IconSize::Sm))
       .base(Count, |s| s.typography(TypographyStyle::Caption).foreground(MutedForeground))
       .base(Badge, |s| {
         s.padding_x(6.0)

@@ -1,16 +1,17 @@
 //! The page of the menu: its playground, a dropdown from a button, the board's
 //! menu with checked, disabled and grouped items, the split button's menu, and
-//! items with a detail, a reason and an avatar, and a menu of the app's own rows.
+//! items with a detail, a reason and an avatar, a menu of the app's own rows, and a menu that keeps the focus in a
+//! field, its items asked for aside.
 
 use std::sync::Arc;
 
 use lurq::{
   app::{component::Component, ctx::Ctx},
-  components::{Column, Placement, Rect, Row, Text},
+  components::{Column, Placement, Rect, Row, Text, TextInput},
   core::{ElementRef, Signal},
   layout::Alignment,
   node::Element,
-  ui::{Button, ButtonGroup, ButtonGroupVariant, ButtonVariant, Menu, MenuItem, icons},
+  ui::{Button, ButtonGroup, ButtonGroupVariant, ButtonVariant, Menu, MenuItem, MenuKeys, icons},
 };
 
 use crate::{
@@ -82,7 +83,15 @@ pub struct MenuPage {
   merge_open: Signal<bool>,
   strategy: Signal<usize>,
   merged: Signal<String>,
+  // The commands after a `/`: the field the focus stays in, and what was run.
+  slash_field: ElementRef,
+  slash_keys: MenuKeys,
+  slash_text: Signal<String>,
+  slash_ran: Signal<String>,
 }
+
+/// The commands the field offers after a `/`.
+const COMMANDS: [&str; 4] = ["Summarize", "Explain", "Translate", "Open the run"];
 
 impl MenuPage {
   /// The playground: a menu whose second item is as the panel's props make it.
@@ -340,6 +349,51 @@ impl MenuPage {
       .child(button.on_click(move |_| toggle.update(|open| *open = !*open)))
   }
 
+  /// A field whose `/` opens the commands under it, filtered by what is typed after it, the focus staying in the field.
+  fn slash(&self) -> Element {
+    let text = self.slash_text.get();
+    let typed = text.strip_prefix('/').map(str::to_lowercase);
+    let open = typed.is_some();
+    let mut menu = Menu::controlled(open, self.slash_field.clone(), |_| {}).keeps_focus(&self.slash_keys);
+    for name in COMMANDS {
+      if typed.as_ref().is_some_and(|typed| !name.to_lowercase().contains(typed.as_str())) {
+        continue;
+      }
+      let (ran, cleared) = (self.slash_ran.clone(), self.slash_text.clone());
+      let mut command = MenuItem::new(name).on_select(move || {
+        ran.set(format!("ran: {name}"));
+        cleared.set(String::new());
+      });
+      if name == "Open the run" {
+        let (ran, cleared) = (self.slash_ran.clone(), self.slash_text.clone());
+        command = command.icon(icons::EXTERNAL_LINK).on_open_aside(move |_| {
+          ran.set(format!("opened aside: {name}"));
+          cleared.set(String::new());
+        });
+      }
+      menu = menu.item(command);
+    }
+    let caption = match self.slash_ran.get() {
+      ran if ran.is_empty() => "type / to see the commands".to_owned(),
+      ran => ran,
+    };
+    items()
+      .child(item(
+        Column::new()
+          .width(280.0)
+          .max_width(FILL)
+          .child(
+            TextInput::new(self.slash_text.clone())
+              .placeholder("Type / for commands")
+              .width(FILL)
+              .ref_element(self.slash_field.clone()),
+          )
+          .child(menu),
+        &caption,
+      ))
+      .into()
+  }
+
   /// What a choice does on this page: the signal says which it was.
   fn says(chosen: &Signal<String>, name: &str) -> impl Fn() + Send + Sync + use<> {
     let (chosen, name) = (chosen.clone(), name.to_owned());
@@ -351,6 +405,7 @@ impl Component for MenuPage {
   type Props = ();
 
   fn create(ctx: &mut Ctx) -> Self {
+    let slash_field = ElementRef::new();
     Self {
       frame: Frame::new(ctx),
       playground: Playground::new(ctx, 1),
@@ -381,6 +436,10 @@ impl Component for MenuPage {
       merge_open: ctx.signal(false),
       strategy: ctx.signal(0),
       merged: ctx.signal(String::new()),
+      slash_field: slash_field.clone(),
+      slash_keys: MenuKeys::new(slash_field),
+      slash_text: ctx.signal(String::new()),
+      slash_ran: ctx.signal(String::new()),
     }
   }
 
@@ -558,6 +617,7 @@ impl Component for MenuPage {
           .child(quiet("Sonnet is not on this plan.", 12.0)),
       );
     let own = items().child(item(models, "content(row) on each item, a child foot"));
+    let slash = self.slash();
 
     let rows = [
       (
@@ -729,6 +789,20 @@ impl Component for MenuPage {
         "",
         "Called when it is chosen, after its menu closed. Adds.",
       ),
+      (
+        "on_open_aside",
+        "impl Fn(MouseEvent)",
+        "",
+        "Called in place of on_select for the middle button, a press with Ctrl (Cmd) or Ctrl+Enter; the menu closes. \
+         Adds.",
+      ),
+      (
+        "keeps_focus",
+        "&MenuKeys",
+        "",
+        "The menu leaves the focus in the app's field: an active item the field's arrows move, Enter chooses and \
+         Escape closes.",
+      ),
     ];
     let playground = self.play(ctx);
     self.frame.page(
@@ -876,6 +950,28 @@ impl Component for MenuPage {
               "    .item(MenuItem::new(\"Haiku\").content(row(\"Haiku\", \"the fastest\")))",
               "    .separator()",
               "    .child(foot(\"Sonnet is not on this plan.\"))",
+            ],
+          ),
+        ),
+        Section::new(
+          "A menu that keeps the focus in a field",
+          "Type a / in the field: the commands open under it and the focus stays in the field, where typing goes on \
+           and filters them. Up and Down move the active command, Enter runs it, Escape closes the menu. The pointer \
+           makes a command the active one, and a press of it leaves the focus in the field. Open the run asks for it \
+           aside too: the middle button, a press with Ctrl (Cmd on macOS), or Ctrl+Enter while it is active.",
+          self.frame.demo(
+            5,
+            slash,
+            ".keeps_focus(&keys) .on_open_aside(..)",
+            &[
+              "// field: ElementRef and keys: MenuKeys::new(field.clone()), made once with the component",
+              "let open = Signal::new(text.starts_with('/'));",
+              "Menu::new(open, field.clone())",
+              "    .keeps_focus(&keys)",
+              "    .item(MenuItem::new(\"Summarize\").on_select(..))",
+              "    .item(MenuItem::new(\"Open the run\").on_select(..).on_open_aside(|press| ..))",
+              "",
+              "TextInput::new(text).ref_element(field)",
             ],
           ),
         ),

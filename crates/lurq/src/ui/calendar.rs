@@ -98,6 +98,11 @@ pub enum CalendarState {
   /// The day is the other end of a range the calendar's date is one end of, which this calendar does not choose: the
   /// end a range's other picker holds ([`Calendar::other_end`]).
   OtherEnd,
+  /// The day is the one the keys are on in a calendar whose panel reads them ([`CalendarKeys::Panel`]): what Enter
+  /// chooses.
+  Cursor,
+  /// The calendar's headings have the month first and both buttons at the end ([`CalendarHeading::MonthThenNav`]).
+  NavAtEnd,
 }
 
 names!(CalendarState {
@@ -111,7 +116,32 @@ names!(CalendarState {
   RangeEnd => "range_end",
   InRange => "in_range",
   OtherEnd => "other_end",
+  Cursor => "cursor",
+  NavAtEnd => "nav_at_end",
 });
+
+/// How a calendar's heading is laid out.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum CalendarHeading {
+  /// The month between the button before and the button after, as the design draws it.
+  #[default]
+  Centered,
+  /// The month first, at the heading's start, and both buttons after it at the end: of several months, at the end of
+  /// the last month's heading. The calendar is in the state [`CalendarState::NavAtEnd`].
+  MonthThenNav,
+}
+
+/// Where a calendar's keys are read.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum CalendarKeys {
+  /// The days are one stop of Tab, and the keys move the focus from day to day.
+  #[default]
+  Days,
+  /// The days take no focus, and the panel reads the keys wherever the app keeps the focus (the panel, a field over
+  /// it) while the calendar is shown: a day is the one the keys are on (state [`CalendarState::Cursor`]), which the
+  /// arrows and PageUp and PageDown move and Enter chooses.
+  Panel,
+}
 
 /// What builds a calendar's nodes: a theme's in place of the default one.
 pub type CalendarRenderer = Arc<dyn Fn(CalendarView) -> Element + Send + Sync>;
@@ -196,6 +226,8 @@ pub struct DateMemory {
   pub(crate) month: Signal<Option<YearMonth>>,
   pub(crate) draft: Signal<Option<Date>>,
   pub(crate) hover: Signal<Option<Date>>,
+  /// The day the keys are on, in a calendar whose panel reads them: `None` for the day Tab would enter at.
+  pub(crate) cursor: Signal<Option<Date>>,
   pub(crate) open: Signal<bool>,
   pub(crate) anchor: crate::core::ElementRef,
   pub(crate) last: Arc<Mutex<Option<CalendarChoice>>>,
@@ -216,6 +248,7 @@ impl DateMemory {
       month: Signal::new(None),
       draft: Signal::new(None),
       hover: Signal::new(None),
+      cursor: Signal::new(None),
       open: Signal::new(false),
       anchor: crate::core::ElementRef::new(),
       last: Arc::new(Mutex::new(None)),
@@ -254,6 +287,7 @@ pub(crate) struct Kept {
   pub month: MonthSource,
   pub draft: Signal<Option<Date>>,
   pub hover: Signal<Option<Date>>,
+  pub cursor: Signal<Option<Date>>,
   pub tracked: bool,
 }
 
@@ -337,6 +371,8 @@ pub struct Calendar<V: Picked = Date> {
   /// Whether the day Tab would enter at takes the focus as the panel it is in opens.
   pub(crate) autofocus: bool,
   pub(crate) bare: bool,
+  heading: CalendarHeading,
+  keys: CalendarKeys,
   footer: Option<Element>,
   states: Vec<Name>,
   rules: Recipe,
@@ -372,6 +408,8 @@ impl<V: Picked> Calendar<V> {
       memory: None,
       autofocus: false,
       bare: false,
+      heading: CalendarHeading::Centered,
+      keys: CalendarKeys::Days,
       footer: None,
       states: Vec::new(),
       rules: Recipe::new(),
@@ -470,6 +508,40 @@ impl<V: Picked> Calendar<V> {
   /// in it is a stop of Tab of its own. A second footer takes the place of the first.
   pub fn footer(mut self, footer: impl Into<Element>) -> Self {
     self.footer = Some(footer.into());
+    self
+  }
+
+  /// How the headings are laid out: the month between the buttons, by default, or the month first and both buttons at
+  /// the end ([`CalendarHeading::MonthThenNav`]).
+  pub fn heading(mut self, heading: CalendarHeading) -> Self {
+    self.heading = heading;
+    self
+  }
+
+  /// Where the keys are read: by the days, which take the focus, by default; or by the panel, wherever the app keeps
+  /// the focus while the calendar is shown ([`CalendarKeys::Panel`]), in a popover that leaves the focus in the app's
+  /// field or panel ([`Popover::keeps_focus`](super::Popover::keeps_focus)). There the days take no focus, and one is
+  /// the one the keys are on (state [`CalendarState::Cursor`], `cursor` to tooling): the chosen day, else today, else
+  /// the first of the month to begin with. Left and Right move it a day, Up and Down a week, PageUp and PageDown a
+  /// month and, with Shift, a year, showing its month; Enter chooses it, which tells [`on_choose`](Self::on_choose).
+  /// A key a handler before took (`prevent_default`), a key with Ctrl, Alt or Cmd, and Enter where the focus is on
+  /// what takes Enter itself (a button of the footer) are left alone; Home and End are the field's. The day the keys
+  /// are on is kept where the month is ([`mount`](Self::mount), [`memory`](Self::memory)); it goes back to the chosen
+  /// one after a choice, and to the day Tab would enter at where its month is no longer shown.
+  pub fn keys(mut self, keys: CalendarKeys) -> Self {
+    self.keys = keys;
+    self
+  }
+
+  /// Called when a person chooses, with what is chosen: a press or Enter on a day, or for a range the second press,
+  /// which ends it, whether or not it is what was chosen already, as [`on_change`](Self::on_change) is not. What closes
+  /// a picker of the app's that holds the calendar. A second handler is called after the first.
+  pub fn on_choose(mut self, handler: impl Fn(V) + Send + Sync + 'static) -> Self {
+    self.on_choose.push(Arc::new(move |choice: CalendarChoice| {
+      if let Some(value) = V::from_choice(choice) {
+        handler(value);
+      }
+    }));
     self
   }
 
@@ -621,6 +693,7 @@ impl<V: Picked> Calendar<V> {
         },
         draft: Signal::new(None),
         hover: Signal::new(None),
+        cursor: Signal::new(None),
         tracked: false,
       };
     };
@@ -633,6 +706,7 @@ impl<V: Picked> Calendar<V> {
       month,
       draft: memory.draft.clone(),
       hover: memory.hover.clone(),
+      cursor: memory.cursor.clone(),
       tracked: true,
     }
   }
@@ -667,7 +741,12 @@ impl<V: Picked> Calendar<V> {
       states: self.states.clone(),
     }
     .state(CalendarState::Disabled, self.disabled)
-    .state(CalendarState::Bare, self.bare);
+    .state(CalendarState::Bare, self.bare)
+    .state(CalendarState::NavAtEnd, self.heading == CalendarHeading::MonthThenNav);
+    let cursor = match (self.keys, kept.tracked) {
+      (CalendarKeys::Panel, true) => kept.cursor.get(),
+      _ => None,
+    };
     CalendarView {
       months: (0..self.months).map(|index| first.add_months(index as i32)).collect(),
       first_day,
@@ -676,6 +755,9 @@ impl<V: Picked> Calendar<V> {
       draft,
       hover,
       other_end: self.other_end,
+      heading: self.heading,
+      keys: self.keys,
+      cursor,
       week_numbers: self.week_numbers,
       outside_days: self.outside_days && self.months == 1,
       disabled: self.disabled,
@@ -689,6 +771,7 @@ impl<V: Picked> Calendar<V> {
         month: kept.month,
         draft: kept.draft,
         hover: kept.hover,
+        cursor: kept.cursor,
         shown: self.months,
         min: self.min,
         max: self.max,
@@ -744,6 +827,8 @@ struct Model {
   month: MonthSource,
   draft: Signal<Option<Date>>,
   hover: Signal<Option<Date>>,
+  /// The day the keys are on, in a calendar whose panel reads them.
+  cursor: Signal<Option<Date>>,
   /// How many months are shown.
   shown: usize,
   min: Option<Date>,
@@ -795,6 +880,10 @@ impl Model {
         }
       },
     };
+    // The keys go back to what is chosen.
+    if self.cursor.get_untracked().is_some() {
+      self.cursor.set(None);
+    }
     for handler in &self.on_choose {
       handler(choice);
     }
@@ -819,6 +908,13 @@ impl Model {
       return;
     };
     self.month.set(next);
+  }
+
+  /// Whether `date` is in one of the months shown.
+  fn is_shown(&self, date: Date) -> bool {
+    let first = self.month.get_untracked();
+    let month = YearMonth::of(date);
+    month >= first && month <= first.add_months(self.shown as i32 - 1)
   }
 
   /// Where the pointer or the keys are while a range is half chosen: the range shown runs to it.
@@ -886,6 +982,12 @@ pub struct CalendarView {
   pub hover: Option<Date>,
   /// The other end of a range the date chosen is one end of, which the calendar marks: [`Calendar::other_end`].
   pub other_end: Option<Date>,
+  /// How the headings are laid out.
+  pub heading: CalendarHeading,
+  /// Where the keys are read.
+  pub keys: CalendarKeys,
+  /// The day the keys were last put on, in a calendar whose panel reads them: see [`Self::cursor_day`].
+  pub cursor: Option<Date>,
   pub week_numbers: bool,
   /// Whether the first and the last week are filled with the days of the months before and after.
   pub outside_days: bool,
@@ -1003,6 +1105,20 @@ impl CalendarView {
       .unwrap_or_else(|| self.months[0].first())
   }
 
+  /// The day the keys are on in a calendar whose panel reads them: the one they were put on where its month is shown,
+  /// else the day Tab would enter at ([`Self::entry`]).
+  pub fn cursor_day(&self) -> Date {
+    self
+      .cursor
+      .filter(|date| self.months.iter().any(|month| month.contains(*date)))
+      .unwrap_or_else(|| self.entry())
+  }
+
+  /// Whether the panel reads the keys, and the days take no focus.
+  fn panel_keys(&self) -> bool {
+    self.keys == CalendarKeys::Panel
+  }
+
   /// A button that shows the month before (`by` -1) or after (1), in the design's dress: an outline button of an
   /// icon, called by what it does. Disabled where that month is out of the range.
   pub fn nav(&self, by: i32) -> Element {
@@ -1054,10 +1170,27 @@ impl CalendarView {
   }
 
   /// The heading of the `index`th month: its title between the button before, on the first month, and the button
-  /// after, on the last. Where a month has no button, a room as wide keeps its title in the middle.
+  /// after, on the last. Where a month has no button, a room as wide keeps its title in the middle. Laid out
+  /// [`CalendarHeading::MonthThenNav`], the title is at the start and both buttons are at the end of the last month's.
   pub fn header(&self, index: usize) -> Row {
     let month = self.months[index];
     let title = self.part(CalendarPart::Title);
+    if self.heading == CalendarHeading::MonthThenNav {
+      let mut row = Row::new()
+        .align_items(Alignment::Center)
+        .part(&self.part(CalendarPart::Header))
+        .child(
+          Row::new()
+            .flex_full(1.0, 1.0, None)
+            .min_width(0.0)
+            .part(&title)
+            .child(title.text(&self.locale.month_title(month)).nowrap()),
+        );
+      if index + 1 == self.months.len() {
+        row = row.child(self.nav(-1)).child(self.nav(1));
+      }
+      return row;
+    }
     let nav_width = self
       .part(CalendarPart::Nav)
       .rest()
@@ -1122,7 +1255,11 @@ impl CalendarView {
     if outside && !self.outside_days {
       return Row::new().part(&self.part(CalendarPart::Day)).into();
     }
-    let states = self.day_states(date, outside);
+    let mut states = self.day_states(date, outside);
+    let cursor = self.panel_keys() && !outside && date == self.cursor_day();
+    if cursor {
+      states.push(CalendarState::Cursor);
+    }
     let recipe = self.day_recipe(&states);
     let entry = !outside && date == self.entry();
     // A day is named by its date, not by its place: `x-day-2026-11-20`.
@@ -1150,7 +1287,17 @@ impl CalendarView {
     if states.contains(&CalendarState::OtherEnd) {
       day = day.describe("range_other_end", "true");
     }
-    if outside {
+    if self.panel_keys() {
+      // The panel reads the keys: a day takes no focus, and a press of it leaves the focus where the app keeps it.
+      day = day.focusable(false).key(if outside {
+        format!("outside-{date}")
+      } else {
+        day_key(date)
+      });
+      if cursor {
+        day = day.describe("cursor", "true");
+      }
+    } else if outside {
       // Of the month beside: the pointer chooses it, the keys reach it in its own month.
       day = day.tab_index(-1).key(format!("outside-{date}"));
     } else {
@@ -1268,22 +1415,33 @@ impl CalendarView {
 
   /// The days of the months, side by side: one focus group, which Tab stops in once at the day [`Self::entry`] says,
   /// and whose keys are the days' own. The buttons of the headings are out of it, stops of their own.
+  ///
+  /// Where the panel reads the keys ([`CalendarKeys::Panel`]) the days are no group of the focus.
   pub fn grids(&self) -> Row {
     let mut row = Row::new()
       .align_items(Alignment::Start)
-      .part(&self.part(CalendarPart::Months))
-      .focus_group(FocusGroup::both().one_stop(true).wrap(false));
+      .part(&self.part(CalendarPart::Months));
+    if !self.panel_keys() {
+      row = row.focus_group(FocusGroup::both().one_stop(true).wrap(false));
+    }
     for index in 0..self.months.len() {
       row = row.child(self.grid(index));
     }
     row
   }
 
-  /// The panel with nothing in it yet: what holds the headings over the days.
+  /// The panel with nothing in it yet: what holds the headings over the days. Where it reads the keys
+  /// ([`CalendarKeys::Panel`]) it says the day they are on to tooling (`cursor`), and takes them.
   pub fn panel(&self) -> Column {
     let mut panel = Column::new()
       .align_items(Alignment::Stretch)
       .part(&self.part(CalendarPart::Root));
+    if self.panel_keys() {
+      panel = panel.describe("cursor", self.cursor_day().to_string());
+      if !self.disabled {
+        panel = panel.on_key_down(self.panel_key_handler());
+      }
+    }
     if let Some(label) = &self.label {
       panel = panel
         .describe("a11y_role", "group")
@@ -1296,6 +1454,40 @@ impl CalendarView {
       panel = panel.key(key.clone());
     }
     panel
+  }
+
+  /// What a key does at a panel that reads the keys: the arrows and PageUp and PageDown move the day the keys are on,
+  /// showing its month, and Enter chooses it.
+  fn panel_key_handler(&self) -> impl Fn(KeyboardEvent) + Send + Sync + 'static {
+    let (model, at) = (self.model.clone(), self.cursor_day());
+    move |event: KeyboardEvent| {
+      if event.default_prevented() || event.ctrl || event.alt || event.meta || event.composing {
+        return;
+      }
+      let at = model
+        .cursor
+        .get_untracked()
+        .filter(|date| model.is_shown(*date))
+        .unwrap_or(at);
+      match event.key.as_str() {
+        "Enter" if !event.focus_takes_enter => {
+          event.prevent_default();
+          model.choose(at);
+        }
+        "Home" | "End" => {}
+        _ => {
+          let Some(target) = model.step(at, &event) else {
+            return;
+          };
+          event.prevent_default();
+          model.show(target);
+          model.point(target);
+          if model.cursor.get_untracked() != Some(target) {
+            model.cursor.set(Some(target));
+          }
+        }
+      }
+    }
   }
 
   /// The app's footer in the style of its part, across the panel: `None` where the calendar has none. It takes the
@@ -1362,7 +1554,7 @@ impl<V: Picked> Themed for Calendar<V> {
   /// app gives is under the months, 8 under a line of 1 in the border's color across the panel.
   fn recipe() -> Recipe {
     use CalendarPart::{Day, Footer, Grid, Header, Months, Nav, NavIcon, Root, Title, WeekNumber, Weekday};
-    use CalendarState::{Bare, Current, Disabled, InRange, OtherEnd, Outside, Selected, Unavailable};
+    use CalendarState::{Bare, Current, Cursor, Disabled, InRange, NavAtEnd, OtherEnd, Outside, Selected, Unavailable};
     use PaletteColor::{
       Border as Edge, Foreground, Highlight, HighlightForeground, Input, MutedForeground, Popover, PopoverForeground,
       Primary, PrimaryForeground,
@@ -1455,6 +1647,10 @@ impl<V: Picked> Themed for Calendar<V> {
       })
       .state(Disabled, Root, |s| s.opacity(OpacityLevel::Disabled))
       .state(Disabled, Day, |s| s.cursor(CursorIcon::Default))
+      // lurq's, the board has none: the day the keys are on is ringed as a focused day is, and the buttons at the end
+      // of a heading are 4 apart.
+      .state(Cursor, Day, |s| s.focus_ring())
+      .state(NavAtEnd, Header, |s| s.gap(4.0))
   }
 }
 

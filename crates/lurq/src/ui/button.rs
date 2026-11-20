@@ -205,6 +205,7 @@ pub struct Button {
   on_open_aside: Vec<EventHandler<crate::app::events::MouseEvent>>,
   on_focus: Vec<FocusHandler>,
   tab_stop: bool,
+  autofocus: bool,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
   element_ref: Option<crate::core::ElementRef>,
@@ -239,6 +240,7 @@ impl Button {
       on_open_aside: Vec::new(),
       on_focus: Vec::new(),
       tab_stop: true,
+      autofocus: false,
       id: None,
       key: None,
       element_ref: None,
@@ -392,6 +394,14 @@ impl Button {
     self
   }
 
+  /// Whether the focus goes to the button as the dialog, the popover or the menu it is in opens, in place of their
+  /// first stop of Tab: a dialog's main action, so that Enter does it. It is a stop of Tab as it was, in its place.
+  /// Off unless told.
+  pub fn autofocus(mut self, autofocus: bool) -> Self {
+    self.autofocus = autofocus;
+    self
+  }
+
   /// Styles one part of this button over what the theme gives it.
   pub fn style(mut self, part: impl Into<Name>, style: impl FnOnce(super::PartStyle) -> super::PartStyle) -> Self {
     self.rules = self.rules.base(part, style);
@@ -542,6 +552,7 @@ impl Button {
       on_open_aside: self.on_open_aside,
       on_focus: self.on_focus,
       tab_stop: self.tab_stop,
+      autofocus: self.autofocus,
       id: self.id,
       key: self.key,
       element_ref: self.element_ref,
@@ -596,6 +607,7 @@ pub struct ButtonView {
   on_open_aside: Vec<EventHandler<crate::app::events::MouseEvent>>,
   on_focus: Vec<FocusHandler>,
   tab_stop: bool,
+  autofocus: bool,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
   element_ref: Option<crate::core::ElementRef>,
@@ -619,6 +631,9 @@ impl ButtonView {
   /// the button's content in it.
   pub fn root(&self) -> components::Button {
     let mut root = tab_stop(pressable(&self.part(ButtonPart::Root), self.disabled), self.tab_stop);
+    if self.autofocus {
+      root = root.autofocus(true);
+    }
     // A button that is loading is not pressed again: it is there, and focused if it was, and does nothing.
     #[cfg(feature = "form")]
     if self.submit && !self.loading {
