@@ -11,6 +11,79 @@ dropped). When a decision is replaced, the old entry stays and says what replace
 
 ## 2026-11-20
 
+### A checkbox's and a switch's element ref, and a mark alone for a row pressed as a whole
+
+- **Question.** Orchester's toggles take an element ref, so a screen can move the focus to one; `ui::Radio` has one,
+  `ui::Checkbox` and `ui::Switch` do not. And its rows pressed as a whole (a filter's option, a choice of an export)
+  draw a checkbox's or a radio's mark alone (`check_mark`, `radio_mark` of its kit): no press, no label and no focus
+  of its own, the row saying that it is checked. Can lurq's give both?
+- **Decision (Ivan, 2026-11-20: "роби", after the K6 list was put to him).** `Checkbox::element_ref` and
+  `Switch::element_ref`, as `Radio::element_ref`: the ref is on what is pressed and focused (the box, the track, or
+  the whole where it is `whole`). The mark alone is a form of the components that already draw it, not a new
+  component: `Checkbox::mark_only(true)` and `Radio::mark_only(true)` draw the box with its check or dash, the round
+  mark with its dot, in their recipes' parts and states, with no press, no focus, no stop of Tab and no label; the
+  mark is hidden from what reads the tree, for the row around it is the control and says it is checked. Its id is
+  on the box or the mark, its check `x-indicator`, its dot `x-dot`; its element ref, where it has one, on the box.
+- **Why.** What Orchester's kit needs to drop its own toggle; a mark of the same recipe keeps one look for the
+  checkbox and the row that only shows one, which a new component would have had to copy.
+- **State.** In work on `claude/k6-c-controls`.
+
+### The page a breadcrumb is on says its whole name while it is cut, and the ids of its separators
+
+- **Question.** K5 gave a breadcrumb's links a tooltip with their whole name while they are cut
+  (`Breadcrumb::link_max_width`). The page one is on, its last step, is cut too where the row is short, and says
+  nothing. And Orchester's kit numbers its separators from `-separator-1`, where lurq's part-ids rule names them
+  `x-separator`, `x-separator-2`. Should the page say its name, and which ids do the separators keep?
+- **Decision (Ivan, 2026-11-20: "роби", after the K6 list was put to him).** The page's name has a tooltip that
+  shows only while it is cut, in every breadcrumb, as a link's has with `link_max_width`: the page is cut in any of
+  them. The separators keep lurq's ids, the part-ids rule's (`x-separator`, `x-separator-2`, ...): a repeated part
+  with no key of its own is numbered from its second node, in every component, and the app reads those. This is
+  written in the breadcrumb's page.
+- **Why.** What Orchester's kit needs; one rule for the ids of repeated parts is what lets a test or an agent guess
+  them, and a breadcrumb that numbered from 1 would be the only one.
+- **State.** In work on `claude/k6-c-controls`.
+
+### A list item whose title and description are still read, and the ids of a row that says something under it
+
+- **Question.** Orchester's settings rows show a skeleton's bone in place of their label or their hint while it is
+  read (`label_reading`, `hint_reading`). And they have two ids: `<id>-row`, the frame of the row and of what it
+  says under itself, and `<id>-open`, the part that is pressed. `ui::ListItem` has neither the bones nor a second
+  id. What does lurq give, and how does the app map its ids?
+- **Decision (Ivan, 2026-11-20: "роби", after the K6 list was put to him).** `ListItem::title_pending(true)` and
+  `ListItem::description_pending(true)` put a bone in place of the title's words or the description's, as long as
+  the recipe's parts `title_skeleton` and `description_skeleton` say (a line of the title's height, a share of the
+  room), the row saying to tooling that it is busy and still called by its title. Ids keep the part-ids rule: the
+  row that is pressed is the list item's root and has its id `x`, as every pressed component of lurq has its id on
+  what is pressed; a row that says something under itself is held with it in a part `item`, `x-item`. The app maps
+  its `<id>-open` to `<id>`, and its `<id>-row` to `<id>-item` where the row has something below, and to `<id>`
+  where it has not (the row is the whole item then). A second id for one node (a `-press` beside the root's) would
+  be two names for it.
+- **Why.** What Orchester's kit needs to move its settings rows onto `ui::ListItem`; a row of a list that loads its
+  words is common.
+- **State.** In work on `claude/k6-c-controls`.
+
+### A badge's and a status label's word say themselves whole while they are cut
+
+- **Question.** Orchester's cut badges and status chips put their whole word in a tooltip while it is cut. A
+  `ui::Badge` that gives way (`truncate`) and a `ui::StatusLabel` cut their word and say nothing. Should they?
+- **Decision (Ivan, 2026-11-20: "роби", after the K6 list was put to him).** Both: `tooltip_when_cut(true)` puts
+  the whole word in a tooltip that shows only while the word is cut, as `Tooltip::when_cut` does; and
+  `word_ref(ElementRef)` refers to the word's text, so that an app can put a tooltip of its own on it
+  (`Tooltip::when_cut(&word)`, with a hint), or read whether it is cut. Off unless told.
+- **Why.** What Orchester's kit needs; the built-in one is what most apps want, and the ref what the rest need.
+- **State.** In work on `claude/k6-c-controls`.
+
+### How far a skeleton's pulse dims
+
+- **Question.** A skeleton pulses from whole to half its opacity and back. Orchester's design dims to 0.55. Can an
+  app or a theme say how far?
+- **Decision (Ivan, 2026-11-20: "роби", after the K6 list was put to him).** A part of `SkeletonMotion`:
+  `SkeletonMotion::dim_to(0.55)` is the opacity the pulse dims to at its middle, 0.5 unless told, in hundredths
+  between 0 and 1; a theme gives it with the rest of the motion (`Theme::set_skeleton_motion`), a skeleton its own
+  with `Skeleton::motion`. Skeletons that dim alike still pulse in one phase.
+- **Why.** What Orchester's kit needs; how far a placeholder dims is part of its motion, which a theme already says.
+- **State.** In work on `claude/k6-c-controls`.
+
 ### Window tabs that keep a gap between them, and fit by it
 
 - **Question.** Orchester's design puts 2 between its title-bar tabs and before the add button and the More button.
