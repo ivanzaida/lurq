@@ -429,3 +429,39 @@ fn a_badge_that_truncates_cuts_its_word_where_it_has_less_room() {
     "called by the whole word"
   );
 }
+
+#[test]
+fn a_cut_badge_says_its_whole_word_in_a_tooltip_while_it_is_cut() {
+  use lurq::core::ElementRef;
+  const WORD: &str = "Waiting for a review";
+  let word = ElementRef::new();
+  let held = word.clone();
+  let mut stage = Stage::new(move |_| {
+    Column::new()
+      .padding(24.0)
+      .spacing(16.0)
+      .child(
+        Row::new()
+          .width(80.0)
+          .child(Badge::new(WORD).id("cut").truncate(true).tooltip_when_cut(true).word_ref(held.clone())),
+      )
+      .child(Row::new().width(400.0).child(Badge::new("Whole").id("whole").truncate(true).tooltip_when_cut(true)))
+      .into()
+  });
+  assert!(word.text_cut(), "the app's ref says the word is cut");
+  assert!(!stage.paints(WORD), "nothing says it whole at rest");
+  stage.own_timers();
+  stage.hover("whole");
+  stage.tick_timers(std::time::Duration::from_secs(2));
+  stage.pass();
+  let said = stage
+    .quads()
+    .into_iter()
+    .filter(|quad| matches!(&quad.content, QuadContent::Text { text, .. } if text == "Whole"))
+    .count();
+  assert_eq!(said, 1, "no tooltip over a word that fits");
+  stage.hover("cut");
+  stage.tick_timers(std::time::Duration::from_secs(4));
+  stage.pass();
+  assert!(stage.paints(WORD), "its tooltip says it whole");
+}
