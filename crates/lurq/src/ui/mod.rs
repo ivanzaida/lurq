@@ -251,7 +251,10 @@ pub use button::{
 pub use button_group::{
   ButtonGroup, ButtonGroupPart, ButtonGroupRenderer, ButtonGroupSize, ButtonGroupState, ButtonGroupVariant,
 };
-pub use calendar::{Calendar, CalendarChoice, CalendarPart, CalendarRenderer, CalendarState, CalendarView, DateMemory};
+pub use calendar::{
+  Calendar, CalendarChoice, CalendarHeading, CalendarKeys, CalendarPart, CalendarRenderer, CalendarState, CalendarView,
+  DateMemory,
+};
 pub use callout::{Callout, CalloutPart, CalloutRenderer, CalloutState, CalloutView};
 pub use card::{Card, CardPart, CardRenderer, CardSize, CardState, CardVariant, CardView};
 pub use carousel::{Carousel, CarouselPart, CarouselRenderer, CarouselState, CarouselView};

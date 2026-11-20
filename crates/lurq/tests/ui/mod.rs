@@ -19,6 +19,7 @@ mod breadcrumb;
 mod bulleted_list;
 mod button;
 mod calendar;
+mod calendar_panel_keys;
 mod card;
 mod carousel;
 mod cascader;
