@@ -114,7 +114,7 @@ fn a_tab_whose_count_is_read_has_a_bone_in_its_place_until_the_count_comes() {
   let stage_counted = reading(Some(4));
   assert!(!has(&stage_counted, "runs-count_skeleton"), "the count in its place");
   assert!(stage_counted.paints("4"));
-  assert!(bone_width >= 6.0 && bone_width <= 9.0, "a digit's room: {bone_width}");
+  assert!((6.0..=9.0).contains(&bone_width), "a digit's room: {bone_width}");
 }
 
 #[test]
@@ -371,7 +371,7 @@ fn a_button_tells_the_app_it_took_the_focus() {
         Button::new("Answer")
           .id("answer")
           .icon(icons::CHECK)
-          .on_focus(move || focus()),
+          .on_focus(focus),
       )
       .into()
   });
