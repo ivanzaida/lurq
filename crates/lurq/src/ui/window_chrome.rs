@@ -6,6 +6,7 @@ use std::sync::Arc;
 use super::{
   IconChoice, icons, names,
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
+  select::px,
   shared::{fading, glyph, one_line},
   theme::{Themed, current_theme},
 };
@@ -514,16 +515,9 @@ impl WindowChrome {
     let content = self.content.take().unwrap_or_default();
     let overlays = std::mem::take(&mut self.overlays);
     let (mode, handles, border) = (self.mode, self.resize_handles, self.border.clone());
+    let height = self.bar_height(&theme);
     // What the engine's bar draws is built once per render; the engine calls it with the window.
     let chrome = Arc::new(std::sync::Mutex::new(Some(self)));
-    let height = {
-      let held = chrome.lock().expect("the chrome is held");
-      let platform = held
-        .as_ref()
-        .and_then(|chrome| chrome.platform)
-        .unwrap_or_else(WindowPlatform::current);
-      bar_height(platform, held.as_ref().is_some_and(|chrome| chrome.tabs.is_some()))
-    };
     let title_bar = ChromeTitleBar::new()
       .height(height)
       .background(BackgroundColor::Color(Color::new(0, 0, 0, 0)))
@@ -565,8 +559,31 @@ impl From<WindowChrome> for Element {
   }
 }
 
-/// The bar's height on `platform`, with tabs or not: what the engine lays the content under.
-fn bar_height(platform: WindowPlatform, tabs: bool) -> f32 {
+impl WindowChrome {
+  /// The bar's height in `theme`: what the engine lays the content under. The recipe's for the bar in the states
+  /// it is given and on its platform, with tabs or not, so that an app's recipe that makes a bar with tabs 36 high
+  /// has the content start under it; the board's where the recipe gives no height in pixels.
+  fn bar_height(&self, theme: &Theme) -> f32 {
+    let platform = self.platform.unwrap_or_else(WindowPlatform::current);
+    let tabs = self.tabs.is_some();
+    let case = Case {
+      variant: Some(platform.into()),
+      size: None,
+      density: None,
+      breakpoint: super::current_breakpoint(),
+      states: self.states.clone(),
+    }
+    .state(WindowChromeState::Tabs, tabs);
+    let bar = theme
+      .resolve::<WindowChrome>(&case, Some(&self.rules))
+      .part(WindowChromePart::Bar)
+      .rest();
+    px(bar.height, theme).unwrap_or_else(|| board_bar_height(platform, tabs))
+  }
+}
+
+/// The board's bar's height on `platform`, with tabs or not.
+fn board_bar_height(platform: WindowPlatform, tabs: bool) -> f32 {
   match (platform, tabs) {
     (WindowPlatform::Windows | WindowPlatform::Macos, false) => 36.0,
     (WindowPlatform::Windows | WindowPlatform::Macos, true) => 40.0,

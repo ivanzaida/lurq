@@ -1,6 +1,6 @@
 //! A window's chrome: the board's bar on Windows, macOS, GNOME and KDE, its controls in each platform's order and
 //! look, a bar with tabs and its line under them, a window that is not in front or is maximized, a title too long for
-//! its room, what tooling reads, and a theme's renderer.
+//! its room, what tooling reads, a theme's renderer, and a bar with tabs as high as an app's recipe says.
 
 use std::sync::Arc;
 
@@ -9,12 +9,12 @@ use lurq::{
     App,
     theme::{PaletteColor, ThemePalette},
   },
-  components::{Column, Rect},
+  components::{Column, Rect, WindowChromeMode},
   layout::{Constraints, Size, quad::QuadContent},
   node::{Element, color::Color},
   ui::{
-    Interaction, WindowChrome, WindowChromePart, WindowChromeRenderer, WindowChromeState, WindowChromeView,
-    WindowPlatform, icons,
+    Interaction, Recipe, Selector, WindowChrome, WindowChromePart, WindowChromeRenderer, WindowChromeState,
+    WindowChromeView, WindowPlatform, WindowTabs, icons,
   },
 };
 
@@ -307,4 +307,44 @@ fn a_rule_restyles_a_part_and_a_theme_draws_another_bar() {
   let (minimize, ..) = stage.bounds("bar-minimize");
   let (close, ..) = stage.bounds("bar-close");
   assert!(minimize < close);
+}
+
+fn close_to(a: f32, b: f32) -> bool {
+  (a - b).abs() < 0.5
+}
+
+/// A window of 640 by 300 whose chrome has tabs, laid over by `rules`; its content, `content`, starts under the bar.
+fn chrome_with_tabs(rules: Recipe) -> Stage {
+  let mut stage = Stage::in_app(App::new(), move |ctx| -> Element {
+    WindowChrome::new()
+      .platform(WindowPlatform::Windows)
+      .mode(WindowChromeMode::AlwaysCustom)
+      .id("bar")
+      .rules(&rules)
+      .tabs(WindowTabs::controlled(0, [(0, "blur.rs"), (1, "theme.rs")], |_| {}))
+      .content(Column::new().id("content").size(640.0, 200.0))
+      .mount(ctx)
+  });
+  stage.tree.resize(640, 300);
+  stage.pass();
+  stage
+}
+
+#[test]
+fn a_bar_with_tabs_is_as_high_as_its_recipe_says() {
+  let mut stage = chrome_with_tabs(Recipe::new());
+  assert!(close_to(stage.bounds("content").1, 40.0), "the board's 40");
+  assert!(close_to(stage.bounds("bar").3, 40.0));
+
+  let mut stage = chrome_with_tabs(Recipe::new().when(
+    Selector::new().state(WindowChromeState::Tabs),
+    WindowChromePart::Bar,
+    |s| s.height(36.0),
+  ));
+  assert!(close_to(stage.bounds("bar").3, 36.0), "{:?}", stage.bounds("bar"));
+  assert!(
+    close_to(stage.bounds("content").1, 36.0),
+    "the content starts under it: {:?}",
+    stage.bounds("content")
+  );
 }
