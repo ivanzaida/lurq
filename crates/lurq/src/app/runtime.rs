@@ -9620,7 +9620,17 @@ fn build_overlay_node(
       .within
       .as_ref()
       .filter(|element| element.is_attached())
-      .map(crate::core::ElementRef::bounds),
+      .map(|element| {
+        let [top, right, bottom, left] = spec.within_inset;
+        let bounds = element.bounds();
+        ElementRect {
+          x: bounds.x + left,
+          y: bounds.y + top,
+          width: (bounds.width - left - right).max(0.0),
+          height: (bounds.height - top - bottom).max(0.0),
+          ..bounds
+        }
+      }),
   };
   let (node, bounds) = place_overlay(
     node,

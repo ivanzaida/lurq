@@ -20,7 +20,7 @@ use crate::{
   components::{Column, Popup, Row},
   core::{ElementRef, Signal},
   layout::{Alignment, text_style::FontWeight},
-  node::{Element, NodeUpdate, SpacingValue, border::Border},
+  node::{Element, NodeUpdate, SpacingValue, border::Border, padding::Padding},
 };
 
 /// The parts of a popover a recipe styles.
@@ -101,8 +101,10 @@ pub struct Popover {
   children: Vec<Element>,
   placement: Placement,
   offset: SpacingValue,
+  cross_offset: SpacingValue,
   collision: CollisionStrategy,
   within: Option<ElementRef>,
+  within_inset: Padding,
   placed_by: Option<ElementRef>,
   at: Option<(f32, f32)>,
   width: Option<Length>,
@@ -110,6 +112,7 @@ pub struct Popover {
   inline: bool,
   dismiss_on_escape: bool,
   dismiss_on_outside_press: bool,
+  switch_on_anchor_press: bool,
   keeps_focus: bool,
   label: Option<Arc<str>>,
   described: Option<Arc<str>>,
@@ -132,8 +135,10 @@ impl Popover {
       children: Vec::new(),
       placement: Placement::BottomStart,
       offset: SpacingSize::Xs.into(),
+      cross_offset: SpacingValue::default(),
       collision: CollisionStrategy::FlipThenClamp,
       within: None,
+      within_inset: Padding::default(),
       placed_by: None,
       at: None,
       width: None,
@@ -141,6 +146,7 @@ impl Popover {
       inline: false,
       dismiss_on_escape: true,
       dismiss_on_outside_press: true,
+      switch_on_anchor_press: true,
       keeps_focus: false,
       label: None,
       described: None,
@@ -192,9 +198,19 @@ impl Popover {
     self
   }
 
-  /// How far the popover is from its anchor, along the side it is on: the theme's smallest spacing by default.
+  /// How far the popover is from its anchor, away from it on the side it is on: the theme's smallest spacing by
+  /// default. Over its anchor too it is away from it, up: a negative offset moves it toward the anchor, over it.
   pub fn offset(mut self, offset: impl Into<SpacingValue>) -> Self {
     self.offset = offset.into();
+    self
+  }
+
+  /// How far the popover is moved along the edge of its anchor it stands on, besides [`offset`](Self::offset) away
+  /// from it: toward the end over or under its anchor, and down beside it. A negative one moves it toward the start
+  /// (up): a popover at the end of a bar, 12 in from the bar's end, is `placement(Placement::TopEnd)` and
+  /// `cross_offset(-12.0)`. None by default. With [`at`](Self::at) it is not used.
+  pub fn cross_offset(mut self, offset: impl Into<SpacingValue>) -> Self {
+    self.cross_offset = offset.into();
     self
   }
 
@@ -209,6 +225,16 @@ impl Popover {
   /// flips and clamps it, it does so in that box too ([`Overlay::within`](crate::app::ctx::Overlay::within)).
   pub fn within(mut self, element: impl Into<ElementRef>) -> Self {
     self.within = Some(element.into());
+    self
+  }
+
+  /// Keeps the popover inside the box of `element` less `inset` on each side, as [`within`](Self::within) keeps it in
+  /// the box: a popover that ends 12 or more before the end of the column it belongs in is
+  /// `within_inset(column, Padding::new().right(12.0))`, and with [`CollisionStrategy::Clamp`] it moves back toward
+  /// the start just as far as that takes.
+  pub fn within_inset(mut self, element: impl Into<ElementRef>, inset: Padding) -> Self {
+    self.within = Some(element.into());
+    self.within_inset = inset;
     self
   }
 
@@ -274,6 +300,16 @@ impl Popover {
   /// Whether a press outside the popover and its anchor closes it. `true` by default.
   pub fn dismiss_on_outside_press(mut self, dismiss: bool) -> Self {
     self.dismiss_on_outside_press = dismiss;
+    self
+  }
+
+  /// Whether its anchor is the trigger of a dropdown, which a press opens: while another popup is open, a press of the
+  /// anchor closes that one and goes on to the anchor, so one press switches from one to the other. `true` by
+  /// default. `false` for a popover the app opens by itself (a question at a card, a popover at a row's pointer),
+  /// whose anchor a press does something else to: a press of the anchor while another popup is open then only closes
+  /// that one, as a press elsewhere does.
+  pub fn switch_on_anchor_press(mut self, switch: bool) -> Self {
+    self.switch_on_anchor_press = switch;
     self
   }
 
@@ -362,8 +398,12 @@ impl Popover {
     if self.inline {
       return panel;
     }
-    // The offset is away from the anchor: along the side the popover is on.
-    let offset = self.offset.resolve(&theme.spacing(), 0.0);
+    // The offset is away from the anchor, on the side the popover is on; the cross offset along that side.
+    let spacing = theme.spacing();
+    let (offset, cross) = (
+      self.offset.resolve(&spacing, 0.0),
+      self.cross_offset.resolve(&spacing, 0.0),
+    );
     let (x, y) = match self.placement {
       _ if self.at.is_some() => (offset, offset),
       Placement::LeftStart
@@ -371,8 +411,8 @@ impl Popover {
       | Placement::LeftEnd
       | Placement::RightStart
       | Placement::Right
-      | Placement::RightEnd => (offset, 0.0),
-      _ => (0.0, offset),
+      | Placement::RightEnd => (offset, cross),
+      _ => (cross, offset),
     };
     let mut popup = Popup::new(self.anchor.clone(), panel)
       .open(self.open.clone())
@@ -381,12 +421,21 @@ impl Popover {
       .collision(self.collision)
       .dismiss_on_escape(self.dismiss_on_escape)
       .dismiss_on_outside_click(self.dismiss_on_outside_press)
-      .takes_focus(!self.keeps_focus);
+      .takes_focus(!self.keeps_focus)
+      .switch_on_anchor_press(self.switch_on_anchor_press);
     if self.keeps_focus {
       popup = popup.outside_press(OutsidePress::PassThrough);
     }
     if let Some(within) = self.within {
-      popup = popup.within(within);
+      let side = |side: SpacingValue| side.resolve(&spacing, 0.0);
+      let inset = self.within_inset;
+      popup = popup.within_inset(
+        within,
+        side(inset.top),
+        side(inset.right),
+        side(inset.bottom),
+        side(inset.left),
+      );
     }
     if let Some(frame) = self.placed_by {
       popup = popup.placed_by(frame);
