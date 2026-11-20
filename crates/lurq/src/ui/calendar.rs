@@ -1352,7 +1352,9 @@ impl<V: Picked> Themed for Calendar<V> {
           .border(Border::inside(BorderSize::Sm, Edge))
       })
       .base(Months, |s| s.gap(16.0))
-      .base(Footer, |s| s.padding_top(8.0).top_line(Border::inside(BorderSize::Sm, Edge)))
+      .base(Footer, |s| {
+        s.padding_top(8.0).top_line(Border::inside(BorderSize::Sm, Edge))
+      })
       .base(Header, |s| s.height(32.0))
       .base(Title, |s| {
         s.typography(TypographyStyle::Body)

@@ -34,7 +34,10 @@ fn a_status_label_is_an_icon_and_words_in_its_tone_with_no_box() {
       .into()
   });
   assert_eq!(stage.text("Completed"), (light(PaletteColor::Success), 12.0));
-  assert_eq!(stage.text(&glyph(icons::CHECK_CIRCLE)), (light(PaletteColor::Success), 14.0));
+  assert_eq!(
+    stage.text(&glyph(icons::CHECK_CIRCLE)),
+    (light(PaletteColor::Success), 14.0)
+  );
   assert_eq!(stage.fill_color("done"), None, "no fill");
   assert!(stage.border("done").is_none(), "no edge");
   let (icon_x, _, icon_width, _) = stage.bounds("done-icon");
@@ -49,7 +52,11 @@ fn each_tone_is_its_strong_color_and_small_is_smaller() {
       .child(StatusLabel::new("Running"))
       .child(StatusLabel::new("Queued").variant(StatusLabelVariant::Muted))
       .child(StatusLabel::new("Paused").variant(StatusLabelVariant::Warning))
-      .child(StatusLabel::new("Failed").variant(StatusLabelVariant::Destructive).size(StatusLabelSize::Sm))
+      .child(
+        StatusLabel::new("Failed")
+          .variant(StatusLabelVariant::Destructive)
+          .size(StatusLabelSize::Sm),
+      )
       .into()
   });
   assert_eq!(stage.text("Running").0, light(PaletteColor::Foreground));

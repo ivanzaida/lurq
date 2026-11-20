@@ -683,7 +683,10 @@ fn a_radio_card_holds_the_apps_content_and_mark_and_says_why_it_is_disabled() {
   let description = stage.text_quad("Runs the CLI.").expect("the description");
   assert!(mark_x < description.x, "the mark before the text");
   let (_, picker_y, _, _) = stage.bounds("picker");
-  assert!(picker_y >= description.y + description.height, "the content under the description");
+  assert!(
+    picker_y >= description.y + description.height,
+    "the content under the description"
+  );
   assert!(stage.bounds("cli-content").3 > 0.0, "in the part `content`");
 
   // A card disabled for a reason says it, shows a lock for its mark and takes no press.
@@ -719,6 +722,9 @@ fn tooling_hears_why_a_card_is_disabled_and_that_one_is_busy() {
       .get_element_by_id_mut(id)
       .and_then(|element| element.description(key))
   };
-  assert_eq!(said("locked", "a11y_disabled_reason").as_deref(), Some("Not installed."));
+  assert_eq!(
+    said("locked", "a11y_disabled_reason").as_deref(),
+    Some("Not installed.")
+  );
   assert_eq!(said("busy", "a11y_busy").as_deref(), Some("true"));
 }

@@ -639,12 +639,18 @@ impl Breadcrumb {
       .iter()
       .map(|step| {
         (!step.states.is_empty()).then(|| {
-          let base = if self.disabled || step.disabled { &disabled } else { &case };
+          let base = if self.disabled || step.disabled {
+            &disabled
+          } else {
+            &case
+          };
           let case = step
             .states
             .iter()
             .fold(base.clone(), |case, state| case.state(state.clone(), true));
-          theme.resolve::<Breadcrumb>(&case, Some(&self.rules)).owned_like(&recipe)
+          theme
+            .resolve::<Breadcrumb>(&case, Some(&self.rules))
+            .owned_like(&recipe)
         })
       })
       .collect();

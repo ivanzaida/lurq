@@ -1631,7 +1631,12 @@ impl LayoutEngine {
         let foreground = self
           .foreground
           .get()
-          .or_else(|| self.palette.borrow().try_get(&crate::app::theme::PaletteColor::Foreground))
+          .or_else(|| {
+            self
+              .palette
+              .borrow()
+              .try_get(&crate::app::theme::PaletteColor::Foreground)
+          })
           .unwrap_or(crate::layout::text_style::DEFAULT_TEXT_COLOR);
         QuadContent::Svg {
           data: data.in_foreground(foreground),

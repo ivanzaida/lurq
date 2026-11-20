@@ -597,11 +597,25 @@ fn a_term_stands_before_the_text_quieter_than_it() {
       .into()
   });
   let (term, _) = stage.text("branch:");
-  assert_eq!(term, light(PaletteColor::MutedForeground), "the term is muted on a neutral tag");
+  assert_eq!(
+    term,
+    light(PaletteColor::MutedForeground),
+    "the term is muted on a neutral tag"
+  );
   assert_eq!(stage.text("main").0, light(PaletteColor::SecondaryForeground));
   let term_quad = stage.text_quad("branch:").expect("the term is painted");
   let label_quad = stage.text_quad("main").expect("the text is painted");
-  assert!(term_quad.x + term_quad.width <= label_quad.x, "the term is before the text");
-  assert!(stage.bounds("branch-term").2 > 0.0, "the term is the part `term`, named after the tag");
-  assert_eq!(stage.text("ci:").0, light(PaletteColor::Success), "the variant's color on another tag");
+  assert!(
+    term_quad.x + term_quad.width <= label_quad.x,
+    "the term is before the text"
+  );
+  assert!(
+    stage.bounds("branch-term").2 > 0.0,
+    "the term is the part `term`, named after the tag"
+  );
+  assert_eq!(
+    stage.text("ci:").0,
+    light(PaletteColor::Success),
+    "the variant's color on another tag"
+  );
 }

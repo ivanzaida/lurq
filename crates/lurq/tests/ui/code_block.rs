@@ -373,7 +373,11 @@ fn a_copy_the_clipboard_refuses_says_so_for_a_while() {
     .tree
     .tick_timers_at(std::time::Instant::now() + lurq::ui::CODE_BLOCK_COPIED_FOR + std::time::Duration::from_millis(10));
   stage.pass();
-  assert_eq!(name(&mut stage).as_deref(), Some("Copy code"), "and then it offers to copy again");
+  assert_eq!(
+    name(&mut stage).as_deref(),
+    Some("Copy code"),
+    "and then it offers to copy again"
+  );
 }
 
 #[test]

@@ -171,8 +171,7 @@ fn a_spinning_icon_turns_while_motion_is_reduced_too() {
   );
 }
 
-const SQUARE: &str =
-  r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" fill="black" stroke="black"/></svg>"#;
+const SQUARE: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" fill="black" stroke="black"/></svg>"#;
 
 /// The SVG painted in the quads of the stage, if one is.
 fn painted_svg(stage: &Stage) -> Option<lurq::svg::SvgData> {
@@ -188,13 +187,22 @@ fn an_icon_the_theme_draws_with_an_svg_is_that_svg_at_its_size_in_its_color() {
   app.theme().set_icon_svg("mark", IconSvg::filled(SQUARE));
   let mut stage = Stage::in_app(app, |_| {
     Row::new()
-      .child(Icon::new("mark").size(IconSize::Lg).color(PaletteColor::Success).id("mark"))
+      .child(
+        Icon::new("mark")
+          .size(IconSize::Lg)
+          .color(PaletteColor::Success)
+          .id("mark"),
+      )
       .into()
   });
   let (_, _, width, height) = stage.bounds("mark");
   assert_eq!((width, height), (20.0, 20.0), "a square of its size");
   let data = painted_svg(&stage).expect("the SVG is painted");
-  assert_eq!(data.fill_override(), Some(light(PaletteColor::Success)), "its shapes in its color");
+  assert_eq!(
+    data.fill_override(),
+    Some(light(PaletteColor::Success)),
+    "its shapes in its color"
+  );
   assert_eq!(data.stroke_override(), None, "a filled one leaves its lines alone");
 }
 
