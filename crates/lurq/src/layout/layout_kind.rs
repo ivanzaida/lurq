@@ -2,6 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::{
   animation::Easing,
+  core::signal::Signal,
   layout::{
     Alignment, Offset, Size, StackAlignment,
     scrollbar::{
@@ -229,6 +230,14 @@ struct ScrollStateInner {
   keyboard_dismissal: KeyboardDismissal,
   /// See [`ScrollState::set_paging`].
   paging: bool,
+  /// Something has the content and has not let it come to rest: a finger's gesture with what it leaves (its
+  /// momentum, the way to a page, the spring back from past an end), a scroll to the top. The tree sets it.
+  held: bool,
+  /// The offset of the page the content is on its way to, from the finger's lift until it is there.
+  page_target: Option<(f32, f32)>,
+  /// The page the content last came to rest on; see [`ScrollState::page_signal`].
+  rested_page: (usize, usize),
+  page_signal: Option<Signal<(usize, usize)>>,
   pending_scroll_x: Option<PendingScroll>,
   pending_scroll_y: Option<PendingScroll>,
   /// A wheel's scroll on its way along each axis.
@@ -300,6 +309,26 @@ struct ScrollStateInner {
 }
 
 impl ScrollStateInner {
+  /// The page an offset is at along each axis, a page being as long as the viewport.
+  fn page_of(&self, offset: (f32, f32)) -> (usize, usize) {
+    let page = |offset: f32, size: f32| {
+      if size > 0.0 {
+        (offset / size).round().max(0.0) as usize
+      } else {
+        0
+      }
+    };
+    (
+      page(offset.0, self.viewport_width),
+      page(offset.1, self.viewport_height),
+    )
+  }
+
+  /// See [`ScrollState::moving`].
+  fn moves(&self) -> bool {
+    self.held || self.dragging || self.wheel_x.is_some() || self.wheel_y.is_some()
+  }
+
   /// Moves the offset to where a wheel's scroll on its way is at `now`. Tells whether it moved.
   fn step_wheel(&mut self, now: Instant) -> bool {
     let mut moved = false;
@@ -418,6 +447,10 @@ impl ScrollState {
         scrolls_to_top: true,
         keyboard_dismissal: KeyboardDismissal::None,
         paging: false,
+        held: false,
+        page_target: None,
+        rested_page: (0, 0),
+        page_signal: None,
         pending_scroll_x: None,
         pending_scroll_y: None,
         wheel_x: None,
@@ -529,20 +562,94 @@ impl ScrollState {
     self.inner.lock().unwrap().paging
   }
 
-  /// The page the content is at along each axis, counted from 0: the nearest, while it is between two.
+  /// The page the content is at along each axis, counted from 0: the nearest, while it is between two. It
+  /// follows the offset that is drawn, so it changes half way between two pages; what the content came to rest
+  /// on is [`rested_page`](Self::rested_page), and where it is going [`target_page`](Self::target_page).
   pub fn page(&self) -> (usize, usize) {
     let inner = self.inner.lock().unwrap();
-    let page = |offset: f32, size: f32| {
-      if size > 0.0 {
-        (offset / size).round().max(0.0) as usize
-      } else {
-        0
+    inner.page_of((inner.scroll_x, inner.scroll_y))
+  }
+
+  /// The page the content is going to along each axis: the one a list that scrolls by pages goes on to once
+  /// the finger lifted, known at the lift and before anything moved; the one a wheel's scroll on its way
+  /// ends on; and [`page`](Self::page) while nothing takes the content anywhere.
+  pub fn target_page(&self) -> (usize, usize) {
+    let inner = self.inner.lock().unwrap();
+    let going = inner.page_target.unwrap_or((
+      inner.wheel_x.map_or(inner.scroll_x, |wheel| wheel.target),
+      inner.wheel_y.map_or(inner.scroll_y, |wheel| wheel.target),
+    ));
+    inner.page_of(going)
+  }
+
+  /// The page the content last came to rest on along each axis. It does not change while the content moves: a
+  /// finger that drags the content, its momentum, the way to a page and a wheel's scroll on its way leave it
+  /// as it is until they are over. `on_page_change` is called when it changes, and
+  /// [`page_signal`](Self::page_signal) holds it for a render.
+  pub fn rested_page(&self) -> (usize, usize) {
+    self.inner.lock().unwrap().rested_page
+  }
+
+  /// [`rested_page`](Self::rested_page) as a signal: a component that reads it in its render is rendered
+  /// again when the content comes to rest on another page, whatever took it there (a finger, a snap, a wheel,
+  /// the keys, `set_scroll`). The same signal at every call.
+  pub fn page_signal(&self) -> Signal<(usize, usize)> {
+    let mut inner = self.inner.lock().unwrap();
+    let page = inner.rested_page;
+    inner.page_signal.get_or_insert_with(|| Signal::new(page)).clone()
+  }
+
+  /// Whether something moves the content now, or holds it: a finger's gesture and what it leaves (momentum,
+  /// the way to a page, the spring back from past an end), a wheel's scroll on its way, a drag of the bar's
+  /// thumb. Content at rest stays where it is until something scrolls it.
+  pub fn moving(&self) -> bool {
+    let inner = self.inner.lock().unwrap();
+    inner.moves()
+  }
+
+  /// Tells the state that the tree holds its content (see `ScrollStateInner::held`), or let it go.
+  pub(crate) fn set_held(&self, held: bool) {
+    let mut inner = self.inner.lock().unwrap();
+    inner.held = held;
+    if !held {
+      inner.page_target = None;
+    }
+  }
+
+  pub(crate) fn held(&self) -> bool {
+    self.inner.lock().unwrap().held
+  }
+
+  /// Tells the state the offset of the page its content goes on to.
+  pub(crate) fn set_page_target(&self, target: Option<(f32, f32)>) {
+    self.inner.lock().unwrap().page_target = target;
+  }
+
+  /// Whether anything asks for the page the content rests on: a signal of it was taken.
+  pub(crate) fn page_watched(&self) -> bool {
+    self.inner.lock().unwrap().page_signal.is_some()
+  }
+
+  /// Takes the page the content is at as the one it rests on, where nothing moves it. Tells the page it
+  /// rested on before and the one it rests on now when they differ; the signal has heard by then.
+  pub(crate) fn rest_page(&self) -> Option<((usize, usize), (usize, usize))> {
+    let (before, page, signal) = {
+      let mut inner = self.inner.lock().unwrap();
+      if inner.moves() {
+        return None;
       }
+      let page = inner.page_of((inner.scroll_x, inner.scroll_y));
+      if page == inner.rested_page {
+        return None;
+      }
+      let before = std::mem::replace(&mut inner.rested_page, page);
+      (before, page, inner.page_signal.clone())
     };
-    (
-      page(inner.scroll_x, inner.viewport_width),
-      page(inner.scroll_y, inner.viewport_height),
-    )
+    // Outside the lock: what hears the signal may read the state.
+    if let Some(signal) = signal {
+      signal.set(page);
+    }
+    Some((before, page))
   }
 
   /// How far the content is drawn past its ends, along each axis: negative before the start, positive beyond

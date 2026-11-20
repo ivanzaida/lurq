@@ -33,7 +33,7 @@ use crate::{
     },
     events::{
       DragEvent, DropEvent, DropResult, EventControl, InputSource, KeyboardEvent, MouseButton, MouseEvent,
-      MouseEventKind, ScrollEvent, ScrollPhase, input_source, with_input_source,
+      MouseEventKind, ScrollEvent, ScrollPhase, ScrollSource, input_source, with_input_source,
     },
     hit_test::{HitRect, hit_test_tree, hit_test_tree_all},
     profile_support::{PerfMeterStats, profile_elapsed, profile_if, profile_scope, profile_value},
@@ -130,6 +130,7 @@ mod refresh_layout_tests;
 #[cfg(all(test, feature = "devtools"))]
 mod screenshot_blur_tests;
 mod scroll_into_view;
+mod scroll_rest;
 #[cfg(all(test, feature = "screenshot"))]
 mod scrolled_text_clip_tests;
 mod select_menu;
@@ -4614,6 +4615,7 @@ impl Tree {
       animated: false,
       notched: false,
       modifiers: MouseModifiers { shift, ctrl, alt, meta },
+      source: ScrollSource::Wheel,
     };
     self.scroll_event(x, y, delta_x, delta_y, phase, input);
   }
@@ -5559,7 +5561,7 @@ impl Tree {
         MouseEventKind::Up => {
           drag.state.end_drag();
           let target_id = self.rebound_scroll_drag_target(drag);
-          self.dispatch_scroll_handlers_for_node(target_id, evt.x, evt.y, 0.0, 0.0, ScrollPhase::End);
+          self.scroll_rests(&drag.state, &[target_id], (evt.x, evt.y), ScrollSource::Scrollbar);
           self.dragging_scroll = None;
           self.clear_active_path();
           self.suppress_click((evt.x, evt.y), button);
@@ -6428,7 +6430,7 @@ impl Tree {
     if let Some(root) = &self.root {
       mark_scroll_layout_dirty(root, target_id);
     }
-    self.dispatch_scroll_handlers_for_node(target_id, x, y, 0.0, 0.0, ScrollPhase::Scroll);
+    self.dispatch_scroll_handlers_for_node(target_id, x, y, 0.0, 0.0, ScrollPhase::Scroll, ScrollSource::Scrollbar);
     self.dispatch_scroll_reach_handlers_for_node(
       target_id,
       x,
@@ -6438,6 +6440,7 @@ impl Tree {
       ScrollPhase::Scroll,
       previous_scroll_y,
       previous_max_scroll_y,
+      ScrollSource::Scrollbar,
     );
     self.needs_redraw = true;
     self.apply_reactive_updates_after_event();
@@ -6775,6 +6778,7 @@ impl Tree {
       alt: input.modifiers.alt,
       meta: input.modifiers.meta,
       notched: input.notched,
+      source: input.source,
       target_id: NodeId::UNASSIGNED,
       control: EventControl::new(),
     };
@@ -6854,8 +6858,11 @@ impl Tree {
     }
 
     // Fire user handlers before the default auto-scroll so prevent_default
-    // can block native scroll behavior.
-    for (node, _) in &hits {
+    // can block native scroll behavior. The start and the end of a finger's gesture are not told here: its
+    // content starts once and comes to rest once, after the momentum, the way to a page and the spring back
+    // the finger left it (`scroll_rest`).
+    let phase_told = !self.touch_scroll_latched || matches!(evt.phase, ScrollPhase::Scroll);
+    for (node, _) in hits.iter().filter(|_| phase_told) {
       evt.target_id = node.node_id();
       match evt.phase {
         ScrollPhase::Start => {
@@ -6911,6 +6918,8 @@ impl Tree {
     let mut remaining_dx = -evt.delta_x;
     let mut remaining_dy = -evt.delta_y;
     let mut pending_scroll_reach = Vec::new();
+    // The containers whose content a finger, or its momentum, moved: each hears so after it moved.
+    let mut moved_by_finger = Vec::new();
     let mut horizontal_taken = false;
     for (node, _) in &hits {
       if let Some((state, direction)) = node.scroll_container() {
@@ -6925,7 +6934,14 @@ impl Tree {
         let previous_max_scroll_y = (state.content_height() - state.viewport_height()).max(0.0);
         let (overflow_dx, overflow_dy) = if animated {
           let overflow = state.wheel_by_with_overflow(dx, dy, now);
-          Self::wheel_turned(&mut self.wheel_scrolls, node.node_id(), &state, (evt.x, evt.y), now);
+          Self::wheel_turned(
+            &mut self.wheel_scrolls,
+            node.node_id(),
+            &state,
+            (evt.x, evt.y),
+            now,
+            input.source,
+          );
           overflow
         } else {
           state.scroll_by_with_overflow(dx, dy)
@@ -6936,6 +6952,9 @@ impl Tree {
             hit_node.layout_cache.mark_descendant_dirty();
           }
           self.needs_redraw = true;
+          if self.touch_scroll_latched {
+            moved_by_finger.push(node.node_id());
+          }
         }
         pending_scroll_reach.push((
           node.node_id(),
@@ -6977,6 +6996,12 @@ impl Tree {
         }
       }
     }
+    // The content is where the finger took it: its container hears an event with no delta, as it does after
+    // every step of a wheel's scroll, and a handler that reads the offset there reads what is drawn. A
+    // touchpad's and a wheel's own event stays the one with its delta, before the move.
+    for target_id in moved_by_finger {
+      self.dispatch_scroll_handlers_for_node(target_id, evt.x, evt.y, 0.0, 0.0, ScrollPhase::Scroll, input.source);
+    }
     for (target_id, x, y, delta_x, delta_y, phase, previous_scroll_y, previous_max_scroll_y) in pending_scroll_reach {
       self.dispatch_scroll_reach_handlers_for_node(
         target_id,
@@ -6987,6 +7012,7 @@ impl Tree {
         phase,
         previous_scroll_y,
         previous_max_scroll_y,
+        input.source,
       );
     }
     horizontal_taken
@@ -7000,6 +7026,7 @@ impl Tree {
     delta_x: f32,
     delta_y: f32,
     phase: ScrollPhase,
+    source: ScrollSource,
   ) {
     let Some(root) = &self.root else {
       return;
@@ -7018,6 +7045,7 @@ impl Tree {
       alt: false,
       meta: false,
       notched: false,
+      source,
       target_id,
       control: EventControl::new(),
     };
@@ -7060,6 +7088,7 @@ impl Tree {
     phase: ScrollPhase,
     previous_scroll_y: f32,
     previous_max_scroll_y: f32,
+    source: ScrollSource,
   ) {
     let Some(root) = &self.root else {
       return;
@@ -7093,6 +7122,7 @@ impl Tree {
       alt: false,
       meta: false,
       notched: false,
+      source,
       target_id,
       control: EventControl::new(),
     };
@@ -8271,6 +8301,7 @@ impl Tree {
         }
       }
       self.last_layout = Some(layout);
+      self.rest_pages_after_layout();
       self.leave_window_controls();
       {
         crate::app::profile_support::frame_section!("ul:blur_dropped");
@@ -10351,6 +10382,8 @@ struct ScrollInput {
   animated: bool,
   notched: bool,
   modifiers: MouseModifiers,
+  /// What moves the content: a wheel or a touchpad, unless a finger's gesture says otherwise.
+  source: ScrollSource,
 }
 
 #[derive(Clone, Copy, Default)]

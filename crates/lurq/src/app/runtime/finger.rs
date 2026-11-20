@@ -534,6 +534,11 @@ impl TouchPointer {
     }
   }
 
+  /// Whether the finger caught content that was moving and holds it still.
+  pub(super) fn holds_caught(&self) -> bool {
+    matches!(self.state, State::Pending { caught: true, .. })
+  }
+
   /// A handler took the long press the shell was just given: the finger clicks nothing when it lifts.
   pub(super) fn long_press_taken(&mut self) {
     if let State::Dragging { taken, .. } = &mut self.state {
@@ -709,10 +714,16 @@ impl Tree {
     };
     let lifted =
       ends_scroll(&actions) && (route != TouchRoute::Pointer || matches!(phase, TouchPhase::End | TouchPhase::Cancel));
+    // Content the finger caught on its way is held, not at rest, until the finger lets go of it.
+    if self.finger.holds_caught() {
+      self.touch_scroll_caught();
+    }
     self.apply_finger_actions(actions, false);
     if lifted {
       self.page_after_finger_scroll(now);
     }
+    // What the finger scrolled is at rest when it lifted and left the content nothing to do.
+    self.touch_scroll_rest();
     route
   }
 

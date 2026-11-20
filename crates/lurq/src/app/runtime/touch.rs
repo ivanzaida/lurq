@@ -6,9 +6,12 @@
 //! finger lifts. Momentum that reaches an end carries the content past it and the same spring brings it back.
 //! Both are a scroll view of the platform's: `UIScrollView` on iOS.
 
-use super::{Tree, find_node_by_id, hit_test_tree, scrollbar_hit_at, trim_hits_to_scrollbar};
+use super::{
+  MouseModifiers, ScrollInput, Tree, find_node_by_id, find_scroll_node_id_by_state, hit_test_tree, scrollbar_hit_at,
+  trim_hits_to_scrollbar,
+};
 use crate::{
-  app::events::ScrollPhase,
+  app::events::{ScrollPhase, ScrollSource},
   core::NodeId,
   layout::layout_kind::{ScrollDirection, ScrollState},
   node::{node::Node, node_kind::NodeKind},
@@ -174,6 +177,14 @@ pub(super) struct TouchScroll {
   page: Option<PageMove>,
   /// The page a list was going to when a finger caught it.
   caught_page: Option<(f32, f32)>,
+  /// A gesture is under way, the finger's or its momentum's: between its first event and its last.
+  moving: bool,
+  /// A finger caught the content on its way and holds it still: it is not at rest until the finger lets go.
+  caught: bool,
+  /// What last moved the content.
+  source: ScrollSource,
+  /// Where the gesture started, in logical pixels: where the events of what it leaves are from.
+  at: (f32, f32),
 }
 
 /// A list on its way to its top.
@@ -183,6 +194,13 @@ struct ToTop {
   around: Vec<NodeId>,
   from: f32,
   started: Instant,
+}
+
+impl TouchScroll {
+  /// Whether the gesture, or what it left, still has the content.
+  fn busy(&self) -> bool {
+    self.moving || self.caught || self.page.is_some() || self.spring.is_some()
+  }
 }
 
 impl Tree {
@@ -286,7 +304,7 @@ impl Tree {
     let scale = self.scale_factor();
     let (lx, ly) = (x / scale, y / scale);
     self.rebuild_if_dirty();
-    self.touch_scroll_targets.clear();
+    let heard_before = std::mem::take(&mut self.touch_scroll_targets);
     let (Some(root), Some(layout)) = (&self.root, &self.last_layout) else {
       return;
     };
@@ -359,8 +377,17 @@ impl Tree {
       }
       _ => (0.0, 0.0),
     };
-    if !caught && let Some(previous) = &previous.taker {
-      previous.state.set_overscroll(0.0, 0.0);
+    if !caught && let Some(taker) = &previous.taker {
+      taker.state.set_overscroll(0.0, 0.0);
+      // A list a finger stopped on its way to a page is put on that page, and what the gesture left it doing
+      // is over.
+      if let Some(page) = previous.caught_page {
+        taker.state.set_scroll(page.0, page.1);
+      }
+      if taker.state.held() {
+        let state = taker.state.clone();
+        self.scroll_rests(&state, &heard_before, previous.at, previous.source);
+      }
     }
     // A list caught on its way to a page is still of the page it was going to.
     let began = match (&taker, previous.caught_page) {
@@ -377,8 +404,65 @@ impl Tree {
       began,
       page: None,
       caught_page: None,
+      moving: false,
+      caught: false,
+      source: ScrollSource::Finger,
+      at: (lx, ly),
     };
     self.mark_touch_scroll_moved();
+  }
+
+  /// The gesture's content starts to move, where it was at rest: what the gesture scrolls hears the scroll's
+  /// start, once for the finger and all it leaves the content doing.
+  fn touch_scroll_starts(&mut self) {
+    let Some(taker) = &self.touch_scroll.taker else {
+      return;
+    };
+    if taker.state.held() {
+      return;
+    }
+    taker.state.set_held(true);
+    tracing::debug!(
+      target: "lurq::scroll",
+      x = taker.state.scroll_x(),
+      y = taker.state.scroll_y(),
+      page = ?taker.state.page(),
+      "start"
+    );
+    let at = self.touch_scroll.at;
+    for target in self.touch_scroll_targets.clone() {
+      self.dispatch_scroll_handlers_for_node(target, at.0, at.1, 0.0, 0.0, ScrollPhase::Start, ScrollSource::Finger);
+    }
+  }
+
+  /// Tells the content of the gesture's container at rest once nothing has it any more: no finger, no
+  /// momentum, no way to a page and no spring back. A shell that drives the gesture itself has this from
+  /// [`touch_tick`](Self::touch_tick); [`finger`](Self::finger) and [`finger_tick`](Self::finger_tick) ask.
+  pub(super) fn touch_scroll_rest(&mut self) {
+    let scroll = &self.touch_scroll;
+    let Some(taker) = &scroll.taker else {
+      return;
+    };
+    if scroll.busy() || !taker.state.held() {
+      return;
+    }
+    let (state, at, source) = (taker.state.clone(), scroll.at, scroll.source);
+    let heard = self.touch_scroll_targets.clone();
+    self.scroll_rests(&state, &heard, at, source);
+  }
+
+  /// The node of the gesture's container: the one the gesture started on or, where a rebuild replaced it, the
+  /// one that has its state now.
+  fn touch_scroll_node(&self) -> Option<NodeId> {
+    let taker = self.touch_scroll.taker.as_ref()?;
+    let root = self.root.as_ref()?;
+    self
+      .touch_scroll
+      .around
+      .first()
+      .copied()
+      .filter(|id| find_node_by_id(root, *id).is_some())
+      .or_else(|| find_scroll_node_id_by_state(root, &taker.state))
   }
 
   /// Whether what the gesture scrolls goes by pages ([`ScrollState::set_paging`]): the shell leaves it no
@@ -413,6 +497,14 @@ impl Tree {
     if to == offsets {
       return;
     }
+    taker.state.set_page_target(Some(to));
+    tracing::debug!(
+      target: "lurq::scroll",
+      page = ?taker.state.target_page(),
+      from = ?taker.state.rested_page(),
+      "snapping to page"
+    );
+    self.touch_scroll.source = ScrollSource::Snap;
     self.touch_scroll.page = Some(PageMove {
       to,
       spring: Spring {
@@ -463,8 +555,22 @@ impl Tree {
     }
 
     let before = self.touch_scroll.taker.as_ref().map(Taker::offsets);
+    let source = if momentum {
+      ScrollSource::Momentum
+    } else {
+      ScrollSource::Finger
+    };
+    self.touch_scroll.source = source;
+    self.touch_scroll.moving = !matches!(phase, ScrollPhase::End);
+    self.touch_scroll_starts();
     self.touch_scroll_latched = true;
-    self.scroll(x, y, -change.0, -change.1, phase);
+    let input = ScrollInput {
+      animated: false,
+      notched: false,
+      modifiers: MouseModifiers::default(),
+      source,
+    };
+    self.scroll_event(x, y, -change.0, -change.1, phase, input);
     self.touch_scroll_latched = false;
     let after = self.touch_scroll.taker.as_ref().map(Taker::offsets);
 
@@ -510,8 +616,10 @@ impl Tree {
   /// was any. The gesture that follows goes on from there, and [`touch_scroll_settle`](Self::touch_scroll_settle)
   /// lets the content go when the finger lifts without scrolling.
   pub fn touch_scroll_catch(&mut self) -> bool {
-    // A list on its way to its top stops where it is.
-    if self.touch_scroll.to_top.take().is_some() {
+    // A list on its way to its top stops where it is, and its scroll is over there.
+    if let Some(to_top) = self.touch_scroll.to_top.take() {
+      let list = to_top.around.first().copied();
+      self.scroll_rests(&to_top.state, list.as_slice(), (0.0, 0.0), ScrollSource::Code);
       return true;
     }
     let Some(taker) = &self.touch_scroll.taker else {
@@ -521,6 +629,7 @@ impl Tree {
     if let Some(page) = self.touch_scroll.page.take() {
       self.touch_scroll.began = page.to;
       self.touch_scroll.caught_page = Some(page.to);
+      self.touch_scroll.caught = true;
       return true;
     }
     if self.touch_scroll.spring.take().is_none() {
@@ -528,7 +637,14 @@ impl Tree {
     }
     let (shown, viewport) = (taker.state.overscroll(), taker.viewport());
     self.touch_scroll.pull = (pull_of(shown.0, viewport.0), pull_of(shown.1, viewport.1));
+    self.touch_scroll.caught = true;
     true
+  }
+
+  /// A finger caught content that was moving, by its momentum: it holds it still, as
+  /// [`touch_scroll_catch`](Self::touch_scroll_catch) says of content springing back.
+  pub(super) fn touch_scroll_caught(&mut self) {
+    self.touch_scroll.caught = self.touch_scroll.taker.is_some();
   }
 
   /// Lets go of content a finger held still: past an end, it springs back from where it is, and between two
@@ -539,6 +655,7 @@ impl Tree {
     };
     let shown = taker.state.overscroll();
     self.touch_scroll.pull = (0.0, 0.0);
+    self.touch_scroll.caught = false;
     if shown != (0.0, 0.0) {
       self.touch_scroll.spring = Some(Spring {
         from: shown,
@@ -631,13 +748,18 @@ impl Tree {
     };
     let around = hits[page..].iter().map(|(node, _)| node.node_id()).collect();
     drop(hits);
-    // Whatever a gesture left moving gives way.
+    // Whatever a gesture left moving gives way: a list on its way to a page is put there.
     if let Some(taker) = &self.touch_scroll.taker {
       taker.state.set_overscroll(0.0, 0.0);
+      if let Some(page) = &self.touch_scroll.page {
+        taker.state.set_scroll(page.to.0, page.to.1);
+      }
     }
     self.touch_scroll.spring = None;
     self.touch_scroll.page = None;
+    self.touch_scroll.caught = false;
     self.touch_scroll.pull = (0.0, 0.0);
+    state.set_held(true);
     self.touch_scroll.to_top = Some(ToTop {
       from: state.scroll_y(),
       state,
@@ -652,8 +774,15 @@ impl Tree {
   /// is still on its way: the shell runs another turn for the next step.
   pub fn touch_tick(&mut self, now: Instant) -> bool {
     let to_top = self.touch_to_top_tick(now) | self.touch_tap_highlight_tick(now) | self.touch_page_tick(now);
+    let springs = self.touch_spring_tick(now);
+    self.touch_scroll_rest();
+    springs || to_top
+  }
+
+  /// Moves content springing back from past an end to where it is at `now`.
+  fn touch_spring_tick(&mut self, now: Instant) -> bool {
     let (Some(taker), Some(spring)) = (&self.touch_scroll.taker, &self.touch_scroll.spring) else {
-      return to_top;
+      return false;
     };
     let elapsed = now.saturating_duration_since(spring.started);
     let shown = spring.at(elapsed.as_secs_f32());
@@ -665,7 +794,7 @@ impl Tree {
       taker.state.set_overscroll(shown.0, shown.1);
     }
     self.mark_touch_scroll_moved();
-    !rests || to_top
+    !rests
   }
 
   fn touch_to_top_tick(&mut self, now: Instant) -> bool {
@@ -676,13 +805,27 @@ impl Tree {
     let done = progress >= 1.0;
     // Fast at first, easing into the top.
     let left = (1.0 - progress.min(1.0)).powi(3);
+    let was = to_top.state.scroll_y();
     to_top.state.set_scroll(to_top.state.scroll_x(), to_top.from * left);
     if let Some(root) = &self.root {
       mark_moved(root, &to_top.around);
     }
     self.needs_redraw = true;
+    // The list hears each step once the content is there, and the end of the way.
+    let (state, list) = (to_top.state.clone(), to_top.around.first().copied());
+    let list = self.root.as_ref().and_then(|root| {
+      list
+        .filter(|id| find_node_by_id(root, *id).is_some())
+        .or_else(|| find_scroll_node_id_by_state(root, &state))
+    });
+    if let Some(list) = list
+      && state.scroll_y() != was
+    {
+      self.dispatch_scroll_handlers_for_node(list, 0.0, 0.0, 0.0, 0.0, ScrollPhase::Scroll, ScrollSource::Code);
+    }
     if done {
       self.touch_scroll.to_top = None;
+      self.scroll_rests(&state, list.as_slice(), (0.0, 0.0), ScrollSource::Code);
     }
     !done
   }
@@ -695,6 +838,7 @@ impl Tree {
     let elapsed = now.saturating_duration_since(page.spring.started);
     let left = page.spring.at_frequency(PAGE_FREQUENCY, elapsed.as_secs_f32());
     let rests = elapsed >= SPRING_MIN && left.0.abs() < SPRING_REST && left.1.abs() < SPRING_REST;
+    let (was, was_end) = (taker.offsets(), taker.ends().1);
     if rests {
       taker.state.set_scroll(page.to.0, page.to.1);
       self.touch_scroll.page = None;
@@ -706,7 +850,26 @@ impl Tree {
         page.to.1 + within(page.spring.from.1, left.1),
       );
     }
+    let moved = taker.offsets() != was;
     self.mark_touch_scroll_moved();
+    // The list hears every step of the way once the content is there, the last one on the page itself.
+    if moved && let Some(list) = self.touch_scroll_node() {
+      let at = self.touch_scroll.at;
+      self.dispatch_scroll_handlers_for_node(list, at.0, at.1, 0.0, 0.0, ScrollPhase::Scroll, ScrollSource::Snap);
+      // A list that came to its first or its last page reached that end.
+      self.dispatch_scroll_reach_handlers_for_node(
+        list,
+        at.0,
+        at.1,
+        0.0,
+        0.0,
+        ScrollPhase::Scroll,
+        was.1,
+        was_end,
+        ScrollSource::Snap,
+      );
+      self.apply_reactive_updates_after_event();
+    }
     !rests
   }
 

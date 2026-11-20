@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+Breaking:
+
+- **A finger's scroll ends when its content is at rest.** `on_scroll_end` was called as the finger lifted, with the momentum, the way to a page and the spring back from past an end still to come, and the momentum was a scroll of its own that started and ended again. It is called once now, when nothing moves the content any more, and `on_scroll_start` once for the finger and all it leaves the content doing. A finger that lifts with nothing left to do ends the scroll at the lift, and one that catches content on its way holds it until it lets go. A mouse's wheel, which told no end, tells one when the content is where the notch sent it, and so does a scroll the app asked for over several frames (`ctx.scroll_state_to`, `scroll_to_top_of`, a tap on a phone's status bar). See [What a scroll tells](docs/src/content/docs/styling-events.md#what-a-scroll-tells).
+
+Added:
+
+- **A scroll that can be trusted on a touch screen.** A container hears an `on_scroll` event with no delta after every move a finger makes, every step of its momentum and every step of a list on its way to a page, the last one with the content where it stays: a list that snapped to its next page after a short drag told nothing at all, so an app that kept the shown page from `on_scroll` kept the old one, and its video played on under the new page.
+- `on_page_change(|page: usize| ..)` on a scroll container: the page its content came to rest on, a page being as long as its viewport, called once when it changes, whatever took the content there: a finger and the snap after it, a wheel, the keys, the bar, an offset the app set. `ScrollState::rested_page()` reads it, and `ScrollState::page_signal()` is the same as a signal for a render. `ScrollState::page()` is still the page nearest the offset that is drawn.
+- `ScrollState::target_page()`: the page the content is going to. For a list that scrolls by pages (`set_paging(true)`) it is known as the finger lifts, before anything moved, so a feed can open its next video then. `ScrollState::moving()`: whether something moves the content or holds it.
+- `ScrollEvent::source`: what moves the content, a `ScrollSource`: `Finger`, `Wheel`, `Momentum`, `Snap`, `Scrollbar`, `Keyboard`, `Autoscroll` or `Code`.
+- The `lurq::scroll` tracing target tells at debug when a finger's scroll starts, the page a list is sent to at the lift, each change of the page and where the content comes to rest, with what moved it.
+
+Fixes:
+
+- A list on its way to a page that a finger stopped, when the finger then scrolled another list, stayed between two pages for good: it is put on the page it was going to. So is one a tap on the status bar interrupts.
+- A list that scrolls by pages and comes to its last page on its way there after the finger lifted reaches its bottom: `on_scroll_reach_bottom` (and `on_scroll_reach_top` on the first) was called only where the finger itself, or its momentum, brought the content to the end, so a feed that loads more at its end did not on a short flick.
+- `on_scroll_reach_top` and `on_scroll_reach_bottom` say what moved the content there (`event.source`).
+
 ## 0.64.0 — 2026-11-20
 
 Breaking:

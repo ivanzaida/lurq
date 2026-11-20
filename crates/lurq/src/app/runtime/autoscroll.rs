@@ -13,7 +13,7 @@
 use super::{Tree, find_node_by_id, find_scroll_node_id_by_state, mark_scroll_layout_dirty};
 use crate::{
   app::{
-    events::{MouseButton, ScrollPhase},
+    events::{MouseButton, ScrollPhase, ScrollSource},
     hit_test::HitRect,
   },
   core::NodeId,
@@ -311,7 +311,15 @@ impl Tree {
     if let Some(root) = &self.root {
       mark_scroll_layout_dirty(root, target_id);
     }
-    self.dispatch_scroll_handlers_for_node(target_id, pointer.0, pointer.1, 0.0, 0.0, ScrollPhase::Scroll);
+    self.dispatch_scroll_handlers_for_node(
+      target_id,
+      pointer.0,
+      pointer.1,
+      0.0,
+      0.0,
+      ScrollPhase::Scroll,
+      ScrollSource::Autoscroll,
+    );
     for handler in handlers {
       handler.call(&event);
     }
@@ -345,8 +353,12 @@ impl Tree {
     if autoscroll.scrolled
       && let Some(target_id) = self.autoscroll_node(&autoscroll)
     {
-      let (x, y) = autoscroll.pointer;
-      self.dispatch_scroll_handlers_for_node(target_id, x, y, 0.0, 0.0, ScrollPhase::End);
+      self.scroll_rests(
+        &autoscroll.state,
+        &[target_id],
+        autoscroll.pointer,
+        ScrollSource::Autoscroll,
+      );
     }
     self.cursor = CursorIcon::Default;
     self.cached_render_list = None;
@@ -399,13 +411,13 @@ impl Tree {
       autoscroll.target_id = target_id;
       if !autoscroll.scrolled {
         autoscroll.scrolled = true;
-        self.dispatch_scroll_handlers_for_node(target_id, x, y, 0.0, 0.0, ScrollPhase::Start);
+        self.dispatch_scroll_handlers_for_node(target_id, x, y, 0.0, 0.0, ScrollPhase::Start, ScrollSource::Autoscroll);
       }
     }
     if let Some(root) = &self.root {
       mark_scroll_layout_dirty(root, target_id);
     }
-    self.dispatch_scroll_handlers_for_node(target_id, x, y, 0.0, 0.0, ScrollPhase::Scroll);
+    self.dispatch_scroll_handlers_for_node(target_id, x, y, 0.0, 0.0, ScrollPhase::Scroll, ScrollSource::Autoscroll);
     self.dispatch_scroll_reach_handlers_for_node(
       target_id,
       x,
@@ -415,6 +427,7 @@ impl Tree {
       ScrollPhase::Scroll,
       previous.1,
       previous_max_scroll_y,
+      ScrollSource::Autoscroll,
     );
     self.needs_redraw = true;
     self.apply_reactive_updates_after_event();

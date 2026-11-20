@@ -21,7 +21,10 @@ use super::{
   MouseModifiers, ScrollInput, Tree, find_node_by_id, find_scroll_node_id_by_state, mark_scroll_layout_dirty,
 };
 use crate::{
-  app::{events::ScrollPhase, theme::Theme},
+  app::{
+    events::{ScrollPhase, ScrollSource},
+    theme::Theme,
+  },
   core::NodeId,
   layout::layout_kind::ScrollState,
   time::Instant,
@@ -35,6 +38,8 @@ pub(super) struct WheelScroll {
   pointer: (f32, f32),
   /// When the wheel turned, or the last step moved the content: the next frame is due from then.
   stepped_at: Instant,
+  /// What sent the content on its way: the wheel, or the app (`scroll_state_to`).
+  source: ScrollSource,
 }
 
 impl Tree {
@@ -47,7 +52,8 @@ impl Tree {
   /// Notches that come while the content is on its way add to where it is going, and one the other way turns
   /// it round at once. [`ScrollState::scroll_target`] is where a container is going; its offset is what is
   /// drawn. `on_scroll` handlers hear the wheel's event as they do with `scroll`, before anything moves, and
-  /// then one event with no delta for every step.
+  /// then one event with no delta for every step; `on_scroll_end` handlers hear the content come to rest where
+  /// it was going.
   ///
   /// With motion reduced, or the theme's [`smooth_scroll`](Theme::set_smooth_scroll) off, this is `scroll`.
   pub fn wheel(&mut self, x: f32, y: f32, delta_x: f32, delta_y: f32, phase: ScrollPhase) {
@@ -77,6 +83,7 @@ impl Tree {
       animated: self.wheel_motion,
       notched: true,
       modifiers: MouseModifiers { shift, ctrl, alt, meta },
+      source: ScrollSource::Wheel,
     };
     self.scroll_event(x, y, delta_x, delta_y, phase, input);
   }
@@ -105,7 +112,14 @@ impl Tree {
     if self.wheel_motion {
       let now = self.now();
       state.wheel_by_with_overflow(0.0, -going, now);
-      Self::wheel_turned(&mut self.wheel_scrolls, target_id, state, (0.0, 0.0), now);
+      Self::wheel_turned(
+        &mut self.wheel_scrolls,
+        target_id,
+        state,
+        (0.0, 0.0),
+        now,
+        ScrollSource::Code,
+      );
     } else {
       state.set_scroll(state.scroll_x(), 0.0);
       if let Some(root) = &self.root {
@@ -140,7 +154,14 @@ impl Tree {
     if self.wheel_motion {
       let now = self.now();
       state.wheel_by_with_overflow(delta_x, delta_y, now);
-      Self::wheel_turned(&mut self.wheel_scrolls, target_id, state, (0.0, 0.0), now);
+      Self::wheel_turned(
+        &mut self.wheel_scrolls,
+        target_id,
+        state,
+        (0.0, 0.0),
+        now,
+        ScrollSource::Code,
+      );
     } else {
       state.set_scroll(x, y);
       if let Some(root) = &self.root {
@@ -173,6 +194,7 @@ impl Tree {
     state: &ScrollState,
     pointer: (f32, f32),
     now: Instant,
+    source: ScrollSource,
   ) {
     wheel_scrolls.retain(|scroll| !scroll.state.same(state));
     if state.wheel_scrolling() {
@@ -181,6 +203,7 @@ impl Tree {
         state: state.clone(),
         pointer,
         stepped_at: now,
+        source,
       });
     }
   }
@@ -230,7 +253,7 @@ impl Tree {
           mark_scroll_layout_dirty(root, target_id);
         }
         let (x, y) = scroll.pointer;
-        self.dispatch_scroll_handlers_for_node(target_id, x, y, 0.0, 0.0, ScrollPhase::Scroll);
+        self.dispatch_scroll_handlers_for_node(target_id, x, y, 0.0, 0.0, ScrollPhase::Scroll, scroll.source);
         self.dispatch_scroll_reach_handlers_for_node(
           target_id,
           x,
@@ -240,10 +263,14 @@ impl Tree {
           ScrollPhase::Scroll,
           previous_scroll_y,
           previous_max_scroll_y,
+          scroll.source,
         );
       }
       if state.wheel_scrolling() {
         self.wheel_scrolls.push(scroll);
+      } else if moved && !state.moving() {
+        // It is where it was going, and nothing else has it: the scroll is over.
+        self.scroll_rests(&state, &[target_id], scroll.pointer, scroll.source);
       }
     }
     if any_moved {
