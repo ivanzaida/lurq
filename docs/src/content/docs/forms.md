@@ -8,7 +8,7 @@ description: Form handling, field binding, submission, and the Button component.
 Requires the `form` feature flag.
 
 ```toml
-lurq = { version = "0.63.1", features = ["form"] }
+lurq = { version = "0.63.2", features = ["form"] }
 ```
 
 The form's own controls, `FormTextInput`, `FormCheckboxInput`, `FormSliderInput`, `FormRangeSliderInput` and the two form buttons, are the design system's components bound to a field of the form, and the theme styles them by those components' recipes: see [Form Controls](#form-controls).
