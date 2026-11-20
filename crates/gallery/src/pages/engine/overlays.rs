@@ -631,7 +631,16 @@ impl OverlaysPage {
           ),
       );
     }
-    content = content.child(Button::new("Close").on_click(move |_| close.set(false)));
+    // At a height of its own the content fills the sheet, with Close at its bottom: at the window's bottom at
+    // every height, and while a finger has the sheet between two of them.
+    if choice != 0 {
+      content = content.height(FILL).child(Column::new().flex(1.0));
+    }
+    content = content.child(
+      Button::new("Close")
+        .id("sheet-close")
+        .on_click(move |_| close.set(false)),
+    );
     let dismissed = self.sheet_dismissals.clone();
     let sheet = Sheet::mount(
       ctx,
@@ -684,7 +693,11 @@ impl OverlaysPage {
           .spacing(16.0)
           .wrap()
           .align_items(Alignment::Center)
-          .child(Button::new("Open sheet").on_click(move |_| opener.set(true)))
+          .child(
+            Button::new("Open sheet")
+              .id("sheet-open")
+              .on_click(move |_| opener.set(true)),
+          )
           .child({
             let status = quiet(
               &format!(
@@ -934,7 +947,7 @@ impl Component for OverlaysPage {
           "Sheet",
           "A sheet comes up from the bottom of the window with a move, and the window behind dims. It stands at its \
            detents; with two of them the buttons in it move it between them. A press beside it and Escape put it \
-           away where it is dismissable, and Close always does.",
+           away where it is dismissable, and Close always does. Under a finger that moves it between two heights (run \n           the gallery with --device phone) Close stays at the window's bottom: the content is as high as what of \n           the sheet is in the window.",
           self.frame.demo(
             1,
             sheet,
