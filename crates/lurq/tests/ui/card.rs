@@ -585,6 +585,7 @@ fn a_card_takes_a_height_its_most_width_and_a_place_of_its_own() {
   );
 }
 
+#[cfg(any(feature = "devtools", feature = "mcp"))]
 #[test]
 fn a_card_says_what_the_app_describes_to_tooling() {
   let mut stage = Stage::new(|_| {
