@@ -13,7 +13,7 @@ use parking_lot::Mutex;
 use super::{
   icons, names,
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
-  select::px,
+  select::{px, spacing},
   shared::{fading, glyph, one_line, pressable, tab_stop},
   theme::{Themed, current_theme},
 };
@@ -24,7 +24,7 @@ use crate::{
     events::{DragEvent, KeyboardEvent, MouseButton, MouseButtonMask, MouseEvent},
     theme::{BorderSize, IconSize, OpacityLevel, PaletteColor, RadiusSize, Theme, TypographyStyle},
   },
-  components::{self, Row, ScrollBoth, Stack},
+  components::{self, Column, Row, ScrollBoth, Stack},
   core::{ElementRef, Signal, SignalValue},
   layout::{
     Alignment,
@@ -184,6 +184,7 @@ pub struct WindowTab<T> {
   icon_only: bool,
   width: Option<f32>,
   max_width: Option<f32>,
+  fit_content: Option<f32>,
   trailing: Vec<Element>,
   descriptions: Vec<Description>,
   id: Option<Arc<str>>,
@@ -208,6 +209,7 @@ impl<T> WindowTab<T> {
       icon_only: false,
       width: None,
       max_width: None,
+      fit_content: None,
       trailing: Vec::new(),
       descriptions: Vec::new(),
       id: None,
@@ -278,6 +280,17 @@ impl<T> WindowTab<T> {
     self
   }
 
+  /// Makes the tab as wide as what it shows (its icon, its label, its marks and its close slot) up to `max`, where
+  /// its label ends in an ellipsis: in place of the recipe's width, and with no measuring of the app's. It is never
+  /// narrower than the recipe's least width. In the list mode it keeps that width and leaves the strip whole; in the
+  /// scroll mode it gives way down to its least width where the tabs do not fit, and the strip, which cannot know
+  /// the width of a label before it is laid out, is reckoned with it at `max`. A [`width`](Self::width) of its own
+  /// wins, and a [`max_width`](Self::max_width) caps it too.
+  pub fn fit_content(mut self, max: f32) -> Self {
+    self.fit_content = Some(max);
+    self
+  }
+
   /// An element of the app's after the label (a count, a mark that something waits, with its tooltip), in the
   /// tab's `marks` part; a second one after the first. It keeps its width, and the label gives way first.
   pub fn trailing(mut self, element: impl Into<Element>) -> Self {
@@ -324,6 +337,7 @@ impl<T> WindowTab<T> {
       icon_only: self.icon_only,
       width: self.width,
       max_width: self.max_width,
+      fit_content: self.fit_content,
       trailing: self.trailing,
       descriptions: self.descriptions,
       id: self.id,
@@ -359,6 +373,8 @@ pub struct WindowTabEntry {
   /// The tab's own width and most width, over the recipe's.
   pub width: Option<f32>,
   pub max_width: Option<f32>,
+  /// The most a tab as wide as what it shows is ([`WindowTab::fit_content`]).
+  pub fit_content: Option<f32>,
   /// The app's elements after the label.
   pub trailing: Vec<Element>,
   /// What the app says of the tab to tooling, said before what the strip says.
@@ -739,6 +755,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> WindowTabs<T> {
           icon_only: tab.icon_only,
           width: tab.width,
           max_width: tab.max_width,
+          fit_content: tab.fit_content,
           trailing: tab.trailing,
           descriptions: tab.descriptions,
           selected: chosen,
@@ -1298,10 +1315,17 @@ impl WindowTabsView {
   /// in an ellipsis where it is not enough.
   fn title(&self, index: usize) -> Element {
     let entry = &self.tabs[index];
+    // A tab of a width of its own shares it out: the title takes what the rest leaves. A tab as wide as what it
+    // shows is as wide as its title is, which gives way under the tab's cap.
+    let (grow, basis) = if self.fits_content(index) {
+      (0.0, None)
+    } else {
+      (1.0, Some(0.0))
+    };
     let mut title = Row::new()
       .part(&self.tab_part(index, WindowTabsPart::Title))
       .align_items(Alignment::Center)
-      .flex_full(1.0, 1.0, Some(0.0))
+      .flex_full(grow, 1.0, basis)
       .min_width(0.0)
       .child(one_line(&self.tab_part(index, WindowTabsPart::Label), &entry.label));
     if self.dot_after_label(index) {
@@ -1426,6 +1450,15 @@ impl WindowTabsView {
       tab = tab.key(key.clone());
     }
     let (least, most) = self.widths(index);
+    if self.fits_content(index) {
+      // As wide as what it shows, between its least width and its cap. Where it leaves the strip rather than give
+      // way, it keeps that width.
+      let shrink = match self.overflow {
+        WindowTabsOverflow::Scroll => 1.0,
+        WindowTabsOverflow::List => 0.0,
+      };
+      return tab.flex_full(0.0, shrink, None).min_width(least).max_width(most);
+    }
     if entry.width.is_some() || self.overflow == WindowTabsOverflow::List {
       // A tab of a width of its own, or one that leaves the strip rather than give way, is as wide as it is.
       return tab
@@ -1450,10 +1483,37 @@ impl WindowTabsView {
     if let Some(width) = entry.width {
       return (width, width);
     }
+    // A tab as wide as what it shows reaches its own cap, not the recipe's most.
+    let most = match entry.fit_content.filter(|_| !entry.icon_only) {
+      Some(cap) => cap.max(least),
+      None => most,
+    };
     match entry.max_width {
       Some(cap) => (least.min(cap), most.min(cap)),
       None => (least, most),
     }
+  }
+
+  /// Whether the tab at `index` is as wide as what it shows: it fits its content, has no width of its own, and is
+  /// not of its icon alone.
+  fn fits_content(&self, index: usize) -> bool {
+    let entry = &self.tabs[index];
+    entry.fit_content.is_some() && entry.width.is_none() && !entry.icon_only
+  }
+
+  /// The room between two tabs, and before the More button: the gap of the `list` part.
+  fn list_gap(&self) -> f32 {
+    spacing(self.part(WindowTabsPart::List).rest().gap, &self.theme).unwrap_or(0.0)
+  }
+
+  /// The room between the list and what is after it, the add button: the gap of the `root` part.
+  fn root_gap(&self) -> f32 {
+    spacing(self.part(WindowTabsPart::Root).rest().gap, &self.theme).unwrap_or(0.0)
+  }
+
+  /// How wide a separator is: none is laid out where the recipe makes it 0 wide.
+  fn separator_width(&self) -> f32 {
+    px(self.part(WindowTabsPart::Separator).rest().width, &self.theme).unwrap_or(0.0)
   }
 
   /// The least and the most width of a tab in the recipe's `style`.
@@ -1615,17 +1675,17 @@ impl WindowTabsView {
     }
   }
 
-  /// Of each place, whether a separator stands before it: between it and the place in the strip before it, both
-  /// tabs that are not the selected one.
+  /// Of each place, whether a separator stands before it: between it and the place before it, both tabs that are
+  /// not the selected one, whether they are in the strip or in the More button's menu. A tab that leaves the strip
+  /// takes the separator before it along, so it needs the same room to come back as it took. None where the recipe
+  /// makes a separator 0 wide.
   fn separated(&self, places: &[Place]) -> Vec<bool> {
+    let drawn = self.separator_width() > 0.0;
     let mut before: Option<Place> = None;
     places
       .iter()
       .map(|place| {
-        if !self.in_strip(*place) {
-          return false;
-        }
-        let separated = before.is_some_and(|before| self.plain(before)) && self.plain(*place);
+        let separated = drawn && before.is_some_and(|before| self.plain(before)) && self.plain(*place);
         before = Some(*place);
         separated
       })
@@ -1676,8 +1736,9 @@ impl WindowTabsView {
     let Some(drag) = self.drag else {
       return match self.overflow {
         WindowTabsOverflow::Scroll => row.into(),
-        // The list is as wide as the room the strip gives it, and its tabs leave it where they do not fit.
-        WindowTabsOverflow::List => row.width(Dimension::Pct(100.0)).min_width(0.0).into(),
+        // The list is as wide as its tabs, with their gaps and separators, and gives way where the strip has less
+        // room: its tabs leave it where they do not fit, and come back as it is given room again.
+        WindowTabsOverflow::List => row.flex_shrink(1.0).min_width(0.0).into(),
       };
     };
     // The dragged tab is drawn over the others, as wide as it was, where the pointer has it; the list keeps the
@@ -1776,11 +1837,22 @@ impl WindowTabsView {
       .filter(|separated| *separated)
       .count();
     let tabs: f32 = (0..self.tabs.len()).map(|index| self.widths(index).1).sum();
+    // The list's gap stands between every two things in it, tabs and separators alike.
+    let items = self.tabs.len() + separators;
+    let gaps = items.saturating_sub(1) as f32 * self.list_gap();
     let add = self.add.as_ref().map_or(0.0, |_| {
-      let before = if self.last_plain() { separator } else { 0.0 };
-      before + px(self.part(WindowTabsPart::Add).rest().width, &self.theme).unwrap_or(0.0)
+      let (root_gap, before) = (self.root_gap(), self.separator_before_add());
+      let before = if before { separator + root_gap } else { 0.0 };
+      root_gap + before + px(self.part(WindowTabsPart::Add).rest().width, &self.theme).unwrap_or(0.0)
     });
-    tabs + separators as f32 * separator + add
+    tabs + separators as f32 * separator + gaps + add
+  }
+
+  /// Whether a separator is laid out before the add button: where the last tab in the strip is not the selected
+  /// one, and in the list mode always, shown or not, so that the room of the strip does not change as tabs leave
+  /// it. None where the recipe makes a separator 0 wide.
+  fn separator_before_add(&self) -> bool {
+    self.separator_width() > 0.0 && (self.overflow == WindowTabsOverflow::List || self.last_plain())
   }
 
   /// Whether the last tab in the strip is not the selected one: a separator stands between it and the add button.
@@ -1805,18 +1877,25 @@ impl WindowTabsView {
         .flex_full(1.0, 1.0, Some(0.0))
         .min_width(0.0)
         .into(),
-      WindowTabsOverflow::List => Row::new()
-        .align_items(Alignment::Center)
-        .flex_full(1.0, 1.0, Some(0.0))
+      // As wide as the list, and giving way where the strip has less room. A column and not a row: what the strip
+      // takes from it is the room the list is laid out in, which its tabs leave one by one, where a row in a row
+      // would be dropped from whole by the strip's line.
+      WindowTabsOverflow::List => Column::new()
+        .justify(Justify::Center)
+        .flex_full(0.0, 1.0, None)
         .min_width(0.0)
         .child(self.list())
         .into(),
     };
-    // The strip is as wide as its tabs at their most and the add button, and gives way where it has less room.
+    // The strip is as wide as its tabs at their most and the add button, and gives way where it has less room. In
+    // the list mode the layout knows how wide the tabs are, whatever they show.
     let mut root = Row::new()
       .part(&self.part(WindowTabsPart::Root))
-      .align_items(Alignment::Center)
-      .width(self.full_width())
+      .align_items(Alignment::Center);
+    if self.overflow == WindowTabsOverflow::Scroll || self.drag.is_some() {
+      root = root.width(self.full_width());
+    }
+    let mut root = root
       .flex_shrink(1.0)
       .min_width(0.0)
       // Never wider than what holds it: a row gives way by the shrink, a column by this.
@@ -1824,10 +1903,16 @@ impl WindowTabsView {
       .ref_element(self.kept.root.clone())
       .child(list);
     if let Some(add) = self.add() {
-      if self.last_plain() {
-        root = root.child(self.separator());
+      // The separator and the add button are one thing after the list, the root's gap between them too.
+      let mut end = Row::new()
+        .align_items(Alignment::Center)
+        .flex_shrink(0.0)
+        .spacing(self.root_gap());
+      if self.separator_before_add() {
+        let shown = self.last_plain();
+        end = end.child(Row::new().opacity(if shown { 1.0 } else { 0.0 }).child(self.separator()));
       }
-      root = root.child(add);
+      root = root.child(end.child(add));
     }
     if !self.disabled && self.shortcuts {
       root = root.on_key_down(self.shortcut());

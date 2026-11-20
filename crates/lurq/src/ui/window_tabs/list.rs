@@ -50,8 +50,10 @@ impl WindowTabsView {
       }
       kept.moved();
     });
+    // The tab and the separator before it are as far apart as two tabs are.
     Row::new()
       .align_items(Alignment::Center)
+      .spacing(self.list_gap())
       .flex_shrink(1.0)
       .shrink_limit(ShrinkLimit::Drop)
       .with_children(separator)

@@ -192,3 +192,4 @@ mod waveform;
 mod window_chrome;
 mod window_tabs;
 mod window_tabs_hosted;
+mod window_tabs_list;
