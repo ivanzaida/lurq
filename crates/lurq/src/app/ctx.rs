@@ -233,6 +233,65 @@ pub(crate) struct OverlaySpec {
   pub(crate) clear: [f32; 4],
   /// The element whose box it is kept inside besides the window: see [`Overlay::within`].
   pub(crate) within: Option<ElementRef>,
+  /// The element it is placed by in place of its anchor, wholly or on the side it opens on: see
+  /// [`Overlay::placed_by`] and [`Overlay::clear_of`].
+  pub(crate) frame: Option<PlacingFrame>,
+}
+
+/// An element an overlay is placed by in place of its anchor, and how.
+#[derive(Clone)]
+pub(crate) enum PlacingFrame {
+  /// It stands by the element's box as by its anchor's: see [`Overlay::placed_by`].
+  Box(ElementRef),
+  /// It keeps clear of the element's box on the side it opens on, and lines up with its anchor along it: see
+  /// [`Overlay::clear_of`].
+  ClearOf(ElementRef),
+}
+
+impl PlacingFrame {
+  /// The element it is placed by.
+  pub(crate) fn element(&self) -> &ElementRef {
+    let (Self::Box(element) | Self::ClearOf(element)) = self;
+    element
+  }
+
+  /// The box an overlay with this frame is placed by, given its anchor's, the frame's as it is laid out (`None`
+  /// where it is not) and its placement: the anchor's where the frame has no box.
+  pub(crate) fn rect(
+    &self,
+    anchor: crate::core::ElementRect,
+    frame: Option<crate::core::ElementRect>,
+    placement: Placement,
+  ) -> crate::core::ElementRect {
+    let Some(frame) = frame.filter(|frame| frame.width > 0.0 || frame.height > 0.0) else {
+      return anchor;
+    };
+    let beside = matches!(
+      placement,
+      Placement::LeftStart
+        | Placement::Left
+        | Placement::LeftEnd
+        | Placement::RightStart
+        | Placement::Right
+        | Placement::RightEnd
+    );
+    match self {
+      Self::Box(_) => frame,
+      // Stretched across the side's axis to the frame: beside it, to its width; above or below it, to its height.
+      Self::ClearOf(_) if beside => crate::core::ElementRect {
+        x: frame.x,
+        relative_x: anchor.relative_x + (frame.x - anchor.x),
+        width: frame.width,
+        ..anchor
+      },
+      Self::ClearOf(_) => crate::core::ElementRect {
+        y: frame.y,
+        relative_y: anchor.relative_y + (frame.y - anchor.y),
+        height: frame.height,
+        ..anchor
+      },
+    }
+  }
 }
 
 #[derive(Clone)]
@@ -342,6 +401,7 @@ impl OverlaySpec {
       at_placement: self.at_placement,
       clear: self.clear,
       within: self.within.clone(),
+      frame: self.frame.clone(),
     }
   }
 }
@@ -479,6 +539,7 @@ pub struct Overlay {
   at_placement: Option<Placement>,
   clear: [f32; 4],
   within: Option<ElementRef>,
+  frame: Option<PlacingFrame>,
 }
 
 impl Overlay {
@@ -505,6 +566,7 @@ impl Overlay {
       at_placement: None,
       clear: [0.0; 4],
       within: None,
+      frame: None,
     }
   }
 
@@ -674,6 +736,25 @@ impl Overlay {
     self
   }
 
+  /// Places the overlay by the box of `element`, as it was last laid out, in place of its anchor's: it stands at its
+  /// placement of that box, `offset` away, and flips and is clamped there as it would be by its anchor. The anchor
+  /// stays what it hangs from: its trigger, what a press on is not outside it, where the focus goes back, what hides
+  /// it while out of view. A status bar's popover that stands over the bar and at its end while the bar's item opens
+  /// it. Before the element is laid out the overlay is placed by its anchor. Replaces [`Self::clear_of`].
+  pub fn placed_by(mut self, element: impl Into<ElementRef>) -> Self {
+    self.frame = Some(PlacingFrame::Box(element.into()));
+    self
+  }
+
+  /// Keeps the overlay clear of the box of `element`, as it was last laid out, on the side it opens on: its distance
+  /// is measured from that box's edge, and along the edge it lines up with its anchor as it would. A tooltip of a chip
+  /// that opens over the field the chip sits in, not over the chip. It flips to the box's other side where there is
+  /// no room. Before the element is laid out the overlay is placed by its anchor. Replaces [`Self::placed_by`].
+  pub fn clear_of(mut self, element: impl Into<ElementRef>) -> Self {
+    self.frame = Some(PlacingFrame::ClearOf(element.into()));
+    self
+  }
+
   fn into_spec(self) -> Option<OverlaySpec> {
     if !self.open.is_open() {
       return None;
@@ -702,6 +783,7 @@ impl Overlay {
       at_placement: self.at_placement,
       clear: self.clear,
       within: self.within,
+      frame: self.frame,
     })
   }
 }
