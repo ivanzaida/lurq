@@ -331,6 +331,7 @@ Icon::new(icons::SPINNER).spin(true).spin_motion(SpinMotion::stepped(24)); // in
 - `ui::icons` has a constant for each of the 171 icons of lurq's font (`icons::CHEVRON_DOWN` is `"chevron-down"`), `icons::ALL` lists them with their characters, and `icons::FAMILY` is the family of the font. Every app has the font loaded, hinted: at 16 and 20 pixels its strokes land on whole pixels of the display.
 - The theme says what a name is drawn with ([`ThemeIcons`](../theme/#icons)). A theme gives a name another glyph, or adds names of its own, from a font the app loads; lurq's components name the icons they draw, so they change with it.
 - A name the theme has no glyph for takes its room and draws nothing.
+- A name the theme draws with an SVG ([`IconSvg`](../theme/#icons), `theme.set_icon_svg(name, IconSvg::stroked(svg))`) is that SVG at the icon's size: a stroked one's lines and a filled one's shapes in the icon's color (its `color`, or the foreground of what it is in), a colored one in its own colors, a brand's mark. It turns where it spins. SVG is drawn with the feature `canvas`; without it, or where the source is no SVG, it takes its room and draws nothing.
 - Most icons are lines. `icons::STAR_FILL` is a solid star, the shape a [rating](#rating) lights: a glyph that is filled where `icons::STAR` is drawn.
 - Spinning icons are in phase: spinners that appear at different moments turn together. `ui::SPIN` is the keyframes of the turn, registered in every window; keyframe identifiers from `0xFF00` up are lurq's own.
 
@@ -1762,10 +1763,10 @@ Breadcrumb::new([
 | `label(&str)`, `more_label(&str)` | What the whole and the ellipsis are called to what reads the tree: "Breadcrumb" and "Show the hidden steps" unless told otherwise |
 | `separator(BreadcrumbSeparator)` | What stands between two steps: `BreadcrumbSeparator::chevron()` (the default), `slash()`, `Icon(name)` or `Text(..)` |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the first link, the one Tab stops on first, in the state. The ellipsis's id is the root's with `-ellipsis` after it |
-| `BreadcrumbStep::new(label)` | A step. `value(&str)` is what `on_select` is told (its label until then), `icon(name)` an icon before its text, `on_select(Fn())` called when it is followed, `on_open_aside(handler)` called for the middle button or a press with Ctrl (Cmd) on its link in place of following it (see [pointer-only pressables](#pointer-only-pressables)), `disabled(bool)` dimmed and not followed (Tab passes it, and its item in the menu is disabled), `id` the id of its link, of the page, or of its item in the menu while it is hidden, `key` the key of its link |
+| `BreadcrumbStep::new(label)` | A step. `value(&str)` is what `on_select` is told (its label until then), `icon(name)` an icon before its text, `on_select(Fn())` called when it is followed, `on_open_aside(handler)` called for the middle button or a press with Ctrl (Cmd) on its link in place of following it (see [pointer-only pressables](#pointer-only-pressables)), `disabled(bool)` dimmed and not followed (Tab passes it, and its item in the menu is disabled), `state(name, on)` a state the theme's recipe names for this step alone (a key in mono, a last step drawn as the steps before it: `recipe.when(Selector::new().state("ancestor"), BreadcrumbPart::Page, ..)`), `id` the id of its link, of the page, or of its item in the menu while it is hidden, `key` the key of its link |
 
 - A link is followed by a click, and by Enter or Space while it is focused. The links and the ellipsis are stops of Tab in their order; the page is not. Choosing a hidden step in the menu follows it as a press of its link would.
-- Parts: `BreadcrumbPart::Root` (the row), `Link` (a step that is a link: what is pressed, with its icon and text), `Page` (the last step), `Icon` (a step's icon), `Separator` and `SeparatorIcon`, `Ellipsis` (what is pressed to open the menu) and `EllipsisIcon`. States: `BreadcrumbState::Collapsed` (some steps are hidden), `Disabled` (of the whole, and of a step alone: it dims the link, the page, the separators and the ellipsis, so that a step can be dimmed by itself).
+- Parts: `BreadcrumbPart::Root` (the row), `Link` (a step that is a link: what is pressed, with its icon and text), `Page` (the last step), `Icon` (a step's icon), `Separator` and `SeparatorIcon`, `Ellipsis` (what is pressed to open the menu) and `EllipsisIcon`. States: `BreadcrumbState::Collapsed` (some steps are hidden), `Disabled` (of the whole, and of a step alone: it dims the link, the page, the separators and the ellipsis, so that a step can be dimmed by itself). A step's own states (`BreadcrumbStep::state`) are on the parts of that step alone: its link or page and its icon.
 - In the design the steps are 8 apart in the body's 14; the links are in `MutedForeground` and the page in `Foreground` at 500; a chevron of 14 in `MutedForeground` stands between each two. The ellipsis is a square of 24 filled with `Highlight` (the board's `$accent`), with the small radius and an icon of 16 in `Foreground`. Under the pointer a link is in `Foreground`; the ring of the focus is around the link. A step's icon is 14, 4 before its text. A disabled breadcrumb is dimmed, follows nothing and is no stop of Tab.
 - The path control of the design (`Path Control`) is the `Path` variant: a bar 28 high on `Muted` with the medium radius, 4 in from its sides, its segments touching. A segment is 22 high with the small radius, 6 in, an icon of 13 in `MutedForeground` 5 before a text of 12 in `Foreground`; a chevron of 12 in `MutedForeground` stands between each two; the last, the folder one is in, is on `Background` in an edge of 1 in `Border`. The board draws no segment under the pointer and no ellipsis in the bar: a segment has the `StateHover` and `StatePressed` veils, and the ellipsis is a square of 22 with an icon of 13.
 - **In a room narrower than its steps** a breadcrumb has two forms. The one that folds is `overflow(true)` with `mount(ctx)`: it measures before the frame is painted, so its first frame at a width is the settled one, and where even the first step, the ellipsis and the last have no room, the last is cut with an ellipsis. The still one is every other breadcrumb: one built on its own (`build`, `.into()`), with `overflow` or without, and a mounted one without `overflow`. It keeps nothing of what was measured, so it folds nothing: its root is no wider than its room, its last step gives way and is cut with an ellipsis, and the steps before it keep their widths, so that links wider together than the room run past its end. A breadcrumb in a window a person can narrow is the folding one; a still one is for a place that always has its room, or one that hides by count with `max_shown`.
@@ -1976,6 +1977,33 @@ Badge::count(3)
 - To what reads the tree (`lurq_snapshot` of the MCP server) a badge is a `status` called by its text; a count is called by its number with what it counts ("120 unread messages"), the whole number however it is shown.
 - A renderer that draws another badge has `view.root()` (the root with its style and its name to tooling), `view.badge()` (the default badge), `view.text` (what is drawn: "99+"), `view.name()`, `view.shown` (false for a count of 0 not drawn), and `view.place(element, badge)` with `view.corner_offset()` to put it on `view.on`.
 
+## Status Label
+
+What a thing is doing, as an icon and a word in one tone, with no fill and no edge: the state of a run in a row of a table, of a step in a page's header.
+
+```rust
+use lurq::ui::{StatusLabel, StatusLabelSize, StatusLabelVariant, icons};
+
+StatusLabel::new("Completed").icon(icons::CHECK_CIRCLE).variant(StatusLabelVariant::Success);
+// Its icon turns while what it says is under way.
+StatusLabel::new("Running · 03 Implement").icon(icons::SPINNER).spin(true);
+StatusLabel::new("Queued").icon(icons::CLOCK).variant(StatusLabelVariant::Muted).size(StatusLabelSize::Sm);
+```
+
+| Builder | |
+| --- | --- |
+| `StatusLabel::new(label)` | A label that says `label` |
+| `icon(name)` | An icon of the theme's set before the words |
+| `spin(bool)`, `spin_motion(SpinMotion)` | The icon turns as a spinner does, by the theme's [spin motion](#spin-motion) or its own |
+| `variant(StatusLabelVariant)` | `Neutral` (`Foreground`, the default), `Muted` (`MutedForeground`), `Info`, `Success`, `Warning`, `Destructive`, or a tone the theme's recipe names |
+| `size(StatusLabelSize)` | `Md` (an icon of 14, words of 12, 6 apart, the default) or `Sm` (12, 11, 4 apart) |
+| `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [badge](#badge) has them. `id` is the root's, with `{id}-icon` and `{id}-label` |
+
+- A status label is read and not operated: no press, no focus, no stop of Tab. Its words are one line, cut with an ellipsis where its room is short; the icon keeps its size.
+- Where a [badge](#badge) is a filled box, a status label has none: its words and its icon are in the tone's strong color, at medium weight.
+- Parts: `StatusLabelPart::Root` (its color and the room between icon and words), `Icon` (its side), `Label`. States: `StatusLabelState::Spinning`.
+- To what reads the tree it is a `status` called by its words. A renderer gets a `StatusLabelView` with `root()`, `icon()` (turning where it spins) and `words()`.
+
 ## Tag
 
 A label on a thing, a keyword or a category, that the app may let a person take away.
@@ -1991,6 +2019,9 @@ Tag::new("rust").on_remove(move || topics.update(|all| all.retain(|t| t != "rust
 
 // Round, with no line: the token of a box that holds several values.
 Tag::new("React").shape(TagShape::Pill).on_remove(move || remove("React"));
+
+// A term and its value: the term before the label, as the app writes it.
+Tag::new("main").term("branch:").icon(icons::BRANCH);
 ```
 
 | Builder | |
@@ -1998,6 +2029,7 @@ Tag::new("React").shape(TagShape::Pill).on_remove(move || remove("React"));
 | `variant(TagVariant)` | `Neutral` (the default), `Info`, `Success`, `Warning`, `Destructive`, or a variant the theme's recipe names |
 | `size(TagSize)` | `Sm` (20 high), `Md` (24, the default), `Lg` (28) |
 | `icon(name)` | An icon before the text, by its name in the theme's set |
+| `term(&str)` | A term before the text, `branch:` before `main`, as the app writes it (its punctuation too), quieter than the text. The tag is still called by its text |
 | `on_remove(handler)` | Gives the tag its remove button, and is called on a press of it |
 | `shape(TagShape)` | `Default`, or `Pill`: round at both ends, with no line around it |
 | `remove_label(&str)` | What the remove button is called to what reads the tree: "Remove" and the tag's text by default |
@@ -2008,7 +2040,7 @@ Tag::new("React").shape(TagShape::Pill).on_remove(move || remove("React"));
 - A tag does not keep whether it is there: the app holds its list, and `on_remove` tells it which one a person took away. A tag with no handler is read only: it has no button and is no stop of Tab.
 - The remove button is a button of its own, called "Remove" and the tag's text ("Remove rust") to what reads the tree, or its `remove_label`; it has the tag's id with `-remove` after it. Tab reaches it, and a press, Enter, Space, Backspace and Delete press it; Backspace and Delete only while the focus is on it, with no modifier held.
 - Tags an app lays in a row with a focus group (`Row::new().focus_group(FocusGroup::horizontal())`) keep the focus when one is taken away: it goes to the next tag's button, or to the last, so Backspace takes them one after another. Outside a group the focus leaves with the button.
-- Parts: `TagPart::Root`, `Icon`, `Label`, `Remove` (the button), `RemoveIcon` (the cross: its side). States: `TagState::Remove` (it has the button), `Pill`, `Disabled`.
+- Parts: `TagPart::Root`, `Icon`, `Term` (in the label's type at regular weight, `MutedForeground` on a neutral tag and the variant's color on another), `Label`, `Remove` (the button), `RemoveIcon` (the cross: its side). States: `TagState::Remove` (it has the button), `Pill`, `Disabled`.
 - In the design a tag is 24 high, padded 8, with the corners of `RadiusSize::Sm`, in `Secondary` with a line of `Border` inside it, its text 12 and medium in `SecondaryForeground`. A removable one is padded 4 at its end, where a button of 16 (corners of 3) holds a cross of 11 in `MutedForeground`, 4 after the text; under the pointer the button is filled `StateHover` and its cross is `Foreground`. Focused from the keyboard, the button has a ring of 2 in `Ring` around its edge, which stands clear of the text before it. `Info`, `Success`, `Warning` and `Destructive` are in the muted fill of their color, line and fill alike, with the text in the color. A pill is round, has no line, is padded 10 and 6, and its cross is 12.
 - Several tags side by side are an app's row: `Row::new().spacing(6.0).wrap()`, 6 apart as the board lays them out.
 - A renderer that draws another tag starts from `view.remove()`, the button with its behavior and its cross, `None` for a tag with no handler.
@@ -2848,6 +2880,10 @@ CheckboxCardGroup::new(add_ons, [
 | `bind(Signal<bool>)` | Checked while the signal is true, which a press turns: `checked` and a handler that sets the signal |
 | `on_change(handler)` | Called on a press with what the card is to be: checked if it was not. Bound, it is called after the signal is set, and not when the app sets it |
 | `invalid(bool)`, `full_width(bool)` | The edge in the destructive color; as wide as what holds it in place of 220 |
+| `mark(element)` | An element of the app's in place of the icon, in the part `Icon`: a mark in its own colors |
+| `content(element)` | An element under the description, in the part `Content`, 8 under it; a second stands 8 under the first. A press in it presses the card too, unless it stops its press |
+| `disabled_reason(&str)` | Disabled for a reason: the reason under the description (part `Reason`) and to tooling (`a11y_disabled_reason`), a lock (part `Lock`) in place of the box or the mark |
+| `loading(bool)` | What it chose is under way: no press, dimmed, its box or mark kept, `a11y_busy` to tooling (state `Loading`) |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the card |
 
 | `CheckboxCardGroup<T>` | |
@@ -2860,7 +2896,7 @@ CheckboxCardGroup::new(add_ons, [
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the card Tab would stop on |
 
 - The card is what is pressed: a click anywhere on it, or Space or Enter while it has the focus. It is the one stop of Tab and the ring of the focus is around it; the box in it is drawn and takes no focus of its own. In a group each card is its own stop.
-- Parts: `ChoiceCardPart::Root` (what is pressed), `Icon`, `Text`, `Heading` (the title and the price), `Title`, `Price`, `Description`. States: `ChoiceCardState::Checked` (a checkbox card), `Selected` (a radio card), `Invalid`, `Disabled`, `FullWidth`. The box is the checkbox's own `CheckboxPart::Box` and `Indicator`, resolved from the theme's checkbox recipe: a theme that restyles a checkbox restyles the card's box. A group's parts are `ChoiceCardGroupPart::Root` and `Item` (laid over each card's root), its states `ChoiceCardGroupState::Horizontal` and `Vertical`, one of which is on. A theme's renderer of either group gets a `ChoiceCardGroupView`: its cards built, in `view.cards`, `view.kind`, and `view.render()`; a theme names the groups without their type (`patch_recipe::<RadioCardGroup>`), for groups of every `T`.
+- Parts: `ChoiceCardPart::Root` (what is pressed), `Icon`, `Text`, `Heading` (the title and the price), `Title`, `Price`, `Description`, `Content`, `Reason`, `Lock`. States: `ChoiceCardState::Checked` (a checkbox card), `Selected` (a radio card), `Invalid`, `Disabled`, `FullWidth`, `Loading`. The box is the checkbox's own `CheckboxPart::Box` and `Indicator`, resolved from the theme's checkbox recipe: a theme that restyles a checkbox restyles the card's box. A group's parts are `ChoiceCardGroupPart::Root` and `Item` (laid over each card's root), its states `ChoiceCardGroupState::Horizontal` and `Vertical`, one of which is on. A theme's renderer of either group gets a `ChoiceCardGroupView`: its cards built, in `view.cards`, `view.kind`, and `view.render()`; a theme names the groups without their type (`patch_recipe::<RadioCardGroup>`), for groups of every `T`.
 - In the design the card is 220 wide, padded 16, in `Background` with the large radius; the text first, the title in 14 and medium over the description 4 under it in 13 of `MutedForeground`, and the box 12 after it at the top. Not checked its edge is 1 of `Input`; checked, 2 of `Primary`. Under the pointer the edge of a card not checked is `Ring`; an invalid card is edged in `Destructive`; a disabled one is dimmed.
 - To what reads the tree (`lurq_snapshot` of the MCP server) the card is a `checkbox` called by its title, described by its description, with `a11y_checked` saying whether it is checked; a group is a `group`.
 - In a [field](#field) a card is invalid where the field is and disabled where the field is, and keeps its title as its name; a group takes the field's label as its name unless it has one.
@@ -2888,7 +2924,7 @@ RadioCard::new("Team")
 
 | Builder | |
 | --- | --- |
-| `description(&str)`, `icon(name)`, `price(&str)` | As a [checkbox card](#checkbox-card) has them |
+| `description(&str)`, `icon(name)`, `price(&str)`, `mark(element)`, `content(element)`, `disabled_reason(&str)`, `loading(bool)` | As a [checkbox card](#checkbox-card) has them |
 | `selected(bool)` | Whether it is the one of several selected: the dot in its mark. The card does not keep it |
 | `on_change(handler)` | Called with `true` on a press while the card is not selected. A press of the one selected calls nothing |
 | `invalid(bool)`, `full_width(bool)`, `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a checkbox card has them |
@@ -3736,11 +3772,13 @@ CodeBlock::new("fn main() {\n  let app = App::new();\n}")
 | `wrap(bool)` | Wraps the lines at the block's width. Otherwise each is one line, and the code scrolls sideways under the [scroll area](#scroll-area)'s bar |
 | `min_height(..)`, `max_height(..)` | The least and the greatest height, its bar with it: past the greatest, the code scrolls down and the bar stays |
 | `copy_button(bool)`, `copy_label(&str)`, `copied_text(&str)`, `on_copy(Fn(&str))` | The button in the bar that copies the code (shown unless told otherwise), its name ("Copy code") and its name while it shows it copied ("Copied"); `on_copy` is told the code it put on the clipboard |
+| `copy_text(&str)` | What the button copies in place of the code shown: a command shown short and copied whole. `on_copy` is told it |
+| `copy_failed_text(&str)` | The button's name while it shows that the clipboard refused the copy ("Couldn't copy", the locale's `EditingWords::copy_failed`) |
 | `selectable(bool)` | Whether a person selects the code: on unless told otherwise. Selectable, the code is a read-only input, a stop of Tab: the arrows move a caret through it, Shift with them selects, Ctrl+A takes it all, Ctrl+C copies, and the pointer selects across its lines. Off, it is text that what holds it makes selectable with its own (a Markdown document) |
 | `framed(bool)` | Whether it is drawn in a frame of its own, as it is unless told otherwise: off, its bar and its code stand on what holds them (a card that frames them) |
 | `header(bool)` | Whether it has its bar: where it has a title, a language or a copy button unless told. Told not to, the language still colors the code |
 | `row_height(f32)` | How high each line is: 21 (`CODE_BLOCK_ROW_HEIGHT`) unless told, the code's own line of 17 and 4 between; the padding of 14 around the lines is kept to the glyphs of the first and the last |
-| `mount(ctx)` | Mounted where it is declared, the copy button shows a check in `Success`, named `copied_text`, for two seconds (`CODE_BLOCK_COPIED_FOR`) after it copied, and a long block follows its scrolling. Converted into an element on its own it copies and does not show that it did; a long block of a greatest height is mounted as `mount` mounts it |
+| `mount(ctx)` | Mounted where it is declared, the copy button shows a check in `Success`, named `copied_text`, for two seconds (`CODE_BLOCK_COPIED_FOR`) after the clipboard took the code, or an alert in `Destructive`, named `copy_failed_text` (state `CopyFailed`), where it refused it, and a long block follows its scrolling. Converted into an element on its own it copies and does not show that it did; a long block of a greatest height is mounted as `mount` mounts it |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the copy button under the pointer or held; `id` is the block's, with `{id}-title`, `{id}-copy` and `{id}-code` |
 
 - The bar is there where the block has a title, a language or a copy button; with none of them the code stands alone in the block.
@@ -3750,7 +3788,7 @@ CodeBlock::new("fn main() {\n  let app = App::new();\n}")
 - A block of more than 400 lines (`CODE_BLOCK_WINDOWED_LINES`) lays out and paints the lines in view and a chunk of 64 lines on each side, and is as high as all of them: ten thousand lines draw what a screen of them draws. In view is in its own room where it has a greatest height, and in the window where it has none (a long fence of a Markdown document): it follows its room's scroll and the page's around it, and takes the lines in view before the frame is painted. It does so mounted, or as `.child(block)`; `build(theme)` draws a block with no greatest height whole, and one with a greatest height from its first line. Its tokens are kept by the tokenizer and the code, so a render that changes nothing of its code does not tokenize it again. In that form a person selects the lines drawn with the pointer, its scroll area is the stop of Tab, and select all (Ctrl+A) takes the code whole, on `Selection`, which a copy (Ctrl+C) then copies whole, all ten thousand lines; a press in the code lets it go. Its copy button copies all of it. A wrapped one counts each line's rows by its characters at its width, the figures of the family of code being as wide as each other, from its first frame.
 - The code scrolls in a [scroll area](#scroll-area). Selectable, the code is the stop of Tab; otherwise the area is, called by the block's name, and its keys scroll it.
 - To what reads the tree it is `code`, called by its label, its title or its language, with `a11y_language`, and so is its code (`a11y_readonly`); its copy button is a `button` called by `copy_label`, or `copied_text` while it shows it copied.
-- Parts: `CodeBlockPart::Root`, `Header`, `Title`, `Copy`, `CopyIcon`, `Body`, `Code`, `LineNumber`, `Marked` (the band of a line picked out), and a part for each name of a token, by its name (`"keyword"`, `"string.escape"`): its foreground, weight and leaning are its tokens', over the theme's code colors. States: `CodeBlockState::Header`, `LineNumbers`, `Wrap`, `Copied`, `Framed`.
+- Parts: `CodeBlockPart::Root`, `Header`, `Title`, `Copy`, `CopyIcon`, `Body`, `Code`, `LineNumber`, `Marked` (the band of a line picked out), and a part for each name of a token, by its name (`"keyword"`, `"string.escape"`): its foreground, weight and leaning are its tokens', over the theme's code colors. States: `CodeBlockState::Header`, `LineNumbers`, `Wrap`, `Copied`, `CopyFailed`, `Framed`.
 - In the design the block is on `Background` in an edge of 1 in `Border` with the large radius. Its bar is 36 high on `Muted` with a line of 1 in `Border` under it, padded 14 at its start and 6 at its end; its title is 11 in the family of code in `MutedForeground`, and its copy button a ghost button of 28 with a copy glyph of 16 in `Foreground`, `Highlight` under the pointer. The code is 13 in the family of code in `Foreground`, padded 14, its lines 17 high and 4 apart. Where the board is silent: the numbers are in `MutedForeground` 16 before the code, a picked line's band is `Highlight`, and a long line scrolls sideways.
 - A renderer that draws another block has `view.header()`, `view.copy_control()`, `view.body()`, `view.root()`, `view.spans(code)` (code in runs of its tokens' styles), `view.tokens` (the code's, by its tokenizer), `view.lines()`, `view.name()` and `view.heading()`, and `view.render()` the default.
 
@@ -6479,6 +6517,7 @@ Calendar::new(due.clone()).memory(&self.memory);
 | `outside_days(bool)` | The days of the months before and after in the first and the last week; on, as the design draws them, and none with several months |
 | `today(Date)` | The day marked as today (the state `Current`), in place of the system's |
 | `disabled(bool)` | It takes no input |
+| `footer(element)` | An element of the app's under the months, across the panel, in the part `Footer`: 8 under a line of 1 in `Border`. Today and Clear, a line of what the days mean. It is not in the focus group of the days |
 | `label(&str)` | What the calendar is called to tooling: its panel is then a `group`. Each month is a `grid` called by its month whatever it says |
 | `previous_label(&str)`, `next_label(&str)` | What the buttons of the heading are called: "Previous month" and "Next month" in English |
 | `on_change(Fn(Date))`, `on_change(Fn(DateRange))` | Told of another date chosen, or another range ended, with it; bound to a signal, the value is set already. Not for what is chosen already, nor for the app setting the value. A second handler is called after the first |
@@ -6489,7 +6528,7 @@ Calendar::new(due.clone()).memory(&self.memory);
 - A range: the first press starts it, the pointer and the keys show where it would end, and the second ends it, before the first or after it. Its ends are chosen days, and the days between are one band.
 - The days are one stop of Tab, at the chosen day, today or the first of the month; the buttons of the heading are stops of their own before them. Left and Right go a day, Up and Down a week, Home and End to the ends of the week, PageUp and PageDown a month and with Shift a year: into the month before or after, which is then shown, and kept between the least and the greatest date. A day that cannot be chosen takes the focus too and says so: the keys pass no day by. Enter and Space choose. The keys are the days' own, through the engine's `KeyboardEvent::focus_key`.
 - To what reads the tree each month is a `grid` called by its month (`November 2026`), of `row`s of `gridcell`s called by their day (`Thursday, Nov 12, 2026`) that say `a11y_selected`, `a11y_current` (`date`, for today) and `a11y_disabled`; the names of the days are `columnheader`s.
-- Parts: `CalendarPart::Root` (the panel), `Months` (the row of headings and the row of days, its gap the room between months), `Header`, `Title`, `Nav` and `NavIcon` (rules over the outline buttons and their glyphs), `Grid`, `Weekdays`, `Weekday`, `Week`, `WeekNumber`, `Day`. States of the calendar: `CalendarState::Disabled`, `Bare` (in a picker's panel: no fill or edge of its own); of a day: `Selected`, `Current` (today), `Outside`, `Unavailable`, `RangeStart`, `RangeEnd`, `InRange`.
+- Parts: `CalendarPart::Root` (the panel), `Months` (the row of headings and the row of days, its gap the room between months), `Header`, `Title`, `Nav` and `NavIcon` (rules over the outline buttons and their glyphs), `Grid`, `Weekdays`, `Weekday`, `Week`, `WeekNumber`, `Day`, `Footer`. States of the calendar: `CalendarState::Disabled`, `Bare` (in a picker's panel: no fill or edge of its own); of a day: `Selected`, `Current` (today), `Outside`, `Unavailable`, `RangeStart`, `RangeEnd`, `InRange`.
 - In the design the panel is 248 wide, on `Popover` with an edge of 1 in `Border`, `radius-lg` and 12 of padding; the heading is 32 high, the month in the body's type at 500 between two outline buttons of 28 (`radius-md`, edge in `Input`, chevrons of 16 in `MutedForeground`), 8 over the days. A day is 32 square with `radius-md`, its number at 13; the names of the days are at 12 in `MutedForeground`; the rows are 8 apart. Today and a day under the pointer are on `Highlight` (the board's `accent`); the chosen day is on `Primary`, its number in `PrimaryForeground` at 500. A day of the month beside, and one that cannot be chosen, is in `MutedForeground` at half opacity. The days between a range's ends are on `Highlight` with no radius.
 - A theme's renderer is given `CalendarView`: `view.months`, `view.chosen`, `view.draft`, `view.hover`, `view.shown_range()`, `view.day_states(date, outside)`, `view.day_recipe(states)`, `view.entry()`, and the pieces `nav(by)`, `header(index)`, `headers()`, `weekdays()`, `day(date, month)`, `week(days, month)`, `grid(index)`, `grids()`, `panel()` and `render()`.
 

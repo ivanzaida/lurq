@@ -143,7 +143,7 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   its label.
 - **Why.** A badge's recipe is a filled box in every variant; a label with no box is another component, not a
   variant that takes the box away again.
-- **State.** Decided; in work on `claude/k4-f-misc`.
+- **State.** Built on `claude/k4-f-misc` (2026-11-20).
 
 ### A radio card holds the app's content, its mark, why it is disabled, and that it waits
 
@@ -159,7 +159,7 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   box kept, and busy to tooling.
 - **Why.** What the kit's card holds is what a settings page's choices hold in many apps; each is a small prop of
   the card the recipe styles.
-- **State.** Decided; in work on `claude/k4-f-misc`.
+- **State.** Built on `claude/k4-f-misc` (2026-11-20).
 
 ### A code block copies another text than it shows, and says when the copy failed
 
@@ -174,7 +174,7 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   Copied is shown. The window gets a way to ask for a copy and be told whether it was written.
 - **Why.** A press that says Copied when nothing was copied is a lie the kit does not tell; and the text a person
   needs on the clipboard is not always the text that fits the box.
-- **State.** Decided; in work on `claude/k4-f-misc`.
+- **State.** Built on `claude/k4-f-misc` (2026-11-20).
 
 ### A calendar has a footer
 
@@ -184,7 +184,7 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   app's under the months, across the panel, in the part `footer` (a line over it and room above it, as the kit
   draws it). What is in it is the app's.
 - **Why.** What goes under a calendar differs from app to app; a slot is all lurq needs to give.
-- **State.** Decided; in work on `claude/k4-f-misc`.
+- **State.** Built on `claude/k4-f-misc` (2026-11-20).
 
 ### A tag with a term before its label
 
@@ -194,7 +194,7 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   part `term`, quieter than the label (regular weight, the muted foreground on a neutral tag). The term is shown as
   the app writes it, its punctuation too (`branch:`), so no word of lurq's stands between them.
 - **Why.** What separates a term from its value differs by language and by app; the app writes it.
-- **State.** Decided; in work on `claude/k4-f-misc`.
+- **State.** Built on `claude/k4-f-misc` (2026-11-20).
 
 ### A breadcrumb's step in a state of the app's
 
@@ -207,7 +207,7 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   ..)`), as for any state of a component.
 - **Why.** The ways a step is drawn are the app's design; lurq gives the step a state, as it gives a whole
   component one.
-- **State.** Decided; in work on `claude/k4-f-misc`.
+- **State.** Built on `claude/k4-f-misc` (2026-11-20).
 
 ### SVG icons in the theme's icon set
 
@@ -222,7 +222,7 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   (`SvgData::fill_current_color`, `stroke_current_color`). SVG is drawn with the feature `canvas`; without it such
   an icon takes its room and draws nothing.
 - **Why.** An app's marks are drawn by name wherever lurq's components draw icons, as its glyphs are.
-- **State.** Decided; in work on `claude/k4-f-misc`.
+- **State.** Built on `claude/k4-f-misc` (2026-11-20).
 
 ## 2026-11-19
 
