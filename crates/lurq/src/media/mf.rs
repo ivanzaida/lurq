@@ -1326,6 +1326,10 @@ unsafe fn play(
           Ok(frames) => {
             sound.at += frames as f64 / f64::from(sound.samples.rate);
             worked = worked || frames > 0;
+            // What is only heard starts when its sound is given to the output; what is seen, with its frame.
+            if frames > 0 && picture.is_none() {
+              shared.presented();
+            }
             // The media's clock is the sound's: what is heard is where it is.
             if output.running()
               && output.pending() > 0
@@ -1366,11 +1370,13 @@ unsafe fn play(
           let owed = picture.owed;
           if let Some((_, sample)) = picture.pending.take()
             && shown
-            && picture.show(&sample, card.as_mut())?
           {
-            // Another image holds the frames now: who draws the media takes it when it is told.
-            shared.inner().frame = Some(picture.image.clone());
-            shared.wake();
+            if picture.show(&sample, card.as_mut())? {
+              // Another image holds the frames now: who draws the media takes it when it is told.
+              shared.inner().frame = Some(picture.image.clone());
+              shared.wake();
+            }
+            shared.presented();
           }
           picture.owed = false;
           worked = true;

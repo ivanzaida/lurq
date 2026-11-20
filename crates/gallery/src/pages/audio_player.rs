@@ -560,6 +560,7 @@ impl AudioPlayerPage {
         let record = record.clone();
         move |why| record(format!("on_error({why:?})"))
       })
+      .on_started(say("on_started"))
       .on_ended(say("on_ended"))
       .on_waiting_change({
         let record = record.clone();
@@ -1133,10 +1134,10 @@ impl Component for AudioPlayerPage {
          kept.",
       ),
       (
-        "on_load / on_error / on_ended / on_waiting_change",
-        "Fn(&MediaInfo) / Fn(&MediaError) / Fn() / Fn(bool)",
+        "on_load / on_error / on_started / on_ended / on_waiting_change",
+        "Fn(&MediaInfo) / Fn(&MediaError) / Fn() / Fn() / Fn(bool)",
         "",
-        "What its source tells, on the UI thread, once each time: it opened, it failed (a kind, in the locale's          words), it played to its end (where a queue goes on to the next), it began or stopped waiting. With a          source, on_playing_change is told when the sound stops by itself too. A player without a source tells          none of them.",
+        "What its source tells, on the UI thread, once each time: it opened, it failed (a kind, in the locale's          words), it really started to play (its sound is given to the output), it played to its end (where a queue goes on to the next), it began or stopped waiting. With a          source, on_playing_change is told when the sound stops by itself too. A player without a source tells          none of them.",
       ),
       (
         "loading",

@@ -96,6 +96,12 @@ impl MediaDriver {
     self.0.wake();
   }
 
+  /// It showed a frame, or its sound was heard: the first after it could move is its start
+  /// ([`Media::on_started`](super::Media::on_started)).
+  pub fn present(&self) {
+    self.0.presented();
+  }
+
   /// It played to its end: it ended, or where it is looped and plays, it goes on from its start.
   pub fn end(&self) {
     {

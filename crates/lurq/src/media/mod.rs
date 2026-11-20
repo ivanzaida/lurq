@@ -10,8 +10,9 @@
 //! when that changes in a way a clock does not tell: it opened, it ended, it failed.
 //!
 //! What happens to it is told to who listens, on the UI thread, once each time it happens: it opened
-//! ([`Media::on_load`]), it failed ([`Media::on_error`]), it played to its end ([`Media::on_ended`]), it began or
-//! stopped playing ([`Media::on_playing_change`]) and waiting for what it plays ([`Media::on_waiting_change`]).
+//! ([`Media::on_load`]), it failed ([`Media::on_error`]), it really started to play ([`Media::on_started`]), it
+//! played to its end ([`Media::on_ended`]), it began or stopped playing ([`Media::on_playing_change`]) and waiting
+//! for what it plays ([`Media::on_waiting_change`]).
 //!
 //! [`Media::open`] is what is seen, with its sound; [`Media::sound`] what is only heard: a song, a recording, a
 //! message. A sound at an address is loaded whole through the app's loader and kept, so that it plays again at
@@ -147,6 +148,8 @@ pub(crate) struct Shared {
   reads_waiting: std::sync::atomic::AtomicUsize,
   /// It waits because its decoder waited on the network with nothing left to show: until the sample comes.
   starved: std::sync::atomic::AtomicBool,
+  /// What it presents next is its start, which who listens is to be told: see [`Shared::presented`].
+  pub(crate) awaits_start: std::sync::atomic::AtomicBool,
 }
 
 /// The state of a media, and the clock it is read from: where it was at `since`, going at `rate` while it plays.
@@ -168,6 +171,9 @@ pub(crate) struct Inner {
   pub looped: bool,
   /// How many times it went on from its start at its end, looped: each is told as an end ([`Media::on_ended`]).
   pub rounds: u64,
+  /// How many times it showed a frame, or gave its output sound where it has no picture: what it presents after
+  /// it could move is its start ([`Media::on_started`]).
+  pub presented: u64,
   pub at: f64,
   pub since: Instant,
   /// How many times it was sent somewhere ([`Media::seek`]). The thread counts the ones it has done, and does
@@ -216,6 +222,7 @@ impl Shared {
         rate: 1.0,
         looped: false,
         rounds: 0,
+        presented: 0,
         at: 0.0,
         since: Instant::now(),
         sent: 0,
@@ -229,6 +236,7 @@ impl Shared {
       decoding_since: Mutex::new(None),
       reads_waiting: std::sync::atomic::AtomicUsize::new(0),
       starved: std::sync::atomic::AtomicBool::new(false),
+      awaits_start: std::sync::atomic::AtomicBool::new(false),
     })
   }
 
@@ -247,6 +255,21 @@ impl Shared {
       waker();
     }
     self.noted();
+  }
+
+  /// It showed a frame, or gave its output sound where it has no picture. Who listens for its start is woken by
+  /// the one that is the start, and by no other: a media that plays presents many times a second.
+  pub(crate) fn presented(&self) {
+    let mut inner = self.inner();
+    self.presented_in(&mut inner);
+  }
+
+  /// [`presented`](Self::presented), for what holds the media's state already.
+  pub(crate) fn presented_in(&self, inner: &mut Inner) {
+    inner.presented += 1;
+    if self.awaits_start.swap(false, std::sync::atomic::Ordering::AcqRel) {
+      self.noted();
+    }
   }
 
   /// Tells the thread that listens to the media's events that it changed, where something listens: its next turn
@@ -903,6 +926,17 @@ impl Media {
   /// Calls `handler` each time it played to its end: again only after it played again.
   pub fn on_ended(&self, handler: impl Fn() + Send + Sync + 'static) {
     self.listening().handlers().ended.push(Arc::new(handler));
+  }
+
+  /// Calls `handler` each time it really starts to play: it was told to play, it does not wait for what it plays,
+  /// and the first frame since was shown (where it has no picture, its sound was given to the output). That is
+  /// after [`on_load`](Self::on_load), which says it opened with nothing moving yet, and after
+  /// [`on_playing_change`](Self::on_playing_change) said `true`, which is that it was told to play. It is told
+  /// again when it moves again after it stopped: after a pause, after it waited, after its end. A looped media
+  /// that goes on from its start has not stopped, and is not told; nor is one sent to another time while it
+  /// plays.
+  pub fn on_started(&self, handler: impl Fn() + Send + Sync + 'static) {
+    self.listening().handlers().started.push(Arc::new(handler));
   }
 
   /// Calls `handler` with whether it plays, each time that changes once it opened: it was told to play or to

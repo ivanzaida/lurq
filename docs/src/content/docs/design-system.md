@@ -7463,7 +7463,7 @@ VideoPlayer::new().media(frame).controls(false).child(my_controls).mount(ctx);
 | `ended(bool)` | It played to the end: the veil, replay in the middle and in the bar, the seek bar full. Replay tells `playing` true: the app plays again from the start |
 | `live(bool)` | No end: the LIVE badge for the time, the seek bar full (or the window that can be gone back in, given as the duration), no speed |
 | `error(&str)`, `error_description(&str)`, `on_retry(handler)` | That it cannot play: the veil, the title and the line in the middle, and no bar. The button ("Try again") is drawn once `on_retry` is given |
-| `on_load(Fn(&MediaInfo))`, `on_error(Fn(&MediaError))`, `on_ended(Fn())`, `on_waiting_change(Fn(bool))` | What its [source](#playing-a-video) tells: it opened (its length, its picture's size, whether it has sound), it cannot play (a kind, which the locale says under the error's title), it played to its end, it began or stopped waiting. A player without a source is told none of them |
+| `on_load(Fn(&MediaInfo))`, `on_error(Fn(&MediaError))`, `on_started(Fn())`, `on_ended(Fn())`, `on_waiting_change(Fn(bool))` | What its [source](#playing-a-video) tells: it opened (its length, its picture's size, whether it has sound), it cannot play (a kind, which the locale says under the error's title), it really started to play (the first frame after it was told to is shown), it played to its end, it began or stopped waiting. A player without a source is told none of them |
 | `size(VideoPlayerSize)` | `Lg`, `Md` (compact) or `Sm` (minimal) in place of the form its width gives it |
 | `width(Length)`, `height(Length)` | Its size, in place of its form's (640 by 360 for the large one). A width with no height gives the height its aspect makes |
 | `caption_cues(&MediaCaptions)` | A track of captions: while they are on, the player shows what the track says at its position. `caption_text` given too is shown in its place |
@@ -7542,7 +7542,7 @@ AudioPlayer::controlled(17.0, 42.0, |_| {})
 | `shuffle(Signal<bool>)`, `shuffle_controlled(bool, handler)`, `on_shuffle_change(Fn(bool))` | Shuffle, in the card |
 | `repeat(Signal<AudioRepeat>)`, `repeat_controlled(AudioRepeat, handler)`, `on_repeat_change(Fn(AudioRepeat))` | `Off`, `All`, `One`; a press steps it (`AudioRepeat::next`), and `One` has the `repeat-one` glyph |
 | `source(&Source)` (feature `media`) | What it plays: a file, bytes, a resource of the app, an address. The player opens it as a sound and plays it; where it is, how long it is and whether it plays, loads or failed are then the sound's, and its controls move it. An address is loaded when it is first played, once, and kept (`media::sound_cache()`). See `media-playback.md` |
-| `on_load(Fn(&MediaInfo))`, `on_error(Fn(&MediaError))`, `on_ended(Fn())`, `on_waiting_change(Fn(bool))` | What its source tells, as a [video player's](#playing-a-video): it opened (its length; a sound has no picture's size), it cannot play (a kind, which the locale says in its line), it played to its end (each end of a track that repeats; where a queue goes on to the next), it began or stopped waiting. With a source `on_playing_change` hears the sound stop and start by itself too. A player without a source is told none of them |
+| `on_load(Fn(&MediaInfo))`, `on_error(Fn(&MediaError))`, `on_started(Fn())`, `on_ended(Fn())`, `on_waiting_change(Fn(bool))` | What its source tells, as a [video player's](#playing-a-video): it opened (its length; a sound has no picture's size), it cannot play (a kind, which the locale says in its line), it played to its end (each end of a track that repeats; where a queue goes on to the next), it began or stopped waiting. With a source `on_playing_change` hears the sound stop and start by itself too. A player without a source is told none of them |
 | `loading(bool)` | Lines of skeleton for the texts, "-:--" for the times, an empty bar, a spinner in play, previous and next dimmed |
 | `error(Option<&str>)`, `on_retry(Fn())`, `retry_text(&str)` | What went wrong: a line in the destructive color in place of the times (in place of the bar in a row, where play turns to a retry button; in place of the description in the mini player). "Try again" at its end in the card |
 | `unheard(bool)` | A voice message not heard yet: a dot of 8 in the info color, and the whole waveform in the color of what is not played |
@@ -7880,13 +7880,15 @@ VideoPlayer::new()
   .source(&Source::file("clips/lake.mp4"))
   .on_load(|info| println!("{:?} long, {:?}, sound: {}", info.duration, info.size, info.sound))
   .on_error(|why| tracing::warn!("{why:?}: {}", why.detail().unwrap_or_default()))
+  .on_started(move || poster.set(false))
   .on_ended(move || next.set(true))
   .on_playing_change(move |plays| playing.set(plays))
   .on_waiting_change(move |waits| buffering.set(waits))
   .mount(ctx)
 ```
 
-- Each is told on the UI thread, once each time it happens, in the order the media lives them: it opened, it began or stopped waiting, it began or stopped playing, it ended, it failed. A handler may set signals and move the media; what it sets is drawn in the same frame.
+- Each is told on the UI thread, once each time it happens, in the order the media lives them: it opened, it began or stopped waiting, it began or stopped playing, it started, it ended, it failed. A handler may set signals and move the media; what it sets is drawn in the same frame.
+- `on_started` is told when the video really plays: it was told to play, it does not wait for what it plays, and the first frame since is on the screen (for a sound, its sound is given to the output). `on_load` comes before it, with nothing moving yet, and so does `on_playing_change(true)`, which a press tells at once: between them and `on_started` the player shows the frame it stood on, or nothing. An app that covers the player with a poster of its own takes it away here, and measures from a swipe to here how long a video took to move. It is told again after a pause, after it waited and after its end; not for a round of a `looped` one, which did not stop, nor for a seek while it plays.
 - `on_ended` is told again only after it played again. `on_error` is told a kind (`core::MediaError`), whose words are the locale's (`MediaWords::error`), once until the person tries again, which opens the source anew. Waiting is reading what is not there yet once it opened (an address on Apple's systems); opening is not waiting.
 - `on_playing_change` hears a press, as without a source, and the media stopping or starting by itself: at its end, when it fails, a sound that starts over. What a press told or the app set is not told again when the media does it. A signal bound to `playing` follows the media at its end, and that is not the app pausing it.
 - A player without a source tells none of these: whether it waits, ended or failed is what the app gives it.
@@ -7916,6 +7918,7 @@ media.on_change(|| { /* it changed: called on the media's own thread, with nothi
 // Its events, on the UI thread, once each time: as a player's.
 media.on_load(|info| println!("{:?} by {:?}", info.duration, info.size));
 media.on_error(|why| tracing::warn!("{why}"));
+media.on_started(|| println!("it plays"));
 media.on_ended(|| println!("the end"));
 media.on_playing_change(|plays| println!("playing: {plays}"));
 media.on_waiting_change(|waits| println!("waiting: {waits}"));
