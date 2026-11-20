@@ -1,7 +1,8 @@
 //! The page of the tooltip: its playground, a toolbar whose buttons have
 //! tooltips, the four sides with and without an arrow, a shortcut and a long
 //! text, a note, a mono text, a label cut to its room and an icon button's
-//! label.
+//! label, one over a frame, one the page hangs itself, and a hint while a
+//! label fits.
 
 use std::sync::Arc;
 
@@ -71,6 +72,13 @@ pub struct TooltipPage {
   disabled: Signal<bool>,
   /// The label cut to its room, whose tooltip shows only while it is cut.
   cut: ElementRef,
+  /// The box a chip sits in, whose tooltip keeps clear of it.
+  chip_box: ElementRef,
+  /// The button whose tooltip the page hangs, and whether the pointer is on it.
+  hung: ElementRef,
+  pointed: Signal<bool>,
+  /// A short label whose tooltip says a hint while it fits.
+  hinted: ElementRef,
 }
 
 impl TooltipPage {
@@ -217,6 +225,10 @@ impl Component for TooltipPage {
       force_open: ctx.signal(true),
       disabled: ctx.signal(false),
       cut: ctx.element_ref(),
+      chip_box: ctx.element_ref(),
+      hung: ctx.element_ref(),
+      pointed: ctx.signal(false),
+      hinted: ctx.element_ref(),
     }
   }
 
@@ -316,6 +328,45 @@ impl Component for TooltipPage {
         "an icon button's label: hover it",
       ));
 
+    // A chip in a box: its tooltip stands over the box, not over the chip.
+    let chip = Tooltip::new("Reaches the agent with the brief")
+      .placement(Placement::TopStart)
+      .over(&self.chip_box)
+      .force_open(Some(true))
+      .mount(ctx, Button::new("release-notes").variant(ButtonVariant::Outline));
+    let boxed = Row::new()
+      .ref_element(self.chip_box.clone())
+      .padding(16.0)
+      .background(lurq::app::theme::PaletteColor::Muted)
+      .child(chip);
+    // A button whose tooltip the page shows itself, the moment the pointer comes.
+    let (enter, leave) = (self.pointed.clone(), self.pointed.clone());
+    let hung = Row::new()
+      .ref_element(self.hung.clone())
+      .on_mouse_enter(move || enter.set(true))
+      .on_mouse_leave(move || leave.set(false))
+      .child(tool("Copy", "copy"))
+      .child(
+        Tooltip::new("Copy")
+          .placement(Placement::Bottom)
+          .hang(&self.hung, self.pointed.clone()),
+      );
+    // A short label: while it fits its tooltip says the hint.
+    let short = Text::new("ui")
+      .nowrap()
+      .text_overflow(TextOverflow::Elipsis)
+      .ref_element(self.hinted.clone());
+    let hinted = Row::new().width(140.0).child(
+      Tooltip::new("crates/lurq/src/ui")
+        .when_cut(&self.hinted)
+        .hint("The design system's components")
+        .mount(ctx, short),
+    );
+    let placed = items()
+      .child(item(Column::new().padding_top(48.0).child(boxed), "over the box"))
+      .child(item(hung, "hung by the page: hover it"))
+      .child(item(hinted, "a hint while it fits: hover it"));
+
     let rows = [
       (
         "text",
@@ -360,6 +411,24 @@ impl Component for TooltipPage {
         "&ElementRef",
         "",
         "It shows only while the text whose ref this is is cut by the layout: a label that says itself whole.",
+      ),
+      (
+        "hint",
+        "&str",
+        "",
+        "With when_cut, what it says while the text is whole, in place of nothing.",
+      ),
+      (
+        "over",
+        "&ElementRef",
+        "",
+        "Keeps clear of that element, one around its own, on the side it opens on.",
+      ),
+      (
+        "hang",
+        "(&ElementRef, impl Into<OpenState>)",
+        "",
+        "Not mounted: shown beside the anchor while open is, by the app alone. It takes no pointer.",
       ),
       (
         "placement",
@@ -502,6 +571,25 @@ impl Component for TooltipPage {
               "Tooltip::new(path).mono(true).when_cut(&label).mount(ctx, words)",
               "",
               "Button::new(\"Settings\").icon(icons::SETTINGS).icon_only(true).mount(ctx)",
+            ],
+          ),
+        ),
+        Section::new(
+          "Over a frame, hung by the app, a hint",
+          "A chip's tooltip keeps clear of the box the chip sits in. A toolbar may show its tooltips itself: the page \
+           hangs this one beside its button and shows it while the pointer is on the button. A label that fits says \
+           a hint of its own.",
+          self.frame.demo(
+            4,
+            placed,
+            ".over(&frame) .hang(&anchor, shown) .hint(..)",
+            &[
+              "Tooltip::new(\"Reaches the agent\").placement(Placement::TopStart).over(&frame).mount(ctx, chip)",
+              "",
+              "// among the button's row's children; pointed: Signal<bool> the row sets",
+              "Tooltip::new(\"Copy\").placement(Placement::Bottom).hang(&anchor, pointed.clone())",
+              "",
+              "Tooltip::new(path).when_cut(&label).hint(\"The design system's components\").mount(ctx, words)",
             ],
           ),
         ),
