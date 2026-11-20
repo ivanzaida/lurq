@@ -27,6 +27,8 @@ pub enum TagPart {
   Root,
   /// The icon before its text.
   Icon,
+  /// The term before its text, where it has one: the `branch:` of `branch: main`.
+  Term,
   /// Its text.
   Label,
   /// What takes it away, at its end: a button of its own.
@@ -38,6 +40,7 @@ pub enum TagPart {
 names!(TagPart {
   Root => "root",
   Icon => "icon",
+  Term => "term",
   Label => "label",
   Remove => "remove",
   RemoveIcon => "remove_icon",
@@ -125,6 +128,8 @@ pub enum TagShape {
 /// let removable = Tag::new("rust").on_remove(|| println!("rust taken away"));
 /// // Round, with no line around it: a token in a box that is typed in.
 /// let token = Tag::new("React").shape(TagShape::Pill).on_remove(|| println!("React taken away"));
+/// // A term and its value: the term before the label, quieter, as the app writes it.
+/// let branch = Tag::new("main").term("branch:").icon(icons::BRANCH);
 /// ```
 ///
 /// A tag does not keep whether it is there: the app holds its list, and is
@@ -133,6 +138,7 @@ pub enum TagShape {
 /// Backspace and Delete press it.
 pub struct Tag {
   label: Arc<str>,
+  term: Option<Arc<str>>,
   variant: Name,
   size: Name,
   icon: Option<Name>,
@@ -152,6 +158,7 @@ impl Tag {
   pub fn new(label: &str) -> Self {
     Self {
       label: Arc::from(label),
+      term: None,
       variant: TagVariant::default().into(),
       size: TagSize::default().into(),
       icon: None,
@@ -183,6 +190,14 @@ impl Tag {
   /// An icon before the text, by its name in the theme's set.
   pub fn icon(mut self, name: impl Into<Name>) -> Self {
     self.icon = Some(name.into());
+    self
+  }
+
+  /// A term before the text, in the part `Term`: what the text is the value of, `branch:` before `main`. It is shown
+  /// as it is written, its punctuation too, and quieter than the text. The tag is still called by its text, and its
+  /// remove button "Remove main".
+  pub fn term(mut self, term: &str) -> Self {
+    self.term = Some(Arc::from(term));
     self
   }
 
@@ -284,6 +299,7 @@ impl Tag {
     });
     let view = TagView {
       label: self.label,
+      term: self.term,
       remove_label,
       variant: self.variant,
       size: self.size,
@@ -317,6 +333,8 @@ impl From<Tag> for Element {
 /// and its remove button ready to be dressed.
 pub struct TagView {
   pub label: Arc<str>,
+  /// The term before the text, if it has one.
+  pub term: Option<Arc<str>>,
   /// What the remove button is called to what reads the tree.
   pub remove_label: Arc<str>,
   pub variant: Name,
@@ -407,6 +425,10 @@ impl TagView {
     if let Some(name) = self.icon {
       root = root.child(glyph(&self.part(TagPart::Icon), name, false));
     }
+    if let Some(term) = &self.term {
+      let part = self.part(TagPart::Term);
+      root = root.child(part.text(term).nowrap().part(&part));
+    }
     let label = self.part(TagPart::Label);
     root = root.child(label.text(&self.label).nowrap().part(&label));
     if let Some(remove) = self.remove() {
@@ -453,15 +475,19 @@ impl Themed for Tag {
   /// of 11 in the muted color takes it away. An informative one is in the
   /// muted fill of its color and its text in the color. The design's pill
   /// (Pill) is a tag round at both ends with no line, padded 10 and 6, and a
-  /// cross of 12.
+  /// cross of 12. A term before the text is in its type at regular weight, in the muted foreground on a neutral
+  /// tag and in the variant's color on another.
   fn recipe() -> Recipe {
     use PaletteColor::*;
-    use TagPart::{Icon, Label, Remove, RemoveIcon, Root};
+    use TagPart::{Icon, Label, Remove, RemoveIcon, Root, Term};
     let line = |color: PaletteColor| Line::inside(BorderSize::Sm, color);
     let colored = |recipe: Recipe, variant: TagVariant, fill: PaletteColor, ink: PaletteColor| {
-      recipe.variant(variant, Root, move |s| {
-        s.background(fill.clone()).border(line(fill)).foreground(ink)
-      })
+      let term = ink.clone();
+      recipe
+        .variant(variant, Root, move |s| {
+          s.background(fill.clone()).border(line(fill)).foreground(ink)
+        })
+        .variant(variant, Term, |s| s.foreground(term))
     };
     let recipe = Recipe::new()
       .base(Root, |s| {
@@ -475,6 +501,11 @@ impl Themed for Tag {
       })
       .base(Label, |s| {
         s.typography(TypographyStyle::Caption).weight(FontWeight::Medium)
+      })
+      .base(Term, |s| {
+        s.typography(TypographyStyle::Caption)
+          .weight(FontWeight::Normal)
+          .foreground(MutedForeground)
       })
       .base(Icon, |s| s.square(IconSize::Xs))
       .base(Remove, |s| {
@@ -492,10 +523,12 @@ impl Themed for Tag {
       .focus_visible(Remove, |s| s.outline(Outline::new(BorderSize::Md, Ring)))
       .size(TagSize::Sm, Root, |s| s.height(20.0).padding_x(6.0))
       .size(TagSize::Sm, Label, |s| s.font_size(11.0))
+      .size(TagSize::Sm, Term, |s| s.font_size(11.0))
       .size(TagSize::Sm, Remove, |s| s.square(14.0))
       .size(TagSize::Sm, RemoveIcon, |s| s.square(10.0))
       .size(TagSize::Lg, Root, |s| s.height(28.0).padding_x(10.0).gap(6.0))
       .size(TagSize::Lg, Label, |s| s.font_size(13.0))
+      .size(TagSize::Lg, Term, |s| s.font_size(13.0))
       .size(TagSize::Lg, Icon, |s| s.square(IconSize::Sm))
       .size(TagSize::Lg, Remove, |s| s.square(18.0))
       .size(TagSize::Lg, RemoveIcon, |s| s.square(12.0))
