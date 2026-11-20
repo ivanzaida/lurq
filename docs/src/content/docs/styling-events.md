@@ -1059,6 +1059,18 @@ scroll. An element the wheel is for something else to (a picture it brings close
 `on_wheel`, which is called first, whatever is under the pointer and whether it can scroll, and takes the wheel with
 `prevent_default`: then nothing is scrolled.
 
+**When the content grows**, the offset stays where it is, as a page's and a `UIScrollView`'s does: a list that loads
+its next page in `on_scroll_reach_bottom` is not carried down to the page that came, which would reach the bottom
+again and load the next. Two follow the end instead:
+
+- A container that sticks to its end, `state.set_sticks_to_end(true)`: a chat's or a log's list, whose newest line is
+  at its bottom, follows what is added there while the person reads the end, and stays where it is once they
+  scrolled up.
+- One the app sent to its end (`scroll_to_bottom_pending`, `stick_to_bottom_if_near_end`): it stays there as rows
+  measured one by one make it grow, until the person moves it away.
+
+Until 0.64 every offset at the end followed the end.
+
 ```rust
 Stack::new().on_wheel(move |event: ScrollEvent| {
   event.prevent_default();
@@ -1137,7 +1149,7 @@ app.theme().set_smooth_scroll(false);
 - `ScrollState::scroll_x()` and `scroll_y()` are the offset that is drawn, at every step. `ScrollState::scroll_target()` is where the wheel is taking it, and the offset itself when nothing is on its way.
 - An `on_scroll` handler hears the wheel's event once, with its delta, before anything moves, and can prevent the scroll as before. It then hears one event with a zero delta for every step, after the content moved: a handler that reads the offset there reads what is drawn. `on_scroll_reach_top` and `on_scroll_reach_bottom` run when the content gets there, not when the wheel turns. A `VirtualizedList`, sticky elements and whatever else is laid out from the offset follow every step.
 - Only a mouse's notches are animated. A touchpad and a wheel that turns without notches tell their travel in small parts, which move the content with the fingers as before: a delta in pixels, and on Windows and X11 a part of a line. A finger on a touch screen has its own [momentum](../ios/#scrolling). A browser tells every wheel in pixels: a lurq app that runs [in one](../web/#input) takes a delta that comes to a whole number of notches for a mouse's and animates it, and scrolls every wheel at once on macOS, where a notch has no distance of its own.
-- Anything else that scrolls the container stops the animation where the content is, and has its way: `set_scroll`, a scroll queued for the next layout (`set_scroll_pending`, `scroll_to_bottom_pending` and the rest), an element scrolled into view, a drag of the scrollbar's thumb or a press on its track, a touchpad, a finger. Content that keeps its place while what is above it changes, a list that takes rows in above what is shown, keeps it and the animation goes on from there. A notch that takes the content to its end follows the end if the content grows on the way.
+- Anything else that scrolls the container stops the animation where the content is, and has its way: `set_scroll`, a scroll queued for the next layout (`set_scroll_pending`, `scroll_to_bottom_pending` and the rest), an element scrolled into view, a drag of the scrollbar's thumb or a press on its track, a touchpad, a finger. Content that keeps its place while what is above it changes, a list that takes rows in above what is shown, keeps it and the animation goes on from there. A notch that takes the content to its end follows the end if the content grows on the way, and stays where it lands after.
 - With [reduced motion](../animation-transforms/#reduced-motion) a notch scrolls at once, and so it does with `Theme::set_smooth_scroll(false)`. Smooth scrolling is on by default. Like reduced motion it is the app's setting and not part of a `ThemeDefinition`.
 - While the content is on its way the window has a running animation: `Tree::has_active_timeline()` is true and the shell draws a frame at every refresh, and none once the content is where it was going.
 - Synthetic input's `wheel` ([`SyntheticInput::wheel`](../ctx/#synthetic-input), the MCP server's [`wheel`](../mcp/)) is a mouse's wheel and is animated too. A test that drives a `Tree` itself calls `Tree::wheel` for a notch and `Tree::scroll` for a touchpad's delta, which moves the content at once.

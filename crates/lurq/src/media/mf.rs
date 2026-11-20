@@ -42,20 +42,21 @@ use windows::{
     },
     Media::MediaFoundation::{
       IMFAttributes, IMFDXGIBuffer, IMFDXGIDeviceManager, IMFMediaType, IMFSample, IMFSourceReader,
-      MF_BYTESTREAM_ORIGIN_NAME, MF_E_END_OF_STREAM, MF_E_INVALID_FILE_FORMAT, MF_E_INVALID_FORMAT,
-      MF_E_INVALIDMEDIATYPE, MF_E_TOPO_CODEC_NOT_FOUND, MF_E_UNSUPPORTED_BYTESTREAM_TYPE, MF_E_UNSUPPORTED_FORMAT,
-      MF_E_UNSUPPORTED_SCHEME, MF_MT_AUDIO_BITS_PER_SAMPLE, MF_MT_AUDIO_NUM_CHANNELS, MF_MT_AUDIO_SAMPLES_PER_SECOND,
-      MF_MT_DEFAULT_STRIDE, MF_MT_FRAME_SIZE, MF_MT_MAJOR_TYPE, MF_MT_MINIMUM_DISPLAY_APERTURE, MF_MT_SUBTYPE,
-      MF_MT_VIDEO_NOMINAL_RANGE, MF_MT_YUV_MATRIX, MF_PD_DURATION, MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS,
-      MF_SOURCE_READER_ALL_STREAMS, MF_SOURCE_READER_D3D_MANAGER, MF_SOURCE_READER_ENABLE_ADVANCED_VIDEO_PROCESSING,
-      MF_SOURCE_READER_FIRST_AUDIO_STREAM, MF_SOURCE_READER_FIRST_VIDEO_STREAM, MF_SOURCE_READER_MEDIASOURCE,
-      MF_SOURCE_READERF_CURRENTMEDIATYPECHANGED, MF_SOURCE_READERF_ENDOFSTREAM, MF_VERSION, MFAudioFormat_Float,
-      MFAudioFormat_PCM, MFCreateAttributes, MFCreateDXGIDeviceManager, MFCreateMFByteStreamOnStream,
-      MFCreateMediaType, MFCreateSourceReaderFromByteStream, MFCreateSourceReaderFromURL, MFMediaType_Audio,
-      MFMediaType_Video, MFNominalRange_0_255, MFSTARTUP_FULL, MFShutdown, MFStartup, MFVideoFormat_NV12,
-      MFVideoTransferMatrix_BT601, MFVideoTransferMatrix_BT2020_10, MFVideoTransferMatrix_BT2020_12,
+      MF_BYTESTREAM_CONTENT_TYPE, MF_BYTESTREAM_ORIGIN_NAME, MF_E_END_OF_STREAM, MF_E_INVALID_FILE_FORMAT,
+      MF_E_INVALID_FORMAT, MF_E_INVALIDMEDIATYPE, MF_E_TOPO_CODEC_NOT_FOUND, MF_E_UNSUPPORTED_BYTESTREAM_TYPE,
+      MF_E_UNSUPPORTED_FORMAT, MF_E_UNSUPPORTED_SCHEME, MF_MT_AUDIO_BITS_PER_SAMPLE, MF_MT_AUDIO_NUM_CHANNELS,
+      MF_MT_AUDIO_SAMPLES_PER_SECOND, MF_MT_DEFAULT_STRIDE, MF_MT_FRAME_SIZE, MF_MT_MAJOR_TYPE,
+      MF_MT_MINIMUM_DISPLAY_APERTURE, MF_MT_SUBTYPE, MF_MT_VIDEO_NOMINAL_RANGE, MF_MT_YUV_MATRIX, MF_PD_DURATION,
+      MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, MF_SOURCE_READER_ALL_STREAMS, MF_SOURCE_READER_D3D_MANAGER,
+      MF_SOURCE_READER_ENABLE_ADVANCED_VIDEO_PROCESSING, MF_SOURCE_READER_FIRST_AUDIO_STREAM,
+      MF_SOURCE_READER_FIRST_VIDEO_STREAM, MF_SOURCE_READER_MEDIASOURCE, MF_SOURCE_READERF_CURRENTMEDIATYPECHANGED,
+      MF_SOURCE_READERF_ENDOFSTREAM, MF_VERSION, MFAudioFormat_Float, MFAudioFormat_PCM, MFCreateAttributes,
+      MFCreateDXGIDeviceManager, MFCreateMFByteStreamOnStream, MFCreateMediaType, MFCreateSourceReaderFromByteStream,
+      MFCreateSourceReaderFromURL, MFMediaType_Audio, MFMediaType_Video, MFNominalRange_0_255, MFSTARTUP_FULL,
+      MFShutdown, MFStartup, MFVideoFormat_NV12, MFVideoTransferMatrix_BT601, MFVideoTransferMatrix_BT2020_10,
+      MFVideoTransferMatrix_BT2020_12,
     },
-    System::Com::{COINIT_MULTITHREADED, CoInitializeEx, CoUninitialize, StructuredStorage::PROPVARIANT},
+    System::Com::{COINIT_MULTITHREADED, CoInitializeEx, CoUninitialize, IStream, StructuredStorage::PROPVARIANT},
     UI::Shell::SHCreateMemStream,
   },
   core::{BOOL, GUID, HSTRING, Interface, PCWSTR, Result},
@@ -66,6 +67,8 @@ use super::{
   output::{CHANNELS, Output},
 };
 use crate::images::{CardFrame, CardFrames, CardSurface, ImageData, NativeImageData, YuvColors, YuvMatrix};
+
+mod stream;
 
 /// The streams that are decoded: the first video and the first sound of what is opened.
 const VIDEO: u32 = MF_SOURCE_READER_FIRST_VIDEO_STREAM.0 as u32;
@@ -166,18 +169,36 @@ unsafe fn open(opened: Opened, card: Option<&OnCard>) -> Result<IMFSourceReader>
     // Its own conversion to the format asked for, and the decoders of the hardware where there are some.
     attributes.SetUINT32(&MF_SOURCE_READER_ENABLE_ADVANCED_VIDEO_PROCESSING, 1)?;
     attributes.SetUINT32(&MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, 1)?;
+    // The type a server said, and the name the bytes came by, tell the system which of its readers they are
+    // for; with neither it tells from the bytes themselves.
+    let from_stream = |stream: &IStream, name: Option<&str>, kind: Option<&str>| {
+      let stream = MFCreateMFByteStreamOnStream(stream)?;
+      if let Ok(told) = stream.cast::<IMFAttributes>() {
+        if let Some(name) = name {
+          let _ = told.SetString(&MF_BYTESTREAM_ORIGIN_NAME, &HSTRING::from(name));
+        }
+        if let Some(kind) = kind {
+          let _ = told.SetString(&MF_BYTESTREAM_CONTENT_TYPE, &HSTRING::from(kind));
+        }
+      }
+      MFCreateSourceReaderFromByteStream(&stream, &attributes)
+    };
     let reader = match opened {
       Opened::File(path) => MFCreateSourceReaderFromURL(&HSTRING::from(path.as_os_str()), &attributes)?,
-      Opened::Url(address) => MFCreateSourceReaderFromURL(&HSTRING::from(&*address), &attributes)?,
+      // Only a build without the feature `http`: every other reads an address through the app's loader.
+      Opened::Url(address, _) => MFCreateSourceReaderFromURL(&HSTRING::from(&*address), &attributes)?,
       Opened::Bytes(bytes, name) => {
         let stream = SHCreateMemStream(Some(&bytes)).ok_or_else(windows::core::Error::from_thread)?;
-        let stream = MFCreateMFByteStreamOnStream(&stream)?;
-        // Where the bytes came by a name, its ending tells the system which of its readers they are for; with
-        // none it tells from the bytes themselves.
-        if let (Some(name), Ok(told)) = (name, stream.cast::<IMFAttributes>()) {
-          let _ = told.SetString(&MF_BYTESTREAM_ORIGIN_NAME, &HSTRING::from(&*name));
-        }
-        MFCreateSourceReaderFromByteStream(&stream, &attributes)?
+        from_stream(&stream, name.as_deref(), None)?
+      }
+      // The address's query is no part of the name its ending is read from.
+      Opened::Reader(reader, address) => {
+        let kind = reader.content_type();
+        from_stream(
+          &stream::stream_of(reader),
+          address.split(['?', '#']).next(),
+          kind.as_deref(),
+        )?
       }
     };
     reader.SetStreamSelection(MF_SOURCE_READER_ALL_STREAMS.0 as u32, false)?;

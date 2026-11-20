@@ -17,7 +17,7 @@ use std::{
   fmt, io,
   path::PathBuf,
   sync::{
-    Arc, OnceLock,
+    Arc,
     atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
   },
   time::Duration,
@@ -38,6 +38,8 @@ use crate::time::Instant;
 pub const DEFAULT_LOAD_TIMEOUT: Duration = Duration::from_secs(30);
 /// The most bytes [`Loader::load`] reads of one source, unless the app says: 64 MiB. A reader has no such limit.
 pub const DEFAULT_MAX_LOAD_BYTES: u64 = 64 * 1024 * 1024;
+/// How much of an address one request of a reader asks for.
+const DEFAULT_READ_BLOCK: u64 = 1 << 20;
 /// The threads that read: how many loads are read at a time, on the loader's own threads or on the app's
 /// runtime.
 const LOADER_THREADS: usize = 4;
@@ -90,6 +92,10 @@ impl std::error::Error for LoadError {}
 
 impl From<io::Error> for LoadError {
   fn from(error: io::Error) -> Self {
+    // A reader of an address fails with what the server answered, carried in the error a reader gives.
+    if let Some(error) = error.get_ref().and_then(|inner| inner.downcast_ref::<LoadError>()) {
+      return error.clone();
+    }
     match error.kind() {
       io::ErrorKind::NotFound => Self::NotFound,
       io::ErrorKind::TimedOut => Self::TimedOut,
@@ -226,6 +232,7 @@ impl Drop for Load {
 
 type Allow = Arc<dyn Fn(&str) -> bool + Send + Sync>;
 type Proxy = Arc<dyn Fn(&str) -> String + Send + Sync>;
+type HeaderRule = Arc<dyn Fn(&str) -> Vec<(String, String)> + Send + Sync>;
 
 struct Settings {
   root: Option<PathBuf>,
@@ -233,21 +240,29 @@ struct Settings {
   max_bytes: u64,
   allow: Option<Allow>,
   proxy: Option<Proxy>,
+  /// How many loads run at once, and how many HTTP agents are kept: see [`Loader::pool_size`].
+  pool_size: usize,
+  headers: Option<HeaderRule>,
+  /// How much of an address one request of a reader asks for.
+  #[cfg_attr(not(all(feature = "http", not(target_arch = "wasm32"))), allow(dead_code))]
+  block: u64,
 }
 
 struct Shared {
   settings: RwLock<Settings>,
   entries: Mutex<HashMap<u64, Arc<Entry>>>,
   /// Made by the first load that reads: an app that loads nothing has no threads for it.
-  pool: OnceLock<ThreadPool>,
+  pool: Mutex<Option<ThreadPool>>,
   /// What was loaded from addresses, kept in the folder the app gave: off until it gives one.
   disk: MediaDiskCache,
+  /// The HTTP agents lent to its loads and readers, as many kept as the pool is large.
+  agents: AgentPool,
   /// The app's tokio runtime, where it gave one: loads are read on it, and the pool is not made.
   #[cfg(feature = "tokio")]
   runtime: Mutex<Option<tokio::runtime::Handle>>,
   /// The room for reads on that runtime: as many at a time as the pool has threads.
   #[cfg(feature = "tokio")]
-  room: Arc<tokio::sync::Semaphore>,
+  room: Mutex<Arc<tokio::sync::Semaphore>>,
 }
 
 impl Drop for Shared {
@@ -296,14 +311,18 @@ impl Loader {
           max_bytes: DEFAULT_MAX_LOAD_BYTES,
           allow: None,
           proxy: None,
+          pool_size: LOADER_THREADS,
+          headers: None,
+          block: DEFAULT_READ_BLOCK,
         }),
         entries: Mutex::new(HashMap::new()),
-        pool: OnceLock::new(),
+        pool: Mutex::new(None),
+        agents: agent_pool(LOADER_THREADS),
         disk: MediaDiskCache::new(),
         #[cfg(feature = "tokio")]
         runtime: Mutex::new(None),
         #[cfg(feature = "tokio")]
-        room: Arc::new(tokio::sync::Semaphore::new(LOADER_THREADS)),
+        room: Mutex::new(Arc::new(tokio::sync::Semaphore::new(LOADER_THREADS))),
       }),
     }
   }
@@ -331,6 +350,40 @@ impl Loader {
   /// [`LoadError::TooLarge`], and is not read into memory. A [`Reader`] has no such limit.
   pub fn max_bytes(&self, max_bytes: u64) -> &Self {
     self.shared.settings.write().max_bytes = max_bytes;
+    self
+  }
+
+  /// How many loads are read at once, and how many HTTP agents the loader keeps: 4 unless told, 1 at least. The
+  /// loads are read on as many threads of the loader's own, or as many blocking tasks at a time of the app's
+  /// runtime where it gave one ([`tokio_handle`](Self::tokio_handle)). Each load of an address is lent an agent,
+  /// which it gives back when it ends, with the connections it opened kept open: the next load of the same host
+  /// goes over one of them, with no new handshake. A reader of an address ([`open`](Self::open)) is lent them
+  /// too, for each of its requests.
+  ///
+  /// Told again, it is for the loads asked for from then on: those on their way end where they are, on the
+  /// threads they were given, and an agent given back beyond the new size is let go.
+  pub fn pool_size(&self, size: usize) -> &Self {
+    let size = size.max(1);
+    {
+      let mut settings = self.shared.settings.write();
+      if settings.pool_size == size {
+        return self;
+      }
+      settings.pool_size = size;
+    }
+    #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+    self.shared.agents.resize(size);
+    #[cfg(feature = "tokio")]
+    {
+      *self.shared.room.lock() = Arc::new(tokio::sync::Semaphore::new(size));
+    }
+    // The threads of the size before end once they have read what was given them, away from the caller: a pool
+    // waits for its threads as it is dropped.
+    if let Some(before) = self.shared.pool.lock().take() {
+      let _ = std::thread::Builder::new()
+        .name("lurq-loader-ending".to_owned())
+        .spawn(move || drop(before));
+    }
     self
   }
 
@@ -367,11 +420,57 @@ impl Loader {
     }
   }
 
+  /// Headers of every request for an address, given by `rule` from the address the app asked for: a picture's
+  /// load, a sound's, and each request a video or a sound makes as it plays. A source's own headers
+  /// ([`Source::header`]) come after them and take the place of one of the same name.
+  ///
+  /// ```no_run
+  /// # let loader = lurq::resources::Loader::new();
+  /// loader.headers(|address| {
+  ///   if address.starts_with("https://videos.example.com/") {
+  ///     vec![("Referer".to_owned(), "https://example.com/".to_owned())]
+  ///   } else {
+  ///     Vec::new()
+  ///   }
+  /// });
+  /// ```
+  pub fn headers(&self, rule: impl Fn(&str) -> Vec<(String, String)> + Send + Sync + 'static) -> &Self {
+    self.shared.settings.write().headers = Some(Arc::new(rule));
+    self
+  }
+
+  /// The headers of a request for `source`: the [rule](Self::headers)'s, then the source's own in place of one
+  /// of the same name.
+  pub(crate) fn headers_of(&self, source: &Source) -> Vec<(Arc<str>, Arc<str>)> {
+    let rule = self.shared.settings.read().headers.clone();
+    let mut headers: Vec<(Arc<str>, Arc<str>)> = match (&source.kind, rule) {
+      (SourceKind::Url(address), Some(rule)) => rule(address)
+        .into_iter()
+        .map(|(name, value)| (Arc::from(name), Arc::from(value)))
+        .collect(),
+      _ => Vec::new(),
+    };
+    for (name, value) in &source.headers {
+      headers.retain(|(had, _)| !had.eq_ignore_ascii_case(name));
+      headers.push((name.clone(), value.clone()));
+    }
+    headers
+  }
+
+  /// How much of an address one request of a [reader](Self::open) asks for: 1 MiB unless told. For a test that
+  /// reads a small file in many requests.
+  #[doc(hidden)]
+  pub fn read_block(&self, bytes: u64) -> &Self {
+    self.shared.settings.write().block = bytes.max(1);
+    self
+  }
+
   /// Reads on the tokio runtime `handle` is of, and not on threads of the loader's own: a load is a blocking
-  /// task of the runtime (`spawn_blocking`), four of them at a time, as the loader's own threads would read. A
-  /// loader that has loaded nothing yet starts no threads at all. A load that was on its way when the handle
-  /// was given ends on the thread that reads it; the ones asked for after it are read on the runtime. What a
-  /// load does is the same on both: how far it came, its timeout, its limit, how it is stopped, who it wakes.
+  /// task of the runtime (`spawn_blocking`), as many at a time as the [pool](Self::pool_size) is large, as the loader's
+  /// own threads would read. A loader that has loaded nothing yet starts no threads at all. A load that was on its
+  /// way when the handle was given ends on the thread that reads it; the ones asked for after it are read on the
+  /// runtime. What a load does is the same on both: how far it came, its timeout, its limit, how it is stopped, who
+  /// it wakes.
   ///
   /// The runtime is to run for as long as the loader is asked to load: a load given to one that has stopped
   /// fails with [`LoadError::Cancelled`]. `App::with_tokio_handle` and `App::set_tokio_handle` tell the app's
@@ -508,7 +607,7 @@ impl Loader {
         SourceKind::Resource(resource) => super::web_fetch::address_of(&self.resource_path(resource)),
         SourceKind::Bytes(_) => return,
       };
-      let headers = source.headers.clone();
+      let headers = self.headers_of(source);
       wasm_bindgen_futures::spawn_local(async move {
         let told = |loaded, total| entry.progress(loaded, total);
         let result = super::web_fetch::fetch(
@@ -544,8 +643,10 @@ impl Loader {
         SourceKind::Url(address) => self.fetched_from(address),
         _ => String::new(),
       };
+      let headers = self.headers_of(source);
       let source = source.clone();
       let disk = self.shared.disk.clone();
+      let agents = self.shared.agents.clone();
       let unread = Unread(entry.clone());
       let read = move || {
         let _unread = unread;
@@ -554,7 +655,7 @@ impl Loader {
           (Some(path), _, Some(head)) => FileReader::open(&path)
             .and_then(|reader| read_start(&reader, head))
             .map_err(LoadError::from),
-          (None, SourceKind::Url(_), Some(head)) => fetch(&fetched, &source, timeout, head, true, told),
+          (None, SourceKind::Url(_), Some(head)) => fetch(&agents, &fetched, &headers, timeout, head, true, told),
           (Some(path), _, None) => FileReader::open(&path)
             .and_then(|reader| read_all(&reader, Some(max_bytes), told))
             .map_err(|error| match error.kind() {
@@ -564,7 +665,7 @@ impl Loader {
           // What the cache on the disk keeps of the address is read from there; what is fetched is kept.
           (None, SourceKind::Url(address), None) => match disk.read(source.cache_key(), max_bytes) {
             Some(bytes) => Ok(bytes),
-            None => fetch(&fetched, &source, timeout, max_bytes, false, told).inspect(|bytes| {
+            None => fetch(&agents, &fetched, &headers, timeout, max_bytes, false, told).inspect(|bytes| {
               disk.put(source.cache_key(), address, bytes);
             }),
           },
@@ -575,7 +676,7 @@ impl Loader {
       // On the app's runtime where it gave one: a blocking task of it, once there is room for one more read.
       #[cfg(feature = "tokio")]
       if let Some(handle) = self.shared.runtime.lock().clone() {
-        let room = self.shared.room.clone();
+        let room = self.shared.room.lock().clone();
         drop(handle.spawn(async move {
           if let Ok(_turn) = room.acquire().await {
             let _ = tokio::task::spawn_blocking(read).await;
@@ -583,23 +684,62 @@ impl Loader {
         }));
         return;
       }
-      let pool = self.shared.pool.get_or_init(|| ThreadPool::new(LOADER_THREADS));
-      pool.execute(read);
+      let size = self.shared.settings.read().pool_size;
+      self
+        .shared
+        .pool
+        .lock()
+        .get_or_insert_with(|| ThreadPool::new(size))
+        .execute(read);
     }
   }
 
   /// A reader of `source`, for what reads a part of it and not all: a video, a sound. A file, a resource and
-  /// bytes are read where they are. A reader of an address is not built yet: it fails with
-  /// [`LoadError::Unsupported`].
+  /// bytes are read where they are.
+  ///
+  /// An address is read by ranges of 1 MiB as they are asked for, with the [rule's](Self::headers) and the
+  /// source's headers and the loader's timeout on every request. Its first range is asked for before this
+  /// returns, so it blocks: call it off the UI thread. That answer gives its length and its type
+  /// ([`Reader::content_type`]), and a server that refuses it fails here, with what it answered
+  /// ([`LoadError::Status`], [`LoadError::NotFound`]). A read that fails later gives an [`io::Error`] that
+  /// `LoadError::from` turns into the same. What the [cache on the disk](Self::media_disk_cache) keeps of it is
+  /// read from its file. An address the loader does not [allow](Self::allow) fails with [`LoadError::Denied`]; in a
+  /// build without the feature `http` and in a browser, with [`LoadError::Unsupported`].
   pub fn open(&self, source: &Source) -> Result<Arc<dyn Reader>, LoadError> {
     match &source.kind {
       SourceKind::Bytes(bytes) => Ok(Arc::new(BytesReader::new(bytes.clone()))),
       SourceKind::File(path) => Ok(Arc::new(FileReader::open(path)?)),
       SourceKind::Resource(resource) => Ok(Arc::new(FileReader::open(self.resource_path(resource))?)),
-      SourceKind::Url(_) => Err(LoadError::Unsupported(
-        "a reader of an address is not built yet: only a whole load of one",
-      )),
+      SourceKind::Url(address) if !self.allows(address) => Err(LoadError::Denied),
+      SourceKind::Url(address) => self.open_address(address, source),
     }
+  }
+
+  #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+  fn open_address(&self, address: &str, source: &Source) -> Result<Arc<dyn Reader>, LoadError> {
+    if let Some(path) = self.shared.disk.file(source.cache_key())
+      && let Ok(reader) = FileReader::open(path)
+    {
+      return Ok(Arc::new(reader));
+    }
+    let (timeout, block) = {
+      let settings = self.shared.settings.read();
+      (settings.timeout, settings.block)
+    };
+    Ok(Arc::new(super::http::HttpReader::open(
+      self.shared.agents.clone(),
+      self.fetched_from(address),
+      self.headers_of(source),
+      timeout,
+      block,
+    )?))
+  }
+
+  #[cfg(not(all(feature = "http", not(target_arch = "wasm32"))))]
+  fn open_address(&self, _address: &str, _source: &Source) -> Result<Arc<dyn Reader>, LoadError> {
+    Err(LoadError::Unsupported(
+      "this build reads an address only whole: a reader of one needs the feature `http`, outside a browser",
+    ))
   }
 
   /// Forgets the load of `source` that ended, so that it is loaded again when it is next asked for: the way to
@@ -673,24 +813,40 @@ fn read_start(reader: &dyn Reader, head: u64) -> io::Result<Vec<u8>> {
   Ok(bytes)
 }
 
+/// The HTTP agents of a loader: none in a build that reads no address.
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+type AgentPool = Arc<super::http::Agents>;
+#[cfg(not(all(feature = "http", not(target_arch = "wasm32"))))]
+type AgentPool = ();
+
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+fn agent_pool(size: usize) -> AgentPool {
+  super::http::Agents::new(size)
+}
+
+#[cfg(not(all(feature = "http", not(target_arch = "wasm32"))))]
+fn agent_pool(_size: usize) -> AgentPool {}
+
 /// Reads all of what is at `address`, or its first `max_bytes` where `cut`.
 #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 fn fetch(
+  agents: &AgentPool,
   address: &str,
-  source: &Source,
+  headers: &[(Arc<str>, Arc<str>)],
   timeout: Duration,
   max_bytes: u64,
   cut: bool,
   told: impl FnMut(u64, Option<u64>) -> bool,
 ) -> Result<Vec<u8>, LoadError> {
-  super::http::fetch(address, &source.headers, timeout, max_bytes, cut, told)
+  super::http::fetch(agents, address, headers, timeout, max_bytes, cut, told)
 }
 
 /// A build without the feature `http` loads no address, and says so.
 #[cfg(all(not(feature = "http"), not(target_arch = "wasm32")))]
 fn fetch(
+  _agents: &AgentPool,
   _address: &str,
-  _source: &Source,
+  _headers: &[(Arc<str>, Arc<str>)],
   _timeout: Duration,
   _max_bytes: u64,
   _cut: bool,
@@ -717,7 +873,7 @@ mod tests {
   /// A runtime of the tests' own.
   #[cfg(feature = "tokio")]
   fn runtime() -> tokio::runtime::Handle {
-    static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
+    static RUNTIME: std::sync::OnceLock<tokio::runtime::Runtime> = std::sync::OnceLock::new();
     let runtime = RUNTIME.get_or_init(|| {
       tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
@@ -773,7 +929,7 @@ mod tests {
     let loader = loader();
     let load = loader.load(&Source::bytes(vec![1, 2, 3]));
     assert!(matches!(load.state(), LoadState::Ready(bytes) if bytes[..] == [1, 2, 3]));
-    assert!(loader.shared.pool.get().is_none());
+    assert!(loader.shared.pool.lock().is_none());
   }
 
   #[test]
@@ -882,7 +1038,7 @@ mod tests {
     loader.allow(|address| address.starts_with("https://cdn.example.com/"));
     let load = loader.load(&Source::url("https://elsewhere.example.com/a.png"));
     assert!(matches!(load.state(), LoadState::Failed(LoadError::Denied)));
-    assert!(loader.shared.pool.get().is_none());
+    assert!(loader.shared.pool.lock().is_none());
   }
 
   #[cfg(not(feature = "http"))]
@@ -891,6 +1047,38 @@ mod tests {
     let loader = loader();
     let state = ended(&loader.load(&Source::url("https://example.com/a.png")));
     assert!(matches!(state, LoadState::Failed(LoadError::Unsupported(_))));
+  }
+
+  #[test]
+  fn the_rules_headers_come_first_and_a_sources_own_take_the_place_of_one_of_the_same_name() {
+    let loader = loader();
+    loader.headers(|address| {
+      if address.starts_with("https://videos.example.com/") {
+        vec![
+          ("Referer".to_owned(), "https://example.com/".to_owned()),
+          ("X-Client".to_owned(), "lurq".to_owned()),
+        ]
+      } else {
+        Vec::new()
+      }
+    });
+    let names = |source: &Source| -> Vec<(String, String)> {
+      loader
+        .headers_of(source)
+        .iter()
+        .map(|(name, value)| (name.to_string(), value.to_string()))
+        .collect()
+    };
+    let pair = |name: &str, value: &str| (name.to_owned(), value.to_owned());
+    assert_eq!(
+      names(&Source::url("https://videos.example.com/a.mp4").header("referer", "https://example.com/watch")),
+      vec![pair("X-Client", "lurq"), pair("referer", "https://example.com/watch")]
+    );
+    assert_eq!(
+      names(&Source::url("https://elsewhere.example.com/a.mp4").header("Authorization", "Bearer token")),
+      vec![pair("Authorization", "Bearer token")]
+    );
+    assert!(names(&Source::bytes(vec![1])).is_empty());
   }
 
   #[test]
@@ -908,9 +1096,15 @@ mod tests {
       loader.open(&Source::file(folder_of(&path).join("none.bin"))),
       Err(LoadError::NotFound)
     ));
+    #[cfg(not(feature = "http"))]
     assert!(matches!(
       loader.open(&Source::url("https://example.com/a.mp4")),
       Err(LoadError::Unsupported(_))
+    ));
+    loader.allow(|_| false);
+    assert!(matches!(
+      loader.open(&Source::url("https://example.com/a.mp4")),
+      Err(LoadError::Denied)
     ));
   }
 
@@ -944,6 +1138,108 @@ mod tests {
       }
     });
     (address, asked)
+  }
+
+  /// What a [`serve_kept`] server counted.
+  #[cfg(feature = "http")]
+  #[derive(Default)]
+  struct Served {
+    connections: AtomicUsize,
+    now: AtomicUsize,
+    most: AtomicUsize,
+  }
+
+  /// A server on this machine that keeps its connections open, as a host of pictures does: it answers every
+  /// request of a connection with `body`, `pause` after it came. Its address, without a path.
+  #[cfg(feature = "http")]
+  fn serve_kept(body: &'static [u8], pause: Duration) -> (String, Arc<Served>) {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = format!("http://{}", listener.local_addr().unwrap());
+    let served = Arc::new(Served::default());
+    let counts = served.clone();
+    std::thread::spawn(move || {
+      for stream in listener.incoming() {
+        let Ok(mut stream) = stream else {
+          return;
+        };
+        counts.connections.fetch_add(1, Ordering::SeqCst);
+        let counts = counts.clone();
+        std::thread::spawn(move || {
+          let mut request = Vec::new();
+          let mut chunk = [0_u8; 1024];
+          loop {
+            while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+              match stream.read(&mut chunk) {
+                Ok(read) if read > 0 => request.extend_from_slice(&chunk[..read]),
+                _ => return,
+              }
+            }
+            request.clear();
+            counts
+              .most
+              .fetch_max(counts.now.fetch_add(1, Ordering::SeqCst) + 1, Ordering::SeqCst);
+            std::thread::sleep(pause);
+            counts.now.fetch_sub(1, Ordering::SeqCst);
+            let head = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", body.len());
+            if stream.write_all(head.as_bytes()).is_err() || stream.write_all(body).is_err() {
+              return;
+            }
+          }
+        });
+      }
+    });
+    (address, served)
+  }
+
+  #[cfg(feature = "http")]
+  #[test]
+  fn the_loads_of_one_host_go_over_the_connection_the_first_opened() {
+    let (address, served) = serve_kept(&[1, 2, 3], Duration::ZERO);
+    let loader = loader();
+    for index in 0..5 {
+      let load = loader.load(&Source::url(&format!("{address}/picture-{index}.png")));
+      assert!(matches!(ended(&load), LoadState::Ready(bytes) if bytes[..] == [1, 2, 3]));
+    }
+    assert_eq!(
+      served.connections.load(Ordering::SeqCst),
+      1,
+      "one handshake for the five"
+    );
+    assert_eq!(loader.shared.agents.made(), 1, "and one agent");
+  }
+
+  #[cfg(feature = "http")]
+  #[test]
+  fn as_many_loads_are_read_at_once_as_the_pool_is_large_and_its_agents_are_kept() {
+    let (address, served) = serve_kept(&[9; 64], Duration::from_millis(60));
+    let loader = loader();
+    let read_at_once = |size: usize, batch: &str| {
+      loader.pool_size(size);
+      served.most.store(0, Ordering::SeqCst);
+      let loads: Vec<Load> = (0..size * 3)
+        .map(|index| loader.load(&Source::url(&format!("{address}/{batch}-{index}.png"))))
+        .collect();
+      for load in &loads {
+        assert!(matches!(ended(load), LoadState::Ready(bytes) if bytes.len() == 64));
+      }
+      served.most.load(Ordering::SeqCst)
+    };
+    assert_eq!(read_at_once(2, "two"), 2, "two at once");
+    assert!(
+      loader.shared.agents.made() <= 2,
+      "{} agents",
+      loader.shared.agents.made()
+    );
+    // Told again, the loads from then on are read as many at once.
+    let most = read_at_once(3, "three");
+    assert!((2..=3).contains(&most), "{most} at once");
+    assert!(
+      loader.shared.agents.made() <= 3,
+      "{} agents",
+      loader.shared.agents.made()
+    );
+    assert!(served.connections.load(Ordering::SeqCst) <= 3);
   }
 
   #[cfg(feature = "http")]
@@ -1011,7 +1307,11 @@ mod tests {
     );
 
     #[cfg(feature = "http")]
-    again!(what_came_from_an_address_is_kept_in_the_folder_the_app_gave_and_read_from_there);
+    again!(
+      what_came_from_an_address_is_kept_in_the_folder_the_app_gave_and_read_from_there,
+      the_loads_of_one_host_go_over_the_connection_the_first_opened,
+      as_many_loads_are_read_at_once_as_the_pool_is_large_and_its_agents_are_kept,
+    );
 
     /// Loads `count` files of this test's own with `loader`, one after another, to their end.
     fn read(loader: &Loader, test: &str, count: usize) {
@@ -1037,7 +1337,7 @@ mod tests {
       loader.tokio_handle(runtime());
       read(&loader, "on-a-runtime", 6);
       assert!(
-        loader.shared.pool.get().is_none(),
+        loader.shared.pool.lock().is_none(),
         "no pool of the loader's own was made"
       );
       assert_eq!(loader.pending(), 0);
@@ -1052,7 +1352,7 @@ mod tests {
         ended(&loader.load(&Source::file(&path))),
         LoadState::Failed(LoadError::Cancelled)
       ));
-      assert!(loader.shared.pool.get().is_none());
+      assert!(loader.shared.pool.lock().is_none());
     }
 
     #[test]
@@ -1060,7 +1360,7 @@ mod tests {
       let loader = Loader::new();
       read(&loader, "before-a-handle", 1);
       assert!(
-        loader.shared.pool.get().is_some(),
+        loader.shared.pool.lock().is_some(),
         "with no handle the loader reads on its own threads"
       );
       // The loader has its threads, and is given a runtime: the next load is the runtime's, not theirs.
@@ -1112,7 +1412,7 @@ mod tests {
       }
       let most = most.load(Ordering::SeqCst);
       assert!((1..=LOADER_THREADS).contains(&most), "{most} at a time");
-      assert!(loader.shared.pool.get().is_none());
+      assert!(loader.shared.pool.lock().is_none());
     }
   }
 }

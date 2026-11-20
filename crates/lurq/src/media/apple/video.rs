@@ -33,7 +33,7 @@ use objc2::{
 };
 use objc2_av_foundation::{
   AVMediaTypeAudio, AVPlayer, AVPlayerItem, AVPlayerItemStatus, AVPlayerItemVideoOutput, AVPlayerStatus,
-  AVPlayerTimeControlStatus,
+  AVPlayerTimeControlStatus, AVURLAsset,
 };
 use objc2_core_foundation::CFString;
 use objc2_core_media::{CMTime, CMTimeFlags, kCMTimeZero};
@@ -46,7 +46,7 @@ use objc2_core_video::{
 };
 use objc2_foundation::{NSDictionary, NSError, NSNumber, NSString, NSURL};
 
-use super::super::{Command, MediaError, Opened, Shared};
+use super::super::{Command, Headers, MediaError, Opened, Shared};
 use crate::images::{
   CvPixelBufferFrames, ImageData, MacosCvPixelBuffer, NativeImageData, cv_pixel_buffer_frames_drawn,
 };
@@ -278,10 +278,38 @@ fn look(link: &Link, main: MainThreadMarker) {
   *link.seen() = seen;
 }
 
-/// What is played: a file, or an address the player reads by itself.
+/// What is played: a file, or an address the player reads by itself, with the headers its requests carry.
 enum Place {
   File(PathBuf),
-  Url(Arc<str>),
+  Url(Arc<str>, Headers),
+}
+
+/// The player's item of what is at `address`, whose requests carry `headers`.
+///
+/// `AVURLAssetHTTPHeaderFieldsKey` is not in the SDK's headers: it is the key AVFoundation reads the headers of
+/// an asset's requests from, which players on Apple's systems have used for years, and the only way to give them
+/// short of reading the address through a delegate of the asset's resource loader.
+fn item_at(address: &NSURL, headers: &Headers, main: MainThreadMarker) -> Retained<AVPlayerItem> {
+  // SAFETY: on the main thread, as every call of the player and its item; the dictionaries hold strings, as the
+  // asset reads them.
+  unsafe {
+    if headers.is_empty() {
+      return AVPlayerItem::playerItemWithURL(address, main);
+    }
+    let names: Vec<Retained<NSString>> = headers.iter().map(|(name, _)| NSString::from_str(name)).collect();
+    let values: Vec<Retained<NSString>> = headers.iter().map(|(_, value)| NSString::from_str(value)).collect();
+    let fields = NSDictionary::<NSString, NSString>::from_retained_objects(
+      &names.iter().map(|name| &**name).collect::<Vec<_>>(),
+      &values,
+    );
+    let fields: &AnyObject = &fields;
+    let options = NSDictionary::<NSString, AnyObject>::from_slices(
+      &[&*NSString::from_str("AVURLAssetHTTPHeaderFieldsKey")],
+      &[fields],
+    );
+    let asset = AVURLAsset::URLAssetWithURL_options(address, Some(&options));
+    AVPlayerItem::playerItemWithAsset(&asset, main)
+  }
 }
 
 /// The ending of a file's name that says what `bytes` are: the player tells a file's kind by its name first.
@@ -337,7 +365,13 @@ pub(super) fn run(shared: &Arc<Shared>, opened: Opened, picture: bool) {
       }
       Err(error) => return shared.fail(MediaError::Other(Arc::from(error.to_string()))),
     },
-    Opened::Url(address) => Place::Url(address),
+    Opened::Url(address, headers) => Place::Url(address, headers),
+    // Only Windows reads an address through the app's loader.
+    Opened::Reader(..) => {
+      return shared.fail(MediaError::Unavailable(Arc::from(
+        "the system's player reads an address itself",
+      )));
+    }
   };
   play(shared, place, picture);
   // The file of its bytes is the media's own, and goes with it.
@@ -499,9 +533,9 @@ fn play(shared: &Arc<Shared>, place: Place, picture: bool) {
     let (link, output) = (link.clone(), output.clone().map(Output));
     move |main| {
       let output = output.map(|Output(output)| output);
-      let address = match &place {
-        Place::File(path) => NSURL::from_file_path(path),
-        Place::Url(address) => NSURL::URLWithString(&NSString::from_str(address)),
+      let (address, headers) = match &place {
+        Place::File(path) => (NSURL::from_file_path(path), None),
+        Place::Url(address, headers) => (NSURL::URLWithString(&NSString::from_str(address)), Some(headers)),
       };
       let Some(address) = address else {
         link.seen().state = State::Failed(MediaError::NotFound);
@@ -509,7 +543,10 @@ fn play(shared: &Arc<Shared>, place: Place, picture: bool) {
       };
       // SAFETY: on the main thread, as every call of the player and its item.
       unsafe {
-        let item = AVPlayerItem::playerItemWithURL(&address, main);
+        let item = match headers {
+          Some(headers) => item_at(&address, headers, main),
+          None => AVPlayerItem::playerItemWithURL(&address, main),
+        };
         if let Some(output) = &output {
           item.addOutput(output);
         }

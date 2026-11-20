@@ -101,6 +101,8 @@ mod slider {
 
 mod pointer {
   mod a_finger_beside;
+  mod a_finger_shows_no_focus_ring;
+  mod a_finger_that_travels;
   mod edge_between_rows;
   mod leaves_during_a_fade;
   mod modifiers;

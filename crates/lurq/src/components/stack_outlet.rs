@@ -1829,8 +1829,10 @@ struct Flight {
 }
 
 impl Flight {
-  /// Adds the title to `overlay`, `out` of the way from the label to the content: the large one, which
-  /// shrinks and fades as it nears the label, and the label, which grows and fades as it nears the content.
+  /// Adds the title to `overlay`, `out` of the way from the label to the content. Where the label says the
+  /// title, one text goes between the two, shrinking and taking the label's color as it nears it. Where it says
+  /// something else ("Back"), the large one shrinks and fades as it nears the label, and the label grows and
+  /// fades as it nears the content.
   fn draw(&self, overlay: Stack, bar: &NavigationBar, out: f32, pace: Duration, curve: Easing) -> Stack {
     let between = |at_label: f32, at_large: f32| at_label + (at_large - at_label) * out;
     let centre = (
@@ -1862,6 +1864,31 @@ impl Flight {
     } else {
       bar.text_size / bar.large_title_size
     };
+    // The way back says the title: one text goes between the two, and turns from the title's color to the way
+    // back's. Two of it fading across each other, bold over regular, are seen as one title drawn twice.
+    if self.says == self.title {
+      let mix = |at_label: u8, at_large: u8| between(f32::from(at_label), f32::from(at_large)).round() as u8;
+      let (label, large) = (bar.tint, bar.title);
+      return overlay.child(
+        part(
+          &self.title,
+          bar.large_title_size,
+          bar.large_title_weight,
+          // The default color, which names none: the text takes the foreground below.
+          TextStyle::default().color,
+          (self.large.2, self.large.3),
+          between(ratio, 1.0),
+          1.0,
+        )
+        .foreground(Color::new(
+          mix(label.r(), large.r()),
+          mix(label.g(), large.g()),
+          mix(label.b(), large.b()),
+          mix(label.a(), large.a()),
+        ))
+        .transition(Transition::foreground().duration(pace).easing(curve)),
+      );
+    }
     overlay
       .child(part(
         &self.title,
@@ -2456,7 +2483,9 @@ struct StackLayerProps {
 
 impl PartialEq for StackLayerProps {
   fn eq(&self, other: &Self) -> bool {
-    self.id == other.id && self.path == other.path && self.depth == other.depth
+    // A bar given again in other colors (the system turned dark) reaches the screen's large title, which is
+    // drawn in the screen's render.
+    self.id == other.id && self.path == other.path && self.depth == other.depth && self.slot.style == other.slot.style
   }
 }
 

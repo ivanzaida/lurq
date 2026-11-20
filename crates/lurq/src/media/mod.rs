@@ -21,13 +21,19 @@
 //! `ui::VideoPlayer::source` and `ui::AudioPlayer::source` do all of this for a player. An app that draws its
 //! own asks for a media itself.
 //!
+//! The headers of a source at an address (the loader's [rule](Loader::headers), then [`Source::header`]) are on
+//! every request of what is read as it plays. On Windows the app's loader reads every address
+//! ([`Loader::open`], by ranges, the feature `http`) and the decoder only decodes: while a part it asked for is on
+//! its way the media waits, and a read the server refuses is why the media fails. On macOS and iOS the system's
+//! player reads it, given the headers. A browser's `<audio>` cannot send them.
+//!
 //! On Windows, where the `wgpu` renderer draws on Direct3D 12, a frame stays on the graphics card from the
 //! decoder to the screen: decoded there, copied there once, drawn there. Elsewhere it is copied through memory
 //! once.
 //!
 //! What is not here yet: a speed that keeps the pitch of the sound on Windows (faster is higher; Apple's players
-//! keep it); a video at an address read through the app's loader (the system reads it itself where it can); on
-//! macOS and iOS, a clip its track turns is drawn as it was filmed.
+//! keep it); on macOS and iOS, an address read through the app's loader (the system's player reads it itself),
+//! and a clip its track turns is drawn as it was filmed.
 
 use std::{
   collections::VecDeque,
@@ -37,7 +43,7 @@ use std::{
 pub use crate::core::{MediaError, MediaInfo};
 use crate::{
   images::ImageData,
-  resources::{Load, LoadError, LoadState, Loader, MediaDiskCache, Source, SourceKind},
+  resources::{Load, LoadError, LoadState, Loader, MediaDiskCache, Reader, Source, SourceKind},
   time::{Duration, Instant},
 };
 
@@ -132,6 +138,8 @@ pub(crate) struct Shared {
   wakers: Mutex<Vec<Waker>>,
   /// Its handlers of events and what it last told them, once something listens.
   listening: std::sync::OnceLock<Arc<events::Listening>>,
+  /// Why a read of what it plays failed, where the app's loader reads it.
+  read_failed: Mutex<Option<LoadError>>,
 }
 
 /// The state of a media, and the clock it is read from: where it was at `since`, going at `rate` while it plays.
@@ -204,6 +212,7 @@ impl Shared {
       told: Condvar::new(),
       wakers: Mutex::new(Vec::new()),
       listening: std::sync::OnceLock::new(),
+      read_failed: Mutex::new(None),
     })
   }
 
@@ -247,9 +256,30 @@ impl Shared {
     {
       let mut inner = self.inner();
       inner.hold();
-      inner.error = Some(why);
+      // What the app's loader could not read is why the decoder failed, in the server's words.
+      let read = self
+        .read_failed
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .take();
+      inner.error = Some(read.map_or(why, load_failed));
       inner.playing = false;
       inner.waiting = false;
+    }
+    self.wake();
+  }
+
+  /// Whether a read the decoder asked for waits for the network: once it opened, the media waits while one
+  /// does, and its clock stands.
+  #[cfg_attr(not(windows), allow(dead_code))]
+  fn set_reading(&self, waits: bool) {
+    {
+      let mut inner = self.inner();
+      if !inner.opened || inner.error.is_some() || inner.waiting == waits {
+        return;
+      }
+      inner.hold();
+      inner.waiting = waits;
     }
     self.wake();
   }
@@ -333,13 +363,101 @@ impl Drop for Handle {
 #[derive(Clone)]
 pub struct Media(Arc<Handle>);
 
+/// The headers of a source's requests.
+pub(crate) type Headers = Arc<[(Arc<str>, Arc<str>)]>;
+
 /// What a source is, for what opens it: the file it is read from, the bytes it is, or its address.
 #[derive(Clone)]
 pub(crate) enum Opened {
   File(std::path::PathBuf),
   /// The bytes, and the name they came by where they have one: its ending tells the decoder what they are.
   Bytes(Arc<[u8]>, Option<Arc<str>>),
-  Url(Arc<str>),
+  /// An address the system's player reads itself, with the headers its requests are to carry: on Apple's
+  /// systems, in a browser, and on Windows in a build without the feature `http`.
+  Url(Arc<str>, Headers),
+  /// What the app's loader reads ([`Loader::open`]), and the address it is at, whose ending tells the decoder
+  /// what it is where its type does not.
+  #[cfg_attr(not(windows), allow(dead_code))]
+  Reader(Arc<dyn Reader>, Arc<str>),
+}
+
+/// What a media opens of `source` at `address`, read as it plays. On Windows the app's loader reads it, and the
+/// decoder only decodes; elsewhere the system's player reads it, given the headers. `None` where it cannot be
+/// opened, which the media's state then says.
+fn stream(shared: &Arc<Shared>, loader: &Loader, source: &Source, address: Arc<str>) -> Option<Opened> {
+  #[cfg(windows)]
+  match loader.open(source) {
+    Ok(reader) => return Some(Opened::Reader(Arc::new(Watched::new(reader, shared)), address)),
+    // A build without the feature `http`: Media Foundation reads the address itself, and sends no header.
+    Err(LoadError::Unsupported(_)) => {}
+    Err(error) => {
+      shared.fail(load_failed(error));
+      return None;
+    }
+  }
+  let _ = shared;
+  Some(Opened::Url(address, Arc::from(loader.headers_of(source))))
+}
+
+/// A reader of what a media plays: while a read the decoder asked for waits for the network, the media waits, and
+/// the reason a read failed is the reason the media fails.
+#[cfg_attr(not(windows), allow(dead_code))]
+struct Watched {
+  reader: Arc<dyn Reader>,
+  shared: std::sync::Weak<Shared>,
+  /// The reads on their way that wait for the network.
+  waiting: std::sync::atomic::AtomicUsize,
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+impl Watched {
+  fn new(reader: Arc<dyn Reader>, shared: &Arc<Shared>) -> Self {
+    Self {
+      reader,
+      shared: Arc::downgrade(shared),
+      waiting: std::sync::atomic::AtomicUsize::new(0),
+    }
+  }
+}
+
+impl Reader for Watched {
+  fn len(&self) -> Option<u64> {
+    self.reader.len()
+  }
+
+  fn content_type(&self) -> Option<Arc<str>> {
+    self.reader.content_type()
+  }
+
+  fn buffered(&self) -> Vec<std::ops::Range<u64>> {
+    self.reader.buffered()
+  }
+
+  fn read_at(&self, offset: u64, buf: &mut [u8]) -> std::io::Result<usize> {
+    use std::sync::atomic::Ordering;
+    let there = self.reader.buffered().iter().any(|range| range.contains(&offset));
+    let shared = self.shared.upgrade();
+    if !there && let Some(shared) = &shared {
+      self.waiting.fetch_add(1, Ordering::AcqRel);
+      shared.set_reading(true);
+    }
+    let read = self.reader.read_at(offset, buf);
+    if !there && let Some(shared) = &shared {
+      if self.waiting.fetch_sub(1, Ordering::AcqRel) == 1 {
+        shared.set_reading(false);
+      }
+    }
+    read.map_err(|error| {
+      let why = LoadError::from(error);
+      if let Some(shared) = &shared {
+        *shared
+          .read_failed
+          .lock()
+          .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(why.clone());
+      }
+      std::io::Error::other(why)
+    })
+  }
 }
 
 /// What a media starts from: what is there to open, or a load of it that is on its way.
@@ -352,12 +470,21 @@ enum Asked {
     disk: MediaDiskCache,
   },
   /// The bytes at `address`, loaded whole by the app's loader and kept under `key`: by `disk` where it is on,
-  /// and in memory where it is not.
+  /// and in memory where it is not. Where they are more than the loader reads whole, `source` is read as it
+  /// plays.
   Load {
     load: Load,
     key: u64,
     address: Arc<str>,
     disk: MediaDiskCache,
+    loader: Loader,
+    source: Source,
+  },
+  /// `source`, at `address`, read as it plays: opened on the media's thread, since opening asks the server.
+  Stream {
+    loader: Loader,
+    source: Source,
+    address: Arc<str>,
   },
 }
 
@@ -392,6 +519,8 @@ fn settle(shared: &Arc<Shared>, asked: Asked) -> Option<(Opened, Option<(MediaDi
       key,
       address,
       disk,
+      loader,
+      source,
     } => match loaded(shared, &load)? {
       // The app's loader wrote the file as it loaded it; where it did not (the load was one that had ended
       // before the cache was told to forget), it is written now. The sound plays from the file, and its bytes
@@ -404,14 +533,21 @@ fn settle(shared: &Arc<Shared>, asked: Asked) -> Option<(Opened, Option<(MediaDi
           (Opened::Bytes(bytes, Some(address)), None)
         }
       }),
-      // More than the loader reads whole, or a build that loads no address: the system reads it itself, and
+      // More than the loader reads whole, or a build that loads no address: it is read as it plays, and
       // nothing of it is kept.
-      Err(LoadError::TooLarge { .. } | LoadError::Unsupported(_)) => Some((Opened::Url(address), None)),
+      Err(LoadError::TooLarge { .. } | LoadError::Unsupported(_)) => {
+        Some((stream(shared, &loader, &source, address)?, None))
+      }
       Err(error) => {
         shared.fail(load_failed(error));
         None
       }
     },
+    Asked::Stream {
+      loader,
+      source,
+      address,
+    } => Some((stream(shared, &loader, &source, address)?, None)),
   }
 }
 
@@ -434,7 +570,7 @@ fn live(shared: &Arc<Shared>, asked: Asked, heard: bool, run: impl FnOnce(&Arc<S
 impl Media {
   /// Opens `source` with the app's `loader` and shows its first frame, paused at its start: what is seen, with
   /// its sound where it has some. It never fails here: what cannot be opened says why in its
-  /// [`state`](Self::state).
+  /// [`state`](Self::state). An address is read as it plays, with the source's headers on its requests.
   pub fn open(loader: &Loader, source: &Source) -> Self {
     Self::start_from(loader, source, false)
   }
@@ -446,8 +582,8 @@ impl Media {
   /// loader allows) and kept: played again, it starts at once and asks the network for nothing. It is kept in
   /// memory ([`sound_cache`]) for the run of the app; where the loader's cache on the disk is on
   /// ([`Loader::enable_media_disk_cache`]), it is kept there as a file, for the next run too, and plays from the
-  /// file. What is larger than the loader reads whole is read by the system itself as it plays, and not kept.
-  /// While it loads, its state says it waits.
+  /// file. What is larger than the loader reads whole is read as it plays, with the source's headers, and not
+  /// kept. While it loads, its state says it waits.
   pub fn sound(loader: &Loader, source: &Source) -> Self {
     Self::start_from(loader, source, true)
   }
@@ -467,11 +603,9 @@ impl Media {
       SourceKind::Resource(resource) => Ok(Asked::Opened(Opened::File(loader.resource_path(resource)))),
       SourceKind::Bytes(bytes) => Ok(Asked::Opened(Opened::Bytes(bytes.clone(), None))),
       SourceKind::Url(address) if !loader.allows(address) => Err(MediaError::Denied),
-      // A browser reads the address itself as it plays: nothing is loaded first, nor kept.
-      #[cfg(target_arch = "wasm32")]
-      SourceKind::Url(address) => Ok(Asked::Opened(Opened::Url(address.clone()))),
       // A sound is loaded whole and kept; kept already, it is there: as a file where the app's cache on the
-      // disk is on, in memory where it is not.
+      // disk is on, in memory where it is not. A browser reads it itself as it plays: nothing is loaded first,
+      // nor kept.
       #[cfg(not(target_arch = "wasm32"))]
       SourceKind::Url(address) if heard => {
         let (key, disk) = (source.cache_key(), loader.media_disk_cache());
@@ -490,11 +624,16 @@ impl Media {
             key,
             address: address.clone(),
             disk: disk.clone(),
+            loader: loader.clone(),
+            source: source.clone(),
           }
         })
       }
-      #[cfg(not(target_arch = "wasm32"))]
-      SourceKind::Url(address) => Ok(Asked::Opened(Opened::Url(address.clone()))),
+      SourceKind::Url(address) => Ok(Asked::Stream {
+        loader: loader.clone(),
+        source: source.clone(),
+        address: address.clone(),
+      }),
     };
     match asked {
       Ok(asked) => Self::start(&shared, asked, heard),
@@ -533,7 +672,17 @@ impl Media {
     let opened = match asked {
       Asked::Opened(opened) => opened,
       Asked::Kept { path, .. } => Opened::File(path),
-      Asked::Load { address, .. } => Opened::Url(address),
+      Asked::Load {
+        loader,
+        source,
+        address,
+        ..
+      }
+      | Asked::Stream {
+        loader,
+        source,
+        address,
+      } => Opened::Url(address, Arc::from(loader.headers_of(&source))),
     };
     web::start(shared, opened, heard);
   }

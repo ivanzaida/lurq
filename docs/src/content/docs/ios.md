@@ -102,6 +102,10 @@ which are the platform's:
 
 - **A press waits** 150 ms over content that scrolls, to see whether the finger scrolls instead. A finger that
   moves more than 10 points scrolls, and there is no click. A quick tap still clicks at once.
+- **A finger that travels is no tap.** Moved more than 10 points from where it landed, it clicks nothing when it
+  lifts, in any direction: whether something scrolled that way or not (a list that scrolls up and down, crossed
+  sideways), where nothing scrolls at all, and after it rested into a long press. Its `on_mouse_up` is still told,
+  and a slider, a selection or a drag it holds ends as it does.
 - **Nothing is hovered.** Hover styles are not applied under a finger.
 - **A tap shows as pressed** for a moment even when the finger was down for less than a frame.
 - `MouseEvent::pointer_kind` is `PointerKind::Touch` for these events (`Pen` for a pen's), for an element that must tell.
@@ -293,7 +297,11 @@ theme, where their styles are made: `SheetStyle::new()`, `TabBar::new()`, `Navig
 `PullToRefreshStyle::new()` and `SwipeAction::new(..)` read the recipe the theme keeps for each (`phone_sheet`,
 `phone_tab_bar`, `phone_navigation_bar`, `phone_pull_to_refresh`, `phone_swipe_row`), which names the design's
 roles. Built in a dark theme they are dark: there is no `dark()` to choose any more (it is deprecated, with the
-colors of 0.62). `ThemeDefinition::legacy()` gives them the colors they had in 0.62. A field set on a style is
+colors of 0.62). They are the colors of the theme when they are made, so make them in `render`, which runs again
+when the system's appearance changes: one made in `create`, or in the root's first render, is made before the
+window has heard the appearance, and keeps the light palette's colors (see
+[The System's Settings](../theme/#the-systems-settings)). A stack's screens take a bar given again in other
+colors, its large title too. `ThemeDefinition::legacy()` gives them the colors they had in 0.62. A field set on a style is
 that color whatever the theme; a theme restyles every one of them with a patch:
 
 ```rust

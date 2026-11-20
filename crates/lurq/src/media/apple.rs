@@ -41,7 +41,7 @@ const INTERRUPTED: Duration = Duration::from_millis(250);
 pub(super) fn run(shared: &Arc<Shared>, opened: Opened, heard: bool) {
   // What is seen is the system's player of a video's, and so is a sound at an address that was not loaded whole
   // (more than the loader reads, or a build without `http`): that player reads an address by itself as it plays.
-  if !heard || matches!(opened, Opened::Url(_)) {
+  if !heard || matches!(opened, Opened::Url(..)) {
     return video::run(shared, opened, !heard);
   }
   // What the system makes while the thread runs is let go when the thread ends.
@@ -76,7 +76,7 @@ fn open(opened: Opened) -> Result<Retained<AVAudioPlayer>, MediaError> {
       // The player tells what the bytes are from the bytes themselves.
       Opened::Bytes(bytes, _) => AVAudioPlayer::initWithData_error(AVAudioPlayer::alloc(), &NSData::with_bytes(&bytes)),
       // Played by the player of a video, which reads an address: see `run`.
-      Opened::Url(_) => return Err(MediaError::Unsupported),
+      Opened::Url(..) | Opened::Reader(..) => return Err(MediaError::Unsupported),
     }
   }
   .map_err(|error| failed(&error))?;

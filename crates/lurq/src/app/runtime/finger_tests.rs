@@ -13,7 +13,11 @@ const SCALE: f64 = 3.0;
 const FINGER: u64 = 7;
 const START: (f64, f64) = (100.0, 400.0);
 const PRESS: TouchAction = TouchAction::Press { x: 100.0, y: 400.0 };
-const RELEASE: TouchAction = TouchAction::Release { x: 100.0, y: 400.0 };
+const RELEASE: TouchAction = TouchAction::Release {
+  x: 100.0,
+  y: 400.0,
+  tap: true,
+};
 const TAP: TouchAction = TouchAction::Tap { x: 100.0, y: 400.0 };
 const LONG: TouchAction = TouchAction::LongPress { x: 100.0, y: 400.0 };
 /// The gesture a finger going up from [`START`] starts.
@@ -79,7 +83,15 @@ fn where_nothing_scrolls_a_finger_is_the_pointer_with_its_button_down() {
 
   assert_eq!(down, [PRESS]);
   assert_eq!(moved, [TouchAction::Move { x: 100.0, y: 200.0 }]);
-  assert_eq!(up, [TouchAction::Release { x: 100.0, y: 200.0 }]);
+  assert_eq!(
+    up,
+    [TouchAction::Release {
+      x: 100.0,
+      y: 200.0,
+      tap: false
+    }],
+    "it travelled: no tap"
+  );
   assert_eq!(pointer.tick(start + LONG_PRESS), []);
   assert_eq!(pointer.next_deadline(), None);
 }
@@ -242,7 +254,15 @@ fn a_long_press_keeps_the_pointer_from_scrolling() {
   );
 
   assert_eq!(moved, [TouchAction::Move { x: 100.0, y: 300.0 }]);
-  assert_eq!(up, [TouchAction::Release { x: 100.0, y: 300.0 }]);
+  assert_eq!(
+    up,
+    [TouchAction::Release {
+      x: 100.0,
+      y: 300.0,
+      tap: false
+    }],
+    "a long press that travelled is no tap"
+  );
 }
 
 #[test]

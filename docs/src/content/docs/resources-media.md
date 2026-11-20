@@ -251,8 +251,7 @@ Svg::from_resource("icons/search.svg").size(18.0, 18.0)
 
 ## Loading
 
-Everything that loads is given a `Source`, and the app's `Loader` reads it. A picture is the first to use it; a video
-and a sound will be given the same source and the same loader.
+Everything that loads is given a `Source`, and the app's `Loader` reads it: a picture, a video and a sound alike.
 
 ```rust
 use lurq::resources::Source;
@@ -262,6 +261,33 @@ Source::bytes(png_bytes);
 Source::resource("brand/logo.png"); // a path under the app's resource root
 Source::url("https://example.com/lake.jpg").header("Authorization", "Bearer token");
 ```
+
+A header is on every request made for the source: the load of a picture, of a sound loaded whole, and each request a
+video or a sound makes as it plays (a host that serves only its own pages wants its `Referer`, one that serves only
+who signed in an `Authorization`). Headers for every address of a host are the loader's rule, given once; a source's
+own come after the rule's and take the place of one of the same name:
+
+```rust
+app.loader().headers(|address| {
+  if address.starts_with("https://videos.example.com/") {
+    vec![("Referer".to_owned(), "https://example.com/".to_owned())]
+  } else {
+    Vec::new()
+  }
+});
+```
+
+What a video or a sound reads as it plays:
+
+- **Windows**: the app's loader reads every address (`loader.open`, below) and gives Media Foundation the stream,
+  which only decodes: so the headers, `allow`, the proxy, the timeout and the cache on the disk hold for it as for a
+  picture. While a part the decoder asked for is on its way, the media waits (`on_waiting_change`) and its clock
+  stands; a read the server refuses on the way fails the media with what it answered (`MediaError::Server(403)`). It
+  needs the feature `http`; a build without it has Media Foundation read the address itself, with no header.
+- **macOS and iOS**: the system's player reads the address, given the headers (`AVURLAssetHTTPHeaderFieldsKey`, a key
+  AVFoundation reads that is not in its headers). Reading it through the loader, as Windows does, is still to come.
+- **Browser**: a page's `<audio>` sends the browser's own headers and cannot be given others, and some (`Referer`) no
+  page may set at all. The address is played without them, with one warning in the log.
 
 A source has a key, which tells it from another: a file's is its path with its size and the time it was changed,
 bytes are hashed once, a resource's and an address's is their text. `.key(hash)` gives a key of the app's own in
@@ -278,9 +304,17 @@ app
   .root("assets")                         // what `Source::resource` is a path under
   .timeout(Duration::from_secs(10))       // of a load of an address; 30 seconds unless told
   .max_bytes(16 << 20)                    // the most `load` reads of one source; 64 MiB unless told
+  .pool_size(6)                           // loads read at once, and HTTP agents kept; 4 unless told
   .allow(|address| address.starts_with("https://cdn.example.com/"));
 ```
 
+- `pool_size` is how many loads are read at once, on as many threads of the loader's own, or as many blocking tasks
+  at a time of the app's runtime where it gave one, and how many HTTP agents the loader keeps. A load of an address
+  is lent an agent and gives it back when it ends, with the connections it opened kept open, so the next load of
+  the same host, a picture of the same album, goes over one of them with no new handshake; a reader of an address
+  (`loader.open`, a video) is lent them for each of its requests. Told again, it is for the loads asked for from
+  then on: those on their way end on the threads they were given, and an agent given back beyond the new size is
+  let go. Loads wait their turn in the order they were asked for.
 - `allow` says which addresses may be loaded: every one the app asks for, unless told. One it refuses fails with
   `LoadError::Denied` and nothing is sent. It is what keeps a text from a stranger, shown by the app, from fetching
   what the stranger chose.
@@ -288,9 +322,15 @@ app
   `Loading { loaded, total }`, `Ready(bytes)` or `Failed(LoadError)`; `wake_with` is called when it ends and as it
   comes further. A load that failed stays failed, so that what asks for it again is told so and not sent to the
   network again; `loader.forget(&source)` forgets it, and the next `load` tries anew.
-- `loader.open(&source)` gives a `Reader`: `len()`, `read_at(offset, buf)` and `buffered()`, for what reads a part
-  of a source and not all of it. A file, a resource and bytes are read where they are. A reader of an address is not
-  built yet.
+- `loader.open(&source)` gives a `Reader`: `len()`, `content_type()`, `read_at(offset, buf)` and `buffered()`, for
+  what reads a part of a source and not all of it. A file, a resource and bytes are read where they are. An address
+  is read by ranges of 1 MiB as they are asked for, with the rule's and the source's headers and the loader's timeout
+  on each request, the two that follow fetched ahead and the last 16 kept. `open` asks for the first range before it
+  returns, so it blocks (call it off the UI thread): its answer gives the length and the `Content-Type`, and a server
+  that refuses fails it there (`LoadError::Status(403)`, `LoadError::NotFound`). A read that fails later gives an
+  `io::Error` that `LoadError::from` turns into what the server answered. A server that reads no ranges is read from
+  its start for each. What the cache on the disk keeps of the address is read from its file. It needs the feature
+  `http`, and is not built in a browser (`LoadError::Unsupported`).
 - The loader keeps no bytes in memory. What is decoded from them is kept by who decodes: a picture's pixels are in
   `lurq::images::decoded_images()`.
 
@@ -318,7 +358,7 @@ kept.clear();
 - A sound at an address plays from its file ([playing a sound](../design-system/#playing-a-sound)).
 
 With the feature `tokio`, an app that gives its runtime (`App::with_tokio_handle(handle)`) has its loader read on
-that: a load is a blocking task of the runtime, four at a time, and the loader starts no threads of its own. A
+that: a load is a blocking task of the runtime, as many at a time as `pool_size`, and the loader starts no threads of its own. A
 loader made by itself is told with `loader.tokio_handle(handle)`. The runtime is to run for as long as the app
 loads: a load given to one that has stopped fails with `LoadError::Cancelled`, and `App::clear_tokio_handle()`
 gives the loader its own threads back.

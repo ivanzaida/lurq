@@ -137,9 +137,13 @@ While it emulates a device:
 
 - **The window is the device's size**, in logical pixels (`Device::size`: 390 by 844 for the phone, 820 by 1180 for
   the tablet), drawn at the monitor's scale. `Device::scale` is the device's, for an app that reads it.
-- **The safe area** is the device's (`Device::safe_area`: a phone's status bar of 47 at the top and its home
-  indicator of 34 at the bottom), and reaches what reads it as a phone's does: `ctx.safe_area()`, and the
-  components that keep clear of it (a sheet, the tab bar, the lightbox).
+- **The safe area is none.** A desktop's window has no status bar and no home indicator, so nothing keeps clear of
+  them: `ctx.safe_area()` is zero, and the bar, the tab bar, a sheet and the lightbox go to the window's edges. To see
+  where a phone's would be, give the device its screen's insets, `Device::phone().with_safe_area(Device::PHONE_SAFE_AREA)`
+  (a status bar of 47 at the top and a home indicator of 34 at the bottom; `TABLET_SAFE_AREA` is 24 and 20), or put
+  `LURQ_DEVICE_INSETS=1` beside `LURQ_DEVICE`: they then reach `ctx.safe_area()` and those components as a phone's
+  do, and the band they keep is the app's background. Until 0.64 the presets had them. A phone keeps the system's
+  own.
 - **The pointer is pinned `Coarse`**, so every component takes its touch form.
 - **The mouse is fingers.** Its moves and its left button reach the tree only as fingers, through the same path a
   touch screen's take, and never as the mouse: a click is a tap, a double click a double tap, a drag a pan, a

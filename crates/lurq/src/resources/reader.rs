@@ -23,6 +23,12 @@ pub trait Reader: Send + Sync {
     self.len() == Some(0)
   }
 
+  /// What it holds, as a MIME type (`video/mp4`), where it says: a server's `Content-Type`. `None` for a file and
+  /// bytes, which a decoder tells from their name or their start.
+  fn content_type(&self) -> Option<Arc<str>> {
+    None
+  }
+
   /// Reads into `buf` from `offset`, as many bytes as are there for it at once: 0 at the end. It waits for
   /// bytes that are on their way.
   fn read_at(&self, offset: u64, buf: &mut [u8]) -> io::Result<usize>;

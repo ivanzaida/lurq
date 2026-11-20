@@ -1013,6 +1013,13 @@ if system.reduce_motion { /* fade, do not slide */ }
 A phone tells all of it (see [iOS](../ios/)); a desktop shell tells the appearance, and the rest is as if
 nothing was set.
 
+The window hears the system's appearance once the shell has made it, after the root was mounted: the root's
+`create` and its first render (`tree.mount_root(..)` runs both) are in the light palette on a dark system, and so
+is a color read there and kept. What is drawn is not: the window is drawn first after it has heard. So read the
+theme's colors in `render`, which runs again when the appearance changes, or read `ctx.window().system.appearance`
+in `render` and build again what was made from them in `create`: a `NavigationBar::new()` or a `TabBar::new()`
+kept from `create` keeps the light palette's colors.
+
 ### What The Theme Takes
 
 The theme follows three of them by itself:
