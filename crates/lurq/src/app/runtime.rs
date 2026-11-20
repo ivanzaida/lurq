@@ -2557,6 +2557,15 @@ impl Tree {
       old.free_ids(&self.id_gen);
     }
     self.clear_animation_runtime_state();
+    // The system's appearance, where it is known before this window was made (the app asked, or a shell heard
+    // it for another window): the root reads it in its `create` and its first render.
+    if let Some(appearance) = app.theme().heard_system_appearance() {
+      let mut system = self.window.info().system;
+      if system.appearance != appearance {
+        system.appearance = appearance;
+        self.window.set_system_settings(system);
+      }
+    }
     let mut ctx = Ctx::new_root()
       .with_theme(app.theme().clone())
       .with_window(self.window.clone())

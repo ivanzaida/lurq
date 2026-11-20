@@ -77,6 +77,7 @@ mod scrollbar_hits;
 mod scrollbar_on_hover;
 mod smooth_wheel_scroll;
 mod stack_depth;
+mod system_appearance;
 mod text_reflow;
 mod visibility;
 mod text_scale_wrap;

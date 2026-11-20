@@ -113,5 +113,7 @@ pub mod menu;
 pub mod open_url;
 pub use menu::{Accelerator, ApplicationMenu, Menu, MenuAction, MenuBar, MenuBarSupport, MenuController, MenuItem};
 pub use open_url::{OpenUrlError, open_url};
+pub mod system_appearance;
+pub use system_appearance::system_appearance;
 #[cfg(all(feature = "winit", target_os = "macos"))]
 mod macos_menu;

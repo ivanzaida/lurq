@@ -455,6 +455,29 @@ impl App {
     crate::app::open_url(url)
   }
 
+  /// Asks the system whether it is light or dark, with no window, and gives what it says to the theme, as a
+  /// shell does once it has made its window. Called before the root is mounted, the root is created and first
+  /// rendered in the look the window will have: without it they are in the light palette on a dark system,
+  /// since the window is made after them, and a color read in `create` and kept stays light.
+  ///
+  /// `None`, and nothing changed, where the system cannot be asked with no window (Linux) or did not say; see
+  /// [`system_appearance`](crate::app::system_appearance()) for what each platform reads. A theme that does not
+  /// follow the system, or has a preferred appearance, keeps its own. Not what [`App::new`] does by itself: a
+  /// test that builds an app is in the light look on every machine.
+  ///
+  /// ```no_run
+  /// use lurq::app::App;
+  ///
+  /// let mut app = App::new();
+  /// app.read_system_appearance();
+  /// // tree.mount_root::<Root>(&mut app, props);
+  /// ```
+  pub fn read_system_appearance(&self) -> Option<crate::app::window::Appearance> {
+    let appearance = crate::app::system_appearance()?;
+    self.theme().apply_system_appearance(appearance);
+    Some(appearance)
+  }
+
   pub fn i18n(&self) -> &I18n {
     &self.shared.i18n
   }

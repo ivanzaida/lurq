@@ -1086,3 +1086,34 @@ fn a_picture_is_an_element() {
   let _: Element = Picture::empty().into();
   let _ = Dimension::Px(1.0);
 }
+
+#[test]
+fn a_ratio_with_no_side_said_is_as_wide_as_its_room_in_a_row_as_in_a_column() {
+  // In a column a child is stretched across it.
+  let mut in_a_column = Stage::new(|_| {
+    Column::new()
+      .size(400.0, 300.0)
+      .child(
+        Column::new()
+          .id("room")
+          .width(200.0)
+          .child(Picture::empty().aspect_ratio(2.0).id("lake")),
+      )
+      .into()
+  });
+  let (_, _, width, height) = in_a_column.bounds("lake");
+  assert_eq!((width, height), (200.0, 100.0));
+
+  // In a row nothing stretches it: it had no width at all with no pixels, and the pixels' own with them.
+  let mut in_a_row = in_a_narrow_room(|| Picture::empty().aspect_ratio(2.0).id("lake"));
+  let (_, _, width, height) = in_a_row.bounds("lake");
+  assert_eq!((width, height), (200.0, 100.0));
+  let mut with_pixels = in_a_narrow_room(|| Picture::new(pixels(80, 40)).aspect_ratio(4.0).id("lake"));
+  let (_, _, width, height) = with_pixels.bounds("lake");
+  assert_eq!((width, height), (200.0, 50.0));
+
+  // A side that is said is still the one the ratio follows.
+  let mut by_height = in_a_narrow_room(|| Picture::empty().height(40.0).aspect_ratio(2.0).id("lake"));
+  let (_, _, width, height) = by_height.bounds("lake");
+  assert_eq!((width, height), (80.0, 40.0));
+}

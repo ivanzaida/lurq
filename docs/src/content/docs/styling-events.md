@@ -1246,6 +1246,46 @@ ScrollVertical::new(content)
   })
 ```
 
+## What takes the pointer
+
+An element takes the pointer wherever its box is, whether or not anything is drawn there: a press, a hover, a
+finger's swipe and the wheel go to the innermost element under the point and then to what is around it. In a
+`Stack` a child lies over the children before it, and where it is hit nothing under it is: a layer as large as
+the stack takes every press and every swipe of the stack, also where it is empty.
+
+`HitTestBehavior` says otherwise for one element:
+
+```rust
+use lurq::node::HitTestBehavior;
+
+Stack::new()
+  .child(list)                                                       // scrolls under the layers
+  .child(shade.pointer_events_none())                                // drawn, and nothing to the pointer
+  .child(buttons_at_the_edges.hit_test(HitTestBehavior::ContentOnly)) // its buttons take the pointer, its room does not
+```
+
+| `HitTestBehavior` | The element | What is in it |
+| --- | --- | --- |
+| `Auto` (the default) | Takes the pointer over all of its box | Takes it first, where it is |
+| `ContentOnly` | Takes nothing itself: its box is clear to the pointer | Takes it as before. Where something in it is hit, the element is hit with it, so its handlers hear that and it covers what is under it there |
+| `None` (`.pointer_events_none()`) | Takes nothing | Takes nothing either: the whole subtree is clear to the pointer |
+
+- **Layers over a list.** A feed of pages with the app's layers over each page (a shade behind the words, a
+  column of buttons, a title) scrolls only where no layer is, unless the layers let the swipe through: a finger
+  that lands on a layer scrolls what that layer is in, and a full-size layer is in the stack, over the list and
+  not in it. Give what is only drawn `.pointer_events_none()` and what holds buttons
+  `.hit_test(HitTestBehavior::ContentOnly)`: the swipe then lands on the list everywhere but on the buttons. One
+  that starts on a button does not scroll the list: the button lies over the list and is not in it, as a button
+  in a row of the list would be.
+- `ContentOnly` is for a wrapper that only places things: a row that spreads two buttons to the ends of a bar, a
+  column that centers a play button over a picture. `ui::VideoPlayer` gives the app's own layer over its picture
+  this behavior, so a press beside the app's controls reaches the picture.
+- It is about the pointer alone. An element that takes none still takes the keyboard's focus if it can, is read by
+  tooling, and is drawn; `.inert(true)` takes an element and all it holds out of the pointer and the focus both.
+- A scroll container's bar, a disabled element and an element with no handlers are not special here: the first
+  takes the pointer where its thumb is, the second is hit and takes nothing, the third is hit and passes the event
+  on to what is around it, which is not what is under it in a stack.
+
 ## Event Control
 
 `MouseEvent`, `KeyboardEvent`, and `ScrollEvent` share the same control methods:

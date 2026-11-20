@@ -810,6 +810,15 @@ impl Component for PicturePage {
         .child(item(ratio(3.0 / 2.0), "3:2"))
         .child(item(ratio(3.0 / 4.0), "3:4 · portrait"))
         .child(item(ratio(1.0).shape(PictureShape::Circle), "circle"))
+        .child(item(
+          // A row stretches nothing: the ratio alone makes the picture as wide as the row.
+          Row::new()
+            .width(280.0)
+            .max_width(FILL)
+            .id("picture-ratio-room")
+            .child(self.lake().aspect_ratio(21.0 / 9.0).id("picture-ratio-fills")),
+          "21:9 · no side said, in a row of 280",
+        ))
     });
 
     let over = |picture: Picture| {
@@ -1000,7 +1009,7 @@ impl Component for PicturePage {
           "aspect_ratio",
           "f32",
           "",
-          "The box's width over its height: it holds the box of a picture whose pixels are not there yet.",
+          "The box's width over its height: it gives the side that is not said, and with neither said makes the            box as wide as its room. It holds the box of a picture whose pixels are not there yet.",
         ),
         (
           "fit",
@@ -1229,7 +1238,7 @@ impl Component for PicturePage {
         ),
         Section::new(
           "Ratios and a circle",
-          "The box has the ratio; the picture covers it.",
+          "The box has the ratio; the picture covers it. With a side said the other follows the ratio; with            neither the box is as wide as its room, in a row as in a column, before its pixels are there too.",
           self.frame.demo(
             4,
             ratios,
@@ -1238,6 +1247,9 @@ impl Component for PicturePage {
               "picture.height(96.0).aspect_ratio(1.0)",
               "picture.height(96.0).aspect_ratio(16.0 / 9.0)",
               "picture.height(96.0).aspect_ratio(1.0).shape(PictureShape::Circle)",
+              "",
+              "// No side said: as wide as the row.",
+              "Row::new().width(280.0).child(picture.aspect_ratio(21.0 / 9.0))",
             ],
           ),
         ),

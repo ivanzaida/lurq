@@ -292,7 +292,11 @@ windows = { version = "0.62.2", features = [
     "Win32_System_DataExchange",
     "Win32_System_LibraryLoader",
     "Win32_System_Memory",
+    # `AppsUseLightTheme`: the system's appearance before the app has a window (`app::system_appearance`).
+    "Win32_System_Registry",
     "Win32_System_Threading",
+    # Whether a high contrast theme is on, which is light whatever the apps are set to.
+    "Win32_UI_Accessibility",
     "Win32_UI_HiDpi",
     "Win32_UI_Input_KeyboardAndMouse",
     # `ShellExecuteW`, which opens an address (`app::open_url`).
