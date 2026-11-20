@@ -351,3 +351,39 @@ fn a_skeleton_takes_the_layout_an_app_chains_on_a_bone() {
     .expect("the tile's bone");
   assert_eq!(radius(&tile), 6.0, "its own radius");
 }
+
+/// The least opacity the first bone painted takes over one pulse, sampled every 10 ms.
+fn dimmest(stage: &mut Stage) -> f32 {
+  (0..200)
+    .map(|step| {
+      stage.pass_after(std::time::Duration::from_millis(10) * step);
+      bones(stage)[0].opacity
+    })
+    .fold(1.0, f32::min)
+}
+
+#[test]
+fn a_pulse_dims_to_half_unless_a_theme_or_a_skeleton_says_how_far() {
+  let mut half = Stage::new(|_| Column::new().width(200.0).child(Skeleton::line()).into());
+  let least = dimmest(&mut half);
+  assert!((least - 0.5).abs() < 0.02, "to half: {least}");
+
+  let app = App::new();
+  app.theme().set_skeleton_motion(SkeletonMotion::SMOOTH.dim_to(0.55));
+  assert_eq!(app.theme().skeleton_motion().dimmed(), 0.55);
+  let mut themed = Stage::in_app(app, |_| Column::new().width(200.0).child(Skeleton::line()).into());
+  let least = dimmest(&mut themed);
+  assert!((least - 0.55).abs() < 0.02, "to the theme's 0.55: {least}");
+
+  let mut own = Stage::new(|_| {
+    Column::new()
+      .width(200.0)
+      .child(Skeleton::line().motion(SkeletonMotion::SMOOTH.dim_to(0.8)))
+      .into()
+  });
+  let least = dimmest(&mut own);
+  assert!((least - 0.8).abs() < 0.02, "to its own 0.8: {least}");
+  assert_eq!(SkeletonMotion::SMOOTH.dim_to(1.7).dimmed(), 1.0, "no more than whole");
+  assert_eq!(SkeletonMotion::SMOOTH.dim_to(-1.0).dimmed(), 0.0);
+  assert_eq!(SkeletonMotion::SMOOTH.dimmed(), 0.5);
+}
