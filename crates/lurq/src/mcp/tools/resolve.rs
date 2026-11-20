@@ -9,11 +9,25 @@ use crate::{
   node::node::Node,
 };
 
-/// Absolute logical bounds of a node in its tree, from the last layout pass.
+/// Absolute logical bounds of a node in its tree, from the last layout pass: where it is drawn, which is its
+/// box in the layout moved, turned and scaled by its own transform and those of what it is in, as hit testing
+/// has it. A box that is turned is the upright box around it.
 pub(super) fn locate_node(tree: &Tree, node_id: NodeId) -> Option<[f32; 4]> {
-  fn walk(node: &Node, layout: &LayoutResult, abs: (f32, f32), node_id: NodeId) -> Option<[f32; 4]> {
+  use crate::node::transform::Transform2D;
+
+  fn walk(
+    node: &Node,
+    layout: &LayoutResult,
+    abs: (f32, f32),
+    inherited: Transform2D,
+    node_id: NodeId,
+  ) -> Option<[f32; 4]> {
+    let composed = drawn_transform(node, layout, abs, inherited);
     if node.node_id() == node_id {
-      return Some([abs.0, abs.1, layout.size.width, layout.size.height]);
+      return Some(transformed_box(
+        composed,
+        [abs.0, abs.1, layout.size.width, layout.size.height],
+      ));
     }
     for (index, child) in node.children().iter().enumerate() {
       let child_layout = layout.children.get(index)?;
@@ -21,6 +35,7 @@ pub(super) fn locate_node(tree: &Tree, node_id: NodeId) -> Option<[f32; 4]> {
         child,
         &child_layout.result,
         (abs.0 + child_layout.offset.x, abs.1 + child_layout.offset.y),
+        composed,
         node_id,
       ) {
         return Some(found);
@@ -30,7 +45,23 @@ pub(super) fn locate_node(tree: &Tree, node_id: NodeId) -> Option<[f32; 4]> {
   }
   let root = tree.root()?;
   let layout = tree.last_layout()?;
-  walk(root.node, layout, (0.0, 0.0), node_id)
+  walk(root.node, layout, (0.0, 0.0), Transform2D::IDENTITY, node_id)
+}
+
+/// The transform `node` and what is in it are drawn with: its own, about the middle of its box at `abs`, after
+/// `inherited`, the one of what it is in.
+pub(super) fn drawn_transform(
+  node: &Node,
+  layout: &LayoutResult,
+  abs: (f32, f32),
+  inherited: crate::node::transform::Transform2D,
+) -> crate::node::transform::Transform2D {
+  let local = node.effective_transform();
+  if local.is_identity() {
+    return inherited;
+  }
+  let middle = [abs.0 + layout.size.width * 0.5, abs.1 + layout.size.height * 0.5];
+  inherited.then(&local.around_origin(middle))
 }
 
 /// Intersection of two `[x, y, width, height]` boxes; `None` when disjoint.
@@ -118,8 +149,10 @@ pub(super) fn visible_clip(tree: &Tree, node_id: NodeId) -> Visibility {
 }
 
 /// Axis-aligned box enclosing `[x, y, width, height]` after `transform`.
-#[cfg(feature = "canvas")]
-fn transformed_box(transform: crate::node::transform::Transform2D, [x, y, width, height]: [f32; 4]) -> [f32; 4] {
+pub(super) fn transformed_box(
+  transform: crate::node::transform::Transform2D,
+  [x, y, width, height]: [f32; 4],
+) -> [f32; 4] {
   if transform.is_identity() {
     return [x, y, width, height];
   }
