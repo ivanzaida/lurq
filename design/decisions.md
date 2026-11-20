@@ -11,6 +11,68 @@ dropped). When a decision is replaced, the old entry stays and says what replace
 
 ## 2026-11-20
 
+### Copies that go where the app says, not to the system's clipboard
+
+- **Question.** Orchester's copy buttons (its code box, the commands and links it offers to copy) write through a
+  copier the app provides once: a QA copy of the app and its gallery copy to a clipboard of their own and never
+  touch the person's. A copy of lurq's (a `ui::CodeBlock`'s button, a Markdown code block's, a table's, Ctrl+C in a
+  field, `WindowHandle::copy_to_clipboard`) goes to the system's clipboard in a window, and only a test's `Tree`
+  can put another writer in its place. Can an app say once where lurq's copies go?
+- **Decision (Ivan, 2026-11-20: "так давай роби в луркі").** Yes, once for the app: `App::set_clipboard_writer` (and
+  `App::set_clipboard_reader` for what a paste reads), which every copy and paste of every window of the app goes
+  through, the button of a code block and the keys alike, in place of the system's clipboard; a test's writer on its
+  `Tree` stays over the app's. A code block's button says it copied, or could not, by what the writer answers, as
+  it says by what the system's clipboard answers.
+- **Why.** What a kit's copier is for is the whole app's, not one button's: a QA copy that writes the person's
+  clipboard from one place is as wrong as from another, so the hook is the app's and lurq's own copies keep their
+  behaviour.
+- **State.** In work on `claude/k5-e-misc`.
+
+### A calendar that marks the other end of a range, in the app's own words
+
+- **Question.** Orchester picks the start and the end of a range in two pickers of one date each, and the calendar
+  of one marks the date the other holds (the other end) in a tint of its own while the person picks. And it names
+  its months and weekdays in its own words. A `ui::Calendar` of one date marks no other day, and does it take the
+  app's words?
+- **Decision (Ivan, 2026-11-20: "так давай роби в луркі").** `Calendar::other_end(Option<Date>)` marks the day of the
+  other end of a range the calendar's date is one end of: a state `other_end` of the day, which the design's recipe
+  tints as the days inside a range are, and which tooling reads (`range_other_end`). The words were already the
+  app's: a calendar takes its month names, its weekdays' heads and their names from `Locale::dates` (or
+  `App::set_date_locale`), whose fields an app may change one by one; this is documented and tested.
+- **Why.** The kit's date picker moves onto `ui::Calendar` only with the mark it draws, and its words must be
+  Orchester's own.
+- **State.** In work on `claude/k5-e-misc`.
+
+### Skeletons that pulse in steps, and bones laid out as the app chains them
+
+- **Question.** Orchester's skeletons pulse together, in 16 steps a half pulse rather than smoothly, so the window
+  draws a few frames a second while one is shown, and stand still where motion is reduced. Its bones (~114 call
+  sites) are columns that it sizes, rounds and flexes with a column's builder. `ui::Skeleton` pulses smoothly, and
+  takes a width and a height only. Can lurq's do both?
+- **Decision (Ivan, 2026-11-20: "так давай роби в луркі").** A `SkeletonMotion` says how skeletons move:
+  `SkeletonMotion::SMOOTH`, as before, or `SkeletonMotion::stepped(per_second)`, each pose held until the next and
+  no frame asked for between, with its `period`; a theme gives the one of every skeleton not told its own
+  (`Theme::set_skeleton_motion`), and `Skeleton::motion` one skeleton's. Every skeleton still pulses in one phase,
+  and stands still where motion is reduced, as before. A skeleton takes the layout an app chains on a bone:
+  `radius`, `min_width`, `max_width`, `min_height`, `max_height`, `flex` and `flex_shrink`, beside its `width` and
+  `height`. lurq has no margins, so there are none to take.
+- **Why.** The kit's bones and its pulse move onto `ui::Skeleton` only where the bones keep their shapes and the
+  pulse its cadence.
+- **State.** In work on `claude/k5-e-misc`.
+
+### A radio pressed as a whole, its id on the whole, and a press kept from a row around it
+
+- **Question.** As for a switch and a checkbox (the entry of K5-B below): Orchester's radio is one control of its
+  mark and its label, found by its id as a whole and pressed inside rows. A `ui::Radio` has its id on the mark, and
+  a press of it reaches a row around it.
+- **Decision (Ivan, 2026-11-20: "так давай роби в луркі").** `Radio::whole(true)` and `RadioGroup::whole(true)`
+  make the mark and its label one control: what is pressed, focused and ringed is the whole of them, one stop of
+  Tab (one stop for the group, as before), its id on the whole and the mark, the dot, the label and the count named
+  after it (`x-mark`, `x-dot`, `x-label`, `x-count`). A press of a radio, whole or not, its label too, stops there:
+  a row around it is not pressed.
+- **Why.** The same as for the switch and the checkbox, for the third of the kit's toggles.
+- **State.** In work on `claude/k5-e-misc`.
+
 ### Window tabs that hold Orchester's title-bar tabs
 
 - **Question.** Orchester draws the tabs of its title bar itself: a Home tab of an icon alone, tabs capped at a width
