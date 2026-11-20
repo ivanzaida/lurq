@@ -38,6 +38,8 @@ use crate::time::Instant;
 pub const DEFAULT_LOAD_TIMEOUT: Duration = Duration::from_secs(30);
 /// The most bytes [`Loader::load`] reads of one source, unless the app says: 64 MiB. A reader has no such limit.
 pub const DEFAULT_MAX_LOAD_BYTES: u64 = 64 * 1024 * 1024;
+/// How much of an address one request of a reader asks for.
+const DEFAULT_READ_BLOCK: u64 = 1 << 20;
 /// The threads that read: how many loads are read at a time, on the loader's own threads or on the app's
 /// runtime.
 const LOADER_THREADS: usize = 4;
@@ -90,6 +92,10 @@ impl std::error::Error for LoadError {}
 
 impl From<io::Error> for LoadError {
   fn from(error: io::Error) -> Self {
+    // A reader of an address fails with what the server answered, carried in the error a reader gives.
+    if let Some(error) = error.get_ref().and_then(|inner| inner.downcast_ref::<LoadError>()) {
+      return error.clone();
+    }
     match error.kind() {
       io::ErrorKind::NotFound => Self::NotFound,
       io::ErrorKind::TimedOut => Self::TimedOut,
@@ -226,6 +232,7 @@ impl Drop for Load {
 
 type Allow = Arc<dyn Fn(&str) -> bool + Send + Sync>;
 type Proxy = Arc<dyn Fn(&str) -> String + Send + Sync>;
+type HeaderRule = Arc<dyn Fn(&str) -> Vec<(String, String)> + Send + Sync>;
 
 struct Settings {
   root: Option<PathBuf>,
@@ -233,6 +240,10 @@ struct Settings {
   max_bytes: u64,
   allow: Option<Allow>,
   proxy: Option<Proxy>,
+  headers: Option<HeaderRule>,
+  /// How much of an address one request of a reader asks for.
+  #[cfg_attr(not(all(feature = "http", not(target_arch = "wasm32"))), allow(dead_code))]
+  block: u64,
 }
 
 struct Shared {
@@ -296,6 +307,8 @@ impl Loader {
           max_bytes: DEFAULT_MAX_LOAD_BYTES,
           allow: None,
           proxy: None,
+          headers: None,
+          block: DEFAULT_READ_BLOCK,
         }),
         entries: Mutex::new(HashMap::new()),
         pool: OnceLock::new(),
@@ -365,6 +378,51 @@ impl Loader {
       Some(proxy) => proxy(address),
       None => address.to_owned(),
     }
+  }
+
+  /// Headers of every request for an address, given by `rule` from the address the app asked for: a picture's
+  /// load, a sound's, and each request a video or a sound makes as it plays. A source's own headers
+  /// ([`Source::header`]) come after them and take the place of one of the same name.
+  ///
+  /// ```no_run
+  /// # let loader = lurq::resources::Loader::new();
+  /// loader.headers(|address| {
+  ///   if address.starts_with("https://videos.example.com/") {
+  ///     vec![("Referer".to_owned(), "https://example.com/".to_owned())]
+  ///   } else {
+  ///     Vec::new()
+  ///   }
+  /// });
+  /// ```
+  pub fn headers(&self, rule: impl Fn(&str) -> Vec<(String, String)> + Send + Sync + 'static) -> &Self {
+    self.shared.settings.write().headers = Some(Arc::new(rule));
+    self
+  }
+
+  /// The headers of a request for `source`: the [rule](Self::headers)'s, then the source's own in place of one
+  /// of the same name.
+  pub(crate) fn headers_of(&self, source: &Source) -> Vec<(Arc<str>, Arc<str>)> {
+    let rule = self.shared.settings.read().headers.clone();
+    let mut headers: Vec<(Arc<str>, Arc<str>)> = match (&source.kind, rule) {
+      (SourceKind::Url(address), Some(rule)) => rule(address)
+        .into_iter()
+        .map(|(name, value)| (Arc::from(name), Arc::from(value)))
+        .collect(),
+      _ => Vec::new(),
+    };
+    for (name, value) in &source.headers {
+      headers.retain(|(had, _)| !had.eq_ignore_ascii_case(name));
+      headers.push((name.clone(), value.clone()));
+    }
+    headers
+  }
+
+  /// How much of an address one request of a [reader](Self::open) asks for: 1 MiB unless told. For a test that
+  /// reads a small file in many requests.
+  #[doc(hidden)]
+  pub fn read_block(&self, bytes: u64) -> &Self {
+    self.shared.settings.write().block = bytes.max(1);
+    self
   }
 
   /// Reads on the tokio runtime `handle` is of, and not on threads of the loader's own: a load is a blocking
@@ -508,7 +566,7 @@ impl Loader {
         SourceKind::Resource(resource) => super::web_fetch::address_of(&self.resource_path(resource)),
         SourceKind::Bytes(_) => return,
       };
-      let headers = source.headers.clone();
+      let headers = self.headers_of(source);
       wasm_bindgen_futures::spawn_local(async move {
         let told = |loaded, total| entry.progress(loaded, total);
         let result = super::web_fetch::fetch(
@@ -544,6 +602,7 @@ impl Loader {
         SourceKind::Url(address) => self.fetched_from(address),
         _ => String::new(),
       };
+      let headers = self.headers_of(source);
       let source = source.clone();
       let disk = self.shared.disk.clone();
       let unread = Unread(entry.clone());
@@ -554,7 +613,7 @@ impl Loader {
           (Some(path), _, Some(head)) => FileReader::open(&path)
             .and_then(|reader| read_start(&reader, head))
             .map_err(LoadError::from),
-          (None, SourceKind::Url(_), Some(head)) => fetch(&fetched, &source, timeout, head, true, told),
+          (None, SourceKind::Url(_), Some(head)) => fetch(&fetched, &headers, timeout, head, true, told),
           (Some(path), _, None) => FileReader::open(&path)
             .and_then(|reader| read_all(&reader, Some(max_bytes), told))
             .map_err(|error| match error.kind() {
@@ -564,7 +623,7 @@ impl Loader {
           // What the cache on the disk keeps of the address is read from there; what is fetched is kept.
           (None, SourceKind::Url(address), None) => match disk.read(source.cache_key(), max_bytes) {
             Some(bytes) => Ok(bytes),
-            None => fetch(&fetched, &source, timeout, max_bytes, false, told).inspect(|bytes| {
+            None => fetch(&fetched, &headers, timeout, max_bytes, false, told).inspect(|bytes| {
               disk.put(source.cache_key(), address, bytes);
             }),
           },
@@ -589,17 +648,50 @@ impl Loader {
   }
 
   /// A reader of `source`, for what reads a part of it and not all: a video, a sound. A file, a resource and
-  /// bytes are read where they are. A reader of an address is not built yet: it fails with
-  /// [`LoadError::Unsupported`].
+  /// bytes are read where they are.
+  ///
+  /// An address is read by ranges of 1 MiB as they are asked for, with the [rule's](Self::headers) and the
+  /// source's headers and the loader's timeout on every request. Its first range is asked for before this
+  /// returns, so it blocks: call it off the UI thread. That answer gives its length and its type
+  /// ([`Reader::content_type`]), and a server that refuses it fails here, with what it answered
+  /// ([`LoadError::Status`], [`LoadError::NotFound`]). A read that fails later gives an [`io::Error`] that
+  /// `LoadError::from` turns into the same. What the [cache on the disk](Self::media_disk_cache) keeps of it is
+  /// read from its file. An address the loader does not [allow](Self::allow) fails with [`LoadError::Denied`]; in a
+  /// build without the feature `http` and in a browser, with [`LoadError::Unsupported`].
   pub fn open(&self, source: &Source) -> Result<Arc<dyn Reader>, LoadError> {
     match &source.kind {
       SourceKind::Bytes(bytes) => Ok(Arc::new(BytesReader::new(bytes.clone()))),
       SourceKind::File(path) => Ok(Arc::new(FileReader::open(path)?)),
       SourceKind::Resource(resource) => Ok(Arc::new(FileReader::open(self.resource_path(resource))?)),
-      SourceKind::Url(_) => Err(LoadError::Unsupported(
-        "a reader of an address is not built yet: only a whole load of one",
-      )),
+      SourceKind::Url(address) if !self.allows(address) => Err(LoadError::Denied),
+      SourceKind::Url(address) => self.open_address(address, source),
     }
+  }
+
+  #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+  fn open_address(&self, address: &str, source: &Source) -> Result<Arc<dyn Reader>, LoadError> {
+    if let Some(path) = self.shared.disk.file(source.cache_key())
+      && let Ok(reader) = FileReader::open(path)
+    {
+      return Ok(Arc::new(reader));
+    }
+    let (timeout, block) = {
+      let settings = self.shared.settings.read();
+      (settings.timeout, settings.block)
+    };
+    Ok(Arc::new(super::http::HttpReader::open(
+      self.fetched_from(address),
+      self.headers_of(source),
+      timeout,
+      block,
+    )?))
+  }
+
+  #[cfg(not(all(feature = "http", not(target_arch = "wasm32"))))]
+  fn open_address(&self, _address: &str, _source: &Source) -> Result<Arc<dyn Reader>, LoadError> {
+    Err(LoadError::Unsupported(
+      "this build reads an address only whole: a reader of one needs the feature `http`, outside a browser",
+    ))
   }
 
   /// Forgets the load of `source` that ended, so that it is loaded again when it is next asked for: the way to
@@ -677,20 +769,20 @@ fn read_start(reader: &dyn Reader, head: u64) -> io::Result<Vec<u8>> {
 #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 fn fetch(
   address: &str,
-  source: &Source,
+  headers: &[(Arc<str>, Arc<str>)],
   timeout: Duration,
   max_bytes: u64,
   cut: bool,
   told: impl FnMut(u64, Option<u64>) -> bool,
 ) -> Result<Vec<u8>, LoadError> {
-  super::http::fetch(address, &source.headers, timeout, max_bytes, cut, told)
+  super::http::fetch(address, headers, timeout, max_bytes, cut, told)
 }
 
 /// A build without the feature `http` loads no address, and says so.
 #[cfg(all(not(feature = "http"), not(target_arch = "wasm32")))]
 fn fetch(
   _address: &str,
-  _source: &Source,
+  _headers: &[(Arc<str>, Arc<str>)],
   _timeout: Duration,
   _max_bytes: u64,
   _cut: bool,
@@ -894,6 +986,38 @@ mod tests {
   }
 
   #[test]
+  fn the_rules_headers_come_first_and_a_sources_own_take_the_place_of_one_of_the_same_name() {
+    let loader = loader();
+    loader.headers(|address| {
+      if address.starts_with("https://videos.example.com/") {
+        vec![
+          ("Referer".to_owned(), "https://example.com/".to_owned()),
+          ("X-Client".to_owned(), "lurq".to_owned()),
+        ]
+      } else {
+        Vec::new()
+      }
+    });
+    let names = |source: &Source| -> Vec<(String, String)> {
+      loader
+        .headers_of(source)
+        .iter()
+        .map(|(name, value)| (name.to_string(), value.to_string()))
+        .collect()
+    };
+    let pair = |name: &str, value: &str| (name.to_owned(), value.to_owned());
+    assert_eq!(
+      names(&Source::url("https://videos.example.com/a.mp4").header("referer", "https://example.com/watch")),
+      vec![pair("X-Client", "lurq"), pair("referer", "https://example.com/watch")]
+    );
+    assert_eq!(
+      names(&Source::url("https://elsewhere.example.com/a.mp4").header("Authorization", "Bearer token")),
+      vec![pair("Authorization", "Bearer token")]
+    );
+    assert!(names(&Source::bytes(vec![1])).is_empty());
+  }
+
+  #[test]
   fn a_reader_reads_a_part_of_a_file_and_of_bytes() {
     let path = file("part.bin", &[1, 2, 3, 4, 5, 6]);
     let loader = loader();
@@ -908,9 +1032,15 @@ mod tests {
       loader.open(&Source::file(folder_of(&path).join("none.bin"))),
       Err(LoadError::NotFound)
     ));
+    #[cfg(not(feature = "http"))]
     assert!(matches!(
       loader.open(&Source::url("https://example.com/a.mp4")),
       Err(LoadError::Unsupported(_))
+    ));
+    loader.allow(|_| false);
+    assert!(matches!(
+      loader.open(&Source::url("https://example.com/a.mp4")),
+      Err(LoadError::Denied)
     ));
   }
 

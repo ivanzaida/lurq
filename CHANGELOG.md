@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+Added:
+
+- **The loader reads an address in parts.** `Loader::open` gives a `Reader` of an address, where it failed with `LoadError::Unsupported`: ranges of 1 MiB as they are read, two fetched ahead and sixteen kept, with the headers and the loader's timeout on each request. It asks for the first range before it returns, so a server that refuses fails it there with what it answered (`LoadError::Status(403)`, `NotFound`), and blocks: call it off the UI thread. A read that fails later gives an `io::Error` that `LoadError::from` turns into the same. What the cache on the disk keeps of the address is read from its file. It needs the feature `http`, and is not built in a browser. See [Loading](docs/src/content/docs/resources-media.md#loading).
+- `Reader::content_type`: the type a server said its answer is (`video/mp4`), `None` by default.
+- `Loader::headers(rule)`: headers of every request for an address, from the address: a picture's load, a sound's, and each request a video or a sound makes as it plays. A source's own (`Source::header`) come after and take the place of one of the same name.
+
+Fixes:
+
+- **A video or a sound at an address sends its headers.** A media opened from `Source::url(..).header(name, value)` (`Media::open`, `Media::sound`, `ui::VideoPlayer::source`, `ui::AudioPlayer::source`) sent none of them with what it asked of the server as it played: every video, and a sound larger than the loader reads whole. A host that answers 403 without its `Referer`, or one that wants an `Authorization`, could not be played ("This video can't be played"). On Windows the app's loader now reads every address a media plays (with the feature `http`) and Media Foundation only decodes: the headers, `allow`, the proxy, the timeout and the cache on the disk hold for it, seeking asks the server for the part it goes to, the media waits (`on_waiting_change`) while a part is on its way, and a server that refuses on the way fails it with what it answered (`MediaError::Server(403)`, where Media Foundation said "Access is denied"). On macOS and iOS the system's player is given the headers (`AVURLAssetHTTPHeaderFieldsKey`). A browser's `<audio>` cannot send them, and says so once in the log.
+
 ## 0.63.2 — 2026-11-20
 
 Breaking:

@@ -57,7 +57,23 @@ pub(super) fn start(shared: &Arc<Shared>, opened: Opened, heard: bool) {
   };
   element.set_preload("auto");
   let (address, blob) = match opened {
-    Opened::Url(address) => (address.to_string(), None),
+    Opened::Url(address, headers) => {
+      // A page's `<audio>` sends the browser's own headers, and a page cannot give it others: some, as
+      // `Referer`, no page may set at all.
+      if !headers.is_empty() {
+        static SAID: std::sync::Once = std::sync::Once::new();
+        SAID.call_once(|| {
+          tracing::warn!(target: "lurq::media", "a browser plays an address without the source's headers");
+        });
+      }
+      (address.to_string(), None)
+    }
+    Opened::Reader(..) => {
+      shared.fail(MediaError::Unavailable(Arc::from(
+        "the page's <audio> reads an address itself",
+      )));
+      return;
+    }
     Opened::File(path) => (path.to_string_lossy().replace('\\', "/"), None),
     Opened::Bytes(bytes, _) => match blob_address(&bytes) {
       Some(address) => (address.clone(), Some(address)),

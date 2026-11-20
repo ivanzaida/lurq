@@ -26,6 +26,8 @@ fn main() {
     it_goes_where_it_is_sent_and_ends_at_its_end,
     bytes_play_as_a_file_does_and_what_is_no_video_says_why,
     a_clip_has_its_sound_and_what_is_only_heard_of_it_has_no_picture,
+    a_clip_at_an_address_is_asked_for_with_the_headers_of_its_source_and_goes_where_it_is_sent,
+    the_loaders_rule_gives_a_clip_its_headers_and_a_sources_own_take_their_place,
   ]
   .into_iter()
   .collect();

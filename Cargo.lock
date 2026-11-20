@@ -2116,6 +2116,7 @@ dependencies = [
  "wgpu",
  "wgpu-hal",
  "windows",
+ "windows-core",
  "winit",
 ]
 

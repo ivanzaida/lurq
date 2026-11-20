@@ -7859,6 +7859,16 @@ VideoPlayer::new()
   .mount(ctx)
 ```
 
+An address is read as it plays, and the source's headers are on each of its requests: a host that serves only its own pages is given its `Referer`, one that serves only who signed in its `Authorization`.
+
+```rust
+VideoPlayer::new()
+  .source(&Source::url("https://videos.example.com/lake.mp4").header("Referer", "https://example.com/"))
+  .mount(ctx)
+```
+
+On Windows the app's loader reads every address as it plays (the feature `http`; a build without it has the system read it, with no header): seeking asks the server for the part it goes to, the player waits while a part is on its way, and a server that refuses on the way is the error it shows (`MediaError::Server(403)`). The loader's rule gives headers to every address of a host (`app.loader().headers(..)`). On macOS and iOS the system's player is given them. A browser plays no video yet, and its `<audio>` cannot send them (see [Loading](../resources-media/#loading)).
+
 The player opens the source with the app's loader, decodes it with the system's decoder and draws its frames as its picture. Where it is, how long it is, and whether it plays, waits, ended or failed are the media's, in place of what the app would say. A press on a control tells the app's handlers and does what it says to the media: play, pause, the seek bar, the speed, the keys. An app that holds `playing` or `rate` (a signal, or a value it sets) moves the media by changing them. With no source the player is drawn from the values it is given, as before.
 
 What happens to the media is told to the app, as a browser's `<video>` tells it:
@@ -7914,7 +7924,7 @@ The player opens the source as a sound and plays it through the system's output.
 
 Its events are a video player's (`on_load`, `on_error`, `on_ended`, `on_playing_change`, `on_waiting_change`): an app that plays a queue goes on to the next track in `on_ended`. A `ui::AudioQueue` is the list the app shows and plays nothing itself; the player that plays its current item tells each end.
 
-A sound at an address is loaded whole through the app's loader (its headers, its timeout, what it allows; the feature `http`), and kept: played again, by this player or another, it starts at once and asks the network for nothing. While it loads the player is drawn loading. What is kept is what the server sent, up to 64 MiB of sounds; over that, what was played longest ago is let go.
+A sound at an address is loaded whole through the app's loader (its headers, its timeout, what it allows; the feature `http`), and kept: played again, by this player or another, it starts at once and asks the network for nothing. While it loads the player is drawn loading. One larger than the loader reads whole (`max_bytes`) is read as it plays, with its headers as a video's are, and not kept. What is kept is what the server sent, up to 64 MiB of sounds; over that, what was played longest ago is let go.
 
 ```rust
 sound_cache().budget(256 * 1024 * 1024); // keep more

@@ -72,6 +72,7 @@ media = [
     "dep:objc2-core-media",
     "dep:objc2-core-video",
     "dep:objc2-core-foundation",
+    "dep:windows-core",
     "windows/Win32_Graphics_Direct3D11",
     "windows/Win32_Media_Audio",
     "windows/Win32_Media_MediaFoundation",
@@ -298,6 +299,8 @@ windows = { version = "0.62.2", features = [
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
 ] }
+# What `#[implement]` of `windows` expands to names this crate: a stream of the media's own (`media`).
+windows-core = { version = "0.62.2", optional = true }
 
 # The DevTools save dialog and `lurq::files::FileDialog`. `rfd` has no iOS backend and does not compile there.
 [target.'cfg(not(target_os = "ios"))'.dependencies]
@@ -331,7 +334,7 @@ wgpu-hal = { version = "=29.0.4", features = ["metal"], optional = true }
 objc2-avf-audio = { version = "0.3", default-features = false, features = ["std", "AVAudioPlayer"], optional = true }
 # Its video: the system's `AVPlayer`, the output its frames are taken from, the times it is asked for and the
 # buffers of pixels it gives.
-objc2-av-foundation = { version = "0.3", default-features = false, features = ["std", "AVPlayer", "AVPlayerItem", "AVPlayerItemOutput", "AVPlayerItemTrack", "AVAssetTrack", "AVMediaFormat", "objc2-core-media", "objc2-core-video", "objc2-core-foundation", "block2"], optional = true }
+objc2-av-foundation = { version = "0.3", default-features = false, features = ["std", "AVAsset", "AVPlayer", "AVPlayerItem", "AVPlayerItemOutput", "AVPlayerItemTrack", "AVAssetTrack", "AVMediaFormat", "objc2-core-media", "objc2-core-video", "objc2-core-foundation", "block2"], optional = true }
 objc2-core-media = { version = "0.3", default-features = false, features = ["std", "CMTime"], optional = true }
 objc2-core-video = { version = "0.3", default-features = false, features = ["std", "CVBase", "CVBuffer", "CVImageBuffer", "CVPixelBuffer", "CVReturn", "CVHostTime"], optional = true }
 objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFCGTypes", "CFString"], optional = true }

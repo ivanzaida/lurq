@@ -101,6 +101,24 @@ fn a_clip_has_its_sound_and_what_is_only_heard_of_it_has_no_picture() {
   video::a_clip_has_its_sound_and_what_is_only_heard_of_it_has_no_picture();
 }
 
+#[cfg(all(windows, feature = "http"))]
+#[test]
+fn a_clip_at_an_address_is_asked_for_with_the_headers_of_its_source_and_goes_where_it_is_sent() {
+  video::a_clip_at_an_address_is_asked_for_with_the_headers_of_its_source_and_goes_where_it_is_sent();
+}
+
+#[cfg(all(windows, feature = "http"))]
+#[test]
+fn the_loaders_rule_gives_a_clip_its_headers_and_a_sources_own_take_their_place() {
+  video::the_loaders_rule_gives_a_clip_its_headers_and_a_sources_own_take_their_place();
+}
+
+#[cfg(all(windows, feature = "http"))]
+#[test]
+fn a_clip_waits_for_what_the_network_has_not_given_yet_and_fails_with_what_the_server_answered_on_the_way() {
+  video::a_clip_waits_for_what_the_network_has_not_given_yet_and_fails_with_what_the_server_answered_on_the_way();
+}
+
 #[test]
 fn a_sound_plays_from_a_file_and_from_bytes_to_its_end_and_again() {
   let wav = tone(1.2);
@@ -252,6 +270,34 @@ fn a_sound_at_an_address_is_loaded_once_and_kept() {
   third.set_muted(true);
   until(&third, "opened", |state| !state.waiting && state.sound);
   assert_eq!(asked.load(Ordering::Relaxed), 2);
+}
+
+#[cfg(all(windows, feature = "http"))]
+#[test]
+fn a_sound_larger_than_the_loader_reads_whole_is_read_as_it_plays_with_the_headers_of_its_source() {
+  let pages = video::serve_to_its_pages(std::fs::read(track()).expect("the track"));
+  let loader = Loader::new();
+  loader.max_bytes(1000);
+  let source = Source::url(&pages.address).header("Referer", video::PAGES);
+  let song = Media::sound(&loader, &source);
+  song.set_muted(true);
+  let state = until(&song, "opened", |state| !state.waiting);
+  assert_eq!((state.error, state.sound), (None, true));
+  assert!(
+    state.duration.is_some_and(|duration| (duration - 24.0).abs() < 0.5),
+    "{:?}",
+    state.duration
+  );
+  song.seek(20.0);
+  song.play();
+  until(&song, "playing from 20", |state| {
+    state.playing && state.position >= 20.0
+  });
+  assert_eq!(pages.refused.load(Ordering::SeqCst), 0, "every request had the header");
+  assert!(
+    !lurq::media::sound_cache().holds(&source),
+    "what is read as it plays is not kept"
+  );
 }
 
 #[cfg(feature = "http")]
