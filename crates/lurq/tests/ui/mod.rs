@@ -101,6 +101,7 @@ mod media_speed_menu;
 mod media_time;
 mod media_volume;
 mod menu;
+mod menu_content;
 mod menu_item_detail;
 mod menubar;
 mod message_box;
