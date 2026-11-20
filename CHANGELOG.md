@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+Breaking:
+
+- A `ui::Alert` has several actions: `action(..)` adds one after those there, where a second call took the place of the first, and `actions(..)` adds several (see Added). An alert given one action is as it was. A renderer of an alert reads `AlertView::actions`, a list (was `action`, one element or none), and builds their row with `view.actions()` (was `view.action()`).
+
+Added:
+
+- **An alert holds several actions, at its end or under its words.** `ui::Alert::action` adds, `actions(..)` adds several, the least first and the main one last, 8 apart in the part `action`; `stacked(true)` (state `stacked`) puts them under the description and the body, at the words' start, wrapping where one line does not hold them, for words that need the alert's width or more actions than its end has room for. See [alert](docs/src/content/docs/design-system.md#alert).
+- **A card is laid out as a column is, from its own builder.** `ui::Card` takes `padding`, `gap` and `align_items` for what is in it (its content and its body, two levels down), and `height`, `min_width`, `max_width`, `min_height`, `max_height`, `flex`, `flex_shrink`, `absolute` and `describe` for its surface, beside the `width` it had: `Card::new().padding(..).gap(..).child(..)` is laid out as a padded column is. The padding, the gap and the sizes are rules of the card over the theme's recipe, which a renderer reads in its parts. See [card](docs/src/content/docs/design-system.md#card).
+
 ## 0.63.1 — 2026-11-20
 
 Breaking:

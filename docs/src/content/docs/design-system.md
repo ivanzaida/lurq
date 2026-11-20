@@ -2106,7 +2106,12 @@ Persona::new("Build bot")
 A surface that holds one thing: a group of settings, a summary of a project, a form of a few fields.
 
 ```rust
-use lurq::ui::{Button, ButtonVariant, Card, CardSize, CardVariant};
+use lurq::{
+  components::Text,
+  layout::Alignment,
+  node::padding::Padding,
+  ui::{Button, ButtonVariant, Card, CardSize, CardVariant},
+};
 
 Card::new()
   .title("Appearance")
@@ -2123,6 +2128,15 @@ Card::new()
   .title("lurq")
   .description("A Rust UI toolkit with GPU-backed rendering.")
   .on_click(move |_| open_project());
+
+// Laid out as a column is, from its own builder.
+Card::new()
+  .padding(Padding::symmetric(16.0, 12.0))
+  .gap(4.0)
+  .align_items(Alignment::Center)
+  .flex(1.0)
+  .child(Text::new("1,284"))
+  .child(Text::new("Runs this week"));
 ```
 
 | Builder | |
@@ -2136,11 +2150,19 @@ Card::new()
 | `variant(..)` | `CardVariant::Outline` (the default), `Elevated`, `Filled`, or a variant the theme's recipe names |
 | `size(..)` | `CardSize::Md` (the default) or `Sm`, or a size the theme's recipe names |
 | `width(..)` | A width of its own. Without one the card is as wide as the room it is given |
+| `height(..)`, `min_width(..)`, `max_width(..)`, `min_height(..)`, `max_height(..)` | A height of its own, and the least and the most it is wide and high: a number or another `Length` |
+| `padding(..)` | The room inside it around its header and its body, in place of its size's: a `Padding`, a number, or a step of the theme's spacing. The footer keeps its own |
+| `gap(..)` | The room between its children, and between its header and its body, in place of its size's |
+| `align_items(Alignment)` | How its children are aligned across its width, as a column aligns them |
+| `flex(f32)`, `flex_shrink(f32)` | Its share of the room left in a row or a column, and how much of its size it gives up where there is too little |
+| `absolute(x, y, width, height)` | Where it stands in the `Stack` that holds it |
+| `describe(name, value)` | What its surface says to tooling, beside its role and its name: the state of what it shows |
 | `on_click(handler)` | Makes the card pressed as a whole, from the pointer and the keyboard |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the surface |
 
 - Every part is optional: a card with children alone is a padded surface. The header is there where the card has a title, a description or an action; the footer where it has something in it, set off by a line only where there is content over it.
-- A card is as wide as the room it is given, as a block is. Cards side by side in a row are each given a share of it: a `Column::new().flex(1.0)` around each, or a grid. The title and the description wrap in the room the action leaves them.
+- A card is as wide as the room it is given, as a block is. Cards side by side in a row are each given a share of it: `flex(1.0)` on each, or a grid. The title and the description wrap in the room the action leaves them.
+- A card is laid out as a column is, from its own builder, though what it holds is two levels down: what lays out what is in it goes to its content and its body (`padding` to the content, `gap` to the content and the body, `align_items` to the body), and what places it in what holds it goes to its surface (`width`, `height` and their least and most, `flex`, `flex_shrink`, `absolute`, `describe`), on a read card and a pressed one alike. The padding, the gap and the sizes are rules of the card over the theme's recipe, so a renderer finds them in `view.part(..)`; the alignment, the flex, the place and what it describes are laid on the node that `view.body()`, `view.read_root()` and `view.pressed_root()` give.
 - A card given `on_click` is pressed as a whole: one stop of Tab, with the focus ring around it, pressed by a click, Enter and Space. The controls in its action and its footer are stops of Tab of their own, after the card, and a press of one of them is that control's and not the card's; a control in its body is pressed with the card, so a pressed card keeps its controls in the action and the footer. A card without `on_click` is read: it is no stop of Tab, and each control in it is a stop of its own.
 - Parts: `CardPart::Root` (the surface; what is pressed), `Content` (the header over the body, padded), `Header` (the text and the action), `Text` (the title over the description), `Title`, `Description`, `Action`, `Body` (what the app put in it), `Footer`. States: `CardState::Pressable`, `Disabled`, `Footer` (it has a footer under its content; the line over the footer is the content's `underline`).
 - In the design a card is in `Card` with `CardForeground` ink and corners of `radius-xl`. The outlined card has an edge of 1 in `Border` and the small shadow, the elevated one the medium shadow and no edge, the filled one `Muted` and no edge. Its content is padded 24 with 24 between the header and the body; the title is 16/600, the description 6 under it in 14 of `MutedForeground`; what is in the body is 16 apart; the footer is padded 16 and 24 with its buttons 8 apart at its end. A small card is padded 16, with a title of 14 and a description of 13. A pressed card takes an edge of `Ring` and the medium shadow under the pointer, and the small shadow again while it is held down; a disabled one is dimmed.
@@ -3462,6 +3484,14 @@ Alert::new("Downloading lurq 0.61")
   .variant(AlertVariant::Info)
   .icon(icons::DOWNLOAD)
   .child(Progress::new(0.6).label("Downloading"));
+
+// Several actions, under its words: the least first, the main one last.
+Alert::new("Working offline")
+  .description("Changes are kept on this computer until the server answers again.")
+  .variant(AlertVariant::Warning)
+  .stacked(true)
+  .action(Button::new("Details").variant(ButtonVariant::Ghost).size(ButtonSize::Sm))
+  .action(Button::new("Reconnect").variant(ButtonVariant::Outline).size(ButtonSize::Sm));
 ```
 
 | Builder | |
@@ -3470,21 +3500,23 @@ Alert::new("Downloading lurq 0.61")
 | `description(&str)` | More of it, under the title |
 | `variant(impl Into<Name>)` | An `AlertVariant`: `Neutral` (the default), `Info`, `Success`, `Warning`, `Destructive`; a variant a theme adds has the neutral one's icon and role |
 | `icon(impl Into<IconChoice>)` | An icon of the theme's set in place of the variant's (`icon(icons::DOWNLOAD)`), or none (`icon(None)`) |
-| `action(element)` | What can be done about it, at its end before the close control: a button, a link. The one action: a second takes its place |
+| `action(element)`, `actions(..)` | Add what can be done about it, after those there: a button, a link. An alert has several, the least first and the main one last, at its end before the close control |
+| `stacked(bool)` | Its actions under its words, at their start and 8 under them, wrapping where one line does not hold them, and not at its end: for long words, or more actions than its end has room for |
 | `child(element)`, `children(..)` | Elements under the description, for more than text |
 | `on_close(handler)` | Called on a press of the close control, which an alert has once it is given `on_close` and has not until then. The app takes the alert away. A second handler is called after the first |
 | `label(&str)` | What it is called to tooling, in place of its title |
 | `role(&str)` | What it is to tooling, in place of the variant's |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `force` draws the close control's states; `id` is the id of the box |
 
-- It is read where it stands and is not an overlay. It is as wide as the room it is given, and its title and description wrap in the room the icon, the action and the close control leave them.
+- It is read where it stands and is not an overlay. It is as wide as the room it is given, and its title and description wrap in the room the icon, the actions and the close control leave them; a stacked alert's words have all of its width but the icon's and the close control's.
+- Its actions are 8 apart in the part `Action`, at its end and centred on their height, or in a stacked alert under the description and the body, as wide as the words. Given an id `x`, the row of them is `x-action`; each action keeps the id the app gave it.
 - The close control is a stop of Tab with the focus ring; Enter, Space and a click press it.
 - To what reads the tree (`lurq_snapshot` of the MCP server) a warning and a destructive alert are an `alert`, which a screen reader says at once, and the others a `status`, said when the reader is done; each is called by its title, or by its `label`. `role("status")` says a warning is no news, `role("alert")` that an informative one is urgent. `AlertVariant::role()` is the variant's.
-- Parts: `AlertPart::Root` (the box), `Icon`, `Text` (the title, the description and the body, one over the other), `Title`, `Description`, `Body`, `Action`, `Close`. States: `AlertState::Action`, which centres what is in the box on the action. Variants by `AlertVariant`.
+- Parts: `AlertPart::Root` (the box), `Icon`, `Text` (the title, the description and the body, one over the other), `Title`, `Description`, `Body`, `Action`, `Close`. States: `AlertState::Action`, which centres what is in the box on the actions where they are at its end, and `Stacked`, its actions under its words. Variants by `AlertVariant`.
 - In the design the box is in the `Card` color with an edge of 1 in `Border`, corners of `radius-lg`, padded 16. The icon is 16, 12 from the title (14, medium, `Foreground`) over the description (13, 1.5 high, `MutedForeground`), 4 apart. An informative, a successful and a warning alert are in `InfoMuted`, `SuccessMuted`, `WarningMuted`, with an edge and an icon of `Info`, `Success`, `Warning` and a description in `Foreground`. A destructive one keeps the `Card` color, with an edge, an icon and a title of `Destructive`. The icon is the information sign for a neutral and an informative alert, the check in a circle for a successful one, the warning sign for a warning and a destructive one. The close control is 16 in `MutedForeground`, in `Foreground` under the pointer.
 - `AlertVariant` is shared with the banner and the callout: `icon()`, `accent()` (the color of its icon, edge, bar and link) and `tint()` (its fill) say the same for the three.
 - The icon is the information sign for a neutral alert as for an informative one, as the board draws it.
-- A renderer that draws another alert starts from `view.text()`, `view.icon()`, `view.action()` and `view.close()` (the behavior), with `view.role`, `view.label` and `view.close_button`. `view.variant` is the variant's name.
+- A renderer that draws another alert starts from `view.text()` (with a stacked alert's actions under the words), `view.icon()`, `view.actions()` and `view.close()` (the behavior), with `view.role`, `view.label`, `view.close_button` and `view.stacked`. `view.variant` is the variant's name, and `view.actions` what the app gave it to do.
 
 ## Banner
 
