@@ -179,6 +179,16 @@ ctx.window().haptic(Haptic::Selection);
 `Haptic` is `Light`, `Medium`, `Heavy`, `Selection`, `Success`, `Warning` or `Error`. It does nothing where there
 is no haptic engine.
 
+### The share sheet
+
+```rust
+let _ = ctx.window().share(Share::url(address).title(title).at(&button));
+```
+
+The system's share sheet (`UIActivityViewController`) for an address, presented over what the window shows; on
+an iPad it is a popover that points at the element given with `at`, or stands at the middle of the window. See
+[Sharing an address](../ctx/#sharing-an-address).
+
 ## Screens
 
 `StackOutlet` moves between the router's screens as the platform's apps do: a push comes in from the right, a

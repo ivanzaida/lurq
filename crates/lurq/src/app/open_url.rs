@@ -107,7 +107,7 @@ pub fn open_url(url: &str) -> Result<(), OpenUrlError> {
 
 /// Whether `url` starts with a scheme other than `file:`: letters, then letters, digits, `+`, `-` or `.`, then
 /// `:`. A drive letter (`C:\`) is not one.
-fn has_scheme(url: &str) -> bool {
+pub(super) fn has_scheme(url: &str) -> bool {
   let Some((scheme, rest)) = url.split_once(':') else {
     return false;
   };

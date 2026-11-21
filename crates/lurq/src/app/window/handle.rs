@@ -66,6 +66,37 @@ impl WindowHandle {
     self.window.push_command(WindowCommand::Haptic(haptic));
   }
 
+  /// Shows the system's share sheet for `share` over this window: the apps and people the system offers an
+  /// address to, as an iPhone's Share button does. What a handler calls, which holds the window
+  /// (`ctx.window()`) and has no `Ctx`; see [`Share`](crate::app::Share) for what is shared and
+  /// [the module](crate::app::share) for what each platform shows.
+  ///
+  /// `Ok` once the sheet is asked for: it is shown by the window's shell as the handler that asked returns (a
+  /// browser's within the press itself), and what the person does in it is not told. An error is why nothing
+  /// was asked: [`ShareError::Unsupported`](crate::app::ShareError::Unsupported) where there is no sheet (Linux,
+  /// a browser without `navigator.share`), which an app answers by copying the address;
+  /// [`ShareError::NotAnAddress`](crate::app::ShareError::NotAnAddress) for what is not an address with a
+  /// scheme. Where the system refuses a sheet it was asked for, the log says so (`lurq::share`, at warn).
+  ///
+  /// ```no_run
+  /// # use lurq::{app::{Share, ShareError, ctx::Ctx}, ui::Button};
+  /// fn share_button(ctx: &mut Ctx, address: &'static str) -> Button {
+  ///   let window = ctx.window();
+  ///   Button::new("Share").on_click(move |_| {
+  ///     if window.share(Share::url(address).title("The docs")) == Err(ShareError::Unsupported) {
+  ///       window.copy_to_clipboard(address);
+  ///     }
+  ///   })
+  /// }
+  /// ```
+  pub fn share(&self, share: crate::app::Share) -> Result<(), crate::app::ShareError> {
+    match crate::app::share::ask(share)? {
+      crate::app::share::Asked::Done => {}
+      crate::app::share::Asked::Shell(share) => self.window.push_command(WindowCommand::Share(share)),
+    }
+    Ok(())
+  }
+
   pub fn request_close(&self) {
     self
       .window
