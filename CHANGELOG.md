@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.66.0 — 2026-11-21
+
+Breaking:
+
+- `BackdropCmd` has the field `group`, and `QuadContent::Backdrop` the field `group`: one written out field by field (a test's, a render engine's) adds them.
 
 Added:
 
