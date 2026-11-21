@@ -21,8 +21,9 @@
 use super::vertex::QuadVertex;
 use crate::layout::{
   backdrop::BackdropRegion,
-  backdrop_reuse::{BackdropCache, BackdropInputs, BackdropUse},
-  opacity_layer::{BlurPlan, LayerBlur, LayerBlurPass, LayerCmd, LayerComposite, TargetSpace},
+  backdrop_reuse::{BackdropCache, BackdropInputs, BackdropUse, LayerBlurInputs},
+  opacity_layer::{BlurPlan, LayerBlur, LayerBlurPass, LayerCmd, LayerComposite, LayerPlan, LayerStep, TargetSpace},
+  render_list::RenderList,
 };
 
 /// Layer textures grow in steps of this many pixels, so a layer that changes
@@ -55,6 +56,11 @@ pub(super) struct LayerCompositor {
   released: Vec<u64>,
   /// Backdrop blurs the frame put back from a kept texture.
   backdrops_reused: usize,
+  /// The blurred layers whose finished texture is kept, by the textures'
+  /// ids, as `backdrops` is.
+  layer_blurs: BackdropCache,
+  /// What the frame does for each of its blurred layers: scratch of [`Self::acquire_layers`].
+  layer_blur_uses: Vec<Option<BackdropUse>>,
 }
 
 /// The textures a blurred layer's passes paint, beside the one it is painted
@@ -68,6 +74,9 @@ pub(super) struct BlurSlots {
   reduced: Option<usize>,
   horizontal: usize,
   blurred: usize,
+  /// Whether the frame paints the layer and blurs it; otherwise `blurred` is
+  /// kept from an earlier frame, and is composited as it is.
+  runs: bool,
 }
 
 /// The textures of a backdrop blur: the finished blur, kept from an earlier
@@ -340,6 +349,8 @@ impl LayerCompositor {
       backdrop_uses: Vec::new(),
       released: Vec::new(),
       backdrops_reused: 0,
+      layer_blurs: BackdropCache::default(),
+      layer_blur_uses: Vec::new(),
     }
   }
 
@@ -495,19 +506,119 @@ impl LayerCompositor {
     [self.slots[slot].width, self.slots[slot].height]
   }
 
-  /// The textures the passes of `blur` paint this frame.
-  pub(super) fn acquire_blur(&mut self, device: &wgpu::Device, blur: &LayerBlur) -> BlurSlots {
-    let plan = BlurPlan::new(blur);
-    let reduced = (plan.reduction > 1).then(|| self.acquire(device, plan.size[0], plan.size[1]));
-    let horizontal = self.acquire(device, plan.size[0], plan.size[1]);
-    let blurred = self.acquire(device, plan.size[0], plan.size[1]);
-    BlurSlots {
-      blur: *blur,
-      plan,
-      reduced,
-      horizontal,
-      blurred,
+  /// The textures of the frame's layers (`layer_slots`) and of their blurs
+  /// (`blur_slots`), by the index of their target in `plan`: `inputs` are
+  /// what each blurred layer holds, in a window of `window` pixels. A blurred
+  /// layer whose kept result is still the blur of what it holds takes that
+  /// texture alone and no texture to paint into: it is not painted, nor are
+  /// the layers inside it, which get no texture either. Any other blurred
+  /// layer takes the textures of its passes and, for its result, the texture
+  /// kept for its place or a new one, which is kept from then on if the
+  /// cache has room for it.
+  #[allow(clippy::too_many_arguments)]
+  pub(super) fn acquire_layers(
+    &mut self,
+    device: &wgpu::Device,
+    list: &RenderList,
+    plan: &LayerPlan,
+    inputs: &LayerBlurInputs,
+    window: [u32; 2],
+    layer_slots: &mut Vec<Option<usize>>,
+    blur_slots: &mut Vec<Option<BlurSlots>>,
+  ) {
+    let targets = plan.targets();
+    let blur_of = |index: usize| targets[index].layer.and_then(|layer| list.layers[layer].blur);
+    let mut uses = std::mem::take(&mut self.layer_blur_uses);
+    let mut released = std::mem::take(&mut self.released);
+    self.layer_blurs.begin_frame_of(
+      targets.len(),
+      |index| blur_of(index).is_some(),
+      |index| inputs.input(index),
+      BackdropCache::budget_of(window),
+      &mut uses,
+      &mut released,
+    );
+    self.release_kept(&released);
+    let kept_slot = |slots: &[LayerSlot], texture: u64| slots.iter().position(|slot| slot.id == texture);
+    let reused: Vec<Option<usize>> = uses
+      .iter()
+      .map(|used| match used {
+        Some(BackdropUse::Reuse { texture }) => kept_slot(&self.slots, *texture),
+        _ => None,
+      })
+      .collect();
+    // A target comes before the one it is composited into: from the last, what a reused layer holds is left out.
+    let mut left_out = vec![false; targets.len()];
+    for index in (0..targets.len()).rev() {
+      if reused[index].is_some() || left_out[index] {
+        for step in plan.steps(&targets[index]) {
+          if let LayerStep::Composite(child) = step {
+            left_out[*child] = true;
+          }
+        }
+      }
     }
+    layer_slots.clear();
+    blur_slots.clear();
+    for (index, target) in targets.iter().enumerate() {
+      let Some(layer) = target.layer.map(|layer| &list.layers[layer]) else {
+        layer_slots.push(None);
+        blur_slots.push(None);
+        continue;
+      };
+      if left_out[index] {
+        layer_slots.push(None);
+        blur_slots.push(None);
+        continue;
+      }
+      if let (Some(kept), Some(blur)) = (reused[index], layer.blur) {
+        layer_slots.push(None);
+        blur_slots.push(Some(BlurSlots {
+          blur,
+          plan: BlurPlan::new(&blur),
+          reduced: None,
+          horizontal: kept,
+          blurred: kept,
+          runs: false,
+        }));
+        continue;
+      }
+      let (_, [width, height]) = layer.painted();
+      layer_slots.push(Some(self.acquire(device, width, height)));
+      let Some(blur) = layer.blur else {
+        blur_slots.push(None);
+        continue;
+      };
+      let plan = BlurPlan::new(&blur);
+      let reduced = (plan.reduction > 1).then(|| self.acquire(device, plan.size[0], plan.size[1]));
+      let horizontal = self.acquire(device, plan.size[0], plan.size[1]);
+      let blurred = match uses[index] {
+        Some(BackdropUse::Refresh { texture }) => kept_slot(&self.slots, texture),
+        _ => None,
+      }
+      .unwrap_or_else(|| {
+        let slot = self.acquire_to_keep(device, plan.size[0], plan.size[1]);
+        let (id, bytes) = (self.slots[slot].id, self.slots[slot].bytes());
+        if matches!(uses[index], Some(BackdropUse::Blur { keep: true }))
+          && inputs
+            .input(index)
+            .is_some_and(|input| self.layer_blurs.keep_input(input, id, bytes))
+        {
+          self.slots[slot].kept = true;
+        }
+        slot
+      });
+      blur_slots.push(Some(BlurSlots {
+        blur,
+        plan,
+        reduced,
+        horizontal,
+        blurred,
+        runs: true,
+      }));
+    }
+    self.layer_blur_uses = uses;
+    self.released = released;
   }
 
   pub(super) fn texture(&self, slot: usize) -> &wgpu::Texture {
@@ -601,13 +712,15 @@ impl LayerCompositor {
   /// into kept textures can be put back from them.
   pub(super) fn frame_submitted(&mut self) {
     self.backdrops.commit();
+    self.layer_blurs.commit();
   }
 
-  /// Keeps no backdrop blur any longer: their textures go back to the pool.
+  /// Keeps no backdrop blur and no blurred layer any longer: their textures go back to the pool.
   pub(super) fn forget_backdrops(&mut self) {
     let mut released = std::mem::take(&mut self.released);
     released.clear();
     self.backdrops.clear(&mut released);
+    self.layer_blurs.clear(&mut released);
     self.release_kept(&released);
     self.released = released;
   }
@@ -666,6 +779,7 @@ impl LayerCompositor {
       reduced: work.reduced,
       horizontal: work.horizontal,
       blurred: slots.blurred,
+      runs: true,
     };
     self.prepare_blur(queue, encoder, vertices, indices, work.copied, &passes)
   }
@@ -704,6 +818,9 @@ impl LayerCompositor {
     painted: usize,
     slots: &BlurSlots,
   ) -> usize {
+    if !slots.runs {
+      return 0;
+    }
     let mut source = painted;
     if let Some(reduced) = slots.reduced {
       let uniforms = LayerBlurPass::reduce(&slots.blur, &slots.plan, self.size(source), self.size(reduced));
