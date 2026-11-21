@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+Fixes:
+
+- **An SVG's lines are as wide as it says at every scale.** A stroke's width was scaled to the size the picture is drawn at twice, once by hand and again by the path's transform: a Lucide icon with `stroke-width="1.8"` drawn 21 points wide had lines of 3.5 points on a Mac at 2x and of 6 points on an iPhone at 3x, where it has 1.6. Every stroked SVG is drawn thinner now, at its own width.
+
 ## 0.65.0 — 2026-11-21
 
 Breaking:
