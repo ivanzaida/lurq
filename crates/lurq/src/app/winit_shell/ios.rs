@@ -749,6 +749,15 @@ fn show_window_in_scene() {
     }
     let _: () = msg_send![window, setWindowScene: scene];
     let _: () = msg_send![window, makeKeyAndVisible];
+    // A window made before its scene is left with no orientation of its own once it is put in one
+    // (`_windowInterfaceOrientation` is unknown), and what reads it lays out as if it stood on its side: the share
+    // sheet, which the system draws in a process of its own, comes as a narrow card at the screen's right edge.
+    // Giving the window its controller again, now that it is in the scene, has it take the scene's.
+    let controller: Option<Retained<AnyObject>> = msg_send![window, rootViewController];
+    if let Some(controller) = controller {
+      let _: () = msg_send![window, setRootViewController: std::ptr::null::<AnyObject>()];
+      let _: () = msg_send![window, setRootViewController: &*controller];
+    }
   }
 }
 
