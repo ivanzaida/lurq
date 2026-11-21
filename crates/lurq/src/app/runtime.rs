@@ -3931,7 +3931,7 @@ impl Tree {
             scaled_clip,
           ));
         }
-        QuadContent::Backdrop { blur } => {
+        QuadContent::Backdrop { blur, group } => {
           let (w, h) = (quad.width * scale, quad.height * scale);
           backdrops.push(crate::layout::backdrop::BackdropCmd {
             order,
@@ -3954,6 +3954,7 @@ impl Tree {
               crate::layout::opacity_layer::blur_sigma(radius) * scale
             },
             opacity: quad.opacity.clamp(0.0, 1.0),
+            group: *group,
           });
         }
         QuadContent::None => {}

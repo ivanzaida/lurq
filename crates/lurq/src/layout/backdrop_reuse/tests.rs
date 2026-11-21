@@ -67,6 +67,7 @@ fn glass(order: usize, [x, y, width, height]: [f32; 4], sigma: f32) -> BackdropC
     clip: ClipRect::default(),
     sigma,
     opacity: 1.0,
+    group: None,
   }
 }
 
@@ -999,4 +1000,67 @@ fn a_blurred_layer_s_kept_result_is_put_back_while_it_holds_still() {
   let mut changed = blurred_layer();
   changed.rects[1].x += 1.0;
   assert_eq!(blur_frame(&mut cache, &changed), Some(BackdropUse::Refresh { texture: 42 }));
+}
+
+/// The leaders the backdrop blurs of `list` follow, and their regions, as a render engine puts them together.
+fn grouped(list: &RenderList) -> (Vec<Option<usize>>, Vec<Option<BackdropRegion>>) {
+  let draws: Vec<usize> = {
+    let mut orders: Vec<usize> = list.rects.iter().map(|rect| rect.order).collect();
+    orders.sort_unstable();
+    orders
+  };
+  let mut plan = LayerPlan::default();
+  plan.build(draws.len(), |index| draws[index], &list.layers, &list.backdrops);
+  let mut regions = Vec::new();
+  backdrop_regions(list, &plan, WINDOW, &mut regions);
+  let follows = group_backdrops(list, &plan, &mut regions);
+  (follows, regions)
+}
+
+fn in_group(mut glass: BackdropCmd, key: u64) -> BackdropCmd {
+  glass.group = Some(key);
+  glass
+}
+
+#[test]
+fn glass_of_one_group_is_blurred_once_over_the_rectangles_of_all_of_it() {
+  let above = in_group(glass(1, [100.0, 40.0, 40.0, 40.0], 4.0), 7);
+  let below = in_group(glass(3, [100.0, 110.0, 40.0, 40.0], 4.0), 7);
+  let alone = [
+    BackdropRegion::new(&above, [0, 0], WINDOW).unwrap(),
+    BackdropRegion::new(&below, [0, 0], WINDOW).unwrap(),
+  ];
+  let (follows, regions) = grouped(&list(
+    vec![rect(0, [0.0, 0.0, 400.0, 300.0]), rect(2, GLASS)],
+    vec![above, below],
+  ));
+  assert_eq!(follows, vec![None, Some(0)]);
+  let union = regions[0].unwrap().layer.blur.unwrap();
+  let [first, second] = alone.map(|region| region.layer.blur.unwrap());
+  assert_eq!((union.x, union.y), (first.x, first.y));
+  assert_eq!(union.y + union.height as i32, second.y + second.height as i32);
+  assert_eq!(
+    regions[1].unwrap().layer.blur,
+    Some(union),
+    "the follower reads from the leader's rectangle"
+  );
+  assert_eq!(
+    regions[1].unwrap().layer.bounds,
+    alone[1].layer.bounds,
+    "and is put back in its own box"
+  );
+}
+
+#[test]
+fn glass_of_another_group_or_radius_or_of_none_is_blurred_on_its_own() {
+  let first = in_group(glass(1, [100.0, 40.0, 40.0, 40.0], 4.0), 7);
+  let other_group = in_group(glass(2, [100.0, 110.0, 40.0, 40.0], 4.0), 8);
+  let other_radius = in_group(glass(3, [100.0, 180.0, 40.0, 40.0], 6.0), 7);
+  let no_group = glass(4, [160.0, 40.0, 40.0, 40.0], 4.0);
+  let (follows, regions) = grouped(&list(
+    vec![rect(0, [0.0, 0.0, 400.0, 300.0])],
+    vec![first, other_group, other_radius, no_group],
+  ));
+  assert_eq!(follows, vec![None; 4]);
+  assert_eq!(regions[0], BackdropRegion::new(&first, [0, 0], WINDOW));
 }

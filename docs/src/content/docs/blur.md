@@ -60,7 +60,9 @@ Column::new()
 
 `.backdrop_blur(radius)` blurs what is already painted behind the element, inside the element's box, and the element
 then paints itself over the result. The blur shows wherever the element is translucent, so give it a translucent
-background; an opaque one hides it.
+background; an opaque one hides it. Under an opaque background of one color, with the element at full opacity, the
+frame does not blur at all: only the half-covered pixels along the box's edge show what is behind it, and they show it
+sharp.
 
 ```rust
 use lurq::components::{Column, Text};
@@ -94,6 +96,33 @@ as in CSS: the ancestor is drawn into a layer of its own, and the glass does not
 A glass panel that is the only thing inside a faded wrapper therefore blurs nothing. Put the opacity on the glass
 element itself, or keep the content it should blur inside the same wrapper.
 
+### Glass Side By Side
+
+Each backdrop blur reads what is behind it at its own place in the frame, so glass that stands close together (a column
+of round buttons over a video) blurs the same pixels over and over, and each next one shows the ones before it, blurred,
+at its edge. `.backdrop_group(key)` blurs the backdrops of the same key and radius in one window or layer as one: the
+first of them reads what is behind all of their boxes, and the others show what it read, each in its own box.
+
+```rust
+use lurq::components::Row;
+
+let button = |key: &str| {
+  Row::new()
+    .size(44.0, 44.0)
+    .rounded(22.0)
+    .background("#ffffff24")
+    .backdrop_blur(20.0)
+    .backdrop_group(key)
+};
+// Five buttons cost one copy and one blur in a frame where what is behind them moves, not five.
+```
+
+- A glass of the group does not show the glass before it behind it, as it would alone; it shows what was behind the
+  first.
+- The key is any `Hash` value. Glass of one key that stands apart (two columns of buttons on two pages a pager shows at
+  once) is still blurred as one, over the rectangle that holds them all: give each column its own key.
+- The DX12 renderer blurs each backdrop of a group on its own.
+
 ## Animating
 
 Both radii animate like any other style value, in transitions and in keyframe animations:
@@ -122,7 +151,9 @@ blur transition lays nothing out again.
   texture taken (see [When A Backdrop Is Blurred Again](#when-a-backdrop-is-blurred-again)). Glass over a backdrop
   that holds still costs next to nothing, however much of the window it covers; glass over something that moves is
   blurred in every frame it moves. A long list in which every row is glass is not what it is for: blur the list's
-  backdrop once with one element instead.
+  backdrop once with one element instead. Glass that stands close together is blurred as one with
+  `.backdrop_group(...)` (see [Glass Side By Side](#glass-side-by-side)), and glass under an opaque background is not
+  blurred.
 - Textures are pooled and reused across frames, and released after a while without use. A frame without blurs
   creates none.
 
@@ -209,7 +240,7 @@ A custom `RenderEngine` sees the blurs in the `RenderList`:
   rectangle the layer's content is painted for (`LayerCmd::painted()`; larger than the `bounds` it shows in, and
   possibly reaching outside the window), and the rounded clip to cut the result to, if the element is under one.
 - A backdrop blur is a `BackdropCmd` in `RenderList::backdrops`: the box, its radii, transform and clip, the deviation
-  in physical pixels, and the render order it happens at. No draw has that order: the blur comes after every draw of a
+  in physical pixels, the render order it happens at, and the key of the group it is blurred with, if any. No draw has that order: the blur comes after every draw of a
   lower order and before every draw of a higher one, in the target those draws are in.
 - `RoundedBox` (`layout::opacity_layer`) describes a rounded box that may be turned or scaled, with its bounds and its
   coverage of a pixel.

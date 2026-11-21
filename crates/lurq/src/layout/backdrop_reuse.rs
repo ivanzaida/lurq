@@ -78,6 +78,69 @@ pub(crate) fn backdrop_regions(
   }
 }
 
+/// Puts together the backdrop blurs of a frame that are blurred as one (see
+/// [`Node::backdrop_group`](crate::node::Node::backdrop_group)): those of a
+/// target with the same group, deviation and rounded clips. The first of
+/// them, the leader, copies and blurs the union of their rectangles in its
+/// place in the target; the others put back what it blurred, each in its own
+/// box. `regions` are the blurs' regions, by their index in
+/// [`RenderList::backdrops`]: a group's blurs all take the leader's grown
+/// rectangle, which their pixels are read from. Returns, by the same index,
+/// the leader a blur follows; `None` for a leader and a blur on its own.
+pub(crate) fn group_backdrops(
+  list: &RenderList,
+  plan: &LayerPlan,
+  regions: &mut [Option<BackdropRegion>],
+) -> Vec<Option<usize>> {
+  let mut follows = vec![None; regions.len()];
+  if list.backdrops.iter().all(|backdrop| backdrop.group.is_none()) {
+    return follows;
+  }
+  for target in plan.targets() {
+    let mut leaders: Vec<usize> = Vec::new();
+    for step in plan.steps(target) {
+      let LayerStep::Backdrop(index) = step else {
+        continue;
+      };
+      let index = *index;
+      let (Some(group), Some(blur)) = (
+        list.backdrops[index].group,
+        regions[index].and_then(|region| region.layer.blur),
+      ) else {
+        continue;
+      };
+      let leader = leaders.iter().copied().find(|&leader| {
+        list.backdrops[leader].group == Some(group)
+          && regions[leader]
+            .and_then(|region| region.layer.blur)
+            .is_some_and(|led| led.sigma == blur.sigma && led.clips == blur.clips)
+      });
+      let Some(leader) = leader else {
+        leaders.push(index);
+        continue;
+      };
+      if let Some(led) = regions[leader].as_mut().and_then(|region| region.layer.blur.as_mut()) {
+        let x1 = (led.x + led.width as i32).max(blur.x + blur.width as i32);
+        let y1 = (led.y + led.height as i32).max(blur.y + blur.height as i32);
+        led.x = led.x.min(blur.x);
+        led.y = led.y.min(blur.y);
+        led.width = (x1 - led.x) as u32;
+        led.height = (y1 - led.y) as u32;
+      }
+      follows[index] = Some(leader);
+    }
+  }
+  for index in 0..regions.len() {
+    if let Some(leader) = follows[index] {
+      let grown = regions[leader].and_then(|region| region.layer.blur);
+      if let Some(region) = regions[index].as_mut() {
+        region.layer.blur = grown;
+      }
+    }
+  }
+  follows
+}
+
 /// The inputs of a frame's backdrop blurs, by their index in
 /// [`RenderList::backdrops`].
 #[derive(Default)]

@@ -104,6 +104,11 @@ impl FrameSource {
       .refresh_interval(|| super::frame_pacing::refresh_interval(window), now)
   }
 
+  /// Whether the window could not be seen when the last frame from time was asked for.
+  pub(super) fn hidden(&self) -> bool {
+    self.pacing.hidden()
+  }
+
   /// Whether a frame was asked for and has not started.
   pub(super) fn pending(&self) -> bool {
     self.pending

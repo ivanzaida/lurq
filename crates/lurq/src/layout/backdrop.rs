@@ -46,6 +46,9 @@ pub struct BackdropCmd {
   /// How much of the blurred backdrop replaces the sharp one, `0.0..=1.0`:
   /// the node's own opacity.
   pub opacity: f32,
+  /// The key of the backdrop blurs it is blurred with as one; see
+  /// [`Node::backdrop_group`](crate::node::Node::backdrop_group).
+  pub group: Option<u64>,
 }
 
 impl std::fmt::Debug for BackdropCmd {
@@ -66,6 +69,7 @@ impl std::fmt::Debug for BackdropCmd {
       .field("clip", &clip)
       .field("sigma", &self.sigma)
       .field("opacity", &self.opacity)
+      .field("group", &self.group)
       .finish()
   }
 }
@@ -190,6 +194,7 @@ mod tests {
       clip: ClipRect::default(),
       sigma,
       opacity: 1.0,
+      group: None,
     }
   }
 

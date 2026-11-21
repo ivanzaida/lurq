@@ -252,7 +252,7 @@ mod tests {
         style.font_family, style.font_size, style.weight, style.color
       ),
       QuadContent::RichText { spans, .. } => format!("rich text of {}", spans.len()),
-      QuadContent::Backdrop { blur } => format!("backdrop {blur}"),
+      QuadContent::Backdrop { blur, .. } => format!("backdrop {blur}"),
       _ => "other".to_owned(),
     };
     format!(

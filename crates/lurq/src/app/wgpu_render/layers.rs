@@ -106,6 +106,16 @@ impl BackdropSlots {
     self.region.layer.bounds
   }
 
+  /// The blur of `region`, put back from what this one blurs: `region`'s rectangle is this one's.
+  pub(super) fn followed_by(&self, region: BackdropRegion) -> Self {
+    Self {
+      region,
+      plan: self.plan,
+      blurred: self.blurred,
+      work: None,
+    }
+  }
+
   /// Whether the frame runs the blur: it stops the target's pass for it.
   /// Otherwise the kept result is put back inside the pass.
   pub(super) fn runs(&self) -> bool {

@@ -190,3 +190,44 @@ fn a_backdrop_blur_can_be_a_transition() {
   );
   assert_eq!(snapshot.backdrops[0].sigma, 2.0);
 }
+
+#[test]
+fn a_backdrop_blur_under_an_opaque_fill_is_left_out() {
+  let bar = |fill: Color| {
+    Rect::new(100.0, 36.0)
+      .background(fill)
+      .rounded(18.0)
+      .backdrop_blur(12.0)
+  };
+  let solid = render(window(40.0, bar(Color::new(255, 255, 255, 255))), 1.0);
+  assert!(solid.backdrops.is_empty(), "{:?}", solid.backdrops);
+  // Seen through: a fill that lets the backdrop show, and an opaque one the node fades.
+  assert_eq!(render(window(40.0, bar(GLASS)), 1.0).backdrops.len(), 1);
+  let faded = render(window(40.0, bar(Color::new(255, 255, 255, 255)).opacity(0.5)), 1.0);
+  assert_eq!(faded.backdrops.len(), 1);
+}
+
+#[test]
+fn glass_of_a_group_carries_its_key_and_glass_of_none_carries_none() {
+  let glass = || {
+    Rect::new(40.0, 40.0)
+      .background(GLASS)
+      .rounded(20.0)
+      .backdrop_blur(12.0)
+  };
+  let snapshot = render(
+    window(
+      20.0,
+      Column::new()
+        .spacing(10.0)
+        .child(glass().backdrop_group("rail"))
+        .child(glass().backdrop_group("rail"))
+        .child(glass()),
+    ),
+    1.0,
+  );
+  let groups: Vec<_> = snapshot.backdrops.iter().map(|backdrop| backdrop.group).collect();
+  assert_eq!(groups.len(), 3);
+  assert!(groups[0].is_some() && groups[0] == groups[1]);
+  assert_eq!(groups[2], None);
+}
