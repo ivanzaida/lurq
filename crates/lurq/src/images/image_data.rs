@@ -309,6 +309,7 @@ pub struct CvPixelBufferFrames {
 struct CvPixelBufferFramesState {
   shown: Mutex<Option<MacosCvPixelBuffer>>,
   count: AtomicU64,
+  wakers: FrameWakers,
   /// Frames the app's card is still writing, oldest first: see [`CvPixelBufferFrames::show_after`].
   #[cfg(feature = "wgpu")]
   waiting: Mutex<std::collections::VecDeque<WaitingFrame>>,
@@ -343,6 +344,7 @@ impl CvPixelBufferFrames {
     self.state.waiting.lock().clear();
     *self.state.shown.lock() = Some(buffer);
     self.state.count.fetch_add(1, Ordering::AcqRel);
+    self.state.wakers.wake();
   }
 
   /// `buffer` is the frame to show once `event` reaches `value`: the app's Metal commands that write it signal the
@@ -366,6 +368,21 @@ impl CvPixelBufferFrames {
       event: objc2::Message::retain(event),
       value,
     });
+    drop(waiting);
+    self.state.wakers.wake();
+  }
+
+  /// Whether a frame waits for the card that writes it: the window looks again at every refresh until it is
+  /// written, as nothing tells when it is.
+  pub(crate) fn has_waiting(&self) -> bool {
+    #[cfg(feature = "wgpu")]
+    return !self.state.waiting.lock().is_empty();
+    #[cfg(not(feature = "wgpu"))]
+    false
+  }
+
+  pub(crate) fn wakers(&self) -> &FrameWakers {
+    &self.state.wakers
   }
 
   /// Shows the newest frame that waited and is written now, and lets go of those before it.
@@ -440,6 +457,7 @@ struct StreamingImageInner {
   recycled: Mutex<Vec<Arc<Vec<u8>>>>,
   version: AtomicU64,
   continuous_redraw: AtomicBool,
+  wakers: FrameWakers,
 }
 
 #[derive(Clone)]
@@ -457,6 +475,29 @@ pub(crate) struct ImageFrameData {
   pub frame_index: usize,
   pub version: u64,
   pub next_frame_at: Option<Instant>,
+}
+
+/// The loops of the windows that draw a picture which changes by itself: woken by each of its new frames, so a
+/// window draws such a picture again when it has a frame to show, and not at every refresh of the display.
+#[derive(Clone, Default)]
+pub(crate) struct FrameWakers(Arc<Mutex<Vec<(usize, Arc<dyn Fn() + Send + Sync>)>>>);
+
+impl FrameWakers {
+  /// `wake` is the loop of a window that draws the picture, `key` that window's: one waker a window.
+  pub(crate) fn attach(&self, key: usize, wake: &Arc<dyn Fn() + Send + Sync>) {
+    let mut wakers = self.0.lock();
+    if !wakers.iter().any(|(attached, _)| *attached == key) {
+      wakers.push((key, Arc::clone(wake)));
+    }
+  }
+
+  /// Wakes the loops, outside the lock: a waker may take other locks.
+  pub(crate) fn wake(&self) {
+    let wakers: Vec<_> = self.0.lock().iter().map(|(_, wake)| Arc::clone(wake)).collect();
+    for wake in wakers {
+      wake();
+    }
+  }
 }
 
 impl ImageData {
@@ -510,6 +551,7 @@ impl ImageData {
         recycled: Mutex::new(Vec::new()),
         version: AtomicU64::new(0),
         continuous_redraw: AtomicBool::new(continuous_redraw),
+        wakers: FrameWakers::default(),
       })),
       native: None,
     }
@@ -681,6 +723,28 @@ impl ImageData {
     self.native.is_some()
   }
 
+  /// The loops woken by each new frame of a picture whose frames come by themselves: a video's, a streaming
+  /// picture's. Such a picture is drawn again when it has a frame not drawn yet ([`Self::has_frame_after`]).
+  pub(crate) fn frame_wakers(&self) -> Option<&FrameWakers> {
+    match (&self.streaming, &self.native) {
+      (Some(streaming), _) => Some(&streaming.wakers),
+      (None, Some(native)) => native.frame_wakers(),
+      (None, None) => None,
+    }
+  }
+
+  /// Whether the window is to draw this picture again, `drawn` being the version it drew last: for a picture whose
+  /// frames wake the window, when it has another frame; for another that changes by itself, at every refresh.
+  pub(crate) fn redraws_after(&self, drawn: u64) -> bool {
+    if !self.requires_continuous_redraw() {
+      return false;
+    }
+    if self.frame_wakers().is_some() {
+      return self.version() != drawn || self.native.as_ref().is_some_and(NativeImageData::has_waiting_frame);
+    }
+    true
+  }
+
   pub fn requires_continuous_redraw(&self) -> bool {
     self.is_animated()
       || self
@@ -730,6 +794,8 @@ impl ImageData {
       recycled.remove(0);
     }
     streaming.version.fetch_add(1, Ordering::Release);
+    drop(recycled);
+    streaming.wakers.wake();
   }
 
   pub fn take_streaming_rgba_buffer(&self) -> Option<Vec<u8>> {
@@ -976,6 +1042,28 @@ impl NativeImageData {
 
   pub fn requires_continuous_redraw(&self) -> bool {
     self.continuous_redraw
+  }
+
+  /// The loops a video's frames wake, for an image of them.
+  pub(crate) fn frame_wakers(&self) -> Option<&FrameWakers> {
+    #[cfg(windows)]
+    if let Some(frames) = self.payload::<super::CardFrames>() {
+      return Some(frames.wakers());
+    }
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    if let Some(frames) = self.payload::<CvPixelBufferFrames>() {
+      return Some(frames.wakers());
+    }
+    None
+  }
+
+  /// Whether a frame waits for its card to be written: see [`CvPixelBufferFrames::has_waiting`].
+  fn has_waiting_frame(&self) -> bool {
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    if let Some(frames) = self.payload::<CvPixelBufferFrames>() {
+      return frames.has_waiting();
+    }
+    false
   }
 }
 

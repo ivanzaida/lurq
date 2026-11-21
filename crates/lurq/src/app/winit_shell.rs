@@ -974,6 +974,14 @@ impl ManagedWindow {
     false
   }
 
+  /// Whether a video plays in the window and the loop is to present directly: its next frame, or a redraw something
+  /// asked for. The loop turns for much else meanwhile (the system's player has its main-thread work run, a timer
+  /// fires with nothing to show), and presents nothing for it.
+  fn video_to_present(&mut self, now: Instant) -> bool {
+    self.has_continuous_redraw_video_recently(now)
+      && (self.tree.has_continuous_redraw_video() || self.tree.needs_redraw())
+  }
+
   fn has_continuous_redraw_video_recently(&mut self, now: Instant) -> bool {
     if self.tree.has_continuous_redraw_video() {
       self.continuous_redraw_until = now.checked_add(CONTINUOUS_REDRAW_GRACE);
@@ -1066,16 +1074,12 @@ impl ManagedWindow {
       .file_drag
       .flush(&mut self.tree, self.window.as_ref(), self.cursor_pos);
     let has_continuous_video = self.has_continuous_redraw_video_recently(now);
-    if has_continuous_video {
-      // Video streams are presented directly from about_to_wait. Requesting
-      // winit redraw events for the same stream adds a second, irregular presentation
-      // path that can reset last_paint and create visible cadence gaps.
-      self.frames.see_window(&mut self.tree);
-    } else {
-      // Before the scheduled redraws are ticked: a hidden window drops them.
-      let window = self.window.as_ref();
-      self.frames.request_timeline_frame(&mut self.tree, window, now);
-    }
+    // Before the scheduled redraws are ticked: a hidden window drops them. While a video plays its frames are
+    // presented directly from about_to_wait, and so are the frames an animation asks for meanwhile: they are
+    // asked of the tree, not of winit. Winit's redraw events for the same stream would add a second, irregular
+    // presentation path that can reset last_paint and create visible cadence gaps.
+    let window = self.window.as_ref();
+    self.frames.request_timeline_frame(&mut self.tree, window, now);
     self.tree.tick_scheduled_redraw(now);
     if !has_continuous_video {
       self.check_redraw();
@@ -2411,7 +2415,9 @@ impl ApplicationHandler for WinitHandler {
       }
       if matches!(event, WindowEvent::RedrawRequested) && self.main.has_continuous_redraw_video_recently(Instant::now())
       {
+        // The system's redraw (the window shown, resized) is presented with the video's next turn of the loop.
         self.main.frames.settle();
+        self.main.tree.request_redraw();
         return;
       }
       let started_at = Instant::now();
@@ -2597,7 +2603,7 @@ impl ApplicationHandler for WinitHandler {
     let mut direct_presented = false;
     let stage_started_at = Instant::now();
     let now = Instant::now();
-    let main_has_continuous_video = self.main.has_continuous_redraw_video_recently(now);
+    let main_has_continuous_video = self.main.video_to_present(now);
     // Interactive drags (scrollbars, sliders, text selection, on_drag_*
     // sessions) present directly too: on Windows the WM_MOUSEMOVE stream
     // starves WM_PAINT, so redraws requested from drag handlers would only
@@ -2663,6 +2669,9 @@ impl ApplicationHandler for WinitHandler {
         .secondary_window(secondary_window.index())
         .is_some_and(|secondary| secondary.tree().has_continuous_redraw_video())
     });
+    // A video's frames wake the loop as they come: it waits for them, and turns again at once only for a frame or
+    // a redraw that is still to be presented.
+    let main_has_continuous_video = self.main.video_to_present(now);
     let has_continuous_video = main_has_continuous_video || secondary_has_continuous_video;
     let redraw_pending =
       self.main.frames.pending() || self.secondaries.iter().any(|secondary| secondary.frames.pending());

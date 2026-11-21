@@ -20,6 +20,8 @@ pub use decoded::{
   DEFAULT_BUDGET_BYTES, DecodedImages, ImageDecodeError, ImageKey, ImageLoadState, ImageSizeCap, ImageSource,
   decode_image, decoded_images, wait_for_decoded_images,
 };
+#[cfg(windows)]
+pub(crate) use image_data::FrameWakers;
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 pub use image_data::{
   CvPixelBufferFrames, MacosCvPixelBuffer, MacosCvPixelBufferNv12Image, cv_pixel_buffer_frames_drawn,
