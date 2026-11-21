@@ -138,9 +138,8 @@ fn rasterize_path(path: &usvg::Path, data: &SvgData, pixmap: &mut tiny_skia::Pix
   if let Some(stroke) = path.stroke() {
     let stroke_opacity = opacity * stroke.opacity().get();
     if let Some(paint) = raster_paint(data.stroke_override(), stroke.paint(), stroke_opacity) {
-      let mut tiny_stroke = stroke.to_tiny_skia();
-      tiny_stroke.width *= (sx + sy) * 0.5;
-      pixmap.stroke_path(path.data(), &paint, &tiny_stroke, transform, None);
+      // The width is the path's own: `transform` scales it with the path to the size the picture is drawn.
+      pixmap.stroke_path(path.data(), &paint, &stroke.to_tiny_skia(), transform, None);
     }
   }
 }
@@ -222,6 +221,27 @@ mod tests {
     assert_eq!(raster.width, 24);
     assert_eq!(raster.height, 24);
     assert!(raster.data.chunks_exact(4).any(|px| px[3] > 0 && px[3] < 255));
+  }
+
+  /// The rows of `raster`'s column `x` that something is painted on.
+  fn painted_rows(raster: &RasterizedSvg, x: u32) -> usize {
+    (0..raster.height)
+      .filter(|y| raster.data[((y * raster.width + x) * 4 + 3) as usize] > 127)
+      .count()
+  }
+
+  #[test]
+  fn a_stroke_is_as_wide_as_its_width_at_the_size_it_is_drawn() {
+    // A line 2 wide on a box of 24, drawn 4 times as large: 8 pixels wide, as at any scale of the window.
+    let svg = SvgData::from_str(
+      r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+        <path d="M2 12H22" fill="none" stroke="#ffffff" stroke-width="2"/>
+      </svg>"##,
+    );
+    for (size, wide) in [(24.0, 2), (48.0, 4), (96.0, 8)] {
+      let raster = rasterize(&svg, size, size);
+      assert_eq!(painted_rows(&raster, raster.width / 2), wide, "drawn {size} wide");
+    }
   }
 
   const RING: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40">
