@@ -175,6 +175,9 @@ winit shell, the emulator and MCP's `lurq_touch` all go through these; a test dr
 
 The shell observes `needs_redraw`, requests a redraw, then calls `Tree::pass(app, window)`.
 
+While a video plays, the shell presents its frames, and the redraws asked for meanwhile, straight from the loop. A
+window that cannot be seen presents none: its surface gives no frame to draw into.
+
 Animations and transitions do not set `needs_redraw`. A pass that ticks them records when they next draw something else, `Tree::next_timeline_change()`: the next step of an `Easing::Steps` span, the end of a delay, or at once for a span that changes continuously. The shell schedules the next frame for then, at most one per display refresh, and sleeps until it is due: for a continuous animation it wakes half a refresh after the last present, and the swapchain puts the frame on the next vblank. A minimized or occluded window gets no such frames until it shows again (see [Frame Pacing](../animation-transforms/#frame-pacing)).
 
 `Tree::pass(...)` returns a `PassReport` describing whether the pass was required, whether it rendered, whether it reused a cached render list, whether layout updated or recalculated, and which runtime reasons contributed to the pass. `WinitWindow::on_paint` receives the same report after a presented frame:
@@ -265,6 +268,11 @@ let profile = tree.last_profile();
 The profile records high-level timings such as layout, resolve, glyph, upload, encode, submit, present, and memory counters used by DevTools.
 
 ## Performance Notes
+
+The wgpu renderer leaves out of a frame what cannot be seen in it: a rect with no color, gradient, shadow or stroke to
+show, and in the window, every draw and layer painted before an opaque, upright rect without rounded corners that covers
+the whole window, back to the last backdrop blur before it (which reads them). A screen's background over the app's,
+or a full page over another, then has its pixels shaded once and not once for each.
 
 The plain-text pipeline reuses shaped paragraphs, wrapped layouts, and caret geometry. Documents (plain texts of 1,024 bytes and more) share a cache with a 48 MiB accounted budget per glyph engine and a 64-entry limit; shorter texts are kept shaped in a 4 MiB cache of their own and laid out again, not shaped again, when their width or size changes. See [Text Pipeline Optimization](../text-pipeline-optimization/) for implementation details and dated measurements; profile the current app and renderer before choosing the next optimization.
 

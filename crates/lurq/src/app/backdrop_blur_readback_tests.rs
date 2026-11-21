@@ -61,6 +61,7 @@ fn backdrop(order: usize, [x, y, width, height]: [f32; 4], sigma: f32) -> Backdr
     clip: ClipRect::default(),
     sigma,
     opacity: 1.0,
+    group: None,
   }
 }
 

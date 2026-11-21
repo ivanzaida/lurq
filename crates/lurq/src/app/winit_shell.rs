@@ -977,8 +977,13 @@ impl ManagedWindow {
   /// Whether a video plays in the window and the loop is to present directly: its next frame, or a redraw something
   /// asked for. The loop turns for much else meanwhile (the system's player has its main-thread work run, a timer
   /// fires with nothing to show), and presents nothing for it.
+  ///
+  /// A window that cannot be seen presents none until it shows again. Its surface gives no frame to draw into, and
+  /// the frame asked for again at once turned the loop as fast as it could: measured on a Mac, a window minimized
+  /// over a playing video took 93% of a core.
   fn video_to_present(&mut self, now: Instant) -> bool {
-    self.has_continuous_redraw_video_recently(now)
+    !self.frames.hidden()
+      && self.has_continuous_redraw_video_recently(now)
       && (self.tree.has_continuous_redraw_video() || self.tree.needs_redraw())
   }
 

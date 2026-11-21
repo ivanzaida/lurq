@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+Added:
+
+- **`.backdrop_group(key)` blurs glass that stands together as one.** Backdrop blurs of the same key and radius in one window or layer are blurred once, over the rectangle that holds them all: the first reads what is behind them, the others show what it read. A column of five round glass buttons over a playing video was five copies and fifteen blur passes in every frame; it is one copy and three. Measured on a Mac with a feed of such columns sliding, frames that met the display's refresh went from about 60 to 85 in 100. A glass of a group no longer shows the glass before it behind it. See [Blur](docs/src/content/docs/blur.md#glass-side-by-side).
+
+Fixes:
+
+- **What a frame cannot show is not painted.** The wgpu renderer drew every rect of the frame, a rect with nothing to show and those under an opaque one over the whole window included: a feed on an iPhone 17 had six rects the size of the window in each frame, one of them clear (a video player's background) and one the app's background under the screen's. It leaves those out now: a swiped feed took 4.5 ms of the GPU a frame where it took 6.6.
+- **A backdrop blur under an opaque fill is not blurred.** It showed nowhere, and a tab bar of solid color with the blur of the platform's glass copied and blurred what was behind it in every frame that changed it.
+- **A window that cannot be seen no longer turns the loop at full speed while a video plays.** Its surface gave no frame, and the frame was asked for again at once: a Mac window minimized over a playing video took 93% of a core. It takes 6%.
+
 ## 0.65.1 — 2026-11-21
 
 Fixes:

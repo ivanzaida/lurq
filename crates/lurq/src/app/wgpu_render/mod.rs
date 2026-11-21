@@ -7,6 +7,7 @@ mod card_copies;
 mod card_frames;
 #[cfg(all(test, windows, feature = "raster", feature = "media"))]
 mod card_frames_tests;
+mod covered;
 #[cfg(all(test, feature = "raster", any(target_os = "macos", target_os = "ios")))]
 mod cv_pixel_buffer_tests;
 mod device_loss;
@@ -67,7 +68,7 @@ use crate::{
   },
   layout::{
     backdrop::BackdropRegion,
-    backdrop_reuse::{BackdropInputs, LayerBlurInputs, PaintedDraw, backdrop_regions},
+    backdrop_reuse::{BackdropInputs, LayerBlurInputs, PaintedDraw, backdrop_regions, group_backdrops},
     opacity_layer::{LayerPlan, LayerStep, TargetSpace},
     render_list::RenderList,
   },
@@ -3037,6 +3038,7 @@ impl RenderEngine for WgpuRenderEngine {
       // is still the blur of what it holds.
       let window = [config.width, config.height];
       backdrop_regions(list, &layer_plan, window, &mut self.scratch_backdrop_regions);
+      let follows = group_backdrops(list, &layer_plan, &mut self.scratch_backdrop_regions);
       self.backdrop_inputs.describe(
         list,
         &layer_plan,
@@ -3062,13 +3064,26 @@ impl RenderEngine for WgpuRenderEngine {
         &mut self.scratch_layer_slots,
         &mut self.scratch_blur_slots,
       );
+      // A blur that follows another's is put back from the leader's, and has no texture of its own.
+      let led: Vec<Option<BackdropRegion>> = self
+        .scratch_backdrop_regions
+        .iter()
+        .zip(&follows)
+        .map(|(region, leader)| region.filter(|_| leader.is_none()))
+        .collect();
       compositor.acquire_backdrops(
         device,
-        &self.scratch_backdrop_regions,
+        &led,
         &self.backdrop_inputs,
         window,
         &mut self.scratch_backdrop_slots,
       );
+      for (index, lead) in follows.iter().enumerate() {
+        if let (Some(lead), Some(region)) = (lead, self.scratch_backdrop_regions[index]) {
+          let followed = self.scratch_backdrop_slots[*lead].map(|slots| slots.followed_by(region));
+          self.scratch_backdrop_slots[index] = followed;
+        }
+      }
     }
 
     // A frame that is read back, by a backdrop blur of the window or a capture, is painted beside a surface
@@ -3185,7 +3200,19 @@ impl RenderEngine for WgpuRenderEngine {
       let mut active_vertex_buffer = None;
       let mut active_index_buffer = None;
 
-      for step in layer_plan.steps(target) {
+      // A layer is painted into a texture of its own and composited where it shows: only the window's own
+      // draws are left out under a cover.
+      let covered = target
+        .layer
+        .is_none()
+        .then(|| {
+          covered::Covered::of(layer_plan.steps(target), |draw| {
+            matches!(ordered_draws[draw].1, OrderedDraw::Rect(index)
+              if covered::covers(&list.rects[index], space.width, space.height))
+          })
+        })
+        .flatten();
+      for (step_index, step) in layer_plan.steps(target).iter().enumerate() {
         let range = match step {
           LayerStep::Draws(range) => range.clone(),
           LayerStep::Backdrop(index) => {
@@ -3244,6 +3271,9 @@ impl RenderEngine for WgpuRenderEngine {
             continue;
           }
           LayerStep::Composite(child) => {
+            if covered.is_some_and(|covered| covered.hides_step(step_index)) {
+              continue;
+            }
             let child_layer = layer_plan.targets()[*child].layer;
             let child_slot = self.scratch_layer_slots.get(*child).copied().flatten();
             let child_blur = self.scratch_blur_slots.get(*child).copied().flatten();
@@ -3279,13 +3309,20 @@ impl RenderEngine for WgpuRenderEngine {
             continue;
           }
         };
+        let first_draw = range.start;
         let draws = &ordered_draws[range];
         let mut next_draw = 0;
         while let Some((_, draw)) = draws.get(next_draw) {
           next_draw += 1;
+          if covered.is_some_and(|covered| covered.hides_draw(step_index, first_draw + next_draw - 1)) {
+            continue;
+          }
           match draw {
             OrderedDraw::Rect(index) => {
               let r = &list.rects[*index];
+              if covered::paints_nothing(r) {
+                continue;
+              }
               if !set_scissor(&mut pass, space.clip(r.clip), &space) {
                 continue;
               }

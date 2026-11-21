@@ -1688,6 +1688,18 @@ macro_rules! impl_into_node {
         self
       }
 
+      /// Blurs the component's backdrop with the others of the same key, as one (see `Node::backdrop_group`).
+      pub fn backdrop_group(mut self, key: impl std::hash::Hash) -> Self {
+        let key = {
+          use std::hash::Hasher as _;
+          let mut hasher = std::collections::hash_map::DefaultHasher::new();
+          std::hash::Hash::hash(&key, &mut hasher);
+          hasher.finish()
+        };
+        self.update_node(|node| $crate::node::NodeUpdate::backdrop_group(node, key));
+        self
+      }
+
       pub fn transition(mut self, spec: $crate::animation::Transition) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::transition(node, spec));
         self

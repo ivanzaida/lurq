@@ -100,6 +100,11 @@ impl FramePacing {
     (hidden, shown)
   }
 
+  /// Whether the window was minimized or occluded at the last request.
+  pub(super) fn hidden(&self) -> bool {
+    self.hidden
+  }
+
   /// The display's refresh interval, read with `refresh` at most once a second.
   pub(super) fn refresh_interval(&mut self, refresh: impl FnOnce() -> Duration, now: Instant) -> Duration {
     match self.refresh {
