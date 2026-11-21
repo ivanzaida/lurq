@@ -562,3 +562,8 @@ key reaches the tree as on a desktop.
 
 The shell presents from a `CADisplayLink` at the display's full rate, and only while something changes: an idle
 app draws nothing. Going to the background and coming back needs nothing from the app.
+
+A video draws the window once for each of its frames, as the frame comes, and not at every refresh of the display:
+a video of 30 frames a second beside nothing else that moves has the window drawn 30 times a second on a display
+of 120, and a paused one not at all. Up to 0.64 a video on screen, playing or not, had the window drawn at every
+refresh, with all that lay under and over it: on an iPhone 17 the graphics card was busy most of the time.

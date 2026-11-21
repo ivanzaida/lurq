@@ -196,6 +196,106 @@ impl BackdropInputs {
   }
 }
 
+/// The inputs of a frame's blurred layers, by the index of their target in
+/// the frame's [`LayerPlan`]: what decides the pixels a layer's blur gives,
+/// so that a render engine keeps the blurred texture of a layer that holds
+/// still (a blurred picture under a playing video) and composites it again
+/// without painting the layer or blurring it.
+#[derive(Default)]
+pub(crate) struct LayerBlurInputs {
+  inputs: Vec<Input>,
+  extents: Vec<Cell<Option<Extent>>>,
+}
+
+impl LayerBlurInputs {
+  /// Writes down the input of every blurred layer of a frame, with the same
+  /// arguments as [`BackdropInputs::describe`].
+  ///
+  /// The input of a blurred layer is the place it is painted for (its origin
+  /// and size), its blur (deviation and rectangle), and everything painted
+  /// into it: what a layer composited into its target is noted with (its
+  /// draws, the layers inside it and their blurs, its backdrop blurs), its
+  /// bounds, opacity and clips. A layer that holds an image with pixels of its
+  /// owner's (a video frame, a canvas, an external texture), or whose input
+  /// would take more than [`MAX_INPUT_BYTES`], has no known input and is
+  /// blurred every frame; so is one with a backdrop blur inside it, which
+  /// reads pixels painted in the same frame.
+  pub(crate) fn describe(
+    &mut self,
+    list: &RenderList,
+    plan: &LayerPlan,
+    draws: usize,
+    draw: impl Fn(usize) -> PaintedDraw,
+    regions: &[Option<BackdropRegion>],
+    window: [u32; 2],
+  ) {
+    let targets = plan.targets();
+    self.inputs.resize_with(targets.len(), Input::default);
+    self.inputs.truncate(targets.len());
+    for input in &mut self.inputs {
+      input.bytes.clear();
+      input.known = false;
+    }
+    if !targets
+      .iter()
+      .any(|target| target.layer.is_some_and(|layer| list.layers[layer].blur.is_some()))
+    {
+      return;
+    }
+    self.extents.clear();
+    self.extents.resize(draws, Cell::new(None));
+    let frame = Frame {
+      list,
+      plan,
+      draw: &draw,
+      extents: &self.extents,
+      regions,
+      window,
+    };
+    for (index, target) in targets.iter().enumerate() {
+      let Some(layer) = target.layer.map(|layer| &list.layers[layer]) else {
+        continue;
+      };
+      let Some(blur) = layer.blur else {
+        continue;
+      };
+      if frame.has_backdrop(target) {
+        continue;
+      }
+      let mut notes = Notes {
+        bytes: std::mem::take(&mut self.inputs[index].bytes),
+        atlas_noted: false,
+      };
+      // The place first, laid out as a backdrop blur's in a layer: see `place_len`.
+      let (origin, size) = layer.painted();
+      notes.tag(b'L');
+      notes.i32s(&origin);
+      notes.u32s(&size);
+      notes.f32(blur.sigma);
+      notes.i32s(&[blur.x, blur.y]);
+      notes.u32s(&[blur.width, blur.height]);
+      let known = frame.note_layer(&mut notes, target, layer) && notes.bytes.len() <= MAX_INPUT_BYTES;
+      if !known {
+        notes.bytes.clear();
+      }
+      self.inputs[index] = Input {
+        bytes: notes.bytes,
+        known,
+      };
+    }
+  }
+
+  /// The input of the blurred layer painted by target `index`; `None` when it
+  /// is not known, and the layer is painted and blurred every frame.
+  pub(crate) fn input(&self, index: usize) -> Option<&[u8]> {
+    self
+      .inputs
+      .get(index)
+      .filter(|input| input.known)
+      .map(|input| input.bytes.as_slice())
+  }
+}
+
 /// A frame being described.
 struct Frame<'a, D> {
   list: &'a RenderList,
@@ -276,6 +376,15 @@ impl<D: Fn(usize) -> PaintedDraw> Frame<'_, D> {
       }
     }
     true
+  }
+
+  /// Whether a backdrop blur is painted into `target` or a layer inside it.
+  fn has_backdrop(&self, target: &LayerTarget) -> bool {
+    self.plan.steps(target).iter().any(|step| match step {
+      LayerStep::Backdrop(index) => self.regions.get(*index).copied().flatten().is_some(),
+      LayerStep::Composite(child) => self.has_backdrop(&self.plan.targets()[*child]),
+      LayerStep::Draws(_) => false,
+    })
   }
 
   /// Notes everything painted into the layer `target` paints, as the layer
@@ -817,6 +926,29 @@ impl BackdropCache {
     uses: &mut Vec<Option<BackdropUse>>,
     released: &mut Vec<u64>,
   ) {
+    self.begin_frame_of(
+      regions.len(),
+      |index| regions[index].is_some(),
+      |index| inputs.input(index),
+      budget,
+      uses,
+      released,
+    );
+  }
+
+  /// [`Self::begin_frame`] for `count` blurs of any kind: `blurs(index)` says
+  /// whether the frame runs blur `index`, `input(index)` what it reads. The
+  /// cache of a window's blurred layers is one of these, by the layers'
+  /// targets.
+  pub(crate) fn begin_frame_of<'a>(
+    &mut self,
+    count: usize,
+    blurs: impl Fn(usize) -> bool,
+    input: impl Fn(usize) -> Option<&'a [u8]>,
+    budget: usize,
+    uses: &mut Vec<Option<BackdropUse>>,
+    released: &mut Vec<u64>,
+  ) {
     self.budget = budget;
     uses.clear();
     released.clear();
@@ -829,8 +961,8 @@ impl BackdropCache {
     }
     // First the blurs whose input is a kept one, so that a blur that has to
     // run again does not take their result for its place.
-    for (index, region) in regions.iter().enumerate() {
-      uses.push(region.map(|_| match inputs.input(index) {
+    for index in 0..count {
+      uses.push(blurs(index).then(|| match input(index) {
         None => BackdropUse::Blur { keep: false },
         Some(input) => match self.kept.iter_mut().find(|kept| !kept.taken && kept.input == input) {
           Some(kept) => {
@@ -842,7 +974,7 @@ impl BackdropCache {
       }));
     }
     for (index, used) in uses.iter_mut().enumerate() {
-      let (Some(BackdropUse::Blur { keep: true }), Some(input)) = (*used, inputs.input(index)) else {
+      let (Some(BackdropUse::Blur { keep: true }), Some(input)) = (*used, input(index)) else {
         continue;
       };
       let at_place = self
@@ -870,9 +1002,13 @@ impl BackdropCache {
   /// [`BackdropUse::Blur`]. Returns whether it is kept: not when that would
   /// take the kept textures past their budget or their number.
   pub(crate) fn keep(&mut self, inputs: &BackdropInputs, index: usize, texture: u64, bytes: usize) -> bool {
-    let Some(input) = inputs.input(index) else {
-      return false;
-    };
+    inputs
+      .input(index)
+      .is_some_and(|input| self.keep_input(input, texture, bytes))
+  }
+
+  /// [`Self::keep`] of a blur that reads `input`.
+  pub(crate) fn keep_input(&mut self, input: &[u8], texture: u64, bytes: usize) -> bool {
     if self.kept.len() >= MAX_KEPT || self.bytes() + bytes > self.budget {
       return false;
     }

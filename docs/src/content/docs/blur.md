@@ -111,7 +111,11 @@ blur transition lays nothing out again.
 
 - `.blur(...)`: the cost follows the layer's pixels, not the radius. A wide blur runs on a reduced copy of the layer,
   so `blur(64.0)` is not slower than `blur(8.0)`. A blurred layer takes three or four pooled textures for its frame
-  and is painted for `1.5 * radius` more on each side than it shows, which is what the radius limit bounds.
+  and is painted for `1.5 * radius` more on each side than it shows, which is what the radius limit bounds. The wgpu
+  renderer keeps the blurred pixels, and a frame in which the layer holds what it held and stands where it stood
+  composites them again with one draw: the layer is not painted, nor blurred (see
+  [When A Layer Is Blurred Again](#when-a-layer-is-blurred-again)). A blurred picture under a playing video, or under
+  anything else that moves, costs that one draw a frame.
 - `.backdrop_blur(...)`: a frame that blurs a backdrop stops the frame's drawing, copies the pixels around the box and
   blurs the copy. That is a few passes and pooled textures of about the box's size. The blurred pixels are then kept,
   and a frame in which the same pixels are behind the glass puts them back with two draws: no copy, no pass, no
@@ -166,6 +170,25 @@ does a blur with so much painted behind it that writing those draws down takes m
 back to the pool when its glass is gone, has moved or changed size, and when the window is resized.
 
 A custom `RenderEngine` keeps what it chooses to: the `RenderList` of a frame says nothing about the frame before.
+
+### When A Layer Is Blurred Again
+
+The wgpu renderer keeps the blurred pixels of an element with `.blur(...)` the same way, and composites them in the
+frames that follow without painting the element or blurring it, for as long as the element holds what it held. A kept
+layer is put back while all of this is what it was in the frame that blurred it:
+
+- The rectangle the layer is painted for, and the blur's radius and rectangle, in physical pixels: so its place and
+  size, its radius and the window's scale.
+- Everything painted into the layer, in the order it is painted, as for a faded or blurred group behind glass above:
+  every fill, border, shadow, glyph, image and SVG with all it is drawn from, the groups inside it, and its
+  `.opacity(...)` and clips.
+
+It is painted and blurred again in a frame where any of that differs: a picture in it loads or changes its version,
+it moves (a page that slides blurs it in every frame of the slide, and not after), it fades. What lies under it or
+over it changes nothing. A layer that holds a video frame, a camera image, a `Canvas` or an external texture is
+blurred in every frame, and so is one with a `.backdrop_blur(...)` inside it, which reads what the same frame paints.
+The kept textures are counted as a backdrop blur's are, apart from them: at most 64, in at most twice the bytes of the
+window's pixels. The DX12 renderer paints and blurs a blurred layer in every frame.
 
 ## Checking The Result
 

@@ -68,7 +68,7 @@ impl FramePacing {
     }
     tree.tick_perf_overlay();
     let changes_at = if tree.perf_overlay_enabled()
-      || tree.has_continuous_redraw_image()
+      || tree.has_continuous_redraw_still()
       || tree.autoscroll_moving()
       || tree.has_moving_canvas()
     {

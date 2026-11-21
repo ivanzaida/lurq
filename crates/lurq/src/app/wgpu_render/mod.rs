@@ -67,7 +67,7 @@ use crate::{
   },
   layout::{
     backdrop::BackdropRegion,
-    backdrop_reuse::{BackdropInputs, PaintedDraw, backdrop_regions},
+    backdrop_reuse::{BackdropInputs, LayerBlurInputs, PaintedDraw, backdrop_regions},
     opacity_layer::{LayerPlan, LayerStep, TargetSpace},
     render_list::RenderList,
   },
@@ -604,6 +604,7 @@ pub struct WgpuRenderEngine {
   /// What each backdrop blur of the frame reads, to tell whether its kept
   /// result is still the blur of it.
   backdrop_inputs: BackdropInputs,
+  layer_blur_inputs: LayerBlurInputs,
   width: u32,
   height: u32,
   frame_extensions: Vec<WgpuFrameExtensionEntry>,
@@ -1195,6 +1196,7 @@ impl WgpuRenderEngine {
       scratch_backdrop_slots: Vec::new(),
       scratch_backdrop_regions: Vec::new(),
       backdrop_inputs: BackdropInputs::default(),
+      layer_blur_inputs: LayerBlurInputs::default(),
       width: 800,
       height: 600,
       frame_extensions: Vec::new(),
@@ -3029,20 +3031,10 @@ impl RenderEngine for WgpuRenderEngine {
     }
     if let Some(compositor) = self.layer_compositor.as_mut() {
       compositor.begin_frame();
-      for target in layer_plan.targets() {
-        self.scratch_layer_slots.push(target.layer.map(|layer| {
-          let (_, [width, height]) = list.layers[layer].painted();
-          compositor.acquire(device, width, height)
-        }));
-        self.scratch_blur_slots.push(
-          target
-            .layer
-            .and_then(|layer| list.layers[layer].blur)
-            .map(|blur| compositor.acquire_blur(device, &blur)),
-        );
-      }
       // A backdrop blur reads the target its step is in. One whose kept
       // result is still the blur of what it reads takes that; the others run.
+      // So does a blurred layer, which is not painted when its kept result
+      // is still the blur of what it holds.
       let window = [config.width, config.height];
       backdrop_regions(list, &layer_plan, window, &mut self.scratch_backdrop_regions);
       self.backdrop_inputs.describe(
@@ -3052,6 +3044,23 @@ impl RenderEngine for WgpuRenderEngine {
         |index| ordered_draws[index].1.painted(),
         &self.scratch_backdrop_regions,
         window,
+      );
+      self.layer_blur_inputs.describe(
+        list,
+        &layer_plan,
+        ordered_draws.len(),
+        |index| ordered_draws[index].1.painted(),
+        &self.scratch_backdrop_regions,
+        window,
+      );
+      compositor.acquire_layers(
+        device,
+        list,
+        &layer_plan,
+        &self.layer_blur_inputs,
+        window,
+        &mut self.scratch_layer_slots,
+        &mut self.scratch_blur_slots,
       );
       compositor.acquire_backdrops(
         device,
@@ -3110,6 +3119,10 @@ impl RenderEngine for WgpuRenderEngine {
     let mut _layers = crate::app::profile_types::LayerProfile::default();
     for (target_index, target) in layer_plan.targets().iter().enumerate() {
       let layer_slot = self.scratch_layer_slots.get(target_index).copied().flatten();
+      // A blurred layer put back from its kept blur, and what it holds, are not painted.
+      if target.layer.is_some() && layer_slot.is_none() {
+        continue;
+      }
       let (space, target_view, clear) = match (target.layer, layer_slot, self.layer_compositor.as_ref()) {
         (Some(layer), Some(slot), Some(compositor)) => (
           compositor.space(slot, &list.layers[layer]),
@@ -3233,10 +3246,14 @@ impl RenderEngine for WgpuRenderEngine {
           LayerStep::Composite(child) => {
             let child_layer = layer_plan.targets()[*child].layer;
             let child_slot = self.scratch_layer_slots.get(*child).copied().flatten();
-            let (Some(layer), Some(slot), Some(compositor)) = (child_layer, child_slot, self.layer_compositor.as_ref())
-            else {
+            let child_blur = self.scratch_blur_slots.get(*child).copied().flatten();
+            let (Some(layer), Some(compositor)) = (child_layer, self.layer_compositor.as_ref()) else {
               continue;
             };
+            // A blurred layer needs its blur, painted now or kept; another its own texture.
+            if child_blur.is_none() && child_slot.is_none() {
+              continue;
+            }
             let layer = &list.layers[layer];
             if !set_scissor(&mut pass, space.layer_rect(layer.bounds), &space) {
               continue;
@@ -3249,12 +3266,13 @@ impl RenderEngine for WgpuRenderEngine {
               pass.set_index_buffer(idx_buf.slice(..), wgpu::IndexFormat::Uint16);
               active_index_buffer = Some(ActiveIndexBuffer::CommonU16);
             }
-            match self.scratch_blur_slots.get(*child).copied().flatten() {
-              Some(blur_slots) => {
+            match (child_blur, child_slot) {
+              (Some(blur_slots), _) => {
                 compositor.composite_blurred(queue, &mut pass, &blur_slots, layer, &space);
                 profile_if! { _layers.blur_draws += 1; }
               }
-              None => compositor.composite(queue, &mut pass, slot, layer, &space),
+              (None, Some(slot)) => compositor.composite(queue, &mut pass, slot, layer, &space),
+              (None, None) => {}
             }
             profile_if! { _draw_calls += 1; }
             active_pipeline = Some(ActivePipeline::Layer);

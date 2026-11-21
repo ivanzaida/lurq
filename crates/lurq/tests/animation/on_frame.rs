@@ -579,13 +579,21 @@ fn a_callback_asked_for_in_a_render_is_one_callback_however_often_it_renders() {
   assert_eq!(script.frames.0.lock().unwrap().len(), 3);
 }
 
-/// A video beside a bar whose callback runs: the shell draws such a window at the video's pace, each pass with no
-/// redraw asked for, and those passes once drew the list the window kept (`while_a_video_plays`).
+/// A video beside a bar whose callback runs: the shell draws such a window at the video's pace, a pass for each frame
+/// with no redraw asked for, and those passes once drew the list the window kept (`while_a_video_plays`).
 #[cfg(feature = "raster")]
 mod beside_a_video {
   use lurq::{components::Video, images::ImageData};
 
   use super::*;
+
+  /// The video's frames, which the test gives as they come.
+  static VIDEO: std::sync::LazyLock<ImageData> =
+    std::sync::LazyLock::new(|| ImageData::streaming_rgba(vec![0; 16 * 9 * 4], 16, 9));
+
+  fn next_video_frame() {
+    VIDEO.set_streaming_rgba(vec![0; 16 * 9 * 4]);
+  }
 
   struct BarAndVideo;
 
@@ -598,11 +606,10 @@ mod beside_a_video {
 
     fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
       let script = ctx.props::<Script>().clone();
-      let frames = ImageData::streaming_rgba(vec![0; 16 * 9 * 4], 16, 9);
-      assert!(frames.requires_continuous_redraw(), "a video's frames keep coming");
+      assert!(VIDEO.requires_continuous_redraw(), "a video's frames keep coming");
       Row::new()
         .child(ctx.mount::<Bar>(script))
-        .child(Video::new(frames).size(320.0, 180.0))
+        .child(Video::new(VIDEO.clone()).size(320.0, 180.0))
     }
   }
 
@@ -616,6 +623,7 @@ mod beside_a_video {
 
     for index in 0..6 {
       let at = index as u64 * FRAME;
+      next_video_frame();
       let report = stage.frame(at);
       assert!(report.rendered, "the frame at {at} ms is drawn");
       assert!(
@@ -632,8 +640,10 @@ mod beside_a_video {
     assert_eq!(deltas, [0, FRAME, FRAME, FRAME, FRAME, FRAME]);
 
     // The callback stopped: the video's frames come from the kept list again, with no layout.
+    next_video_frame();
     stage.frame(6 * FRAME);
     for index in 7..10 {
+      next_video_frame();
       let report = stage.frame(index * FRAME);
       assert!(
         report.rendered && report.used_cached_render_list,

@@ -287,6 +287,11 @@ What a video or a sound reads as it plays:
   needs the feature `http`; a build without it has Media Foundation read the address itself, with no header.
 - **macOS and iOS**: the system's player reads the address, given the headers (`AVURLAssetHTTPHeaderFieldsKey`, a key
   AVFoundation reads that is not in its headers). Reading it through the loader, as Windows does, is still to come.
+  How far it reads ahead is bounded as the loader's reading is: until the media is first told to play, a second
+  past where it stands, so a video opened ahead and left paused takes its start and no more; once it plays, ten
+  seconds. Left to itself the system's player reads on while it stands, and reads a playing video to its end as fast
+  as the host gives it, which costs the radio, the battery and the person's data, and takes a slow host's bytes
+  from the video that is to open next.
 - **Browser**: a page's `<audio>` sends the browser's own headers and cannot be given others, and some (`Referer`) no
   page may set at all. The address is played without them, with one warning in the log.
 
