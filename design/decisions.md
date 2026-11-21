@@ -11,6 +11,46 @@ dropped). When a decision is replaced, the old entry stays and says what replace
 
 ## 2026-11-21
 
+### A video draws the window for each of its frames, and the system's player reads ahead only so far
+
+- **Question.** An app with a video on screen (Erome's feed, on an iPhone 17) had the window drawn at every refresh
+  of the display, 120 times a second, whether the video played or stood: a frame of a video was an image that
+  "changes by itself", and the shell presented directly from every turn of the loop, polling, while one was drawn.
+  Every such frame drew all that lay under and over the video again, blurs too, and kept the graphics card busy
+  70–87% of the time; the phone got hot. The system's player (`AVPlayer`) on macOS and iOS also read ahead with no
+  bound: a playing video to its end as fast as the host gave it, and paused players opened ahead read on too.
+- **Decision (Ivan, 2026-11-21: "давай щас попрацюємо над оптимізацією під іос", "давай роби все на маку").** A
+  picture whose frames come by themselves (a video's frames on the card, `CvPixelBufferFrames` and `CardFrames`, and
+  a streaming image) wakes the loops of the windows that draw it with each new frame (`FrameWakers`), and a window
+  draws it again only when its frame is another than the one it drew: the shell waits between frames instead of
+  polling, and presents directly only a frame or a redraw still to be presented. An animated picture (a GIF) keeps
+  its pacing. On macOS and iOS the system's player fetches 1 s ahead until it is first told to play and 10 s once it
+  plays (`preferredForwardBufferDuration`), as the loader reads ahead on Windows.
+- **Why.** Measured on a Mac (M4) with Erome: drawn 100 times a second for a video of 30 frames before, 33 after;
+  106 times a second for a paused video before, none after. The same scenario of swipes through the feed read 23 MB
+  before the bound and 14 MB after, and a video opened ahead was open in 0.2–0.6 s where it took up to 4 s beside
+  a playing video that took the host's bytes.
+- **State.** In work on `perf/video-redraw-on-frame` (2026-11-21), from `f76a69cc`: checked on macOS and on an
+  iPhone 17 (the graphics card's power impact over 26 s of Erome's feed with a playing video: 37.6 before, 4.6 after);
+  Windows (`CardFrames`) not run.
+
+### A blurred layer that holds still is not painted again
+
+- **Question.** An element with `.blur(...)` was painted into its layer and blurred in every frame the window drew,
+  however still it held. Under a playing video (Erome's feed: the video's poster, blurred, fills the page around it)
+  that is a full-window layer and its blur passes 30 times a second, for pixels that never change.
+- **Decision (Ivan, 2026-11-21: "давай кешуй блюр").** The wgpu renderer keeps a blurred layer's finished blur as it
+  keeps a backdrop blur's (`LayerBlurInputs`, a second `BackdropCache` by the layers' targets): while what is painted
+  into the layer, its place and its blur are byte for byte what they were, the kept texture is composited and the
+  layer, with the layers inside it, is not painted. A layer with an image of its owner's pixels or a backdrop blur
+  inside it has no known input and is blurred every frame. The DX12 renderer is left as it is.
+- **Why.** Measured on a Mac (M4) with Erome's feed: the graphics card's time a frame went from 4.07 ms to 3.29 ms,
+  the layer's own pass gone; what is left of blur passes is the glass of the buttons over the video, which a moving
+  video under it blurs again in every frame.
+- **State.** In work on `perf/video-redraw-on-frame` (2026-11-21); checked on macOS, and on an iPhone 17 over 26 s
+  of one video in Erome, the same build with and without the cache: the graphics card busy 51% → 42%, its power
+  impact 11.2 → 7.3.
+
 ### A breadcrumb that ends with a link, and a step that is no link
 
 - **Question.** Orchester's breadcrumbs do not all end with the page one is on: the Files header and Edit task end
