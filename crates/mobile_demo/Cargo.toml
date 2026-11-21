@@ -13,4 +13,4 @@ mcp = ["lurq/mcp"]
 http = ["lurq/http"]
 
 [dependencies]
-lurq = { version = "=0.65.0", path = "../lurq", default-features = false, features = ["winit", "wgpu", "router", "media"] }
+lurq = { version = "=0.65.1", path = "../lurq", default-features = false, features = ["winit", "wgpu", "router", "media"] }
