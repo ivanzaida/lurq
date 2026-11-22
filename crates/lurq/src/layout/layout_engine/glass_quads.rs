@@ -69,18 +69,19 @@ impl LayoutEngine {
     if glass.is_none() && container.is_none() {
       return;
     }
+    let (x, y, quad_transform, transform_origin) = transformed_quad_frame(abs_x, abs_y, transform);
     if let Some(glass) = &mut glass
-      && let Some((amount, [x, y])) = self.glass_press(node)
+      && let Some((amount, [touched_x, touched_y])) = self.glass_press(node)
     {
-      // Lit from where it is touched, as far as its longer side reaches.
+      // Lit from where it is touched, as far as its longer side reaches. The place is told from the corner
+      // the shape is painted at, which is where the command measures it from.
       glass.touch = Some(GlassTouch {
-        x: x - abs_x,
-        y: y - abs_y,
+        x: touched_x - x,
+        y: touched_y - y,
         radius: result.size.width.max(result.size.height).clamp(48.0, 160.0) * 0.75,
         strength: amount.clamp(0.0, 1.0),
       });
     }
-    let (x, y, quad_transform, transform_origin) = transformed_quad_frame(abs_x, abs_y, transform);
     let shape = glass.map(|_| GlassQuadShape {
       x,
       y,
@@ -102,6 +103,7 @@ impl LayoutEngine {
       }
       surface.shapes.push(shape);
       surface.keys.push(node.node_id().value());
+      surface.look_handlers.extend(node.rare_style.glass_look_handler.clone());
       return;
     }
     quads.push(Quad {
@@ -119,6 +121,7 @@ impl LayoutEngine {
           merge: container.unwrap_or(0.0).max(0.0),
           shapes: shape.into_iter().collect(),
           keys: shape.map(|_| node.node_id().value()).into_iter().collect(),
+          look_handlers: node.rare_style.glass_look_handler.clone().into_iter().collect(),
         })),
       },
       border_radius: None,

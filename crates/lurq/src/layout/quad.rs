@@ -441,6 +441,8 @@ pub struct GlassQuad {
   /// The ids of the shapes' nodes, in their order: who is told how dark
   /// what lies behind the glass is.
   pub keys: Vec<u64>,
+  /// Who hears the glass turn to its other look: the shapes' nodes that asked to, and the container.
+  pub look_handlers: Vec<crate::layout::glass::GlassLookHandler>,
 }
 
 /// One box of a glass, placed as a quad is.

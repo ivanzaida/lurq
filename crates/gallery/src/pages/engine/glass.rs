@@ -204,8 +204,11 @@ fn drops(together: bool) -> Stack {
       .glass(Glass::regular())
   };
   let gap = |width: f32| {
-    Rect::new(if together { 0.0 } else { width }, 1.0)
-      .transition(Transition::width().duration_ms(600).easing(Easing::Spring { velocity: 0.0 }))
+    Rect::new(if together { 0.0 } else { width }, 1.0).transition(
+      Transition::width()
+        .duration_ms(600)
+        .easing(Easing::Spring { velocity: 0.0 }),
+    )
   };
   stage(
     behind(),
@@ -281,7 +284,11 @@ fn turn(state: &Signal<bool>, on: &str, off: &str) -> Button {
 
 /// A demo with the button that changes it under it.
 fn with_button(scene: Element, button: Button) -> Column {
-  Column::new().spacing(12.0).overflow_visible().child(scene).child(button)
+  Column::new()
+    .spacing(12.0)
+    .overflow_visible()
+    .child(scene)
+    .child(button)
 }
 
 pub struct GlassPage {
@@ -451,10 +458,17 @@ impl GlassPage {
         code,
         tree,
         controls,
-        changed: [kind != 0, bend != 45, bezel != 20, blur != 10, radius != 36, interactive]
-          .into_iter()
-          .filter(|changed| *changed)
-          .count(),
+        changed: [
+          kind != 0,
+          bend != 45,
+          bezel != 20,
+          blur != 10,
+          radius != 36,
+          interactive,
+        ]
+        .into_iter()
+        .filter(|changed| *changed)
+        .count(),
         reset,
       },
     )

@@ -83,6 +83,23 @@ pub struct Glass {
   pub interactive: bool,
 }
 
+/// What a node hears when its glass turns to its other look (`Node::on_glass_look`): whether the glass is now
+/// the dark one. Two are the same when they are the same function.
+#[derive(Clone)]
+pub struct GlassLookHandler(pub std::sync::Arc<dyn Fn(bool) + Send + Sync>);
+
+impl PartialEq for GlassLookHandler {
+  fn eq(&self, other: &Self) -> bool {
+    std::sync::Arc::ptr_eq(&self.0, &other.0)
+  }
+}
+
+impl std::fmt::Debug for GlassLookHandler {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.write_str("GlassLookHandler")
+  }
+}
+
 /// What a glass with two looks takes its look from.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum GlassFollows {
@@ -91,8 +108,9 @@ pub enum GlassFollows {
   /// in the dark appearance it is dark over all but a very light one.
   #[default]
   Backdrop,
-  /// The app's appearance alone: the light look in the light appearance and
-  /// the dark look in the dark one, whatever is behind. A large surface.
+  /// The app's appearance alone: the light look in a light theme and the
+  /// dark look in a dark one (one whose page is dark), whatever is behind.
+  /// A large surface.
   Appearance,
 }
 
@@ -383,7 +401,13 @@ impl Glass {
       touch,
       ink: match (self.ink, other.ink) {
         (Some(a), Some(b)) => Some(mix_color(a, b, t)),
-        (a, b) => if t < 0.5 { a } else { b },
+        (a, b) => {
+          if t < 0.5 {
+            a
+          } else {
+            b
+          }
+        }
       },
       over_dark: match (self.over_dark, other.over_dark) {
         (Some(a), Some(b)) => Some(GlassLook {
@@ -393,7 +417,13 @@ impl Glass {
           rim: mix(a.rim, b.rim),
           ink: mix_color(a.ink, b.ink, t),
         }),
-        (a, b) => if t < 0.5 { a } else { b },
+        (a, b) => {
+          if t < 0.5 {
+            a
+          } else {
+            b
+          }
+        }
       },
       follows: if t < 0.5 { self.follows } else { other.follows },
       interactive: if t < 0.5 { self.interactive } else { other.interactive },
@@ -745,7 +775,10 @@ mod tests {
   #[test]
   fn a_shape_is_as_far_as_its_rounded_edge() {
     let glass = cmd(&[pill(10.0, 10.0, 100.0, 40.0)], 0.0);
-    assert!((glass.distance(60.0, 30.0) + 20.0).abs() < 1e-4, "the middle is half the height in");
+    assert!(
+      (glass.distance(60.0, 30.0) + 20.0).abs() < 1e-4,
+      "the middle is half the height in"
+    );
     assert!((glass.distance(60.0, 10.0)).abs() < 1e-4, "the top edge");
     assert!((glass.distance(60.0, 0.0) - 10.0).abs() < 1e-4);
     // The corner of the box is outside the pill's round end.
@@ -766,7 +799,10 @@ mod tests {
     // Moved apart by more than the merge, they are two again.
     let far = cmd(&[left, pill(80.0, 0.0, 40.0, 40.0)], 24.0);
     assert!(far.distance(60.0, 20.0) > 10.0, "the gap is no glass");
-    assert!((far.distance(41.0, 20.0) - 1.0).abs() < 1e-4, "and the edge is where it was");
+    assert!(
+      (far.distance(41.0, 20.0) - 1.0).abs() < 1e-4,
+      "and the edge is where it was"
+    );
   }
 
   #[test]
@@ -800,7 +836,10 @@ mod tests {
       [0.0, 0.0],
     );
     assert_eq!((glass.reach(), glass.spread()), (0.0, 0.0));
-    assert_eq!((glass.saturation, glass.brightness, glass.rim, glass.glow), (1.0, 0.0, 0.0, 0.0));
+    assert_eq!(
+      (glass.saturation, glass.brightness, glass.rim, glass.glow),
+      (1.0, 0.0, 0.0, 0.0)
+    );
     assert_eq!(glass.tint, [0.0; 4]);
   }
 

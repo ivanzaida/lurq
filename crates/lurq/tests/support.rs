@@ -103,6 +103,7 @@ pub struct RenderSnapshot {
   pub images: Vec<ImageSnapshot>,
   pub layers: Vec<lurq::layout::opacity_layer::LayerCmd>,
   pub backdrops: Vec<lurq::layout::backdrop::BackdropCmd>,
+  pub glasses: Vec<lurq::layout::glass::GlassCmd>,
 }
 
 /// Where an image is drawn, and which part of its pixels.
@@ -217,6 +218,7 @@ impl RenderEngine for CapturingRenderEngine {
         .collect(),
       layers: list.layers.clone(),
       backdrops: list.backdrops.clone(),
+      glasses: list.glasses.clone(),
     });
     true
   }
@@ -236,6 +238,7 @@ fn empty_snapshot() -> RenderSnapshot {
     images: vec![],
     layers: vec![],
     backdrops: vec![],
+    glasses: vec![],
   }
 }
 

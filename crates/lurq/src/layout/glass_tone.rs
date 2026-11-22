@@ -99,6 +99,13 @@ pub(crate) fn lightness_behind(
   (count > 0).then(|| known.map(|point| lightness(point.color)).sum::<f32>() / count as f32)
 }
 
+/// Whether a theme whose page is `background` is a dark one: what a glass that follows the app's appearance
+/// goes by, and where the line lies for one that follows its backdrop. It is the page's own colour that says
+/// so, since a theme may be dark without the system's appearance being.
+pub fn dark_page(background: crate::node::color::Color) -> bool {
+  lightness(color_of(background)) < 0.5
+}
+
 /// A point of the glass and the colour painted under it so far: straight
 /// sRGB, 0 to 1, opaque.
 struct Point {
@@ -356,7 +363,11 @@ mod tests {
 
   #[test]
   fn half_of_the_glass_over_white_is_half_light() {
-    let half = lightness(vec![rect(1, [100.0, 0.0, 300.0, 300.0], Color::new(255, 255, 255, 255))]);
+    let half = lightness(vec![rect(
+      1,
+      [100.0, 0.0, 300.0, 300.0],
+      Color::new(255, 255, 255, 255),
+    )]);
     assert!((half - 0.5).abs() < 0.1, "{half}");
   }
 

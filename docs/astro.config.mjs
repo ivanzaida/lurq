@@ -22,6 +22,7 @@ export default defineConfig({
                         'animation-transforms',
                         'styling-events',
                         'blur',
+                        'glass',
                         'focus-navigation',
                         'forms',
                         'routing',

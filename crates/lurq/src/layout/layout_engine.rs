@@ -734,7 +734,7 @@ impl LayoutEngine {
     *self.palette.borrow_mut() = theme.palette().clone();
     self
       .dark_appearance
-      .set(theme.appearance() == crate::app::window::Appearance::Dark);
+      .set(crate::layout::glass_tone::dark_page(theme.palette().background));
     *self.control_fills.borrow_mut() = control_fill::ControlFills::of(theme);
     *self.border_sizes.borrow_mut() = theme.border_sizes().clone();
     *self.spacing.borrow_mut() = theme.spacing().clone();

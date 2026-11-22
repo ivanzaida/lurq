@@ -39,7 +39,27 @@ built, dropped). When a decision is replaced, the old entry stays and says what 
   of the system's apps. The system's own setting (clear or tinted) is still not followed, as decided on 2026-11-12.
   lurq's Direct3D 12 renderer and DevTools' software capture draw a glass as its blur alone until they have the
   pass.
-- **State.** In work on `feat/liquid-glass`.
+- **How its numbers were found (2026-11-22).** Not from the system's code: by measuring. A probe app in an iOS
+  26.5 simulator showed the system's glass (`glassEffect` regular and clear, a capsule, a circle, a large rounded
+  box) over patterns that changed on a timer, and each frame was read from a screenshot: a step passed behind the
+  glass one point at a time gives, for every pixel, where it reads the backdrop from and how wide the step is
+  there (the lens and the blur); plain greys and colours give the tints, the rim and the shadow, and where the
+  glass turns dark. What came out: a bezel of 19 to 20 points whatever the shape, the very edge reading 45 points
+  inward along `(1 - u)^1.1 * e^(-2u)`; a blur of 5.3 points of deviation for regular and 1.9 for clear; white
+  laid over by a half for a small regular glass and by 0.7, with the colours behind brought out 2.5 times, for a
+  large one; a rim of white 0.6 falling to nothing over one point, the same all the way round; and a small
+  regular glass that turns dark under a grey of 128 in the light appearance and stays dark up to 225 in the dark
+  one.
+- **Decided on the way (Claude, for Ivan to overrule).** How light the backdrop is is told from the frame's
+  commands on the CPU, not read back from the GPU: the answer is in the same frame and the same in every
+  renderer, at the cost of not seeing words or a video's frames. A theme is dark when its page is, since an app's
+  theme may be dark in the system's light appearance (the demo's is). `NavigationBar` and `Sheet` are of glass by
+  default on iOS only, and `TabBar::floating()` everywhere, so no desktop app changes its look unasked.
+- **State.** Built on `feat/liquid-glass` (2026-11-22), all eight parts, with these left, each in
+  `docs/ios-gaps.md`: the `dx12` renderer and DevTools' capture draw a glass as its blur; the navigation bar's
+  way back and a screen's own buttons are not glass by themselves; the tilt's light and the tab bar's lens were
+  not tried on a device. Tried in a simulator: the materials against the system's side by side, the tab bar, the
+  navigation bar's edge and a sheet.
 
 ## 2026-11-19
 

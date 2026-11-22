@@ -86,7 +86,6 @@ pub use node::{
 };
 pub(crate) use node::{Node, NodeUpdate, SyntheticNodeRole, window_controls_in_use};
 pub use outline::{Outline, ResolvedOutline};
-pub use crate::layout::glass::{Glass, GlassFollows, GlassLook, GlassShadow, GlassTouch};
 pub use radius_value::RadiusValue;
 pub use select_icon::{SelectAdornmentState, SelectCheckmarkPosition, SelectIcon};
 pub use select_style::{SelectPartStyle, SelectStyle};
@@ -94,3 +93,5 @@ pub use slider_style::{SliderOrientation, SliderPartStyle};
 pub use spacing_value::SpacingValue;
 pub use style::Style;
 pub use text_color::TextColor;
+
+pub use crate::layout::glass::{Glass, GlassFollows, GlassLook, GlassShadow, GlassTouch};

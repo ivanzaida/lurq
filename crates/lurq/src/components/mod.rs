@@ -19,9 +19,9 @@ mod link;
 mod markdown;
 #[cfg(feature = "router")]
 mod outlet;
+pub(crate) mod pager;
 mod popup;
 mod rect;
-pub(crate) mod pager;
 pub(crate) mod refresh;
 #[cfg(feature = "router")]
 mod router_component;
@@ -1698,6 +1698,14 @@ macro_rules! impl_into_node {
       /// `Node::glass_container`).
       pub fn glass_container(mut self, merge: f32) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::glass_container(node, merge));
+        self
+      }
+
+      /// Hears the component's glass turn to its other look: whether it is the dark one (see
+      /// `Node::on_glass_look`).
+      pub fn on_glass_look(mut self, heard: impl Fn(bool) + Send + Sync + 'static) -> Self {
+        let heard = $crate::layout::glass::GlassLookHandler(std::sync::Arc::new(heard));
+        self.update_node(|node| $crate::node::NodeUpdate::on_glass_look(node, heard));
         self
       }
 

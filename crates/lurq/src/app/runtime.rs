@@ -102,8 +102,8 @@ mod input_token_paint;
 mod interaction_groups;
 pub(crate) mod key_capture;
 mod key_scroll;
-mod keys_first;
 mod keyed_focus;
+mod keys_first;
 mod leaving_layers;
 #[cfg(feature = "image")]
 mod loading_images;
@@ -3457,8 +3457,11 @@ impl Tree {
     let mut glass_tones = std::mem::take(&mut self.glass_tones);
     // How dark the backdrop of each glass node is, for the words on it in the next frame.
     let mut glass_inks: Vec<(u64, f32)> = Vec::new();
+    // Who is told that their glass turned, once the frame's commands are made.
+    let mut glass_looks: Vec<(crate::layout::glass::GlassLookHandler, bool)> = Vec::new();
     let (glass_now, glass_frame) = (self.now(), self.frame_count);
-    let dark_appearance = app.theme().appearance() == crate::app::window::Appearance::Dark;
+    // The window's own page says whether the app is a dark one: an app may paint a dark page over a light theme.
+    let dark_appearance = crate::layout::glass_tone::dark_page(clear_color);
 
     for (order, quad) in quads.iter().enumerate() {
       let scaled_clip = if quad.clip.active {
@@ -3970,8 +3973,18 @@ impl Tree {
               crate::layout::glass::GlassFollows::Appearance => Some(f32::from(u8::from(!dark_appearance))),
             };
             let key = surface.keys.first().copied().unwrap_or_default();
-            let dark = glass_dark_mix(&mut glass_tones, key, lightness, dark_appearance, glass_now, glass_frame);
+            let (dark, turned) = glass_dark_mix(
+              &mut glass_tones,
+              key,
+              lightness,
+              dark_appearance,
+              glass_now,
+              glass_frame,
+            );
             glass_inks.extend(surface.keys.iter().map(|key| (*key, dark)));
+            if let Some(now_dark) = turned {
+              glass_looks.extend(surface.look_handlers.iter().map(|heard| (heard.clone(), now_dark)));
+            }
             dark
           };
           if let Some(backdrop) = glass_backdrop(
@@ -4024,8 +4037,13 @@ impl Tree {
     self.has_glass = !glasses.is_empty();
     // A glass that is gone starts again from what is behind it when it comes back.
     glass_tones.retain(|_, tone| tone.frame == glass_frame);
-    let glass_turning = glass_tones.values().any(|tone| tone.mix != f32::from(u8::from(tone.dark)));
+    let glass_turning = glass_tones
+      .values()
+      .any(|tone| tone.mix != f32::from(u8::from(tone.dark)));
     self.glass_tones = glass_tones;
+    for (heard, dark) in glass_looks {
+      (heard.0)(dark);
+    }
     self.layout_engine.set_glass_tones(glass_inks.into_iter());
     // A glass that is turning to its other look, or springing under a press, is painted again by itself.
     self.glass_tone_change_at = glass_turning
@@ -14539,7 +14557,8 @@ const GLASS_TONE_FRAME: Duration = Duration::from_millis(8);
 /// How far toward its dark look the glass `key` is in this frame, 0 to 1, with what lies behind it `lightness`
 /// light (`None` when that is not known: the glass stays as it is). A glass seen for the first time has the
 /// look of its backdrop at once; one whose backdrop crosses over turns to the other look in
-/// [`GLASS_TONE_TIME`].
+/// [`GLASS_TONE_TIME`]. Also whether the glass is now the dark one, when it was just seen for the first time or
+/// just turned.
 fn glass_dark_mix(
   tones: &mut std::collections::HashMap<u64, GlassToneState>,
   key: u64,
@@ -14547,10 +14566,14 @@ fn glass_dark_mix(
   dark_appearance: bool,
   now: Instant,
   frame: u64,
-) -> f32 {
+) -> (f32, Option<bool>) {
   let (turns_dark, turns_light) = crate::layout::glass::glass_turns(dark_appearance);
+  let mut new = false;
   let tone = tones.entry(key).or_insert_with(|| {
-    let dark = lightness.map_or(dark_appearance, |lightness| lightness < (turns_dark + turns_light) * 0.5);
+    new = true;
+    let dark = lightness.map_or(dark_appearance, |lightness| {
+      lightness < (turns_dark + turns_light) * 0.5
+    });
     GlassToneState {
       dark,
       mix: f32::from(u8::from(dark)),
@@ -14577,7 +14600,7 @@ fn glass_dark_mix(
   };
   tone.at = now;
   tone.frame = frame;
-  tone.mix
+  (tone.mix, (new || tone.dark != was).then_some(tone.dark))
 }
 
 /// The backdrop command of a glass quad, whose [`GlassCmd`](crate::layout::glass::GlassCmd) is added to

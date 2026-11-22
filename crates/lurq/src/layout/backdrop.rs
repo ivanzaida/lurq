@@ -127,7 +127,12 @@ impl BackdropRegion {
     )?;
     let mut shown = mask.extent();
     let spread = cmd.spread.max(0.0);
-    shown = [shown[0] - spread, shown[1] - spread, shown[2] + spread, shown[3] + spread];
+    shown = [
+      shown[0] - spread,
+      shown[1] - spread,
+      shown[2] + spread,
+      shown[3] + spread,
+    ];
     let mut clips = [None; crate::layout::quad::MAX_ROUNDED_CLIPS];
     if cmd.clip.active {
       shown = [

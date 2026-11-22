@@ -820,6 +820,7 @@ pub(crate) trait NodeUpdate {
   fn backdrop_blur(&mut self, radius: f32);
   fn glass(&mut self, glass: crate::layout::glass::Glass);
   fn glass_container(&mut self, merge: f32);
+  fn on_glass_look(&mut self, heard: crate::layout::glass::GlassLookHandler);
   fn transform(&mut self, t: Transform2D);
   fn transition(&mut self, spec: Transition);
   fn animation(&mut self, spec: Animation);
@@ -1120,6 +1121,8 @@ pub(crate) struct RareStyle {
   /// The node's glass children are one glass, flowing together within this distance; see
   /// [`Node::glass_container`].
   pub(crate) glass_merge: Option<f32>,
+  /// Who hears the node's glass turn to its other look; see [`Node::on_glass_look`].
+  pub(crate) glass_look_handler: Option<crate::layout::glass::GlassLookHandler>,
   /// The node and its subtree take no input; see [`Node::disabled`].
   pub(crate) disabled: bool,
   /// The node and its subtree are out of the focus and the pointer; see `NodeUpdate::inert`.
@@ -2553,6 +2556,10 @@ impl NodeUpdate for Node {
     if self.rare_style.glass_merge != Some(merge) {
       self.rare_style.glass_merge = Some(merge);
     }
+  }
+
+  fn on_glass_look(&mut self, heard: crate::layout::glass::GlassLookHandler) {
+    self.rare_style.glass_look_handler = Some(heard);
   }
 
   fn transform(&mut self, t: Transform2D) {
@@ -4630,6 +4637,16 @@ impl Node {
   /// one glass; the ones after are glasses of their own.
   pub fn glass_container(mut self, merge: f32) -> Self {
     self.rare_style.glass_merge = Some(merge);
+    self
+  }
+
+  /// Hears the node's glass turn to its other look: `heard` is told whether the glass is the dark one, when
+  /// the glass is first painted and each time it turns (see
+  /// [`Glass::over_dark`](crate::layout::glass::Glass::over_dark)). The words on a glass that name no colour
+  /// follow it by themselves; this is for what has a colour of its own to choose, a picture or a mark. A
+  /// glass container hears the look of the glass it holds.
+  pub fn on_glass_look(mut self, heard: impl Fn(bool) + Send + Sync + 'static) -> Self {
+    self.rare_style.glass_look_handler = Some(crate::layout::glass::GlassLookHandler(Arc::new(heard)));
     self
   }
 
