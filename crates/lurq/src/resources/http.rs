@@ -5,8 +5,8 @@ use std::{
   io::{self, Read},
   ops::Range,
   sync::{
-    Arc,
-    atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
+    Arc, Weak,
+    atomic::{AtomicBool, AtomicU8, AtomicU64, AtomicUsize, Ordering},
   },
   time::{Duration, Instant},
 };
@@ -80,6 +80,8 @@ pub(super) struct Agents {
   made: AtomicUsize,
   /// The hosts a connection was opened to ahead ([`connect`]), and when.
   connected: Mutex<Vec<(Box<str>, Instant)>>,
+  /// Each host its readers ask, while one of them lives.
+  hosts: Mutex<Vec<(Box<str>, Weak<Host>)>>,
 }
 
 impl Agents {
@@ -89,7 +91,25 @@ impl Agents {
       size: AtomicUsize::new(size),
       made: AtomicUsize::new(0),
       connected: Mutex::new(Vec::new()),
+      hosts: Mutex::new(Vec::new()),
     })
+  }
+
+  /// What the readers of the host of `address` share: one for each host, while one of its readers lives.
+  fn host(&self, address: &str) -> Arc<Host> {
+    let name = host_of(address);
+    let mut hosts = self.hosts.lock();
+    hosts.retain(|(_, host)| host.strong_count() > 0);
+    if let Some(host) = hosts
+      .iter()
+      .find(|(had, _)| **had == *name)
+      .and_then(|(_, host)| host.upgrade())
+    {
+      return host;
+    }
+    let host = Arc::new(Host::default());
+    hosts.push((name.into(), Arc::downgrade(&host)));
+    host
   }
 
   pub(super) fn resize(&self, size: usize) {
@@ -448,6 +468,81 @@ fn index_at_the_end(start: &[u8]) -> Option<u64> {
   None
 }
 
+/// How many requests the readers of one host have on their way at once, besides those a read waits for: a host
+/// gives one client only so much a second, however many connections it has.
+const HOST_REQUESTS: usize = 3;
+/// The most a request of a reader that is not in front asks for: it ends soon, and what is in front has the
+/// connection next.
+const BEHIND_MOST: u64 = 256 << 10;
+/// The rank of a reader nobody ranked: in front, so that it reads as it did alone.
+const IN_FRONT: u8 = 3;
+
+/// How much a request is wanted: one a read waits for before one that brings what nobody waits for, and then
+/// by its reader's rank ([`Reader::set_rank`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct Rank {
+  waited: bool,
+  reader: u8,
+}
+
+/// What the readers of one host share: the requests on their way to it, and the readers that have one to make
+/// and no room for it. A host gives one client only so much a second in all, so what one reader asks for takes
+/// from the others: what is most wanted goes first, and a request that is less stands still while one that is
+/// more is on its way.
+#[derive(Default)]
+pub(super) struct Host {
+  state: Mutex<HostState>,
+}
+
+#[derive(Default)]
+struct HostState {
+  running: Vec<Rank>,
+  waiting: Vec<(Weak<Ranges>, Rank)>,
+}
+
+impl Host {
+  /// Whether a request of `rank` may go now: there is room, or a read waits for it.
+  fn admit(&self, rank: Rank) -> bool {
+    let mut state = self.state.lock();
+    let room = state.running.len() < HOST_REQUESTS || rank.waited;
+    if room {
+      state.running.push(rank);
+    }
+    room
+  }
+
+  /// `ranges` has a request of `rank` to make once there is room.
+  fn wait_for_room(&self, ranges: &Arc<Ranges>, rank: Rank) {
+    let mut state = self.state.lock();
+    state
+      .waiting
+      .retain(|(had, _)| had.strong_count() > 0 && !std::ptr::eq(had.as_ptr(), Arc::as_ptr(ranges)));
+    state.waiting.push((Arc::downgrade(ranges), rank));
+  }
+
+  /// A request of `rank` ended: the reader most wanted of those that wait for room, to be roused.
+  fn release(&self, rank: Rank) -> Option<Arc<Ranges>> {
+    let mut state = self.state.lock();
+    if let Some(at) = state.running.iter().position(|running| *running == rank) {
+      state.running.swap_remove(at);
+    }
+    state.waiting.retain(|(ranges, _)| ranges.strong_count() > 0);
+    let most = (0..state.waiting.len()).max_by_key(|at| state.waiting[*at].1)?;
+    state.waiting.swap_remove(most).0.upgrade()
+  }
+
+  /// Whether a request of a higher rank than `rank` that a read waits for is on its way to this host, or waits
+  /// for room.
+  fn outranked(&self, rank: Rank) -> bool {
+    let state = self.state.lock();
+    state
+      .running
+      .iter()
+      .chain(state.waiting.iter().map(|(_, rank)| rank))
+      .any(|other| other.waited && *other > rank)
+  }
+}
+
 /// What is at an address, read by ranges as it is asked for, with its headers on every request: what a decoder
 /// reads as it plays.
 ///
@@ -476,6 +571,9 @@ struct Ranges {
   last: AtomicU64,
   /// How far it fetches before it is asked for, whether or not it reads ahead ([`Reader::read_ahead_to`]).
   ahead_to: AtomicU64,
+  /// The host it asks, which it shares with the other readers of that host, and its rank among them.
+  host: Arc<Host>,
+  rank: AtomicU8,
   /// Where its start is kept once it is dropped, under what, and when that start was read.
   starts: Arc<Starts>,
   key: u64,
@@ -637,6 +735,7 @@ impl HttpReader {
       read_ahead,
     } = asked;
     let agent = (*agents.lend(&address)).clone();
+    let host = agents.host(&address);
     let kept = starts.of(key, cut);
     let mut blocks = Blocks {
       began: read_ahead == Some(true),
@@ -670,6 +769,8 @@ impl HttpReader {
       eager: AtomicBool::new(read_ahead != Some(false)),
       last: AtomicU64::new(0),
       ahead_to: AtomicU64::new(0),
+      host,
+      rank: AtomicU8::new(IN_FRONT),
       starts,
       key,
       since,
@@ -873,6 +974,15 @@ impl Reader for HttpReader {
     self.0.rouse(&mut blocks);
   }
 
+  fn set_rank(&self, rank: u8) {
+    if self.0.rank.swap(rank, Ordering::Relaxed) >= rank {
+      return;
+    }
+    // Ranked higher, it may have room now that it had not.
+    let mut blocks = self.0.blocks.lock();
+    self.0.rouse(&mut blocks);
+  }
+
   fn read_ahead_to(&self, end: u64) {
     if self.0.ahead_to.swap(end, Ordering::Relaxed) >= end {
       return;
@@ -928,6 +1038,13 @@ impl Ranges {
     };
     let reach = last.max(first) + READ_AHEAD;
     let (_, most) = self.cut.sizes();
+    // A reader behind others of its host asks for little at a time: its request ends soon, and the host's
+    // connection goes to what is wanted more.
+    let most = if ahead && self.rank.load(Ordering::Relaxed) < IN_FRONT {
+      most.min(BEHIND_MOST)
+    } else {
+      most
+    };
     // A read sent into a block waits for its place, not for the start of the block: the block is brought from
     // there. Measured on a Mac over a video of a slow host, a seek waited for up to 852 KB before its place,
     // 1.3 s of the host's speed, before the bytes it was sent to.
@@ -974,24 +1091,67 @@ impl Ranges {
       let Some(run) = self.job(blocks, idle) else {
         return;
       };
-      let (ranges, first, last, ahead) = (self.clone(), run.first, run.last, run.ahead);
+      let rank = self.rank_of(&run);
+      // The host has room for it, or it waits for room, and is roused when a request to the host ends.
+      if !self.host.admit(rank) {
+        self.untake(blocks, &run);
+        self.host.wait_for_room(self, rank);
+        return;
+      }
+      let (ranges, first, last) = (self.clone(), run.first, run.last);
       let spawned = std::thread::Builder::new()
         .name("lurq-read".to_owned())
-        .spawn(move || ranges.work(run));
+        .spawn(move || ranges.work(run, rank));
       if let Err(error) = spawned {
-        blocks.coming.retain(|index| !(first..=last).contains(index));
-        blocks.working -= 1;
-        blocks.ahead &= !ahead;
+        self.untake(
+          blocks,
+          &Run {
+            first,
+            last,
+            ahead: !rank.waited,
+            skip: 0,
+          },
+        );
         blocks
           .failed
           .extend((first..=last).map(|index| (index, LoadError::Io(error.to_string()), false)));
+        let next = self.host.release(rank);
+        Self::rouse_other(next, self);
         return;
       }
     }
   }
 
+  /// The rank of a request that brings `run`.
+  fn rank_of(&self, run: &Run) -> Rank {
+    Rank {
+      waited: !run.ahead,
+      reader: self.rank.load(Ordering::Relaxed),
+    }
+  }
+
+  /// Gives back what `run` took of `blocks`: it is not asked for after all.
+  fn untake(&self, blocks: &mut Blocks, run: &Run) {
+    blocks.coming.retain(|index| !run.holds(*index));
+    blocks.working -= 1;
+    blocks.ahead &= !run.ahead;
+  }
+
+  /// Rouses `next`, a reader the host has room for now, unless it is `this`, which the caller rouses itself.
+  fn rouse_other(next: Option<Arc<Self>>, this: &Arc<Self>) {
+    if let Some(next) = next
+      && !Arc::ptr_eq(&next, this)
+    {
+      // Its own blocks are taken on another turn: this reader's are held here.
+      std::thread::spawn(move || {
+        let mut blocks = next.blocks.lock();
+        next.rouse(&mut blocks);
+      });
+    }
+  }
+
   /// Brings `run`, and then what is next, one request after the other, until there is nothing to bring.
-  fn work(self: Arc<Self>, mut run: Run) {
+  fn work(self: Arc<Self>, mut run: Run, mut rank: Rank) {
     loop {
       let brought = self.bring(&run);
       let mut blocks = self.blocks.lock();
@@ -1007,11 +1167,24 @@ impl Ranges {
           }
         }
       }
+      // The request ended: the host has room for the reader most wanted of those that wait for it, this one
+      // among them.
+      // What it was let go with, whatever its reader's rank is now.
+      let roused = self.host.release(rank);
       // After a request that failed only what a read waits for is asked for: a server that is down is not asked
       // again and again for what nobody waits for.
-      let next = self.job(&mut blocks, went_well);
+      let mut next = self.job(&mut blocks, went_well);
+      if let Some(taken) = &next {
+        rank = self.rank_of(taken);
+        if !self.host.admit(rank) {
+          self.untake(&mut blocks, taken);
+          self.host.wait_for_room(&self, rank);
+          next = None;
+        }
+      }
       drop(blocks);
       self.came.notify_all();
+      Self::rouse_other(roused, &self);
       match next {
         Some(next) => run = next,
         None => return,
@@ -1028,11 +1201,14 @@ impl Ranges {
       if blocks.closed {
         return false;
       }
+      // A read of this reader waits for what another of its requests brings, or a request of a higher rank to
+      // the same host is on its way, or waits for room.
+      let waits_here = blocks
+        .waited
+        .iter()
+        .any(|index| blocks.coming.contains(index) && !blocks.whole(*index));
       let gives_way = !blocks.waited.iter().any(|index| run.holds(*index))
-        && blocks
-          .waited
-          .iter()
-          .any(|index| blocks.coming.contains(index) && !blocks.whole(*index))
+        && (waits_here || self.host.outranked(self.rank_of(run)))
         && asked.elapsed() < self.timeout / 2;
       if !gives_way {
         return true;
@@ -2007,6 +2183,115 @@ mod tests {
     let asked = asked.lock().clone();
     assert!(asked.contains(&format!("{into}-{}", 3 * SMALL - 1)), "{asked:?}");
     assert!(asked.contains(&format!("{before}-{}", 3 * SMALL - 1)), "{asked:?}");
+  }
+
+  /// A reader of `address` among the other readers of `agents`, ranked `rank`.
+  fn ranked(agents: &Agents, address: &str, rank: u8) -> HttpReader {
+    let reader = HttpReader::open(
+      agents,
+      Starts::new(0),
+      asked(address, asked_by_lurq(), Cut::even(SMALL)),
+    )
+    .unwrap();
+    reader.set_rank(rank);
+    reader
+  }
+
+  #[test]
+  fn a_read_that_waits_has_a_request_whatever_else_goes_to_its_host() {
+    let host = Host::default();
+    let behind = Rank {
+      waited: false,
+      reader: 1,
+    };
+    for _ in 0..HOST_REQUESTS {
+      assert!(host.admit(behind));
+    }
+    assert!(!host.admit(behind), "no room for more of what nobody waits for");
+    assert!(
+      host.admit(Rank {
+        waited: true,
+        reader: 0,
+      }),
+      "a read waits for this one"
+    );
+  }
+
+  #[test]
+  fn the_reader_ranked_highest_of_those_that_wait_for_room_goes_first() {
+    let (address, ..) = serve_file(numbered(100), true);
+    let agents = Agents::new(4);
+    let (low, high) = (ranked(&agents, &address, 1), ranked(&agents, &address, 5));
+    let host = agents.host(&address);
+    assert!(Arc::ptr_eq(&host, &low.0.host), "one host for both");
+    let ahead = |reader: u8| Rank { waited: false, reader };
+    // The readers have brought their first block, and ask for nothing more.
+    let until = Instant::now() + SECOND;
+    while !host.state.lock().running.is_empty() {
+      assert!(Instant::now() < until, "the readers did not end their requests");
+      thread::sleep(Duration::from_millis(5));
+    }
+    for _ in 0..HOST_REQUESTS {
+      host.admit(ahead(1));
+    }
+    host.wait_for_room(&low.0, ahead(1));
+    host.wait_for_room(&high.0, ahead(5));
+    let first = host.release(ahead(1)).expect("a reader that waits");
+    assert!(Arc::ptr_eq(&first, &high.0), "the one ranked higher");
+    let next = host.release(ahead(1)).expect("the other");
+    assert!(Arc::ptr_eq(&next, &low.0));
+  }
+
+  #[test]
+  fn a_request_ranked_lower_stands_still_while_one_ranked_higher_brings_what_a_read_waits_for() {
+    let (address, ..) = serve_file(numbered(100), true);
+    let agents = Agents::new(4);
+    let (behind, front) = (ranked(&agents, &address, 1), ranked(&agents, &address, 5));
+    let host = agents.host(&address);
+    let ahead = || Run {
+      first: 3,
+      last: 3,
+      ahead: true,
+      skip: 0,
+    };
+    assert!(behind.0.goes_on(&ahead(), Instant::now()), "nothing else is on its way");
+    let waited = front.0.rank_of(&Run {
+      first: 5,
+      last: 5,
+      ahead: false,
+      skip: 0,
+    });
+    assert!(host.admit(waited));
+    let went = Arc::new(AtomicBool::new(false));
+    let standing = {
+      let (ranges, went) = (behind.0.clone(), went.clone());
+      thread::spawn(move || {
+        let on = ranges.goes_on(&ahead(), Instant::now());
+        went.store(true, Ordering::SeqCst);
+        on
+      })
+    };
+    thread::sleep(Duration::from_millis(120));
+    assert!(!went.load(Ordering::SeqCst), "it stands still");
+    host.release(waited);
+    assert!(standing.join().unwrap(), "and reads on once that request ended");
+  }
+
+  #[test]
+  fn the_readers_of_two_hosts_do_not_wait_for_each_other() {
+    let (one, ..) = serve_file(numbered(100), true);
+    let (other, ..) = serve_file(numbered(100), true);
+    let agents = Agents::new(4);
+    let (a, b) = (ranked(&agents, &one, 1), ranked(&agents, &other, 5));
+    assert!(!Arc::ptr_eq(&a.0.host, &b.0.host));
+    assert!(b.0.host.admit(Rank {
+      waited: true,
+      reader: 5,
+    }));
+    assert!(!a.0.host.outranked(Rank {
+      waited: false,
+      reader: 1,
+    }));
   }
 
   #[test]

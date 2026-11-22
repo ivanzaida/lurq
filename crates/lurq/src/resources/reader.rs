@@ -49,6 +49,13 @@ pub trait Reader: Send + Sync {
   /// ahead is to have of what follows where it stands ([`Media::set_ahead`](crate::media::Media::set_ahead)).
   /// Told less, it fetches no more past what it has; nothing to a reader that has everything.
   fn read_ahead_to(&self, _end: u64) {}
+
+  /// How much what it reads is wanted beside what other readers of the same host read, higher first: the
+  /// requests of a reader ranked higher go first, and those of one ranked lower stand still while a read of one
+  /// ranked higher waits. A host gives one client only so much a second, whatever it asks for. A reader nobody
+  /// ranks reads as it would alone (3); a media ranks its reader by its priority and whether it plays
+  /// ([`Media::set_priority`](crate::media::Media::set_priority)). Nothing to a reader that has everything.
+  fn set_rank(&self, _rank: u8) {}
 }
 
 /// A reader of bytes in memory.

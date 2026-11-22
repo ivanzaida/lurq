@@ -179,25 +179,16 @@ fn answer(request: &AVAssetResourceLoadingRequest, reader: &dyn Reader, shared: 
   }
 }
 
-/// How far into its `length` bytes the media is to be read now: as far as what is read ahead of where it is, by
-/// the share of its length that is. `None` until its length in time is known.
+/// How far into its `length` bytes the media is to be read now: as far as what is read ahead of where it is
+/// needs ([`Shared::read_to`]). `None` until that is known.
 fn plays_to(shared: &Shared, length: u64) -> Option<u64> {
-  let (position, duration) = {
-    let inner = shared.inner();
-    // A media that waits for bytes is given them, whatever is read ahead: where it is in its bytes is only told
-    // by its share of its time, and where what it plays takes more bytes than that, it would wait for them for
-    // good.
-    if inner.waiting {
-      return None;
-    }
-    (inner.position(), inner.duration?)
-  };
-  if duration <= 0.0 {
+  // A media that waits for bytes is given them, whatever is read ahead: where the media has no index, where it is
+  // in its bytes is told by its share of its time only, and where what it plays takes more bytes than that, it
+  // would wait for them for good.
+  if shared.inner().waiting {
     return None;
   }
-  let ahead = shared.ahead();
-  let share = ((position + ahead) / duration).clamp(0.0, 1.0);
-  Some((share * length as f64) as u64)
+  shared.read_to(length)
 }
 
 /// The system's name for what is in a reader whose server says `content_type`, at an address named `name`.

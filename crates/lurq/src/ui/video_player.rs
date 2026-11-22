@@ -633,6 +633,8 @@ pub struct VideoPlayer {
   settings_button: bool,
   looped: bool,
   ahead: Option<f64>,
+  #[cfg(feature = "media")]
+  priority: Option<crate::media::Priority>,
   qualities: Vec<Arc<str>>,
   quality: Held<Option<usize>>,
   fullscreen: Held<bool>,
@@ -744,6 +746,8 @@ impl VideoPlayer {
       settings_button: true,
       looped: false,
       ahead: None,
+      #[cfg(feature = "media")]
+      priority: None,
       qualities: Vec::new(),
       quality: Held::new(None),
       fullscreen: Held::new(false),
@@ -1125,6 +1129,15 @@ impl VideoPlayer {
   /// has there when it is shown. A second unless told; at least ten once it plays.
   pub fn ahead(mut self, seconds: f64) -> Self {
     self.ahead = Some(seconds);
+    self
+  }
+
+  /// How much what its [source](Self::source) reads is wanted beside what other players of the same host read
+  /// ([`Media::set_priority`](crate::media::Media::set_priority)): `High` for the video shown, `Low` for one two
+  /// swipes away. Normal unless told; of one priority, a player that plays goes first.
+  #[cfg(feature = "media")]
+  pub fn priority(mut self, priority: crate::media::Priority) -> Self {
+    self.priority = Some(priority);
     self
   }
 
@@ -1995,6 +2008,11 @@ fn playing(mut player: VideoPlayer, live: &Live, ctx: &mut Ctx) -> VideoPlayer {
       && media.ahead() != ahead
     {
       media.set_ahead(ahead);
+    }
+    if let Some(priority) = player.priority
+      && media.priority() != priority
+    {
+      media.set_priority(priority);
     }
   }
   // What a person does on a control is done to the media, after the app's own handlers heard of it.

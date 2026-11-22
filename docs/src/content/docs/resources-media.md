@@ -281,7 +281,12 @@ What a video or a sound reads as it plays:
 
 - **What is read ahead.** A media reads a second past where it stands before it is first told to play, and ten
   seconds at least once it plays; `media.set_ahead(seconds)` says how far before it plays (`VideoPlayer::ahead`). The
-  reader of its address fetches that far whether or not its decoder asks (`Reader::read_ahead_to`). A host gives one
+  reader of its address fetches that far whether or not its decoder asks (`Reader::read_ahead_to`). Where what it
+  plays is an MP4 file, its index (`moov`) is read beside it as it opens, and says where in its bytes each moment
+  is: what plays until then needs the bytes of every track's chunk that plays before it. Until the index is there,
+  and for what has none, a time is taken to be at its share of the length in bytes, which is as far off as the
+  bitrate is uneven: measured over seven videos of a site, up to 12.6 s of video short (read ahead of 10 s fell
+  behind what played) and up to 44 s over, on an hour-long video. A host gives one
   client only so much a second, and a feed's videos are often on several: one opened ahead on another host than the
   one that plays takes nothing from it, and can read further than one on the same host, which shares what it gives.
 - **Windows**: the app's loader reads every address (`loader.open`, below) and gives Media Foundation the stream,
@@ -375,6 +380,15 @@ app
   host waited for up to 852 KB before its place, 1.3 s of what the host gave, before the bytes it was sent to.
   Measured on a Mac, a seek in a video of 51 MB showed its place 0.5 to 1.1 s after it was asked for, where it took
   1.1 to 2.1 s. What is before the read's place in that range is asked for again, from where a later read needs it.
+- **The readers of one host take turns.** A host gives one client only so much a second, whatever it asks for, so
+  the readers of the same host share one dispatcher: three requests at once to it, besides any a read waits for,
+  which always has one. A request a read waits for goes before one that brings what nobody waits for, and then by
+  its reader's rank (`Reader::set_rank`): a media ranks its reader by its priority (`Media::set_priority`,
+  `VideoPlayer::priority`, `Low`, `Normal` unless told, `High`) and then by whether it plays, so the video that plays
+  goes before one opened ahead with no app saying anything. A request of a lower rank stands still while one of a
+  higher rank that a read waits for is on its way to the same host, and a reader that does not play asks for 256 KiB
+  at most at a time, so that its request ends soon and the connection goes to what is wanted more. Readers of two
+  hosts do not wait for each other.
 - **One request after the other, over one connection.** A reader asks for the range a read waits for, and then,
   where it reads ahead, for what follows the last read, each request once the one before has ended, on the
   connection it ended on: no new handshake, and nothing ahead of the decoder while a read waits. A reader that

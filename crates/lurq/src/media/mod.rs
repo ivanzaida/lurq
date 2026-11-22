@@ -56,6 +56,8 @@ mod driven;
 mod events;
 #[cfg(windows)]
 mod mf;
+#[cfg_attr(not(any(windows, target_os = "macos", target_os = "ios")), allow(dead_code))]
+mod mp4_index;
 mod session;
 
 /// Has the next frame a media shows on a card find its device removed, as a card that is reset removes it.
@@ -73,6 +75,19 @@ pub use cache::{DEFAULT_SOUND_CACHE_BYTES, SoundCache, sound_cache};
 pub use driven::{DrivenMedias, MediaDriver, drive_media};
 pub(crate) use events::{LoopNoted, note_loop, tell_news};
 pub use session::AudioCategory;
+
+/// How much what a media reads is wanted beside what the other medias of the same host read
+/// ([`Media::set_priority`]). Among medias of one priority, one that plays goes before one that does not.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Priority {
+  /// What is read in the background: a video two swipes away.
+  Low,
+  /// Unless told.
+  #[default]
+  Normal,
+  /// What is in front of the person: the video shown.
+  High,
+}
 pub(crate) use session::set_category as set_audio_category;
 
 /// What changed in a media is told to these, from its own thread.
@@ -173,6 +188,11 @@ pub(crate) struct Shared {
   eager: std::sync::atomic::AtomicBool,
   /// How far past where it is it reads before it is told to play, in seconds, as bits: see [`Media::set_ahead`].
   ahead: std::sync::atomic::AtomicU64,
+  /// The index of what it plays, where that is an MP4 file the app's loader reads: where in its bytes each moment
+  /// is. Read beside it as it opens.
+  index: Mutex<Option<Arc<mp4_index::Index>>>,
+  /// What the app said of its priority ([`Media::set_priority`]), as its place among the priorities.
+  priority: std::sync::atomic::AtomicU8,
   /// What the app's loader reads of it, where it plays an address.
   stream: Mutex<Option<Arc<dyn Reader>>>,
   /// All of what it plays is there: a file, or bytes.
@@ -277,6 +297,22 @@ impl Shared {
     }
   }
 
+  /// Tells the reader of what it plays its rank among the readers of its host: its priority, and then whether it
+  /// `plays` ([`Reader::set_rank`]). A media of normal priority that plays reads as a reader nobody ranks.
+  pub(crate) fn rank_reader(&self, plays: bool) {
+    use std::sync::atomic::Ordering;
+    let Some(stream) = self
+      .stream
+      .lock()
+      .unwrap_or_else(|poisoned| poisoned.into_inner())
+      .clone()
+    else {
+      return;
+    };
+    let priority = self.priority.load(Ordering::Acquire);
+    stream.set_rank(priority * 2 + u8::from(plays));
+  }
+
   /// Has the reader of what it plays fetch as far as it reads ahead, by the share of its length that is in time.
   /// Nothing until its length in time and in bytes are known.
   pub(crate) fn reach_ahead(&self) {
@@ -288,14 +324,30 @@ impl Shared {
     else {
       return;
     };
+    if let Some(end) = stream.len().and_then(|len| self.read_to(len)) {
+      stream.read_ahead_to(end);
+    }
+  }
+
+  /// How far into its `len` bytes it is to be read now: as far as all that plays until it has read ahead needs, by
+  /// its index where it has one, and by the share of its length in time that is where it has none. `None` until
+  /// its length in time is known.
+  pub(crate) fn read_to(&self, len: u64) -> Option<u64> {
     let (position, duration) = {
       let inner = self.inner();
       (inner.position(), inner.duration)
     };
-    if let (Some(duration), Some(len)) = (duration.filter(|duration| *duration > 0.0), stream.len()) {
-      let share = ((position + self.ahead()) / duration).clamp(0.0, 1.0);
-      stream.read_ahead_to((share * len as f64) as u64);
+    let until = position + self.ahead();
+    let index = self
+      .index
+      .lock()
+      .unwrap_or_else(|poisoned| poisoned.into_inner())
+      .clone();
+    if let Some(index) = index {
+      return Some(index.byte_at(until).min(len));
     }
+    let duration = duration.filter(|duration| *duration > 0.0)?;
+    Some(((until / duration).clamp(0.0, 1.0) * len as f64) as u64)
   }
 
   /// What a media and its thread share, as a media starts: waiting to open, paused at its start.
@@ -333,6 +385,8 @@ impl Shared {
       awaits_start: std::sync::atomic::AtomicBool::new(false),
       eager: std::sync::atomic::AtomicBool::new(false),
       ahead: std::sync::atomic::AtomicU64::new(AHEAD_UNTIL_PLAYED.to_bits()),
+      index: Mutex::new(None),
+      priority: std::sync::atomic::AtomicU8::new(Priority::Normal as u8),
       stream: Mutex::new(None),
       whole: std::sync::atomic::AtomicBool::new(false),
     })
@@ -564,6 +618,8 @@ fn stream(shared: &Arc<Shared>, loader: &Loader, source: &Source, address: Arc<s
       // that is read: one told to play meanwhile turns the reading ahead on itself.
       *shared.stream.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(reader.clone());
       reader.read_ahead(shared.eager.load(std::sync::atomic::Ordering::Acquire));
+      read_index(shared, &reader);
+      shared.rank_reader(shared.eager.load(std::sync::atomic::Ordering::Acquire));
       return Some(Opened::Reader(Arc::new(Watched::new(reader, shared)), address));
     }
     // A build without the feature `http`: Media Foundation reads the address itself, and sends no header.
@@ -583,6 +639,24 @@ fn is_playlist(content_type: Option<&str>, address: &str) -> bool {
   let kind = content_type.map(str::to_ascii_lowercase);
   let path = address.split(['?', '#']).next().unwrap_or(address).to_ascii_lowercase();
   kind.is_some_and(|kind| kind.contains("mpegurl")) || path.ends_with(".m3u8") || path.ends_with(".m3u")
+}
+
+/// Reads the index of what `reader` reads beside the media, which plays meanwhile, and reads ahead by it once it is
+/// there. Where it is at the end of the file, the reader asks for it as it opens.
+#[cfg_attr(not(any(windows, target_os = "macos", target_os = "ios")), allow(dead_code))]
+fn read_index(shared: &Arc<Shared>, reader: &Arc<dyn Reader>) {
+  let (shared, reader) = (Arc::downgrade(shared), reader.clone());
+  let _ = std::thread::Builder::new()
+    .name("lurq-media-index".to_owned())
+    .spawn(move || {
+      let Some(index) = mp4_index::Index::read(&*reader) else {
+        return;
+      };
+      if let Some(shared) = shared.upgrade() {
+        *shared.index.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(Arc::new(index));
+        shared.reach_ahead();
+      }
+    });
 }
 
 /// A reader of what a media plays: it counts the reads that wait for the network, from which the media tells it is
@@ -995,6 +1069,7 @@ impl Media {
     }
     shared.reach_ahead();
     shared.tell(Command::Play);
+    shared.rank_reader(true);
   }
 
   /// Stops where it is. Its state says so at once: the thread stops decoding when it hears.
@@ -1006,6 +1081,7 @@ impl Media {
     }
     self.shared().noted();
     self.shared().tell(Command::Pause);
+    self.shared().rank_reader(false);
   }
 
   /// Goes to `seconds` and shows the frame there, playing or not. Its state is at that time at once, so what
@@ -1118,6 +1194,29 @@ impl Media {
       .store(seconds.to_bits(), std::sync::atomic::Ordering::Release);
     shared.reach_ahead();
     shared.told.notify_all();
+  }
+
+  /// How much what it reads is wanted beside what the other medias of the same host read: a host gives one client
+  /// only so much a second, whatever it asks for. The requests of a media of a higher priority go first, and those
+  /// of one of a lower priority stand still while a read of the higher one waits for its bytes; of one priority,
+  /// one that plays goes first. Normal unless told. Where it plays an address its app's loader reads (Windows,
+  /// macOS, iOS).
+  pub fn set_priority(&self, priority: Priority) {
+    let shared = self.shared();
+    shared
+      .priority
+      .store(priority as u8, std::sync::atomic::Ordering::Release);
+    let plays = shared.inner().playing;
+    shared.rank_reader(plays);
+  }
+
+  /// Its priority among the medias of its host: see [`set_priority`](Self::set_priority).
+  pub fn priority(&self) -> Priority {
+    match self.shared().priority.load(std::sync::atomic::Ordering::Acquire) {
+      0 => Priority::Low,
+      1 => Priority::Normal,
+      _ => Priority::High,
+    }
   }
 
   /// How far past where it stands it reads before it is first told to play: see [`set_ahead`](Self::set_ahead).
@@ -1292,5 +1391,40 @@ mod tests {
     assert_eq!(media.shared().ahead(), AHEAD_WHILE_PLAYING);
     media.set_ahead(30.0);
     assert_eq!(media.shared().ahead(), 30.0);
+  }
+
+  /// A reader that keeps the ranks it is told.
+  #[derive(Default)]
+  struct Ranked(Mutex<Vec<u8>>);
+
+  impl Reader for Ranked {
+    fn len(&self) -> Option<u64> {
+      Some(0)
+    }
+
+    fn read_at(&self, _: u64, _: &mut [u8]) -> std::io::Result<usize> {
+      Ok(0)
+    }
+
+    fn set_rank(&self, rank: u8) {
+      self.0.lock().unwrap().push(rank);
+    }
+  }
+
+  #[test]
+  fn a_media_ranks_its_reader_by_its_priority_and_then_by_whether_it_plays() {
+    let media = Media::of(Shared::new());
+    let ranked = Arc::new(Ranked::default());
+    *media.shared().stream.lock().unwrap() = Some(ranked.clone());
+    assert_eq!(media.priority(), Priority::Normal);
+    media.play();
+    media.pause();
+    media.set_priority(Priority::High);
+    media.set_priority(Priority::Low);
+    assert_eq!(
+      *ranked.0.lock().unwrap(),
+      [3, 2, 4, 0],
+      "normal playing as a reader nobody ranks"
+    );
   }
 }
