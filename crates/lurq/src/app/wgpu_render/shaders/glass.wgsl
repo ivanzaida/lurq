@@ -141,6 +141,83 @@ fn field(pixel: vec2<f32>) -> vec2<f32> {
     return vec2<f32>(distance, max(bezel, 1.0));
 }
 
+// A rounded box's distance at `pixel`, as `box_distance` gives it, and the
+// way it grows fastest: out of the box, straight away from its edge.
+fn box_slope(pixel: vec2<f32>, box: vec4<f32>, inverse: vec4<f32>, radii: vec4<f32>) -> vec3<f32> {
+    let offset = pixel - box.xy;
+    let p = vec2<f32>(inverse.x * offset.x + inverse.z * offset.y, inverse.y * offset.x + inverse.w * offset.y);
+    var radius = radii.x;
+    if (p.x >= 0.0 && p.y < 0.0) {
+        radius = radii.y;
+    } else if (p.x >= 0.0) {
+        radius = radii.z;
+    } else if (p.y >= 0.0) {
+        radius = radii.w;
+    }
+    let q = abs(p) - box.zw + vec2<f32>(radius);
+    let outside = max(q, vec2<f32>(0.0));
+    let far = length(outside);
+    // Along the box's own axes: round a corner, or across the nearer side.
+    var along = vec2<f32>(0.0, 1.0);
+    if (far > 1.0e-5) {
+        along = outside / far;
+    } else if (q.x > q.y) {
+        along = vec2<f32>(1.0, 0.0);
+    }
+    along *= vec2<f32>(select(-1.0, 1.0, p.x >= 0.0), select(-1.0, 1.0, p.y >= 0.0));
+    // Back to the target's axes: the transpose of `inverse`.
+    let out = vec2<f32>(inverse.x * along.x + inverse.y * along.y, inverse.z * along.x + inverse.w * along.y);
+    var slope = vec2<f32>(0.0);
+    if (dot(out, out) > 1.0e-12) {
+        slope = normalize(out);
+    }
+    return vec3<f32>(far + min(max(q.x, q.y), 0.0) - radius, slope);
+}
+
+// `field` with the way the distance grows fastest, found with the distance
+// in one pass over the shapes: the distance, the bezel, the way out.
+fn field_slope(pixel: vec2<f32>) -> vec4<f32> {
+    var distance = FAR;
+    var nearest = FAR;
+    var bezel = glass.optics.y;
+    var slope = vec2<f32>(0.0);
+    let count = i32(glass.cut.z);
+    let merge = glass.cut.w;
+    for (var index = 0; index < 8; index++) {
+        if (index >= count) {
+            break;
+        }
+        let shape = glass.shapes[index];
+        if (shape.box.z <= 0.0 || shape.box.w <= 0.0) {
+            continue;
+        }
+        let found = box_slope(pixel, shape.box, shape.inverse, shape.radii);
+        let own = found.x * shape.more.x;
+        if (own < nearest) {
+            nearest = own;
+            bezel = min(glass.optics.y, min(shape.box.z, shape.box.w) * shape.more.x);
+        }
+        if (distance >= FAR) {
+            distance = own;
+            slope = found.yz;
+        } else {
+            // The smooth minimum leans from the nearer shape's way toward the
+            // other's by half of how near the two distances are.
+            var lean = 0.0;
+            if (merge > 0.0) {
+                lean = 0.5 * max(merge - abs(distance - own), 0.0) / merge;
+            }
+            if (own < distance) {
+                slope = mix(found.yz, slope, lean);
+            } else {
+                slope = mix(slope, found.yz, lean);
+            }
+            distance = smooth_min(distance, own, merge);
+        }
+    }
+    return vec4<f32>(distance, max(bezel, 1.0), slope);
+}
+
 // How much of the bend the glass pulls the backdrop in by `u` of the way in
 // over the bezel (see `layout::glass::lens_pull`).
 fn lens_pull(u: f32) -> f32 {
@@ -166,16 +243,13 @@ fn fs_glass_erase(in: VsOut) -> @location(0) vec4<f32> {
 @fragment
 fn fs_glass_add(in: VsOut) -> @location(0) vec4<f32> {
     let pixel = in.clip.xy;
-    let here = field(pixel);
+    let here = field_slope(pixel);
     let coverage = clamp(0.5 - here.x, 0.0, 1.0);
     if (coverage <= 0.0) {
         return vec4<f32>(0.0);
     }
     // Which way the edge faces: the distance grows fastest straight out.
-    let slant = vec2<f32>(
-        field(pixel + vec2<f32>(1.0, 0.0)).x - field(pixel - vec2<f32>(1.0, 0.0)).x,
-        field(pixel + vec2<f32>(0.0, 1.0)).x - field(pixel - vec2<f32>(0.0, 1.0)).x,
-    );
+    let slant = here.zw;
     var outward = vec2<f32>(0.0);
     if (dot(slant, slant) > 1.0e-8) {
         outward = normalize(slant);
