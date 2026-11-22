@@ -491,8 +491,9 @@ struct Blocks {
   held: VecDeque<Held>,
   /// The blocks a request is bringing.
   coming: Vec<u64>,
-  /// The block each read that waits is waiting for.
+  /// The block each read that waits is waiting for, and where in it the read is.
   waited: Vec<u64>,
+  waited_at: Vec<(u64, u64)>,
   /// The blocks whose request failed, why, and whether it was a request no read had asked for: told to the
   /// reads that waited for them, and not brought ahead again until a read asks.
   failed: Vec<(u64, LoadError, bool)>,
@@ -507,9 +508,12 @@ struct Blocks {
   closed: bool,
 }
 
-/// A block: its index, and its bytes from its start.
+/// A block: its index, and its bytes from `from` bytes into it. A block is brought from its start, but for one a
+/// read waits for that was sent into it (a decoder sent to another place): that is brought from the read's
+/// place, and what is before it is not there.
 struct Held {
   index: u64,
+  from: u64,
   bytes: Bytes,
 }
 
@@ -534,7 +538,7 @@ impl Blocks {
     self.held.iter().position(|held| held.index == index)
   }
 
-  /// Whether all of the block at `index` is there.
+  /// Whether all of the block at `index` is there, or all of it from where it was brought.
   fn whole(&self, index: u64) -> bool {
     self
       .held
@@ -542,9 +546,23 @@ impl Blocks {
       .any(|held| held.index == index && matches!(held.bytes, Bytes::Whole(_)))
   }
 
-  /// How many bytes of the block at `index` are there.
+  /// How far into the block at `index` its bytes are there.
   fn filled(&self, index: u64) -> u64 {
-    self.held_at(index).map_or(0, |at| self.held[at].bytes.len() as u64)
+    self
+      .held_at(index)
+      .map_or(0, |at| self.held[at].from + self.held[at].bytes.len() as u64)
+  }
+
+  /// Where in the block at `index` the reads that wait for it are, the first of them: where a request for it
+  /// starts.
+  fn waited_from(&self, index: u64) -> u64 {
+    self
+      .waited_at
+      .iter()
+      .filter(|(waited, _)| *waited == index)
+      .map(|(_, within)| *within)
+      .min()
+      .unwrap_or(0)
   }
 
   /// Why the request for the block at `index` failed, and whether no read had asked for it.
@@ -560,6 +578,9 @@ impl Blocks {
   fn waits_no_more(&mut self, index: u64) {
     if let Some(at) = self.waited.iter().position(|waited| *waited == index) {
       self.waited.swap_remove(at);
+    }
+    if let Some(at) = self.waited_at.iter().position(|(waited, _)| *waited == index) {
+      self.waited_at.swap_remove(at);
     }
   }
 }
@@ -579,11 +600,13 @@ pub(super) struct Asked {
   pub read_ahead: Option<bool>,
 }
 
-/// What one request brings: the blocks from `first` to `last`, and whether no read had asked for them.
+/// What one request brings: the blocks from `first` to `last`, and whether no read had asked for them. Where
+/// nothing of `first` is there, it is brought from `skip` bytes into it.
 struct Run {
   first: u64,
   last: u64,
   ahead: bool,
+  skip: u64,
 }
 
 impl Run {
@@ -629,6 +652,7 @@ impl HttpReader {
         .enumerate()
         .map(|(index, bytes)| Held {
           index: index as u64,
+          from: 0,
           bytes: Bytes::Whole(bytes),
         })
         .collect();
@@ -650,6 +674,7 @@ impl HttpReader {
     let reader = Self(ranges.clone());
     let mut blocks = ranges.blocks.lock();
     blocks.waited.push(0);
+    blocks.waited_at.push((0, 0));
     let start = loop {
       let there = blocks.held_at(0).map(|at| &blocks.held[at].bytes);
       match there {
@@ -695,7 +720,12 @@ impl Drop for HttpReader {
     let mut start = Vec::new();
     let mut bytes = 0;
     for index in 0.. {
-      let Some(Bytes::Whole(block)) = blocks.held_at(index).map(|at| &blocks.held[at].bytes) else {
+      let Some(Held {
+        from: 0,
+        bytes: Bytes::Whole(block),
+        ..
+      }) = blocks.held_at(index).map(|at| &blocks.held[at])
+      else {
         break;
       };
       bytes += block.len() as u64;
@@ -744,7 +774,16 @@ impl Reader for HttpReader {
         return Ok(0);
       }
       if let Some(at) = blocks.held_at(index) {
-        if blocks.held[at].bytes.len() > within {
+        let from = blocks.held[at].from as usize;
+        if within < from {
+          // Before where the block was brought from: once nothing brings it, it is let go and brought again from
+          // this read's place.
+          if !blocks.coming.contains(&index) {
+            blocks.held.remove(at);
+            continue;
+          }
+        } else if from + blocks.held[at].bytes.len() > within {
+          let within = within - from;
           // The block read last is the last to be let go.
           let held = blocks.held.remove(at).expect("the block just found");
           let count = (held.bytes.len() - within).min(buf.len());
@@ -764,8 +803,7 @@ impl Reader for HttpReader {
             buf[..count].copy_from_slice(&bytes[within..within + count]);
           }
           return Ok(count);
-        }
-        if matches!(blocks.held[at].bytes, Bytes::Whole(_)) {
+        } else if matches!(blocks.held[at].bytes, Bytes::Whole(_)) {
           // A block shorter than it was cut: the end of all of it.
           return Ok(0);
         }
@@ -781,6 +819,7 @@ impl Reader for HttpReader {
         }
       }
       blocks.waited.push(index);
+      blocks.waited_at.push((index, within as u64));
       ranges.rouse(&mut blocks);
       if !blocks.coming.contains(&index)
         && let Some((error, _)) = blocks.failed_of(index)
@@ -807,7 +846,7 @@ impl Reader for HttpReader {
       .iter()
       .filter(|held| held.bytes.len() > 0)
       .map(|held| {
-        let (start, _) = cut.block(held.index);
+        let start = cut.block(held.index).0 + held.from;
         start..start + held.bytes.len() as u64
       })
       .collect();
@@ -869,10 +908,19 @@ impl Ranges {
     };
     let reach = last.max(first) + READ_AHEAD;
     let (_, most) = self.cut.sizes();
+    // A read sent into a block waits for its place, not for the start of the block: the block is brought from
+    // there. Measured on a Mac over a video of a slow host, a seek waited for up to 852 KB before its place,
+    // 1.3 s of the host's speed, before the bytes it was sent to.
+    let skip = if ahead || blocks.held_at(first).is_some() {
+      0
+    } else {
+      blocks.waited_from(first)
+    };
     let mut run = Run {
       first,
       last: first,
       ahead,
+      skip,
     };
     let mut bytes = self.cut.block(first).1;
     loop {
@@ -995,7 +1043,8 @@ impl Ranges {
           }
           blocks.held.push_back(Held {
             index,
-            bytes: Bytes::Coming(Vec::with_capacity(size as usize)),
+            from: at - start,
+            bytes: Bytes::Coming(Vec::with_capacity((start + size - at) as usize)),
           });
           blocks.held.len() - 1
         }
@@ -1004,13 +1053,14 @@ impl Ranges {
       let (now, rest) = bytes.split_at(bytes.len().min(room));
       let len = blocks.len;
       let held = &mut blocks.held[place];
+      let from = held.from;
       if let Bytes::Coming(there) = &mut held.bytes {
         // From where it ends, and nothing twice: a block has one request at a time.
-        if start + there.len() as u64 == at {
+        if start + from + there.len() as u64 == at {
           there.extend_from_slice(now);
         }
-        let end = start + there.len() as u64;
-        if there.len() as u64 >= size || len.is_some_and(|len| end >= len) {
+        let end = start + from + there.len() as u64;
+        if end >= start + size || len.is_some_and(|len| end >= len) {
           held.bytes = Bytes::Whole(Arc::from(std::mem::take(there)));
         }
       }
@@ -1029,8 +1079,9 @@ impl Ranges {
     blocks.answered = true;
     for held in &mut blocks.held {
       let (start, _) = self.cut.block(held.index);
+      let from = held.from;
       if let Bytes::Coming(there) = &mut held.bytes
-        && start + there.len() as u64 >= len
+        && start + from + there.len() as u64 >= len
       {
         held.bytes = Bytes::Whole(Arc::from(std::mem::take(there)));
       }
@@ -1056,7 +1107,12 @@ impl Ranges {
         while index < run.last && blocks.whole(index) {
           index += 1;
         }
-        let at = self.cut.block(index).0 + blocks.filled(index);
+        let skip = if index == run.first && blocks.held_at(index).is_none() {
+          run.skip
+        } else {
+          0
+        };
+        let at = self.cut.block(index).0 + blocks.filled(index).max(skip);
         if at >= end || blocks.whole(run.last) || blocks.len.is_some_and(|len| at >= len) {
           return Ok(());
         }
@@ -1560,9 +1616,11 @@ mod tests {
       .iter()
       .map(|range| range.split_once('-').and_then(|(from, _)| from.parse().ok()).unwrap())
       .collect();
+    // A read sent into a block asks for it from its place: what is before that in the block is not waited for.
+    let sent_to = [2 * SMALL + 17, body.len() as u64 - 5];
     assert!(
-      blocks.iter().all(|from| from % SMALL == 0),
-      "every request asks for a block from its start: {asked:?}"
+      blocks.iter().all(|from| from % SMALL == 0 || sent_to.contains(from)),
+      "every request asks for a block from its start, or from where a read was sent into it: {asked:?}"
     );
     assert_eq!(
       blocks.iter().filter(|from| **from == 0).count(),
@@ -1863,7 +1921,33 @@ mod tests {
     );
     assert!(reader.buffered()[0].end < block, "which is still on its way");
     assert_eq!(host.connections.load(Ordering::SeqCst), 2);
-    assert_eq!(host.asked.lock()[1], format!("{}-{}", 6 * block, 7 * block - 1));
+    assert_eq!(
+      host.asked.lock()[1],
+      format!("{far}-{}", 7 * block - 1),
+      "from the read's place"
+    );
+  }
+
+  #[test]
+  fn a_block_brought_from_a_reads_place_is_brought_again_for_a_read_before_it() {
+    let body = numbered(4 * SMALL as usize);
+    let (address, asked, _) = serve_file(body.clone(), true);
+    let reader = opening(&address, asked_by_lurq(), Cut::even(SMALL)).unwrap();
+    let into = 2 * SMALL as usize + 500;
+    assert_eq!(read(&reader, into as u64, 64).unwrap(), &body[into..into + 64]);
+    assert!(
+      reader
+        .buffered()
+        .iter()
+        .any(|range| range.start == into as u64 && range.end == 3 * SMALL),
+      "what is there of the block starts at the read's place: {:?}",
+      reader.buffered()
+    );
+    let before = 2 * SMALL as usize + 10;
+    assert_eq!(read(&reader, before as u64, 64).unwrap(), &body[before..before + 64]);
+    let asked = asked.lock().clone();
+    assert!(asked.contains(&format!("{into}-{}", 3 * SMALL - 1)), "{asked:?}");
+    assert!(asked.contains(&format!("{before}-{}", 3 * SMALL - 1)), "{asked:?}");
   }
 
   #[test]
@@ -1875,6 +1959,7 @@ mod tests {
       first: 3,
       last: 3,
       ahead: true,
+      skip: 0,
     };
     assert!(
       ranges.goes_on(&ahead(), Instant::now()),
@@ -1901,6 +1986,7 @@ mod tests {
       first: 7,
       last: 7,
       ahead: false,
+      skip: 0,
     };
     assert!(
       ranges.goes_on(&waited_for, Instant::now()),

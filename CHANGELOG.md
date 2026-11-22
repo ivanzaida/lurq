@@ -6,6 +6,14 @@ Added:
 
 - **`Media::seek_near` and `VideoPlayback::seek_near` go to the frame near a time that shows quickest.** On macOS and iOS that is the key frame nearest it, where `seek` has the system's player read and decode everything from the key frame before the time to the time itself. A finger that lets go of a video's line of time wants it about there, not to the frame: measured on a Mac over an hour-long video of a slow host, a seek showed its frame 1 to 3.9 s after it was asked for, a seek near it 0.77 s, which is the host's own answer to a request for a new place. Elsewhere it is `seek`. See [your own controls](docs/src/content/docs/design-system.md#your-own-controls-over-a-video).
 
+Changed:
+
+- **On macOS and iOS a video at an address is read by the app's loader, as on Windows.** The system's player is fed the bytes through its asset's resource loader (`media::apple::feed`), with the loader's headers, rule, timeout, cache on the disk, kept starts and connections opened ahead, and is given no more than ten seconds past what plays (a second before it is first told to play). It read on by itself at a host's whole speed. Measured on a Mac with an album's page opened five times from a host that gives one client 650 KB a second, a video started 1.0 to 1.5 s after the page opened where it took 2.4 to 3 s, and 6 s where it took 7.8. The player starts as soon as it has a frame and is played on by the media where it stalls. A build without `http` has the system's player read the address, as before. See [Loading](docs/src/content/docs/resources-media.md#loading).
+
+Fixes:
+
+- **A seek waits for its place, not for its range.** A reader of an address asked for a range sent into from the start of the range: a seek on a slow host waited for up to 852 KB before the place it was sent to. It asks from the place now: a seek in a video of 51 MB showed its place 0.5 to 1.1 s after it was asked for, where it took 1.1 to 2.1 s.
+
 ## 0.66.1 — 2026-11-22
 
 Fixes:

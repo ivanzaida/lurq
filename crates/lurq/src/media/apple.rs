@@ -25,6 +25,7 @@ use objc2_foundation::{NSData, NSError, NSURL};
 
 use super::{Command, MediaError, Opened, Shared};
 
+mod feed;
 mod video;
 
 /// How often the thread looks at the player while it plays: where it is, and whether it came to its end.
@@ -41,7 +42,7 @@ const INTERRUPTED: Duration = Duration::from_millis(250);
 pub(super) fn run(shared: &Arc<Shared>, opened: Opened, heard: bool) {
   // What is seen is the system's player of a video's, and so is a sound at an address that was not loaded whole
   // (more than the loader reads, or a build without `http`): that player reads an address by itself as it plays.
-  if !heard || matches!(opened, Opened::Url(..)) {
+  if !heard || matches!(opened, Opened::Url(..) | Opened::Reader(..)) {
     return video::run(shared, opened, !heard);
   }
   // What the system makes while the thread runs is let go when the thread ends.
