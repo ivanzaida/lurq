@@ -71,13 +71,6 @@ const EXPECTED: Duration = Duration::from_secs(2);
 const NUDGE: Duration = Duration::from_millis(250);
 /// The units of a second the player is sent somewhere in.
 const SCALE: i32 = 60_000;
-/// How far the system's player fetches ahead of where it is, in seconds, before it was first told to play: a video
-/// opened ahead and left paused takes its start and no more, as the app's loader has it on Windows. Left to itself
-/// it reads on while it stands, from a host that gives one client only so much, beside the video that plays.
-pub(super) const AHEAD_UNTIL_PLAYED: f64 = 1.0;
-/// How far it fetches ahead once it plays: a few seconds against a slow moment of the network, and not the whole
-/// video, which it would read as fast as the host gives, at the cost of the radio, the battery and the person's data.
-pub(super) const AHEAD_WHILE_PLAYING: f64 = 10.0;
 
 unsafe extern "C" {
   /// The main queue of libdispatch, which `dispatch_get_main_queue()` returns.
@@ -542,6 +535,9 @@ fn play(shared: &Arc<Shared>, place: Place, picture: bool) {
     let inner = shared.inner();
     (inner.volume, inner.muted)
   };
+  // The player is held to what the media reads ahead: left to itself it reads on while it stands, from a host
+  // that gives one client only so much, beside the video that plays.
+  let ahead = shared.ahead();
   // The player is made on the main thread, with the output its frames are taken from.
   on_main({
     let (link, output, shared) = (link.clone(), output.clone().map(Output), shared.clone());
@@ -574,7 +570,7 @@ fn play(shared: &Arc<Shared>, place: Place, picture: bool) {
         if let Some(output) = &output {
           item.addOutput(output);
         }
-        item.setPreferredForwardBufferDuration(AHEAD_UNTIL_PLAYED);
+        item.setPreferredForwardBufferDuration(ahead);
         let player = AVPlayer::playerWithPlayerItem(Some(&item), main);
         player.setVolume(volume);
         player.setMuted(muted);
@@ -629,8 +625,9 @@ fn play(shared: &Arc<Shared>, place: Place, picture: bool) {
             (again, inner.rate as f32)
           };
           // SAFETY: on the main thread, as every call of the player.
-          let start = |player: &Player| unsafe {
-            player.item.setPreferredForwardBufferDuration(AHEAD_WHILE_PLAYING);
+          let ahead = shared.ahead();
+          let start = move |player: &Player| unsafe {
+            player.item.setPreferredForwardBufferDuration(ahead);
             player.player.play();
             if player.rate != 1.0 {
               player.player.setRate(player.rate);

@@ -279,6 +279,11 @@ app.loader().headers(|address| {
 
 What a video or a sound reads as it plays:
 
+- **What is read ahead.** A media reads a second past where it stands before it is first told to play, and ten
+  seconds at least once it plays; `media.set_ahead(seconds)` says how far before it plays (`VideoPlayer::ahead`). The
+  reader of its address fetches that far whether or not its decoder asks (`Reader::read_ahead_to`). A host gives one
+  client only so much a second, and a feed's videos are often on several: one opened ahead on another host than the
+  one that plays takes nothing from it, and can read further than one on the same host, which shares what it gives.
 - **Windows**: the app's loader reads every address (`loader.open`, below) and gives Media Foundation the stream,
   which only decodes: so the headers, `allow`, the proxy, the timeout, the cache on the disk, the starts it keeps and
   a connection opened ahead hold for it as for a picture. Where it has nothing left to show and the part it needs is still on the network a quarter of a second
@@ -288,9 +293,10 @@ What a video or a sound reads as it plays:
 - **macOS and iOS**: the app's loader reads every address as on Windows, and the system's player (`AVPlayer`) only
   decodes and plays: it is given an address of a scheme of its own (`lurq-https://…`), which it cannot read, and
   asks its asset's resource loader for each range it wants, which lurq answers from the loader's reader. What the
-  player is given is held to what plays: until the media is first told to play, a second past where it stands, so a
-  video opened ahead and left paused takes its start and no more; once it plays, ten seconds, by its share of its
-  length in bytes, and whatever it needs while it waits for bytes. Left to itself the player read on as fast as the
+  player is given is held to what plays: until the media is first told to play, a second past where it stands
+  unless the app says more (`Media::set_ahead`, `VideoPlayer::ahead`), so a video opened ahead and left paused takes
+  its start and no more; once it plays, ten seconds at least, by its share of its length in bytes, and whatever it
+  needs while it waits for bytes. Left to itself the player read on as fast as the
   host gave it, and a seek's range came beside that: measured on a Mac over a video of 51 MB from a host that gives
   one client 650 KB a second, it read on at the host's whole speed, and through the loader a video started up to 2.5 s
   sooner (1.3 to 1.9 s from opening its page, where it was 2.2 to 4.4 s). The player waits to be sure it will not

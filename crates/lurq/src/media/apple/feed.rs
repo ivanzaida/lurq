@@ -7,15 +7,15 @@
 //! at 690 KB a second while it played, and a seek in it showed its frame 1.1 to 2.1 s later. The loader reads what
 //! is waited for before what is read ahead, keeps the starts of videos and a cache on the disk, and opens a
 //! connection ahead, as it does on Windows; and the reading is held to what plays: a range is answered as far as
-//! [`AHEAD_WHILE_PLAYING`](super::video::AHEAD_WHILE_PLAYING) seconds past where the media is (before it is first
-//! told to play, [`AHEAD_UNTIL_PLAYED`](super::video::AHEAD_UNTIL_PLAYED)), and the rest of it waits until the
+//! [`Media::set_ahead`](crate::media::Media::set_ahead) says past where the media is (ten seconds at least once it
+//! plays), and the rest of it waits until the
 //! media comes nearer.
 //!
 //! Each range is answered on a thread of its own, which reads from the reader, gives the player what it read, and
 //! looks between two reads whether the player still wants it: a seek drops what it asked for before.
 
 use std::{
-  sync::{Arc, Weak, atomic::Ordering},
+  sync::{Arc, Weak},
   time::Duration,
 };
 
@@ -30,7 +30,6 @@ use objc2_av_foundation::{
 };
 use objc2_foundation::{NSData, NSError, NSObject, NSObjectProtocol, NSString, NSURL};
 
-use super::video::{AHEAD_UNTIL_PLAYED, AHEAD_WHILE_PLAYING};
 use crate::{media::Shared, resources::Reader};
 
 /// What a range is answered with at a time: the player has a part to decode as soon as it is read.
@@ -196,11 +195,7 @@ fn plays_to(shared: &Shared, length: u64) -> Option<u64> {
   if duration <= 0.0 {
     return None;
   }
-  let ahead = if shared.eager.load(Ordering::Acquire) {
-    AHEAD_WHILE_PLAYING
-  } else {
-    AHEAD_UNTIL_PLAYED
-  };
+  let ahead = shared.ahead();
   let share = ((position + ahead) / duration).clamp(0.0, 1.0);
   Some((share * length as f64) as u64)
 }

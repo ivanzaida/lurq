@@ -632,6 +632,7 @@ pub struct VideoPlayer {
   captions_button: bool,
   settings_button: bool,
   looped: bool,
+  ahead: Option<f64>,
   qualities: Vec<Arc<str>>,
   quality: Held<Option<usize>>,
   fullscreen: Held<bool>,
@@ -742,6 +743,7 @@ impl VideoPlayer {
       captions_button: true,
       settings_button: true,
       looped: false,
+      ahead: None,
       qualities: Vec::new(),
       quality: Held::new(None),
       fullscreen: Held::new(false),
@@ -1115,6 +1117,14 @@ impl VideoPlayer {
   /// this does nothing.
   pub fn looped(mut self, looped: bool) -> Self {
     self.looped = looped;
+    self
+  }
+
+  /// How far past where it stands its [source](Self::source) is read before it is first told to play, in seconds
+  /// ([`Media::set_ahead`](crate::media::Media::set_ahead)): what a player opened ahead (the next one of a feed)
+  /// has there when it is shown. A second unless told; at least ten once it plays.
+  pub fn ahead(mut self, seconds: f64) -> Self {
+    self.ahead = Some(seconds);
     self
   }
 
@@ -1980,6 +1990,11 @@ fn playing(mut player: VideoPlayer, live: &Live, ctx: &mut Ctx) -> VideoPlayer {
     }
     if media.looped() != player.looped {
       media.set_looped(player.looped);
+    }
+    if let Some(ahead) = player.ahead
+      && media.ahead() != ahead
+    {
+      media.set_ahead(ahead);
     }
   }
   // What a person does on a control is done to the media, after the app's own handlers heard of it.
