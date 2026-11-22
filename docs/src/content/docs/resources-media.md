@@ -280,18 +280,24 @@ app.loader().headers(|address| {
 What a video or a sound reads as it plays:
 
 - **Windows**: the app's loader reads every address (`loader.open`, below) and gives Media Foundation the stream,
-  which only decodes: so the headers, `allow`, the proxy, the timeout and the cache on the disk hold for it as for a
-  picture. Where it has nothing left to show and the part it needs is still on the network a quarter of a second
+  which only decodes: so the headers, `allow`, the proxy, the timeout, the cache on the disk, the starts it keeps and
+  a connection opened ahead hold for it as for a picture. Where it has nothing left to show and the part it needs is still on the network a quarter of a second
   on, the media waits (`on_waiting_change`) and its clock stands; a part the decoder reads ahead while it plays is no
   waiting. A read the server refuses on the way fails the media with what it answered (`MediaError::Server(403)`). It
   needs the feature `http`; a build without it has Media Foundation read the address itself, with no header.
-- **macOS and iOS**: the system's player reads the address, given the headers (`AVURLAssetHTTPHeaderFieldsKey`, a key
-  AVFoundation reads that is not in its headers). Reading it through the loader, as Windows does, is still to come.
-  How far it reads ahead is bounded as the loader's reading is: until the media is first told to play, a second
-  past where it stands, so a video opened ahead and left paused takes its start and no more; once it plays, ten
-  seconds. Left to itself the system's player reads on while it stands, and reads a playing video to its end as fast
-  as the host gives it, which costs the radio, the battery and the person's data, and takes a slow host's bytes
-  from the video that is to open next. A player the system pauses (iOS does as the app goes to the background, and
+- **macOS and iOS**: the app's loader reads every address as on Windows, and the system's player (`AVPlayer`) only
+  decodes and plays: it is given an address of a scheme of its own (`lurq-https://…`), which it cannot read, and
+  asks its asset's resource loader for each range it wants, which lurq answers from the loader's reader. What the
+  player is given is held to what plays: until the media is first told to play, a second past where it stands, so a
+  video opened ahead and left paused takes its start and no more; once it plays, ten seconds, by its share of its
+  length in bytes, and whatever it needs while it waits for bytes. Left to itself the player read on as fast as the
+  host gave it, and a seek's range came beside that: measured on a Mac over a video of 51 MB from a host that gives
+  one client 650 KB a second, it read on at the host's whole speed, and through the loader a video started 1 to 2 s
+  sooner (1.0 to 1.5 s from opening its page, where it was 2.4 to 3 s). Since it is fed, the player starts as soon as
+  it has a frame (it does not wait to be sure it will not stall, as Apple asks of a player fed this way) and stops
+  where it has nothing left to play: the media waits then, and plays on once it has enough. In a build without the
+  feature `http` the system's player reads the address itself, given the headers (`AVURLAssetHTTPHeaderFieldsKey`, a
+  key AVFoundation reads that is not in its headers), and reads on as it likes. A player the system pauses (iOS does as the app goes to the background, and
   for a call) is paused for the app too, and one it plays on by itself (iOS does as the app comes back) plays for the
   app again, its frames with it. lurq pauses nothing by itself in the background, and an app chooses: one whose
   videos are to be heard there (a player of music, of talks) sets `AudioCategory::Playback`
@@ -357,6 +363,11 @@ app
 - **A read has its bytes as they come.** `read_at` gives what has come of a range and does not wait for the range
   to be whole: a decoder that needs the first 40 KB of a range of 1 MiB has them when they are there, and not a
   second and a half later on a host that sends 600 KB a second. `buffered()` says how far each range has come.
+- **A seek waits for its place, not for its range.** A read sent into the middle of a range that is not there (a
+  decoder sent to another place) asks for it from the read's place, not from the range's start: a seek on a slow
+  host waited for up to 852 KB before its place, 1.3 s of what the host gave, before the bytes it was sent to.
+  Measured on a Mac, a seek in a video of 51 MB showed its place 0.5 to 1.1 s after it was asked for, where it took
+  1.1 to 2.1 s. What is before the read's place in that range is asked for again, from where a later read needs it.
 - **One request after the other, over one connection.** A reader asks for the range a read waits for, and then,
   where it reads ahead, for what follows the last read, each request once the one before has ended, on the
   connection it ended on: no new handshake, and nothing ahead of the decoder while a read waits. A reader that

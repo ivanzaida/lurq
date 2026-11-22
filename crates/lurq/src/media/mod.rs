@@ -504,12 +504,16 @@ pub(crate) enum Opened {
   Reader(Arc<dyn Reader>, Arc<str>),
 }
 
-/// What a media opens of `source` at `address`, read as it plays. On Windows the app's loader reads it, and the
-/// decoder only decodes; elsewhere the system's player reads it, given the headers. `None` where it cannot be
-/// opened, which the media's state then says.
+/// What a media opens of `source` at `address`, read as it plays. On Windows, macOS and iOS the app's loader reads
+/// it, and the decoder only decodes; elsewhere the system's player reads it, given the headers. `None` where it
+/// cannot be opened, which the media's state then says.
 fn stream(shared: &Arc<Shared>, loader: &Loader, source: &Source, address: Arc<str>) -> Option<Opened> {
-  #[cfg(windows)]
+  #[cfg(any(windows, target_os = "macos", target_os = "ios"))]
   match loader.open_to_play(source, shared.eager.load(std::sync::atomic::Ordering::Acquire)) {
+    // A stream of HTTP Live Streaming is a list of the addresses of its parts, which the system's player reads
+    // itself on Apple's systems: it is given the address.
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    Ok(reader) if is_playlist(reader.content_type().as_deref(), &address) => drop(reader),
     Ok(reader) => {
       // Until it is told to play it reads what its decoder asks for and nothing ahead of that. Kept before
       // that is read: one told to play meanwhile turns the reading ahead on itself.
@@ -526,6 +530,14 @@ fn stream(shared: &Arc<Shared>, loader: &Loader, source: &Source, address: Arc<s
   }
   let _ = shared;
   Some(Opened::Url(address, Arc::from(loader.headers_of(source))))
+}
+
+/// Whether what a server says is `content_type`, at `address`, is a playlist of HTTP Live Streaming.
+#[cfg_attr(not(any(target_os = "macos", target_os = "ios")), allow(dead_code))]
+fn is_playlist(content_type: Option<&str>, address: &str) -> bool {
+  let kind = content_type.map(str::to_ascii_lowercase);
+  let path = address.split(['?', '#']).next().unwrap_or(address).to_ascii_lowercase();
+  kind.is_some_and(|kind| kind.contains("mpegurl")) || path.ends_with(".m3u8") || path.ends_with(".m3u")
 }
 
 /// A reader of what a media plays: it counts the reads that wait for the network, from which the media tells it is
@@ -1180,5 +1192,14 @@ mod tests {
     shared.reads_waiting.fetch_sub(1, Ordering::AcqRel);
     drop(decoding);
     assert!(!shared.inner().waiting, "and goes on as the sample comes");
+  }
+
+  #[test]
+  fn a_playlist_of_http_live_streaming_is_told_by_its_type_or_its_ending() {
+    assert!(is_playlist(Some("application/vnd.apple.mpegurl"), "https://h/live"));
+    assert!(is_playlist(Some("audio/x-mpegURL"), "https://h/live"));
+    assert!(is_playlist(None, "https://h/live/index.M3U8?token=1"));
+    assert!(!is_playlist(Some("video/mp4"), "https://h/clip.mp4"));
+    assert!(!is_playlist(None, "https://h/clip.mp4#m3u8"));
   }
 }

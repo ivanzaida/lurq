@@ -26,6 +26,7 @@ use std::{
 };
 
 use block2::RcBlock;
+use dispatch2::{DispatchQueue, DispatchRetained};
 use objc2::{
   AnyThread, MainThreadMarker,
   rc::{Retained, autoreleasepool},
@@ -46,9 +47,13 @@ use objc2_core_video::{
 };
 use objc2_foundation::{NSDictionary, NSError, NSNumber, NSString, NSURL};
 
-use super::super::{Command, Headers, MediaError, Opened, Shared};
-use crate::images::{
-  CvPixelBufferFrames, ImageData, MacosCvPixelBuffer, NativeImageData, cv_pixel_buffer_frames_drawn,
+use super::{
+  super::{Command, Headers, MediaError, Opened, Shared},
+  feed::Feeder,
+};
+use crate::{
+  images::{CvPixelBufferFrames, ImageData, MacosCvPixelBuffer, NativeImageData, cv_pixel_buffer_frames_drawn},
+  resources::Reader,
 };
 
 /// How often the thread asks for a frame while it plays, and while it waits for one it was sent to.
@@ -64,15 +69,20 @@ const EXPECTED: Duration = Duration::from_secs(2);
 /// A player that stands gives its first frame by itself; one that has not after this long is sent to where it is,
 /// which makes it show the frame there.
 const NUDGE: Duration = Duration::from_millis(250);
+/// How long a fed player that says it plays may stand where it is before it is taken to wait.
+const STANDS_FOR: Duration = Duration::from_millis(500);
+/// How long a fed player that stalled waits for more than nothing before it is told to play on, where the system
+/// does not say what it has is enough.
+const STARVED_FOR: Duration = Duration::from_secs(1);
 /// The units of a second the player is sent somewhere in.
 const SCALE: i32 = 60_000;
 /// How far the system's player fetches ahead of where it is, in seconds, before it was first told to play: a video
 /// opened ahead and left paused takes its start and no more, as the app's loader has it on Windows. Left to itself
 /// it reads on while it stands, from a host that gives one client only so much, beside the video that plays.
-const AHEAD_UNTIL_PLAYED: f64 = 1.0;
+pub(super) const AHEAD_UNTIL_PLAYED: f64 = 1.0;
 /// How far it fetches ahead once it plays: a few seconds against a slow moment of the network, and not the whole
 /// video, which it would read as fast as the host gives, at the cost of the radio, the battery and the person's data.
-const AHEAD_WHILE_PLAYING: f64 = 10.0;
+pub(super) const AHEAD_WHILE_PLAYING: f64 = 10.0;
 
 unsafe extern "C" {
   /// The main queue of libdispatch, which `dispatch_get_main_queue()` returns.
@@ -121,6 +131,9 @@ unsafe impl Send for Output {}
 struct Player {
   player: Retained<AVPlayer>,
   item: Retained<AVPlayerItem>,
+  /// What gives the player the bytes the app's loader reads, and the queue it is asked on: the asset holds them
+  /// weakly.
+  _fed: Option<(Retained<Feeder>, DispatchRetained<DispatchQueue>)>,
   /// How fast it goes while it plays: a player told its speed plays, so one that stands is told when it starts.
   rate: f32,
 }
@@ -153,6 +166,9 @@ struct Seen {
   sound: bool,
   control: Control,
   at: f64,
+  /// Whether the player has nothing left to play, and whether it says what it has is enough to play on.
+  empty: bool,
+  keeps_up: bool,
 }
 
 /// What the media's thread and the main thread share.
@@ -280,6 +296,8 @@ fn look(link: &Link, main: MainThreadMarker) {
       sound,
       control,
       at: seconds(player.currentTime()).unwrap_or(0.0),
+      empty: item.isPlaybackBufferEmpty(),
+      keeps_up: item.isPlaybackLikelyToKeepUp(),
     }
   };
   *link.seen() = seen;
@@ -289,6 +307,8 @@ fn look(link: &Link, main: MainThreadMarker) {
 enum Place {
   File(PathBuf),
   Url(Arc<str>, Headers),
+  /// What the app's loader reads, at the address it is at: see [`feed`](super::feed).
+  Reader(Arc<dyn Reader>, Arc<str>),
 }
 
 /// The player's item of what is at `address`, whose requests carry `headers`.
@@ -373,12 +393,7 @@ pub(super) fn run(shared: &Arc<Shared>, opened: Opened, picture: bool) {
       Err(error) => return shared.fail(MediaError::Other(Arc::from(error.to_string()))),
     },
     Opened::Url(address, headers) => Place::Url(address, headers),
-    // Only Windows reads an address through the app's loader.
-    Opened::Reader(..) => {
-      return shared.fail(MediaError::Unavailable(Arc::from(
-        "the system's player reads an address itself",
-      )));
-    }
+    Opened::Reader(reader, address) => Place::Reader(reader, address),
   };
   play(shared, place, picture);
   // The file of its bytes is the media's own, and goes with it.
@@ -517,6 +532,10 @@ fn go(link: &Arc<Link>, player: &Player, to: f64, near: bool, then: Option<Then>
 }
 
 fn play(shared: &Arc<Shared>, place: Place, picture: bool) {
+  // A player fed by the app's loader starts as soon as it has a frame, as Apple asks of a player whose bytes come
+  // through its resource loader: waiting to be sure it will not stall, it started a video 0.5 to 0.8 s later.
+  // So it does not wait by itself when it stalls either: it stops, and is told to play on here (`starved`).
+  let fed = matches!(place, Place::Reader(..));
   let output = picture.then(output);
   let link = Arc::new(Link {
     player: MainOnly(RefCell::new(None)),
@@ -528,6 +547,8 @@ fn play(shared: &Arc<Shared>, place: Place, picture: bool) {
       sound: false,
       control: Control::Paused,
       at: 0.0,
+      empty: false,
+      keeps_up: false,
     }),
     done: AtomicU64::new(0),
     arrived: AtomicU64::new(0),
@@ -539,34 +560,48 @@ fn play(shared: &Arc<Shared>, place: Place, picture: bool) {
   };
   // The player is made on the main thread, with the output its frames are taken from.
   on_main({
-    let (link, output) = (link.clone(), output.clone().map(Output));
+    let (link, output, shared) = (link.clone(), output.clone().map(Output), shared.clone());
     move |main| {
       let output = output.map(|Output(output)| output);
-      let (address, headers) = match &place {
-        Place::File(path) => (NSURL::from_file_path(path), None),
-        Place::Url(address, headers) => (NSURL::URLWithString(&NSString::from_str(address)), Some(headers)),
+      let mut fed = None;
+      // SAFETY: on the main thread, as every call of the player and its item.
+      let item = unsafe {
+        match &place {
+          Place::File(path) => {
+            NSURL::from_file_path(path).map(|address| AVPlayerItem::playerItemWithURL(&address, main))
+          }
+          Place::Url(address, headers) => {
+            NSURL::URLWithString(&NSString::from_str(address)).map(|address| item_at(&address, headers, main))
+          }
+          Place::Reader(reader, address) => {
+            Feeder::asset(address, address, reader.clone(), &shared).map(|(asset, feeder, queue)| {
+              fed = Some((feeder, queue));
+              AVPlayerItem::playerItemWithAsset(&asset, main)
+            })
+          }
+        }
       };
-      let Some(address) = address else {
+      let Some(item) = item else {
         link.seen().state = State::Failed(MediaError::NotFound);
         return;
       };
       // SAFETY: on the main thread, as every call of the player and its item.
       unsafe {
-        let item = match headers {
-          Some(headers) => item_at(&address, headers, main),
-          None => AVPlayerItem::playerItemWithURL(&address, main),
-        };
         if let Some(output) = &output {
           item.addOutput(output);
         }
         item.setPreferredForwardBufferDuration(AHEAD_UNTIL_PLAYED);
         let player = AVPlayer::playerWithPlayerItem(Some(&item), main);
+        if fed.is_some() {
+          player.setAutomaticallyWaitsToMinimizeStalling(false);
+        }
         player.setVolume(volume);
         player.setMuted(muted);
         *link.player.get(main).borrow_mut() = Some(Player {
           player,
           item,
           rate: 1.0,
+          _fed: fed,
         });
       }
       look(&link, main);
@@ -587,6 +622,10 @@ fn play(shared: &Arc<Shared>, place: Place, picture: bool) {
   let mut looked: Option<Instant> = None;
   // Paused by the system, not by the app: the player is watched for it to play again by itself.
   let mut held_by_system = false;
+  // A fed player stopped with nothing left to play, and since when: it waits, and plays on once it has enough.
+  let mut starved: Option<Instant> = None;
+  // Where a fed player that says it plays was last seen to be, and since when: one that stands there waits.
+  let mut stands: Option<(f64, Instant)> = None;
   loop {
     let playing = shared.inner().playing;
     let wait = match (opened, playing, expected) {
@@ -601,6 +640,7 @@ fn play(shared: &Arc<Shared>, place: Place, picture: bool) {
         Command::Close => return,
         Command::Play => {
           held_by_system = false;
+          starved = None;
           let (again, rate) = {
             let mut inner = shared.inner();
             let again = inner.ended;
@@ -652,6 +692,7 @@ fn play(shared: &Arc<Shared>, place: Place, picture: bool) {
         }
         Command::Pause => {
           held_by_system = false;
+          starved = None;
           let mut inner = shared.inner();
           inner.since = Instant::now();
           inner.playing = false;
@@ -800,17 +841,48 @@ fn play(shared: &Arc<Shared>, place: Place, picture: bool) {
     }
     // What was seen of the player is of now once the player has done all it was told.
     let current = seen.done == told;
-    let waits = current && seen.control == Control::Waiting;
+    if let Some(since) = starved
+      && current
+      && (seen.keeps_up || (!seen.empty && since.elapsed() >= STARVED_FOR))
+    {
+      starved = None;
+      told += 1;
+      // SAFETY: on the main thread, as every call of the player.
+      link.tell(|player| unsafe { player.player.playImmediatelyAtRate(player.rate) });
+    }
+    // A fed player can say it plays and stand where it is: what it was given is not enough to play on. It waits
+    // for more, which the app's loader then gives it whatever is read ahead.
+    let stood = fed
+      && current
+      && seen.control == Control::Playing
+      && match stands {
+        Some((at, since)) if (seen.at - at).abs() < 0.01 => since.elapsed() >= STANDS_FOR,
+        _ => {
+          stands = Some((seen.at, Instant::now()));
+          false
+        }
+      };
+    let waits = current && (seen.control == Control::Waiting || starved.is_some() || stood);
     let mut changed = false;
     if waits != inner.waiting {
       inner.hold();
       inner.waiting = waits;
       changed = true;
     }
-    if current && seen.control == Control::Paused {
+    let over = inner.duration.is_none_or(|duration| seen.at >= duration - 0.3);
+    if current && seen.control == Control::Paused && fed && !over && seen.empty {
+      // A fed player that has played all it was given: it waits for what comes next.
+      if starved.is_none() {
+        starved = Some(Instant::now());
+        if !inner.waiting {
+          inner.hold();
+          inner.waiting = true;
+          changed = true;
+        }
+      }
+    } else if current && seen.control == Control::Paused && starved.is_none() {
       // The player stopped by itself. At the end of what it plays it ended; anywhere else the system stopped it
       // (a call, another app's sound, the headphones pulled out), and it is paused there.
-      let over = inner.duration.is_none_or(|duration| seen.at >= duration - 0.3);
       if over && inner.looped && inner.playing {
         // Looped: the player is sent to its start in the item it has, and plays on; it never ends.
         inner.at = 0.0;
