@@ -4,7 +4,7 @@
 
 Breaking:
 
-- **What 0.63 deprecated is removed** (decided 2026-11-22, `design/decisions.md`). Each of these compiled with a warning that named what to write since 0.63, and is gone:
+- **What 0.63 deprecated is removed** (decided 2026-11-22, `design/decisions.md`). Each of these compiled with a warning that named what to write since 0.63, and is gone; the [migration guide](docs/src/content/docs/migration-v0-67.md) has each with what to write:
   - `WinitWindow::on_frame`: `on_paint`.
   - `FormTheme` and its parts (`FormFieldTheme`, `FormInputTheme`, `FormCheckboxStyle`, `FormSliderStyle`, `FormButtonTheme`, `FormButtonRole`, `FormTextRole`), `Theme::form`, `Theme::set_form` and the field `ThemeDefinition::form`, which nothing read: the recipes of `ui::Field`, `ui::Input`, `ui::Textarea`, `ui::Checkbox`, `ui::Slider` and `ui::Button` (`theme.patch_recipe::<ui::Input>(..)`).
   - The palette roles of 0.61 and their fields of `ThemePalette`: `Accent` is `Primary`, `AccentHover` `PrimaryHover`, `AccentMuted` `Highlight`, `SurfaceBase` and `SurfaceInput` `Background`, `SurfacePanel` `Canvas`, `SurfaceRaised` `Card`, `BorderStrong` `Input`, `BorderFocus` `Ring`, `TextPrimary` `Foreground`, `TextSecondary` and `TextMuted` `MutedForeground`, `TextInverse` `PrimaryForeground`, `Danger` `Destructive`, `DangerMuted` `DestructiveMuted`. `PaletteColor::replacement`, which told a deprecated role's replacement, went with them, and `ThemePalette::roles` lists the design's roles only. `ThemePalette::legacy()` keeps 0.61's colors in the roles that replaced them: where two roles became one it has one color (`MutedForeground` is `#64748b`, 0.61's `TextMuted`; `TextSecondary`'s `#334155` and `TextPrimary`'s `#0f172a` are in no role).
