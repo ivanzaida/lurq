@@ -16,14 +16,14 @@ run or tested on Linux, and issues only Linux shows are not worked on.
 
 ```toml
 [dependencies]
-lurq = "0.66.0"
+lurq = "0.66.1"
 ```
 
 The default features are the desktop set, enough to run the example below:
 
 ```toml
 [dependencies]
-lurq = "0.66.0"
+lurq = "0.66.1"
 ```
 
 | Feature | Default | Purpose |
