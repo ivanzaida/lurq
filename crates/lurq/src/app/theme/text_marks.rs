@@ -78,9 +78,6 @@ impl ThemeTextMarks {
 }
 
 impl Default for ThemeTextMarks {
-  // The roles of lurq 0.61, which an app may still set: each follows the role that replaces it
-  // (`palette.rs`).
-  #[allow(deprecated)]
   fn default() -> Self {
     Self {
       bold: TextMarkStyle {
@@ -94,7 +91,7 @@ impl Default for ThemeTextMarks {
       code: TextMarkStyle {
         font_family: Some(Arc::from("monospace")),
         font_size_scale: Some(0.92),
-        background: Some(TextColor::Palette(PaletteColor::SurfaceRaised)),
+        background: Some(TextColor::Palette(PaletteColor::Card)),
         background_radius: 3.0,
         ..TextMarkStyle::default()
       },
@@ -107,7 +104,7 @@ impl Default for ThemeTextMarks {
         ..TextMarkStyle::default()
       },
       link: TextMarkStyle {
-        color: Some(TextColor::Palette(PaletteColor::Accent)),
+        color: Some(TextColor::Palette(PaletteColor::Primary)),
         underline: true,
         ..TextMarkStyle::default()
       },

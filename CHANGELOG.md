@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+Breaking:
+
+- **What 0.63 deprecated is removed** (decided 2026-11-22, `design/decisions.md`). Each of these compiled with a warning that named what to write since 0.63, and is gone; the [migration guide](docs/src/content/docs/migration-v0-67.md) has each with what to write:
+  - `WinitWindow::on_frame`: `on_paint`.
+  - `FormTheme` and its parts (`FormFieldTheme`, `FormInputTheme`, `FormCheckboxStyle`, `FormSliderStyle`, `FormButtonTheme`, `FormButtonRole`, `FormTextRole`), `Theme::form`, `Theme::set_form` and the field `ThemeDefinition::form`, which nothing read: the recipes of `ui::Field`, `ui::Input`, `ui::Textarea`, `ui::Checkbox`, `ui::Slider` and `ui::Button` (`theme.patch_recipe::<ui::Input>(..)`).
+  - The palette roles of 0.61 and their fields of `ThemePalette`: `Accent` is `Primary`, `AccentHover` `PrimaryHover`, `AccentMuted` `Highlight`, `SurfaceBase` and `SurfaceInput` `Background`, `SurfacePanel` `Canvas`, `SurfaceRaised` `Card`, `BorderStrong` `Input`, `BorderFocus` `Ring`, `TextPrimary` `Foreground`, `TextSecondary` and `TextMuted` `MutedForeground`, `TextInverse` `PrimaryForeground`, `Danger` `Destructive`, `DangerMuted` `DestructiveMuted`. `PaletteColor::replacement`, which told a deprecated role's replacement, went with them, and `ThemePalette::roles` lists the design's roles only. `ThemePalette::legacy()` keeps 0.61's colors in the roles that replaced them: where two roles became one it has one color (`MutedForeground` is `#64748b`, 0.61's `TextMuted`; `TextSecondary`'s `#334155` and `TextPrimary`'s `#0f172a` are in no role).
+  - `dark()` and `for_appearance(..)` of `TabBar`, `SheetStyle` and `NavigationBar`, and `PullToRefreshStyle::dark()`: `new()`, which is light or dark as the theme is.
+  - `components::ActivityIndicator` is not exported: an app's spinner is `ui::Spinner`. The pull to refresh still draws the platform's spokes, and `ActivityIndicatorProps` is as it was.
+
+  `components::Image` and `components::Checkbox` stay, deprecated as before: see the decision.
+
 Fixes:
 
 - **What is read ahead of an MP4 is where its index says.** A media read ahead by the share of its length in bytes that a time is, which is as far off as its bitrate is uneven: over seven videos of a site, up to 12.6 s of video short of what read ahead of 10 s was to have, and up to 44 s over on an hour-long one. Its index is read beside it as it opens, and says where each moment is: what plays until then needs the bytes of every track's chunk that plays before it.

@@ -613,51 +613,6 @@ impl TabBar {
       .base(TabBarPart::Selection, |s| s.background(legacy::SELECTION))
   }
 
-  /// The bar of 0.62 in its light colors, whatever the theme.
-  fn legacy_light() -> Self {
-    Self {
-      background: legacy::BACKGROUND,
-      border: legacy::BORDER,
-      tint: legacy::TINT,
-      color: legacy::COLOR,
-      contrast_color: legacy::CONTRAST,
-      badge_background: legacy::BADGE,
-      badge_color: legacy::BADGE_TEXT,
-      floating_selection: legacy::SELECTION,
-      glass: None,
-      ..Self::default()
-    }
-  }
-
-  /// The platform's dark colors of 0.62.
-  #[deprecated(
-    since = "0.63.0",
-    note = "the theme's appearance gives the dark colors: `TabBar::new()` built in a dark theme is dark"
-  )]
-  pub fn dark() -> Self {
-    Self {
-      background: Color::new(22, 22, 22, 204),
-      border: Color::new(84, 84, 88, 153),
-      tint: Color::from_hex("#0A84FF"),
-      color: Color::from_hex("#8E8E93"),
-      contrast_color: Color::from_hex("#C7C7CC"),
-      ..Self::legacy_light()
-    }
-  }
-
-  /// The platform's bar of 0.62 for an appearance.
-  #[deprecated(
-    since = "0.63.0",
-    note = "the theme's appearance gives the colors: `TabBar::new()` is light or dark as the theme is"
-  )]
-  #[allow(deprecated)]
-  pub fn for_appearance(appearance: crate::app::window::Appearance) -> Self {
-    match appearance {
-      crate::app::window::Appearance::Light => Self::legacy_light(),
-      crate::app::window::Appearance::Dark => Self::dark(),
-    }
-  }
-
   /// A bar that floats over the content, clear of the window's edges, with the place of the chosen tab
   /// marked: the newest system's, of its glass ([`Glass::regular`](crate::layout::glass::Glass::regular)).
   /// [`Self::glass`] gives it another glass, or none.

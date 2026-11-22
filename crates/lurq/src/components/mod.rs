@@ -87,8 +87,6 @@ pub use outlet::Outlet;
 pub use pager::Pager;
 pub use popup::{Popover, Popup};
 pub use rect::Rect;
-#[allow(deprecated)]
-pub use refresh::ActivityIndicator;
 pub use refresh::{ActivityIndicatorProps, PullToRefresh, PullToRefreshPart, PullToRefreshProps, PullToRefreshStyle};
 #[cfg(feature = "router")]
 pub use router_component::{Router, RouterProps};

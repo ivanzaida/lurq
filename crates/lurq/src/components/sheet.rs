@@ -158,40 +158,6 @@ impl SheetStyle {
       })
   }
 
-  /// The platform's dark colors of 0.62.
-  #[deprecated(
-    since = "0.63.0",
-    note = "the theme's appearance gives the dark colors: `SheetStyle::new()` built in a dark theme is dark"
-  )]
-  pub fn dark() -> Self {
-    Self {
-      background: Color::from_hex("#1C1C1E"),
-      grabber_color: Color::new(235, 235, 245, 77),
-      backdrop: LEGACY_BACKDROP,
-      dim: 0.5,
-      ..Self::default()
-    }
-  }
-
-  /// The platform's sheet of 0.62 for an appearance.
-  #[deprecated(
-    since = "0.63.0",
-    note = "the theme's appearance gives the colors: `SheetStyle::new()` is light or dark as the theme is"
-  )]
-  #[allow(deprecated)]
-  pub fn for_appearance(appearance: crate::app::window::Appearance) -> Self {
-    match appearance {
-      crate::app::window::Appearance::Light => Self {
-        background: LEGACY_BACKGROUND,
-        grabber_color: LEGACY_GRABBER,
-        backdrop: LEGACY_BACKDROP,
-        dim: LEGACY_DIM,
-        ..Self::default()
-      },
-      crate::app::window::Appearance::Dark => Self::dark(),
-    }
-  }
-
   pub fn background(mut self, color: Color) -> Self {
     self.background = color;
     self

@@ -275,20 +275,18 @@ pub(crate) struct SelectOptionState {
 }
 
 /// The roles of 0.62's select, which the legacy theme gives and a theme with no recipe for the engine's select
-/// keeps: the roles of lurq 0.61, which follow the roles that replace them in the design's palettes and keep their
-/// own colors in the legacy one.
-#[allow(deprecated)]
+/// keeps: the roles that replaced those of lurq 0.61.
 mod legacy {
   use crate::app::theme::PaletteColor;
 
-  pub(super) const TRIGGER: PaletteColor = PaletteColor::SurfaceInput;
+  pub(super) const TRIGGER: PaletteColor = PaletteColor::Background;
   pub(super) const EDGE: PaletteColor = PaletteColor::Border;
-  pub(super) const FOCUS: PaletteColor = PaletteColor::BorderFocus;
-  pub(super) const MENU: PaletteColor = PaletteColor::SurfaceRaised;
-  pub(super) const HOVERED: PaletteColor = PaletteColor::SurfacePanel;
-  pub(super) const SELECTED: PaletteColor = PaletteColor::Accent;
-  pub(super) const SELECTED_HOVERED: PaletteColor = PaletteColor::AccentHover;
-  pub(super) const MUTED: PaletteColor = PaletteColor::TextMuted;
+  pub(super) const FOCUS: PaletteColor = PaletteColor::Ring;
+  pub(super) const MENU: PaletteColor = PaletteColor::Card;
+  pub(super) const HOVERED: PaletteColor = PaletteColor::Canvas;
+  pub(super) const SELECTED: PaletteColor = PaletteColor::Primary;
+  pub(super) const SELECTED_HOVERED: PaletteColor = PaletteColor::PrimaryHover;
+  pub(super) const MUTED: PaletteColor = PaletteColor::MutedForeground;
 }
 
 /// The recipe of the colors of the engine's select, by the parts and states of [`ui::Select`](crate::ui::Select)

@@ -4,10 +4,7 @@
 //! come in pairs with the color of what is drawn on them (`Card` and
 //! `CardForeground`), and what a control fills with has a color for its hover.
 //!
-//! The roles of lurq 0.61 are deprecated. Each still has a color of its own,
-//! so a palette can hold the 0.61 look exactly ([`ThemePalette::legacy`]), and
-//! each is kept in step with the role that replaces it: setting the
-//! replacement sets it too. Setting a deprecated role sets only that role.
+//! [`ThemePalette::legacy`] gives the roles the colors lurq 0.61 drew with.
 
 use std::{collections::HashMap, sync::Arc};
 
@@ -18,32 +15,19 @@ use crate::node::color::Color;
 macro_rules! palette {
   (
     roles { $( $(#[$doc:meta])* $role:ident, $field:ident, $name:literal; )* }
-    deprecated { $( $old:ident, $old_field:ident, $old_name:literal, $new:ident, $new_field:ident, $note:literal; )* }
   ) => {
     #[derive(Clone, Debug, PartialEq, Eq, Hash)]
     pub enum PaletteColor {
       $( $(#[$doc])* $role, )*
-      $( #[deprecated(since = "0.63.0", note = $note)] $old, )*
       /// An application-defined color stored in [`ThemePalette::extra`].
       Extra(Arc<str>),
     }
 
-    #[allow(deprecated)]
     impl PaletteColor {
       pub fn as_str(&self) -> &str {
         match self {
           $( Self::$role => $name, )*
-          $( Self::$old => $old_name, )*
           Self::Extra(name) => name,
-        }
-      }
-
-      /// The role that replaces this one, for a role of lurq 0.61 that is
-      /// deprecated; `None` for every other.
-      pub fn replacement(&self) -> Option<PaletteColor> {
-        match self {
-          $( Self::$old => Some(Self::$new), )*
-          _ => None,
         }
       }
     }
@@ -51,28 +35,21 @@ macro_rules! palette {
     #[derive(Clone, Debug, PartialEq, Eq)]
     pub struct ThemePalette {
       $( $(#[$doc])* pub $field: Color, )*
-      $( #[deprecated(since = "0.63.0", note = $note)] pub $old_field: Color, )*
       pub extra: HashMap<Arc<str>, Color>,
     }
 
-    #[allow(deprecated)]
     impl ThemePalette {
       pub fn try_get(&self, color: impl Into<PaletteColor>) -> Option<Color> {
         match color.into() {
           $( PaletteColor::$role => Some(self.$field), )*
-          $( PaletteColor::$old => Some(self.$old_field), )*
           PaletteColor::Extra(name) => self.extra.get(&name).copied(),
         }
       }
 
-      /// Sets the color of one role. A deprecated role that the role replaces
-      /// takes the color too, so what still reads it follows.
+      /// Sets the color of one role.
       pub fn set(&mut self, color: impl Into<PaletteColor>, value: Color) {
-        let color = color.into();
-        $( if color == PaletteColor::$new { self.$old_field = value; } )*
-        match color {
+        match color.into() {
           $( PaletteColor::$role => self.$field = value, )*
-          $( PaletteColor::$old => self.$old_field = value, )*
           PaletteColor::Extra(name) => {
             self.extra.insert(name, value);
           }
@@ -84,20 +61,13 @@ macro_rules! palette {
         const NONE: Color = Color::new(0, 0, 0, 0);
         Self {
           $( $field: NONE, )*
-          $( $old_field: NONE, )*
           extra: HashMap::new(),
         }
       }
 
-      /// Gives every deprecated role the color of the role that replaces it.
-      fn with_deprecated_roles_in_step(mut self) -> Self {
-        $( self.$old_field = self.$new_field; )*
-        self
-      }
-
-      /// The built-in roles and their names, deprecated ones last.
+      /// The built-in roles and their names.
       pub fn roles() -> Vec<PaletteColor> {
-        vec![ $( PaletteColor::$role, )* $( PaletteColor::$old, )* ]
+        vec![ $( PaletteColor::$role, )* ]
       }
     }
   };
@@ -175,23 +145,6 @@ palette! {
     GlassThin, glass_thin, "glass_thin";
     GlassRegular, glass_regular, "glass_regular";
     GlassThick, glass_thick, "glass_thick";
-  }
-  deprecated {
-    Accent, accent, "accent", Primary, primary, "use `Primary`; see the migration guide";
-    AccentHover, accent_hover, "accent_hover", PrimaryHover, primary_hover, "use `PrimaryHover`; see the migration guide";
-    AccentMuted, accent_muted, "accent_muted", Highlight, highlight, "use `Highlight`; see the migration guide";
-    SurfaceBase, surface_base, "surface_base", Background, background, "use `Background`; see the migration guide";
-    SurfacePanel, surface_panel, "surface_panel", Canvas, canvas, "use `Canvas`; see the migration guide";
-    SurfaceRaised, surface_raised, "surface_raised", Card, card, "use `Card`; see the migration guide";
-    SurfaceInput, surface_input, "surface_input", Background, background, "use `Background`; see the migration guide";
-    BorderStrong, border_strong, "border_strong", Input, input, "use `Input`; see the migration guide";
-    BorderFocus, border_focus, "border_focus", Ring, ring, "use `Ring`; see the migration guide";
-    TextPrimary, text_primary, "text_primary", Foreground, foreground, "use `Foreground`; see the migration guide";
-    TextSecondary, text_secondary, "text_secondary", MutedForeground, muted_foreground, "use `MutedForeground`; see the migration guide";
-    TextMuted, text_muted, "text_muted", MutedForeground, muted_foreground, "use `MutedForeground`; see the migration guide";
-    TextInverse, text_inverse, "text_inverse", PrimaryForeground, primary_foreground, "use `PrimaryForeground`; see the migration guide";
-    Danger, danger, "danger", Destructive, destructive, "use `Destructive`; see the migration guide";
-    DangerMuted, danger_muted, "danger_muted", DestructiveMuted, destructive_muted, "use `DestructiveMuted`; see the migration guide";
   }
 }
 
@@ -300,7 +253,6 @@ impl ThemePalette {
       glass_thick: hex("#FFFFFFCC"),
       ..Self::blank()
     }
-    .with_deprecated_roles_in_step()
   }
 
   /// The design's dark palette.
@@ -352,7 +304,6 @@ impl ThemePalette {
       glass_thick: hex("#18181BCC"),
       ..Self::blank()
     }
-    .with_deprecated_roles_in_step()
   }
 
   /// The palette of lurq 0.61: every role it had, with the color it had.
@@ -361,31 +312,15 @@ impl ThemePalette {
   /// are for (`primary` is the accent, `canvas` the panel surface), or the
   /// light design's where 0.61 had nothing like them (charts, glass, veils).
   /// Text that names no color is black, as it was.
-  #[allow(deprecated)]
   pub fn legacy() -> Self {
     let hex = Color::from_hex;
     let light = Self::light();
     Self {
-      accent: hex("#2563eb"),
-      accent_hover: hex("#1d4ed8"),
-      accent_muted: hex("#dbeafe"),
-      surface_base: hex("#ffffff"),
-      surface_panel: hex("#f8fafc"),
-      surface_raised: hex("#ffffff"),
-      surface_input: hex("#ffffff"),
       border: hex("#e2e8f0"),
-      border_strong: hex("#94a3b8"),
-      border_focus: hex("#2563eb"),
-      text_primary: hex("#0f172a"),
-      text_secondary: hex("#334155"),
-      text_muted: hex("#64748b"),
-      text_inverse: hex("#ffffff"),
       success: hex("#16a34a"),
       success_muted: hex("#dcfce7"),
       warning: hex("#d97706"),
       warning_muted: hex("#fef3c7"),
-      danger: hex("#dc2626"),
-      danger_muted: hex("#fee2e2"),
       info: hex("#0284c7"),
       info_muted: hex("#e0f2fe"),
 
@@ -426,21 +361,9 @@ impl Default for ThemePalette {
 }
 
 #[cfg(test)]
-#[allow(deprecated)]
 mod tests {
-  use super::{PaletteColor, ThemePalette};
+  use super::ThemePalette;
   use crate::node::color::Color;
-
-  #[test]
-  fn a_deprecated_role_has_the_color_of_its_replacement_in_the_design() {
-    for palette in [ThemePalette::light(), ThemePalette::dark()] {
-      for role in ThemePalette::roles() {
-        if let Some(replacement) = role.replacement() {
-          assert_eq!(palette.get(&role), palette.get(&replacement), "{}", role.as_str());
-        }
-      }
-    }
-  }
 
   #[test]
   fn every_role_of_the_design_has_a_color() {
@@ -453,38 +376,16 @@ mod tests {
   }
 
   #[test]
-  fn setting_a_role_sets_the_deprecated_roles_it_replaces() {
-    let brand = Color::new(1, 2, 3, 255);
-    let mut palette = ThemePalette::light();
-    palette.set(PaletteColor::Background, brand);
-    assert_eq!((palette.surface_base, palette.surface_input), (brand, brand));
-    palette.set(PaletteColor::MutedForeground, brand);
-    assert_eq!((palette.text_secondary, palette.text_muted), (brand, brand));
-  }
-
-  #[test]
-  fn setting_a_deprecated_role_sets_only_that_role() {
-    let brand = Color::new(1, 2, 3, 255);
-    let mut palette = ThemePalette::light();
-    let primary = palette.primary;
-    palette.set(PaletteColor::Accent, brand);
-    assert_eq!(palette.accent, brand);
-    assert_eq!(palette.primary, primary);
-  }
-
-  #[test]
   fn the_legacy_palette_has_the_colors_of_0_61() {
     let legacy = ThemePalette::legacy();
     let hex = Color::from_hex;
-    assert_eq!(legacy.accent, hex("#2563eb"));
-    assert_eq!(legacy.text_secondary, hex("#334155"));
-    assert_eq!(legacy.text_muted, hex("#64748b"));
+    assert_eq!(legacy.primary, hex("#2563eb"));
+    assert_eq!(legacy.muted_foreground, hex("#64748b"));
     assert_eq!(legacy.border, hex("#e2e8f0"));
     assert_eq!(legacy.info, hex("#0284c7"));
     assert_eq!(legacy.foreground, Color::new(0, 0, 0, 255));
-    // The roles 0.61 did not have take what it had nearest to them.
-    assert_eq!(legacy.primary, legacy.accent);
-    assert_eq!(legacy.canvas, legacy.surface_panel);
-    assert_eq!(legacy.ring, legacy.border_focus);
+    // The roles 0.61 did not have take what it had nearest to them: its panel surface and its focused border.
+    assert_eq!(legacy.canvas, hex("#f8fafc"));
+    assert_eq!(legacy.ring, hex("#2563eb"));
   }
 }

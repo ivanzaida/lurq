@@ -227,14 +227,6 @@ impl WinitWindow {
     self
   }
 
-  #[deprecated(note = "use on_paint for callbacks after a frame is presented")]
-  pub fn on_frame<F>(self, frame: F) -> Self
-  where
-    F: FnMut(&Tree, Duration, PassReport) + 'static,
-  {
-    self.on_paint(frame)
-  }
-
   pub fn on_position_changed<F>(mut self, callback: F) -> Self
   where
     F: FnMut(i32, i32) + 'static,

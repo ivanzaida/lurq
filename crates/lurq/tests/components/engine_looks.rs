@@ -72,23 +72,6 @@ fn the_legacy_theme_keeps_the_sheet_of_0_62() {
 }
 
 #[test]
-#[allow(deprecated)]
-fn the_deprecated_dark_sheet_is_0_62s() {
-  let dark = SheetStyle::dark();
-  assert_eq!(dark.background, Color::from_hex("#1C1C1E"));
-  assert_eq!(dark.grabber_color, Color::new(235, 235, 245, 77));
-  assert_eq!((dark.backdrop, dark.dim), (Color::from_hex("#000000"), 0.5));
-  let light = in_theme(&neutral(Appearance::Dark), || {
-    SheetStyle::for_appearance(Appearance::Light)
-  });
-  assert_eq!(
-    light.background,
-    Color::from_hex("#FFFFFF"),
-    "0.62's light sheet whatever the theme"
-  );
-}
-
-#[test]
 fn an_apps_patch_reaches_the_sheet() {
   let mut definition = ThemeDefinition::neutral();
   definition
@@ -132,9 +115,6 @@ fn a_pull_to_refresh_spins_in_the_muted_foreground() {
   }
   let old = in_theme(&legacy(Appearance::Dark), PullToRefreshStyle::new);
   assert_eq!(old.spinner_color, Color::new(60, 60, 67, 153));
-  #[allow(deprecated)]
-  let dark = PullToRefreshStyle::dark();
-  assert_eq!(dark.spinner_color, Color::new(235, 235, 245, 153));
 }
 
 #[test]
@@ -216,7 +196,6 @@ fn a_tab_bar_takes_the_roles_of_the_theme_in_each_appearance() {
 
 #[cfg(feature = "router")]
 #[test]
-#[allow(deprecated)]
 fn the_legacy_theme_keeps_the_tab_bar_of_0_62() {
   let bar = in_theme(&legacy(Appearance::Dark), TabBar::new);
   assert_eq!(bar.background, Color::new(249, 249, 249, 224));
@@ -226,16 +205,6 @@ fn the_legacy_theme_keeps_the_tab_bar_of_0_62() {
   assert_eq!(bar.contrast_color, Color::from_hex("#515154"));
   assert_eq!(bar.badge_background, Color::from_hex("#FF3B30"));
   assert_eq!(bar.floating_selection, Color::new(120, 120, 128, 41));
-  let dark = TabBar::dark();
-  assert_eq!(
-    (dark.background, dark.tint),
-    (Color::new(22, 22, 22, 204), Color::from_hex("#0A84FF"))
-  );
-  assert_eq!(
-    dark.badge_background,
-    Color::from_hex("#FF3B30"),
-    "0.62's dark bar has 0.62's badge"
-  );
 
   let mut definition = ThemeDefinition::neutral();
   definition
@@ -261,18 +230,12 @@ fn a_navigation_bar_takes_the_roles_of_the_theme_in_each_appearance() {
 
 #[cfg(feature = "router")]
 #[test]
-#[allow(deprecated)]
 fn the_legacy_theme_keeps_the_navigation_bar_of_0_62() {
   let bar = in_theme(&legacy(Appearance::Light), NavigationBar::new);
   assert_eq!(bar.background, Color::new(249, 249, 249, 224));
   assert_eq!(bar.tint, Color::from_hex("#007aff"));
   assert_eq!(bar.title, Color::from_hex("#000000"));
   assert_eq!(bar.border, Color::from_hex("#c6c6c8"));
-  let dark = NavigationBar::dark();
-  assert_eq!(
-    (dark.title, dark.border),
-    (Color::from_hex("#ffffff"), Color::from_hex("#38383a"))
-  );
 
   let mut definition = ThemeDefinition::neutral();
   definition
@@ -326,10 +289,9 @@ fn the_engines_select_takes_its_colors_from_its_recipe() {
       "{appearance:?}"
     );
   }
-  // The legacy theme's select is on 0.62's role for an input, which keeps its own color there.
+  // The legacy theme's select fills with the background, as 0.62's did with its role for an input.
   let legacy_theme = legacy(Appearance::Light);
-  #[allow(deprecated)]
-  let surface = role(&legacy_theme, PaletteColor::SurfaceInput);
+  let surface = role(&legacy_theme, PaletteColor::Background);
   assert_eq!(trigger_fill(ThemeDefinition::legacy(), Appearance::Light), surface);
 
   let mut definition = ThemeDefinition::neutral();

@@ -296,8 +296,8 @@ PullToRefresh::mount(
 - `PullToRefreshStyle`: `threshold` (100), how far the list is pulled before it asks; `hold` (60), how far
   down it stays meanwhile; `spinner_size`, `spinner_color`, `duration` and `haptic`. The spinner's color is the
   theme's `MutedForeground`, light or dark as the theme is (see [Colors from the theme](#colors-from-the-theme)).
-- A spinner by itself is `lurq::ui::Spinner`. The platform's spokes, `ActivityIndicator`, are deprecated for an
-  app since 0.63; the pull to refresh still draws them.
+- A spinner by itself is `lurq::ui::Spinner`. The platform's spokes are what the pull to refresh draws; they are
+  not a component of an app's since 0.67.
 
 ### Swipe actions
 
@@ -335,8 +335,7 @@ The sheet, the tab bar, the navigation bar, the pull to refresh and the swipe ro
 theme, where their styles are made: `SheetStyle::new()`, `TabBar::new()`, `NavigationBar::new()`,
 `PullToRefreshStyle::new()` and `SwipeAction::new(..)` read the recipe the theme keeps for each (`phone_sheet`,
 `phone_tab_bar`, `phone_navigation_bar`, `phone_pull_to_refresh`, `phone_swipe_row`), which names the design's
-roles. Built in a dark theme they are dark: there is no `dark()` to choose any more (it is deprecated, with the
-colors of 0.62). They are the colors of the theme when they are made, so make them in `render`, which runs again
+roles. Built in a dark theme they are dark: there is no `dark()` to choose any more (it was removed in 0.67). They are the colors of the theme when they are made, so make them in `render`, which runs again
 when the system's appearance changes: one made in `create`, or in the root's first render, is made before the
 window has heard the appearance, and keeps the light palette's colors (see
 [The System's Settings](../theme/#the-systems-settings)). A stack's screens take a bar given again in other
