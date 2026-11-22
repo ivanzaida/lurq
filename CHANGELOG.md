@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+Added:
+
+- **`Media::seek_near` and `VideoPlayback::seek_near` go to the frame near a time that shows quickest.** On macOS and iOS that is the key frame nearest it, where `seek` has the system's player read and decode everything from the key frame before the time to the time itself. A finger that lets go of a video's line of time wants it about there, not to the frame: measured on a Mac over an hour-long video of a slow host, a seek showed its frame 1 to 3.9 s after it was asked for, a seek near it 0.77 s, which is the host's own answer to a request for a new place. Elsewhere it is `seek`. See [your own controls](docs/src/content/docs/design-system.md#your-own-controls-over-a-video).
+
 ## 0.66.1 — 2026-11-22
 
 Fixes:

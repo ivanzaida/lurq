@@ -165,7 +165,7 @@ fn play(shared: &Shared, player: &AVAudioPlayer) {
             inner.playing = false;
             starting = None;
           }
-          Command::Seek(to) => {
+          Command::Seek(to) | Command::SeekNear(to) => {
             gone += 1;
             let to = duration.map_or(to, |duration| to.min(duration));
             player.setCurrentTime(to);

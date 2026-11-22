@@ -91,6 +91,12 @@ fn it_goes_where_it_is_sent_and_ends_at_its_end() {
 
 #[cfg(windows)]
 #[test]
+fn it_goes_near_where_it_is_sent_and_plays_on_from_the_frame_it_shows() {
+  video::it_goes_near_where_it_is_sent_and_plays_on_from_the_frame_it_shows();
+}
+
+#[cfg(windows)]
+#[test]
 fn bytes_play_as_a_file_does_and_what_is_no_video_says_why() {
   video::bytes_play_as_a_file_does_and_what_is_no_video_says_why();
 }
