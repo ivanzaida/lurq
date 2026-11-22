@@ -77,6 +77,10 @@ pub struct Glass {
   /// What decides between the glass's own look and its look
   /// [over dark](Self::over_dark).
   pub follows: GlassFollows,
+  /// The glass answers a press: while the node is held down it grows a
+  /// little and is lit from where the pointer or the finger is, and let go
+  /// it springs back. The light follows a finger that moves.
+  pub interactive: bool,
 }
 
 /// What a glass with two looks takes its look from.
@@ -179,6 +183,7 @@ impl Glass {
         ink: Color::new(255, 255, 255, 255),
       }),
       follows: GlassFollows::Backdrop,
+      interactive: false,
     }
   }
 
@@ -299,6 +304,12 @@ impl Glass {
     self
   }
 
+  /// Whether the glass answers a press (see [`Self::interactive`]).
+  pub const fn interactive(mut self, interactive: bool) -> Self {
+    self.interactive = interactive;
+    self
+  }
+
   /// What decides between the two looks (see [`GlassFollows`]).
   pub const fn follows(mut self, follows: GlassFollows) -> Self {
     self.follows = follows;
@@ -385,6 +396,7 @@ impl Glass {
         (a, b) => if t < 0.5 { a } else { b },
       },
       follows: if t < 0.5 { self.follows } else { other.follows },
+      interactive: if t < 0.5 { self.interactive } else { other.interactive },
     }
   }
 }

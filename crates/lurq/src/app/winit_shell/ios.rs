@@ -253,6 +253,7 @@ fn receiver_class() -> &'static AnyClass {
       should_scroll_to_top as extern "C-unwind" fn(_, _, _) -> _,
     );
     builder.add_method(sel!(lurqPencilHover:), pencil_hover as extern "C-unwind" fn(_, _, _));
+    builder.add_method(sel!(lurqTiltDue:), tilt_due as extern "C-unwind" fn(_, _, _));
   }
   builder.register()
 }
@@ -1301,5 +1302,136 @@ pub(super) fn system_settings(view: NonNull<c_void>) -> SystemSettings {
       button_shapes: UIAccessibilityButtonShapesEnabled(),
       on_off_labels: UIAccessibilityIsOnOffSwitchLabelsEnabled(),
     }
+  }
+}
+
+// --- The device's tilt, for the light on glass ---
+
+#[link(name = "CoreMotion", kind = "framework")]
+unsafe extern "C" {}
+
+/// `CMAcceleration`: a pull in the device's own axes, in units of the earth's.
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct CMAcceleration {
+  x: f64,
+  y: f64,
+  z: f64,
+}
+
+unsafe impl Encode for CMAcceleration {
+  const ENCODING: Encoding = Encoding::Struct("?", &[f64::ENCODING, f64::ENCODING, f64::ENCODING]);
+}
+
+/// Set by the timer of a [`Tilt`]: time to look at the device's motion again.
+static TILT_DUE: AtomicBool = AtomicBool::new(false);
+
+extern "C-unwind" fn tilt_due(_this: &AnyObject, _cmd: Sel, _timer: *mut AnyObject) {
+  TILT_DUE.store(true, Ordering::Release);
+}
+
+/// How often the device's tilt is looked at while there is glass to light, in seconds.
+const TILT_INTERVAL: f64 = 1.0 / 30.0;
+/// How much of the light's lean a tilt has to change by to be told: less is the hand's own tremor, and
+/// every change told paints the window again.
+const TILT_STEP: f32 = 0.012;
+/// How far the light leans with the device held upright: the rim that faces up is lit that much more and the
+/// one that faces down that much less.
+const TILT_LEAN: f32 = 0.45;
+
+/// The device's tilt as the lean of the light on glass (`Tree::set_glass_light`): the light stays above the
+/// person while the device turns under it. Main thread only. The sensor runs only while [`Self::set_running`]
+/// says so, since it costs the battery.
+pub(super) struct Tilt {
+  manager: Retained<AnyObject>,
+  receiver: Retained<AnyObject>,
+  timer: Option<Retained<AnyObject>>,
+  told: Option<[f32; 2]>,
+}
+
+impl Tilt {
+  pub(super) fn new() -> Self {
+    let (manager, receiver) = unsafe {
+      let manager: Retained<AnyObject> = msg_send![class!(CMMotionManager), new];
+      let _: () = msg_send![&*manager, setDeviceMotionUpdateInterval: TILT_INTERVAL];
+      let receiver: Retained<AnyObject> = msg_send![receiver_class(), new];
+      (manager, receiver)
+    };
+    Self {
+      manager,
+      receiver,
+      timer: None,
+      told: None,
+    }
+  }
+
+  /// Starts or stops reading the sensor. A device without one (a simulator) is never read.
+  pub(super) fn set_running(&mut self, running: bool) {
+    if running == self.timer.is_some() {
+      return;
+    }
+    unsafe {
+      if running {
+        let available: Bool = msg_send![&*self.manager, isDeviceMotionAvailable];
+        if !available.as_bool() {
+          return;
+        }
+        let _: () = msg_send![&*self.manager, startDeviceMotionUpdates];
+        // The timer turns the event loop, which then asks [`Self::take`].
+        let timer: Retained<AnyObject> = msg_send![
+          class!(NSTimer),
+          scheduledTimerWithTimeInterval: TILT_INTERVAL,
+          target: &*self.receiver,
+          selector: sel!(lurqTiltDue:),
+          userInfo: std::ptr::null::<AnyObject>(),
+          repeats: true
+        ];
+        self.timer = Some(timer);
+      } else {
+        if let Some(timer) = self.timer.take() {
+          let _: () = msg_send![&*timer, invalidate];
+        }
+        let _: () = msg_send![&*self.manager, stopDeviceMotionUpdates];
+        TILT_DUE.store(false, Ordering::Release);
+      }
+    }
+  }
+
+  /// The light's lean, when it changed enough since it was last told: `None` otherwise, and while the sensor
+  /// has said nothing yet.
+  pub(super) fn take(&mut self) -> Option<[f32; 2]> {
+    if !TILT_DUE.swap(false, Ordering::AcqRel) || self.timer.is_none() {
+      return None;
+    }
+    let gravity: CMAcceleration = unsafe {
+      let motion: *mut AnyObject = msg_send![&*self.manager, deviceMotion];
+      let motion = motion.as_ref()?;
+      msg_send![motion, gravity]
+    };
+    // The device's axes: x to its right, y to its top. The light is where up is, across the screen, whose y
+    // runs down; the window may be turned on the device.
+    let (right, down) = (-gravity.x as f32, gravity.y as f32);
+    let [x, y] = match TOLD_ORIENTATION.load(Ordering::Acquire) {
+      // `UIInterfaceOrientationPortraitUpsideDown`, `LandscapeLeft`, `LandscapeRight`.
+      2 => [-right, -down],
+      3 => [-down, right],
+      4 => [down, -right],
+      _ => [right, down],
+    };
+    let light = [x * TILT_LEAN, y * TILT_LEAN];
+    if self
+      .told
+      .is_some_and(|told| (told[0] - light[0]).abs() < TILT_STEP && (told[1] - light[1]).abs() < TILT_STEP)
+    {
+      return None;
+    }
+    self.told = Some(light);
+    Some(light)
+  }
+}
+
+impl Drop for Tilt {
+  fn drop(&mut self) {
+    self.set_running(false);
   }
 }

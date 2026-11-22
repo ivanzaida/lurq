@@ -991,6 +991,8 @@ pub struct Tree {
   glass_tones: std::collections::HashMap<u64, GlassToneState>,
   /// When a glass on its way from one look to the other is painted next.
   glass_tone_change_at: Option<Instant>,
+  /// Whether the frame painted last had a glass in it.
+  has_glass: bool,
   opacity_groups: Vec<crate::layout::opacity_layer::OpacityGroup>,
   cached_render_list: Option<CachedRenderList>,
   #[cfg(feature = "canvas")]
@@ -1481,6 +1483,7 @@ impl Tree {
       glass_light: crate::layout::glass::DEFAULT_GLASS_LIGHT,
       glass_tones: std::collections::HashMap::new(),
       glass_tone_change_at: None,
+      has_glass: false,
       opacity_groups: Vec::new(),
       cached_render_list: None,
       #[cfg(feature = "canvas")]
@@ -1722,6 +1725,31 @@ impl Tree {
       self.cached_render_list = None;
       self.needs_redraw = true;
     }
+  }
+
+  /// Says where the light on the rims of glass comes from: a vector across the window toward the light, y down,
+  /// as long as the light is off to that side, up to 1 (see
+  /// [`DEFAULT_GLASS_LIGHT`](crate::layout::glass::DEFAULT_GLASS_LIGHT), which is straight above: the rim is
+  /// lit the same all the way round). A phone's shell sets it from the way the device is held.
+  pub fn set_glass_light(&mut self, light: [f32; 2]) {
+    let length = light[0].hypot(light[1]);
+    let light = if length > 1.0 {
+      [light[0] / length, light[1] / length]
+    } else {
+      light
+    };
+    if self.glass_light != light {
+      self.glass_light = light;
+      if self.has_glass() {
+        self.cached_render_list = None;
+        self.needs_redraw = true;
+      }
+    }
+  }
+
+  /// Whether the frame painted last had a glass in it.
+  pub fn has_glass(&self) -> bool {
+    self.has_glass
   }
 
   /// Asks for a frame that paints the glasses again while one is on its way from its light look to its dark
@@ -3357,6 +3385,9 @@ impl Tree {
     let mut quads = std::mem::take(&mut self.quad_scratch);
     quads.clear();
     self.layout_engine.begin_scrollbar_frame(self.now());
+    self
+      .layout_engine
+      .begin_glass_frame(self.now(), self.pointer.as_ref().map(hover::PointerAt::position));
     {
       crate::app::profile_support::frame_section!("paint:resolve_quads");
       self
@@ -3364,6 +3395,7 @@ impl Tree {
         .resolve_quads_with_viewport_into(root, &result, viewport_clip, &mut quads);
     }
     let scrollbar_change_at = self.layout_engine.take_scrollbar_change();
+    let glass_press_change_at = self.layout_engine.take_glass_change();
     let mut opacity_groups = std::mem::take(&mut self.opacity_groups);
     self.layout_engine.take_opacity_groups(&mut opacity_groups);
     #[cfg(feature = "screenshot")]
@@ -3989,12 +4021,18 @@ impl Tree {
 
     quads.clear();
     self.quad_scratch = quads;
+    self.has_glass = !glasses.is_empty();
     // A glass that is gone starts again from what is behind it when it comes back.
     glass_tones.retain(|_, tone| tone.frame == glass_frame);
     let glass_turning = glass_tones.values().any(|tone| tone.mix != f32::from(u8::from(tone.dark)));
     self.glass_tones = glass_tones;
     self.layout_engine.set_glass_tones(glass_inks.into_iter());
-    self.glass_tone_change_at = glass_turning.then(|| glass_now + GLASS_TONE_FRAME);
+    // A glass that is turning to its other look, or springing under a press, is painted again by itself.
+    self.glass_tone_change_at = glass_turning
+      .then(|| glass_now + GLASS_TONE_FRAME)
+      .into_iter()
+      .chain(glass_press_change_at)
+      .min();
     if let Some(at) = self.glass_tone_change_at {
       self.request_redraw_at(at);
     }

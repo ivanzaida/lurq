@@ -39,6 +39,13 @@ pub(super) struct PointerAt {
   source: InputSource,
 }
 
+impl PointerAt {
+  /// Where the pointer is, in the window's logical pixels.
+  pub(super) fn position(&self) -> [f32; 2] {
+    [self.x, self.y]
+  }
+}
+
 /// What a move of the hover did.
 #[derive(Clone, Copy, Default)]
 pub(super) struct HoverMove {

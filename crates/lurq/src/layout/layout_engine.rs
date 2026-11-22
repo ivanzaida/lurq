@@ -335,6 +335,13 @@ pub(crate) struct LayoutEngine {
   glass_tones: RefCell<std::collections::HashMap<u64, f32>>,
   /// Whether the theme is in its dark appearance: what a glass not painted yet is taken to be over.
   dark_appearance: Cell<bool>,
+  /// The glasses that answer a press and are held down or springing back, by their node's id.
+  glass_presses: RefCell<std::collections::HashMap<u64, glass_quads::GlassPress>>,
+  /// The time of the frame being painted, where the pointer is in it, and when a glass in it next looks
+  /// different with nothing else happening.
+  glass_frame_at: Cell<Option<crate::time::Instant>>,
+  glass_pointer: Cell<Option<[f32; 2]>>,
+  glass_change_at: Cell<Option<crate::time::Instant>>,
   /// Caret of the focused text input recorded by the last quad resolution,
   /// where an input method places its candidate window.
   ime_cursor_area: Cell<Option<crate::app::events::ImeCursorArea>>,
@@ -655,6 +662,10 @@ impl LayoutEngine {
       glass_scope: Cell::new(None),
       glass_tones: RefCell::new(std::collections::HashMap::new()),
       dark_appearance: Cell::new(false),
+      glass_presses: RefCell::new(std::collections::HashMap::new()),
+      glass_frame_at: Cell::new(None),
+      glass_pointer: Cell::new(None),
+      glass_change_at: Cell::new(None),
       ime_cursor_area: Cell::new(None),
       opacity_groups: RefCell::new(Vec::new()),
       #[cfg(feature = "screenshot")]
@@ -1678,6 +1689,11 @@ impl LayoutEngine {
     // into its only quad (see `close_opacity_group`).
     let opacity = DEFAULT_QUAD_OPACITY;
     let local_transform = node.effective_transform();
+    // A glass that is held down is a little larger, with all that is on it.
+    let local_transform = match self.glass_press_scale(node, result) {
+      Some(scale) => local_transform.then(&Transform2D::scale_uniform(scale)),
+      None => local_transform,
+    };
     let local_transform_origin_abs = [abs_x + result.size.width * 0.5, abs_y + result.size.height * 0.5];
     let local_affine = if local_transform.is_identity() {
       Transform2D::IDENTITY
