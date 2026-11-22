@@ -10,6 +10,7 @@
 
 mod auth;
 mod gestures;
+mod glass;
 mod home;
 mod inputs;
 mod lists;
@@ -145,6 +146,7 @@ fn routes() -> Routes {
         screen(ctx, "/scroll", |ctx| ctx.mount::<scroll::ScrollScreen>(()))
       })
       .route("/system", |ctx| screen(ctx, "/system", system::system))
+      .route("/glass", |ctx| screen(ctx, "/glass", glass::glass))
       .route("/sound", |ctx| {
         screen(ctx, "/sound", |ctx| ctx.mount::<sound::SoundScreen>(()))
       })
