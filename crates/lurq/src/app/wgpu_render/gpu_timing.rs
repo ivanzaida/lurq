@@ -2,9 +2,14 @@
 //! profiling session is active. The UI encoder writes a timestamp at the start
 //! of its first render pass and at the end of the window pass; each Canvas
 //! command buffer is bracketed by two empty compute passes that write one
-//! timestamp each. The frame's queries are resolved in the UI encoder and
-//! copied to a pooled readback buffer, mapped asynchronously; a later frame
-//! reads it and attaches the result to its pass by frame id.
+//! timestamp each. A frame's queries are resolved in the UI encoder of the
+//! next measured frame, which is submitted after every command of the frame
+//! ran: Metal has not written the end of a pass yet when the same command
+//! buffer resolves it, and gives the end of the frame before. Two query sets
+//! take turns, so the frame being recorded does not write over the one being
+//! resolved. The resolved queries are copied to a pooled readback buffer,
+//! mapped asynchronously; a later frame reads it and attaches the result to
+//! its pass by frame id.
 use std::{
   sync::{
     Arc,
@@ -40,6 +45,8 @@ pub(super) struct GpuTimer {
   resources: Option<Resources>,
   /// The frame being measured, from `begin_frame` to `submitted`.
   frame: Option<FrameQueries>,
+  /// The frame submitted last, whose queries the next frame resolves.
+  written: Option<FrameQueries>,
   in_flight: Vec<Readback>,
   spare: Vec<wgpu::Buffer>,
   /// The context the availability was last reported to.
@@ -47,13 +54,16 @@ pub(super) struct GpuTimer {
 }
 
 struct Resources {
-  query_set: wgpu::QuerySet,
+  /// One for the frame being recorded, the other for the frame before it.
+  query_sets: [wgpu::QuerySet; 2],
   resolve: wgpu::Buffer,
 }
 
 struct FrameQueries {
   frame_id: u64,
   readback: wgpu::Buffer,
+  /// Which of the two query sets the frame writes.
+  set: usize,
   /// The next free query: 2 until a Canvas command buffer was measured.
   next_query: u32,
   canvas_complete: bool,
@@ -85,6 +95,7 @@ impl GpuTimer {
       availability: GpuTimestampAvailability::default(),
       resources: None,
       frame: None,
+      written: None,
       in_flight: Vec::new(),
       spare: Vec::new(),
       reported: None,
@@ -120,6 +131,7 @@ impl GpuTimer {
     self.canvas_marks = false;
     self.resources = None;
     self.frame = None;
+    self.written = None;
     self.in_flight.clear();
     self.spare.clear();
     self.reported = None;
@@ -146,6 +158,9 @@ impl GpuTimer {
     }
     if !self.enabled || !context.capture_active() {
       self.in_flight.clear();
+      if let Some(written) = self.written.take() {
+        self.spare.push(written.readback);
+      }
       return;
     }
     self.collect(device, context);
@@ -154,19 +169,23 @@ impl GpuTimer {
     };
     let readback = match self.spare.pop() {
       Some(buffer) => buffer,
-      None if self.in_flight.len() < READBACK_SLOTS => device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("lurq_gpu_timing_readback"),
-        size: u64::from(QUERY_COUNT * wgpu::QUERY_SIZE),
-        usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
-        mapped_at_creation: false,
-      }),
+      None if self.in_flight.len() + usize::from(self.written.is_some()) < READBACK_SLOTS => {
+        device.create_buffer(&wgpu::BufferDescriptor {
+          label: Some("lurq_gpu_timing_readback"),
+          size: u64::from(QUERY_COUNT * wgpu::QUERY_SIZE),
+          usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+          mapped_at_creation: false,
+        })
+      }
       None => return,
     };
     self.resources.get_or_insert_with(|| Resources {
-      query_set: device.create_query_set(&wgpu::QuerySetDescriptor {
-        label: Some("lurq_gpu_timing"),
-        ty: wgpu::QueryType::Timestamp,
-        count: QUERY_COUNT,
+      query_sets: std::array::from_fn(|_| {
+        device.create_query_set(&wgpu::QuerySetDescriptor {
+          label: Some("lurq_gpu_timing"),
+          ty: wgpu::QueryType::Timestamp,
+          count: QUERY_COUNT,
+        })
       }),
       resolve: device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("lurq_gpu_timing_resolve"),
@@ -178,6 +197,7 @@ impl GpuTimer {
     self.frame = Some(FrameQueries {
       frame_id,
       readback,
+      set: self.written.as_ref().map_or(0, |written| 1 - written.set),
       next_query: 2,
       canvas_complete: true,
     });
@@ -188,7 +208,7 @@ impl GpuTimer {
   pub(super) fn canvas_marks(&self) -> Option<CanvasMarks> {
     let frame = self.frame.as_ref().filter(|_| self.canvas_marks)?;
     Some(CanvasMarks {
-      query_set: self.resources.as_ref()?.query_set.clone(),
+      query_set: self.resources.as_ref()?.query_sets[frame.set].clone(),
       next_query: frame.next_query,
       open: false,
       overflow: false,
@@ -206,20 +226,25 @@ impl GpuTimer {
   /// Timestamp writes for a UI render pass: the start of the first and the end
   /// of the last (the window pass). None when this frame is not measured.
   pub(super) fn ui_pass_writes(&self, first: bool, last: bool) -> Option<wgpu::RenderPassTimestampWrites<'_>> {
-    self.frame.as_ref()?;
+    let frame = self.frame.as_ref()?;
     (first || last).then(|| wgpu::RenderPassTimestampWrites {
-      query_set: &self.resources.as_ref().unwrap().query_set,
+      query_set: &self.resources.as_ref().unwrap().query_sets[frame.set],
       beginning_of_pass_write_index: first.then_some(0),
       end_of_pass_write_index: last.then_some(1),
     })
   }
 
-  /// Resolves this frame's queries into its readback buffer, after its passes.
+  /// Resolves the queries of the frame submitted last into its readback buffer.
   pub(super) fn resolve(&self, encoder: &mut wgpu::CommandEncoder) {
-    let (Some(frame), Some(resources)) = (&self.frame, &self.resources) else {
+    let (Some(frame), Some(resources)) = (&self.written, &self.resources) else {
       return;
     };
-    encoder.resolve_query_set(&resources.query_set, 0..frame.next_query, &resources.resolve, 0);
+    encoder.resolve_query_set(
+      &resources.query_sets[frame.set],
+      0..frame.next_query,
+      &resources.resolve,
+      0,
+    );
     encoder.copy_buffer_to_buffer(
       &resources.resolve,
       0,
@@ -229,9 +254,10 @@ impl GpuTimer {
     );
   }
 
-  /// Maps this frame's results once the encoder that resolved them was submitted.
+  /// Maps the results the submitted encoder resolved, which are the last frame's, and keeps this frame's
+  /// queries for the next encoder to resolve.
   pub(super) fn submitted(&mut self) {
-    let Some(frame) = self.frame.take() else {
+    let Some(frame) = std::mem::replace(&mut self.written, self.frame.take()) else {
       return;
     };
     let state = Arc::new(AtomicU8::new(PENDING));

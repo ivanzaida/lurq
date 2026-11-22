@@ -216,6 +216,8 @@ fn recorded_frames_get_their_gpu_time_by_frame_id() {
   presented(&mut producer, 1, &mut timer);
   presented(&mut producer, 2, &mut timer);
   presented(&mut producer, 3, &mut timer);
+  // A frame's queries are resolved by the frame after it: the fourth resolves the third's.
+  presented(&mut producer, 4, &mut timer);
   // Results are read by a later frame once the GPU is done; outside a pass
   // that frame measures nothing itself.
   let deadline = Instant::now() + Duration::from_secs(10);
@@ -223,8 +225,8 @@ fn recorded_frames_get_their_gpu_time_by_frame_id() {
     let _ = device.poll(wgpu::PollType::wait_indefinitely());
     timer.begin_frame(device, Some(&producer.context.clone()));
   }
-  // Frame 4's result is still awaited when the session ends.
-  presented(&mut producer, 4, &mut timer);
+  // Frame 4's result is still awaited when the session ends, and frame 5's queries are not resolved.
+  presented(&mut producer, 5, &mut timer);
   let report = handle.end(id).unwrap();
   let gpu_of = |frame_id: u64| {
     report
@@ -240,13 +242,14 @@ fn recorded_frames_get_their_gpu_time_by_frame_id() {
     assert!(gpu.canvas.is_some() || !timer.canvas_marks, "frame {frame_id}: {gpu:?}");
   }
   assert_eq!(gpu_of(4), None, "a result that never arrived stays null");
+  assert_eq!(gpu_of(5), None, "queries no later frame resolved stay null");
   assert!(report.build.gpu_timestamps.available);
 
-  // With the session ended, nothing is queried and frame 4's result is dropped.
-  let (_, guard) = producer.begin_pass(5);
+  // With the session ended, nothing is queried and the results of frames 4 and 5 are dropped.
+  let (_, guard) = producer.begin_pass(6);
   timer.begin_frame(device, Some(&producer.context.clone()));
   drop(guard);
-  assert!(timer.frame.is_none());
+  assert!(timer.frame.is_none() && timer.written.is_none());
   assert!(timer.in_flight.is_empty());
 }
 
