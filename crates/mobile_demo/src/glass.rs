@@ -14,7 +14,7 @@ use crate::ui::{FILL, text};
 /// The colours of the page's bands and tiles.
 const COLORS: [&str; 6] = ["#ef4444", "#f59e0b", "#22c55e", "#06b6d4", "#3b82f6", "#a855f7"];
 
-fn band(index: usize, words: &str) -> Column {
+pub(crate) fn band(index: usize, words: &str) -> Column {
   let light = index % 3 == 2;
   Column::new()
     .width(FILL)
@@ -31,7 +31,7 @@ fn band(index: usize, words: &str) -> Column {
 }
 
 /// A board of small tiles: where a lens is seen best.
-fn board() -> Column {
+pub(crate) fn board() -> Column {
   let mut board = Column::new().width(FILL);
   for row in 0..9 {
     board = board.child(Row::new().with_children((0..22).map(|column| {

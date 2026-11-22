@@ -11,6 +11,8 @@
 mod auth;
 mod gestures;
 mod glass;
+#[cfg(feature = "probe")]
+mod glass_probe;
 mod home;
 mod inputs;
 mod lists;
@@ -271,6 +273,10 @@ fn main() {
     dark.set(role, Color::from_hex(color));
   }
   app.theme().set_palettes(ThemePalette::default(), dark);
+  #[cfg(feature = "probe")]
+  if glass_probe::wanted() {
+    return glass_probe::run(app, tree);
+  }
   tree.mount_root::<MobileDemo>(&mut app, ());
   let window = WinitWindow::new(app, tree)
     .with_title("lurq mobile demo")
