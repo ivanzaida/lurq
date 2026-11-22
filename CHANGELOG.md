@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.66.1 — 2026-11-22
+
+Fixes:
+
+- **A video iOS plays on by itself shows its picture.** iOS pauses a video as the app goes to the background and plays it on as the app comes back. lurq counted it paused for good: it took no more frames and looked no more at the player, so the sound went on under a picture that stood still until a tap, and a swipe to another page left the sound playing. It watches a player the system paused now, and when it plays again the media plays too, with its frames.
+
 ## 0.66.0 — 2026-11-21
 
 Breaking:

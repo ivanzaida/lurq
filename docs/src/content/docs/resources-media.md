@@ -291,7 +291,13 @@ What a video or a sound reads as it plays:
   past where it stands, so a video opened ahead and left paused takes its start and no more; once it plays, ten
   seconds. Left to itself the system's player reads on while it stands, and reads a playing video to its end as fast
   as the host gives it, which costs the radio, the battery and the person's data, and takes a slow host's bytes
-  from the video that is to open next.
+  from the video that is to open next. A player the system pauses (iOS does as the app goes to the background, and
+  for a call) is paused for the app too, and one it plays on by itself (iOS does as the app comes back) plays for the
+  app again, its frames with it. lurq pauses nothing by itself in the background, and an app chooses: one whose
+  videos are to be heard there (a player of music, of talks) sets `AudioCategory::Playback`
+  (`app.set_audio_category(..)`) and has `audio` in its `Info.plist`'s `UIBackgroundModes`, and iOS plays them on,
+  heard, with their picture where their sound is when the app comes back; one whose videos are not pauses them at
+  `AppEvent::Background` (`ctx.window().on_app_event(..)`) and plays them at `AppEvent::Foreground`.
 - **Browser**: a page's `<audio>` sends the browser's own headers and cannot be given others, and some (`Referer`) no
   page may set at all. The address is played without them, with one warning in the log.
 

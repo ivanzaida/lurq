@@ -583,18 +583,22 @@ fn play(shared: &Arc<Shared>, place: Place, picture: bool) {
   let mut expected: Option<Instant> = None;
   let mut nudged = false;
   let mut looked: Option<Instant> = None;
+  // Paused by the system, not by the app: the player is watched for it to play again by itself.
+  let mut held_by_system = false;
   loop {
     let playing = shared.inner().playing;
     let wait = match (opened, playing, expected) {
       (false, ..) => OPENING,
       (true, true, _) => STEP,
       (true, false, Some(_)) => STILL,
+      (true, false, None) if held_by_system => LOOKS,
       (true, false, None) => Duration::from_secs(3600),
     };
     for command in shared.take(Some(wait)) {
       match command {
         Command::Close => return,
         Command::Play => {
+          held_by_system = false;
           let (again, rate) = {
             let mut inner = shared.inner();
             let again = inner.ended;
@@ -645,6 +649,7 @@ fn play(shared: &Arc<Shared>, place: Place, picture: bool) {
           shared.wake();
         }
         Command::Pause => {
+          held_by_system = false;
           let mut inner = shared.inner();
           inner.since = Instant::now();
           inner.playing = false;
@@ -700,7 +705,7 @@ fn play(shared: &Arc<Shared>, place: Place, picture: bool) {
     let playing = shared.inner().playing;
     // What the player is changes by itself while it opens and while it plays: the main thread is asked then.
     let every = if opened { LOOKS } else { OPENING };
-    if (!opened || playing) && looked.is_none_or(|looked| looked.elapsed() >= every) {
+    if (!opened || playing || held_by_system) && looked.is_none_or(|looked| looked.elapsed() >= every) {
       looked = Some(Instant::now());
       link.look();
     }
@@ -776,6 +781,17 @@ fn play(shared: &Arc<Shared>, place: Place, picture: bool) {
       }
     }
     let mut inner = shared.inner();
+    if held_by_system && seen.done == told && seen.control != Control::Paused {
+      // The system plays it again by itself: iOS pauses a video as the app goes to the background and plays it
+      // on as the app comes back. It plays here too, or its sound would go on under a picture that stands still.
+      held_by_system = false;
+      inner.playing = true;
+      inner.at = seen.at;
+      inner.since = Instant::now();
+      drop(inner);
+      shared.wake();
+      continue;
+    }
     if !inner.playing {
       continue;
     }
@@ -811,6 +827,7 @@ fn play(shared: &Arc<Shared>, place: Place, picture: bool) {
       inner.since = Instant::now();
       inner.ended = over;
       inner.playing = false;
+      held_by_system = !over;
       changed = true;
     } else if !waits && inner.sent == heard && link.arrived.load(Ordering::Acquire) == sent {
       // The media's clock is the player's: what is seen and heard is where it is. A media that is only heard has
