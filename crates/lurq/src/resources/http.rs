@@ -474,6 +474,8 @@ struct Ranges {
   /// read last.
   eager: AtomicBool,
   last: AtomicU64,
+  /// How far it fetches before it is asked for, whether or not it reads ahead ([`Reader::read_ahead_to`]).
+  ahead_to: AtomicU64,
   /// Where its start is kept once it is dropped, under what, and when that start was read.
   starts: Arc<Starts>,
   key: u64,
@@ -667,6 +669,7 @@ impl HttpReader {
       came: Condvar::new(),
       eager: AtomicBool::new(read_ahead != Some(false)),
       last: AtomicU64::new(0),
+      ahead_to: AtomicU64::new(0),
       starts,
       key,
       since,
@@ -869,6 +872,14 @@ impl Reader for HttpReader {
     let mut blocks = self.0.blocks.lock();
     self.0.rouse(&mut blocks);
   }
+
+  fn read_ahead_to(&self, end: u64) {
+    if self.0.ahead_to.swap(end, Ordering::Relaxed) >= end {
+      return;
+    }
+    let mut blocks = self.0.blocks.lock();
+    self.0.rouse(&mut blocks);
+  }
 }
 
 impl Ranges {
@@ -890,6 +901,11 @@ impl Ranges {
     }
     let eager = self.eager.load(Ordering::Relaxed);
     let last = self.last.load(Ordering::Relaxed);
+    // The block that holds the last byte it is told to fetch ahead.
+    let until = match self.ahead_to.load(Ordering::Relaxed) {
+      0 => None,
+      end => Some(self.cut.index_of(end - 1)),
+    };
     // A block whose request failed is asked for again by the next read of it, and not before.
     let fresh = |index: &u64| self.missing(blocks, *index) && blocks.failed_of(*index).is_none();
     let waited = blocks.waited.iter().copied().find(fresh);
@@ -899,10 +915,14 @@ impl Ranges {
       None if !blocks.ahead && blocks.waited.iter().all(|index| blocks.whole(*index)) => {
         let wanted = blocks.wanted.iter().copied().find(fresh);
         let next = || (1..=READ_AHEAD).map(|ahead| last + ahead).find(fresh);
-        (
-          wanted.or_else(|| (in_turn && eager && blocks.began).then(next).flatten())?,
-          true,
-        )
+        // As far as it is told to fetch ahead, past what reading ahead brings.
+        let further = || until.and_then(|until| (last + 1..=until).find(fresh));
+        let in_order = || {
+          (in_turn && blocks.began)
+            .then(|| eager.then(next).flatten().or_else(further))
+            .flatten()
+        };
+        (wanted.or_else(in_order)?, true)
       }
       None => return None,
     };
@@ -926,7 +946,9 @@ impl Ranges {
     loop {
       let next = run.last + 1;
       let size = self.cut.block(next).1;
-      let asked_for = (eager && blocks.began && next <= reach) || blocks.wanted.contains(&next);
+      let asked_for = (eager && blocks.began && next <= reach)
+        || blocks.wanted.contains(&next)
+        || (blocks.began && until.is_some_and(|until| next <= until));
       if !asked_for
         || bytes + size > most
         || !self.missing(blocks, next)
@@ -1901,6 +1923,43 @@ mod tests {
       thread::sleep(Duration::from_millis(5));
     }
     assert_eq!(host.asked.lock()[2], "65536-262143");
+  }
+
+  #[test]
+  fn opened_to_be_played_later_it_fetches_as_far_as_it_is_told_and_no_further() {
+    let body = numbered(1 << 20);
+    let host = serve_capped(body.clone(), 8 << 20, Duration::ZERO);
+    let cut = Cut::even(64 << 10);
+    let reader = HttpReader::open(
+      &Agents::new(4),
+      Starts::new(0),
+      Asked {
+        read_ahead: Some(false),
+        ..asked(&host.address, Vec::new(), cut)
+      },
+    )
+    .unwrap();
+    assert_eq!(read(&reader, 100, 8).unwrap(), &body[100..108]);
+    // Told to have its first 200 KB: the blocks up to the one that holds it, and no more.
+    reader.read_ahead_to(200 << 10);
+    let until = Instant::now() + SECOND;
+    while !reader.buffered().iter().any(|range| range.end >= 200 << 10) {
+      assert!(
+        Instant::now() < until,
+        "nothing was fetched ahead: {:?}",
+        host.asked.lock()
+      );
+      thread::sleep(Duration::from_millis(5));
+    }
+    thread::sleep(Duration::from_millis(150));
+    assert_eq!(
+      *host.asked.lock(),
+      ["0-65535", "65536-131071", "131072-196607", "196608-262143"]
+    );
+    // Told less, it fetches nothing more.
+    reader.read_ahead_to(100 << 10);
+    thread::sleep(Duration::from_millis(150));
+    assert_eq!(host.asked.lock().len(), 4);
   }
 
   #[test]

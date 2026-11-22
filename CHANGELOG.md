@@ -4,6 +4,7 @@
 
 Added:
 
+- **`Media::set_ahead` and `VideoPlayer::ahead` say how far a media reads before it is first told to play.** It was a second, for every media: a video opened ahead (the next of a feed) can now read more where it is on another host than the one that plays, which gives one client only so much a second and gives it to each of its hosts. Once it plays it reads ten seconds at least, as before. The reader of an address fetches that far whether or not its decoder asks (`Reader::read_ahead_to`). See [Loading](docs/src/content/docs/resources-media.md#loading).
 - **`Media::seek_near` and `VideoPlayback::seek_near` go to the frame near a time that shows quickest.** On macOS and iOS that is the key frame nearest it, where `seek` has the system's player read and decode everything from the key frame before the time to the time itself. A finger that lets go of a video's line of time wants it about there, not to the frame: measured on a Mac over an hour-long video of a slow host, a seek showed its frame 1 to 3.9 s after it was asked for, a seek near it 0.77 s, which is the host's own answer to a request for a new place. Elsewhere it is `seek`. See [your own controls](docs/src/content/docs/design-system.md#your-own-controls-over-a-video).
 
 Changed:

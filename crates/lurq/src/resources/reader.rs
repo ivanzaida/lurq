@@ -44,6 +44,11 @@ pub trait Reader: Send + Sync {
   /// no more, which is what a video opened ahead and left paused wants of a slow host. Told to again, it
   /// fetches what follows its last read at once. Nothing to a reader that has everything.
   fn read_ahead(&self, _ahead: bool) {}
+
+  /// Fetches up to `end` before it is asked for, whether or not it reads ahead otherwise: what a media opened
+  /// ahead is to have of what follows where it stands ([`Media::set_ahead`](crate::media::Media::set_ahead)).
+  /// Told less, it fetches no more past what it has; nothing to a reader that has everything.
+  fn read_ahead_to(&self, _end: u64) {}
 }
 
 /// A reader of bytes in memory.
