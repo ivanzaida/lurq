@@ -198,7 +198,7 @@ fn answer_one(shared: &Shared) {
           inner.hold();
           inner.playing = false;
         }
-        Command::Seek(to) => {
+        Command::Seek(to) | Command::SeekNear(to) => {
           inner.at = to;
           inner.ended = false;
         }

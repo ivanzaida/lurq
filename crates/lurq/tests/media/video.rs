@@ -108,6 +108,26 @@ pub fn it_plays_by_its_clock_shows_frames_and_stops_where_it_is_paused() {
   assert!((0.8..1.3).contains(&gone), "about a second in half of one: {gone}");
 }
 
+pub fn it_goes_near_where_it_is_sent_and_plays_on_from_the_frame_it_shows() {
+  let media = quiet(&Source::file(clip()));
+  until(&media, "opened", |state| !state.waiting);
+  let image = media.frame().expect("its picture");
+  let before = image.version();
+  media.seek_near(10.0);
+  assert_eq!(media.state().position, 10.0, "at once where it was sent");
+  let started = Instant::now();
+  while image.version() == before {
+    assert!(started.elapsed() < Duration::from_secs(10), "no frame near 10");
+    std::thread::sleep(Duration::from_millis(10));
+  }
+  assert!(!media.state().playing, "sent somewhere while paused, it stays paused");
+  media.play();
+  until(&media, "playing", |state| state.playing);
+  std::thread::sleep(Duration::from_millis(300));
+  let position = media.state().position;
+  assert!((6.0..13.0).contains(&position), "on from a frame near 10: {position}");
+}
+
 pub fn it_goes_where_it_is_sent_and_ends_at_its_end() {
   let media = quiet(&Source::file(clip()));
   until(&media, "opened", |state| !state.waiting);

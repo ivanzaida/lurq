@@ -7625,7 +7625,7 @@ VideoPlayer::new().media(frame).controls(false).child(my_controls).mount(ctx);
 | `poster(element)` | Drawn over the picture before the first play (not playing, at the start, not waiting, ended or failed), with the length in a chip at its bottom end and no bar. With a [source](#playing-a-video) it also stays until the video's first frame is there, whether or not it was told to play already. Nothing of the picture is drawn under it: a poster that does not cover the box shows the box beside it |
 | `poster_until_frame(bool)` | Whether the poster stands only until the [source](#playing-a-video) has a frame of its own to show, also where it has not played yet; `false` unless told. A video [opened ahead](#a-video-opened-ahead) and left paused then shows its first frame, the picture it plays on from, and its poster only while that frame is still to come. The poster stays over a source with no picture (a sound). A player without a source is as without it |
 | `child(element)`, `children(..)` | The app's own layer over the whole picture, under the middle and the bar, with the controls and without them |
-| `child_with(Fn(&VideoPlayback) -> element)` | A layer of the app's built from what the player is doing each time it is rendered: `position`, `duration`, `buffered`, `playing`, `waiting`, `ended`, `failed`, `opening`, `poster_shown`, `volume`, `muted`, `rate`, `progress()`, and `seek(seconds)`, `set_playing(bool)`, `set_muted(bool)` to move it. How an app's own controls show and set the time of a player with a source: see [your own controls](#your-own-controls-over-a-video) |
+| `child_with(Fn(&VideoPlayback) -> element)` | A layer of the app's built from what the player is doing each time it is rendered: `position`, `duration`, `buffered`, `playing`, `waiting`, `ended`, `failed`, `opening`, `poster_shown`, `volume`, `muted`, `rate`, `progress()`, and `seek(seconds)`, `seek_near(seconds)`, `set_playing(bool)`, `set_muted(bool)` to move it. How an app's own controls show and set the time of a player with a source: see [your own controls](#your-own-controls-over-a-video) |
 | `background(color)` | What is behind the picture, where the picture does not cover the box: beside a video of another shape, and before its first frame. Black unless told; a clear color shows what the app has under the player. The same as `style(VideoPlayerPart::Root, |s| s.background(..))` |
 | `controls(bool)` | The bar and the middle of the picture; on by default. Without them the player is its picture and the app's layer |
 | `playing(Signal<bool>)`, `playing_controlled(bool, handler)`, `on_playing_change(handler)` | Whether it plays. Play, the disc in the middle, a press of the picture, Space and K tell what it is to be |
@@ -8122,6 +8122,7 @@ VideoPlayer::new()
 - The layer is built in the player's own render: it reads no signal for the time, and nothing but the player is rendered again as the video plays. What it captures is moved into it (elements built once outside are cloned in it).
 - `playback.opening` is true until the video's first frame is there, and `playback.waiting` while it reads what is not there yet: a spinner of the app's own shows on either.
 - A poster stays over the box until the first frame is there, also where the player plays at once, so a feed shows the still of its next video and not a black box. Without a poster the box shows its `background`, black unless told.
+- `playback.seek_near(seconds)` is for a line a finger lets go of: it goes to the frame near the time that shows quickest, on macOS and iOS the key frame nearest it (`Media::seek_near`), where `seek` goes to the frame itself. From an address an exact seek reads and decodes all from the key frame before the time: measured on a Mac over an hour-long video of a slow host, `seek` showed its frame 1 to 3.9 s after a finger let go, `seek_near` 0.77 s. Elsewhere the two are the same.
 
 ### A video opened ahead
 
@@ -8140,7 +8141,8 @@ let media = Media::open(app.loader(), &Source::file("clips/lake.mp4"));
 media.play();
 let picture = media.frame().map(Video::new); // drawn again by itself as frames come
 let state = media.state(); // duration, position, buffered, size, playing, waiting, ended, error, rate
-media.seek(42.0);
+media.seek(42.0); // to the frame at 42 s
+media.seek_near(42.0); // to the frame near it that shows quickest: the key frame nearest, on macOS and iOS
 media.set_rate(1.5);
 media.on_change(|| { /* it changed: called on the media's own thread, with nothing said */ });
 // Its events, on the UI thread, once each time: as a player's.

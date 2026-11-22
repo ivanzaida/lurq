@@ -132,6 +132,8 @@ pub(crate) enum Command {
   Play,
   Pause,
   Seek(f64),
+  /// A seek to the frame nearest a time that the media shows quickest: see [`Media::seek_near`].
+  SeekNear(f64),
   Rate(f64),
   Volume(f32),
   Muted(bool),
@@ -947,6 +949,23 @@ impl Media {
   /// Goes to `seconds` and shows the frame there, playing or not. Its state is at that time at once, so what
   /// draws where it is (a seek bar being dragged) does not see it go back: the frame comes when it is decoded.
   pub fn seek(&self, seconds: f64) {
+    self.seek_to(seconds, false);
+  }
+
+  /// Goes near `seconds`, to the frame there that shows quickest, and plays on from there: on macOS and iOS the
+  /// key frame nearest it, a few seconds either side, which needs no frame before it. Its state is at `seconds`
+  /// until that frame shows, and at the frame's time from then on.
+  ///
+  /// What a finger lets go of on a video's line of time is where it is to be about, not to the frame, and an exact
+  /// seek is slow where the video is read from an address: the system's player reads and decodes from the key frame
+  /// before the time to the time itself. Measured on a Mac over an hour-long video of a slow host: an exact seek
+  /// showed its frame 1 to 3.9 s after it was asked for, this one 0.77 s, which is the host's own answer to a request
+  /// for a new place. Elsewhere it is [`Media::seek`].
+  pub fn seek_near(&self, seconds: f64) {
+    self.seek_to(seconds, true);
+  }
+
+  fn seek_to(&self, seconds: f64, near: bool) {
     if !seconds.is_finite() {
       return;
     }
@@ -963,7 +982,9 @@ impl Media {
       to
     };
     self.shared().noted();
-    self.shared().tell(Command::Seek(to));
+    self
+      .shared()
+      .tell(if near { Command::SeekNear(to) } else { Command::Seek(to) });
   }
 
   /// How fast it goes: 1 is as it was made. Nothing that is not a speed is taken.

@@ -358,6 +358,7 @@ pub struct VideoPlayback {
   /// How fast it goes: 1 is as it was made.
   pub rate: f64,
   seek: Handler<f64>,
+  seek_near: Handler<f64>,
   play: Handler<bool>,
   mute: Handler<bool>,
 }
@@ -367,6 +368,14 @@ impl VideoPlayback {
   /// app's handlers of its position are told.
   pub fn seek(&self, seconds: f64) {
     (self.seek)(seconds);
+  }
+
+  /// Sends it near `seconds`, to the frame there its source shows quickest, as [`Media::seek_near`] does: where a
+  /// finger lets go of a line of time. The app's handlers of its position are told `seconds`.
+  ///
+  /// [`Media::seek_near`]: crate::media::Media::seek_near
+  pub fn seek_near(&self, seconds: f64) {
+    (self.seek_near)(seconds);
   }
 
   /// Plays or pauses it, as its own button does: one that ended starts over.
@@ -1481,6 +1490,8 @@ struct Played {
   said: Arc<Mutex<(Option<bool>, Option<f64>, Option<f64>, Option<bool>)>>,
   /// What tells the app the media's events.
   listener: super::media_events::Listener,
+  /// Whether the next seek goes near its time, not to it ([`VideoPlayback::seek_near`]).
+  near: Arc<AtomicBool>,
   _clock: crate::app::ctx::Interval,
 }
 
@@ -1656,6 +1667,7 @@ impl Component for VideoPlayerHost {
         plays,
         said: Arc::default(),
         listener: super::media_events::Listener::default(),
+        near: Arc::default(),
         _clock: clock,
       }
     };
@@ -1992,9 +2004,13 @@ fn playing(mut player: VideoPlayer, live: &Live, ctx: &mut Ctx) -> VideoPlayer {
     }
   });
   player.position.add({
-    let (media, again) = (media.clone(), again.clone());
+    let (media, again, near) = (media.clone(), again.clone(), played.near.clone());
     move |to| {
-      media.seek(to);
+      if near.swap(false, Ordering::Relaxed) {
+        media.seek_near(to);
+      } else {
+        media.seek(to);
+      }
       again();
     }
   });
@@ -2350,6 +2366,7 @@ fn view(mut player: VideoPlayer, theme: &Theme, live: &Live, ctx: Option<&mut Ct
       muted: player.muted.value,
       rate: player.rate.value,
       seek: Arc::new(make.seeker()),
+      seek_near: Arc::new(make.near_seeker()),
       play: Arc::new(player.playing.teller()),
       mute: Arc::new(player.muted.teller()),
     };
@@ -2589,6 +2606,24 @@ impl Make<'_, '_> {
       tell(to);
       for handler in &ends {
         handler(to);
+      }
+    }
+  }
+
+  /// A seeker whose seek goes near its time, where the player has a source; elsewhere it is [`Self::seeker`].
+  fn near_seeker(&self) -> impl Fn(f64) + Send + Sync + Clone + 'static {
+    let seek = self.seeker();
+    #[cfg(feature = "media")]
+    let near = self.live.played.as_ref().map(|played| played.near.clone());
+    move |to: f64| {
+      #[cfg(feature = "media")]
+      if let Some(near) = &near {
+        near.store(true, Ordering::Relaxed);
+      }
+      seek(to);
+      #[cfg(feature = "media")]
+      if let Some(near) = &near {
+        near.store(false, Ordering::Relaxed);
       }
     }
   }

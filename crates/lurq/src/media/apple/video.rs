@@ -36,7 +36,7 @@ use objc2_av_foundation::{
   AVPlayerTimeControlStatus, AVURLAsset,
 };
 use objc2_core_foundation::CFString;
-use objc2_core_media::{CMTime, CMTimeFlags, kCMTimeZero};
+use objc2_core_media::{CMTime, CMTimeFlags, kCMTimePositiveInfinity, kCMTimeZero};
 use objc2_core_video::{
   CVGetCurrentHostTime, CVGetHostClockFrequency, CVPixelBuffer, CVPixelBufferGetBaseAddressOfPlane,
   CVPixelBufferGetBytesPerRowOfPlane, CVPixelBufferGetHeight, CVPixelBufferGetPlaneCount, CVPixelBufferGetWidth,
@@ -491,8 +491,9 @@ fn show(image: &mut Option<ImageData>, frames: &mut Option<CvPixelBufferFrames>,
 /// What is done once the player arrived where it was sent.
 type Then = Box<dyn Fn() + Send + Sync>;
 
-/// Sends the player to `to`, and counts it arrived when the player says so: there, or sent on before it was.
-fn go(link: &Arc<Link>, player: &Player, to: f64, then: Option<Then>) {
+/// Sends the player to `to`, or `near` it to the key frame nearest, and counts it arrived when the player says so:
+/// there, or sent on before it was.
+fn go(link: &Arc<Link>, player: &Player, to: f64, near: bool, then: Option<Then>) {
   let link = link.clone();
   let arrived = RcBlock::new(move |_: Bool| {
     link.arrived.fetch_add(1, Ordering::Release);
@@ -501,14 +502,15 @@ fn go(link: &Arc<Link>, player: &Player, to: f64, then: Option<Then>) {
     }
   });
   // SAFETY: on the main thread; the block is called once, from where the player chooses, and holds what any
-  // thread may.
+  // thread may. The constants are the framework's.
   unsafe {
+    let tolerance = if near { kCMTimePositiveInfinity } else { kCMTimeZero };
     player
       .player
       .seekToTime_toleranceBefore_toleranceAfter_completionHandler(
         CMTime::with_seconds(to, SCALE),
-        kCMTimeZero,
-        kCMTimeZero,
+        tolerance,
+        tolerance,
         &arrived,
       );
   }
@@ -635,7 +637,7 @@ fn play(shared: &Arc<Shared>, place: Place, picture: bool) {
                 }
               });
               match link.player.get(main).borrow().as_ref() {
-                Some(player) => go(&link, player, 0.0, Some(then)),
+                Some(player) => go(&link, player, 0.0, false, Some(then)),
                 None => then(),
               }
             });
@@ -658,7 +660,8 @@ fn play(shared: &Arc<Shared>, place: Place, picture: bool) {
           // SAFETY: on the main thread, as every call of the player.
           link.tell(|player| unsafe { player.player.pause() });
         }
-        Command::Seek(to) => {
+        Command::Seek(to) | Command::SeekNear(to) => {
+          let near = matches!(command, Command::SeekNear(_));
           heard += 1;
           sent += 1;
           told += 1;
@@ -671,7 +674,7 @@ fn play(shared: &Arc<Shared>, place: Place, picture: bool) {
           }
           link.tell({
             let link = link.clone();
-            move |player| go(&link, player, to, None)
+            move |player| go(&link, player, to, near, None)
           });
           expected = Some(Instant::now());
           nudged = true;
@@ -774,7 +777,7 @@ fn play(shared: &Arc<Shared>, place: Place, picture: bool) {
         sent += 1;
         told += 1;
         let (to, at) = (link.clone(), shared.inner().position());
-        link.tell(move |player| go(&to, player, at, None));
+        link.tell(move |player| go(&to, player, at, false, None));
       }
       if since.elapsed() >= EXPECTED {
         expected = None;
