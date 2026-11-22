@@ -71,6 +71,7 @@ fn scene(gradient: &Gradient) -> RenderList {
     images: Vec::new(),
     layers: Vec::new(),
     backdrops: Vec::new(),
+    glasses: Vec::new(),
     atlas: GlyphAtlas {
       data: Arc::from([0_u8; 4 * 4 * 4].as_slice()),
       width: 4,

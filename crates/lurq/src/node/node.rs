@@ -818,6 +818,8 @@ pub(crate) trait NodeUpdate {
   fn opacity(&mut self, value: f32);
   fn blur(&mut self, radius: f32);
   fn backdrop_blur(&mut self, radius: f32);
+  fn glass(&mut self, glass: crate::layout::glass::Glass);
+  fn glass_container(&mut self, merge: f32);
   fn transform(&mut self, t: Transform2D);
   fn transition(&mut self, spec: Transition);
   fn animation(&mut self, spec: Animation);
@@ -1113,6 +1115,11 @@ pub(crate) struct RareStyle {
   /// The text color the node gives itself and its subtree; see [`Node::foreground`].
   pub(crate) foreground: Option<TextColor>,
   pub(crate) outline: Option<crate::node::outline::Outline>,
+  /// The node is a piece of glass over what is painted behind it; see [`Node::glass`].
+  pub(crate) glass: Option<crate::layout::glass::Glass>,
+  /// The node's glass children are one glass, flowing together within this distance; see
+  /// [`Node::glass_container`].
+  pub(crate) glass_merge: Option<f32>,
   /// The node and its subtree take no input; see [`Node::disabled`].
   pub(crate) disabled: bool,
   /// The node and its subtree are out of the focus and the pointer; see `NodeUpdate::inert`.
@@ -2534,6 +2541,18 @@ impl NodeUpdate for Node {
 
   fn backdrop_blur(&mut self, radius: f32) {
     self.backdrop_blur = radius;
+  }
+
+  fn glass(&mut self, glass: crate::layout::glass::Glass) {
+    if self.rare_style.glass != Some(glass) {
+      self.rare_style.glass = Some(glass);
+    }
+  }
+
+  fn glass_container(&mut self, merge: f32) {
+    if self.rare_style.glass_merge != Some(merge) {
+      self.rare_style.glass_merge = Some(merge);
+    }
   }
 
   fn transform(&mut self, t: Transform2D) {
@@ -4576,6 +4595,44 @@ impl Node {
     self
   }
 
+  /// Makes the node a piece of glass: what is painted behind its box is
+  /// bent along the node's edge as through a lens, blurred, saturated and
+  /// tinted, with a light on the rim and a shadow under it. See
+  /// [`Glass`](crate::layout::glass::Glass) for the material;
+  /// [`Glass::regular`](crate::layout::glass::Glass::regular) and
+  /// [`Glass::clear`](crate::layout::glass::Glass::clear) are the system's
+  /// two.
+  ///
+  /// The glass has the node's box and corner radii, inside the clips the
+  /// node is under, and "behind" is what it is for [`Self::backdrop_blur`].
+  /// The node paints itself over the glass, so it wants no background of its
+  /// own, or a translucent one. The node's opacity fades the glass; to have
+  /// it come and go as a material, animate it
+  /// ([`AnimatableProperty::Glass`](crate::animation::AnimatableProperty::Glass)):
+  /// from and to no glass its [`amount`](crate::layout::glass::Glass::amount)
+  /// goes from and to nothing.
+  ///
+  /// A glass does not bend another glass under it as glass: it bends its
+  /// picture. Glasses that should be one surface are the children of a
+  /// [`Self::glass_container`].
+  pub fn glass(mut self, glass: crate::layout::glass::Glass) -> Self {
+    self.rare_style.glass = Some(glass);
+    self
+  }
+
+  /// Makes the glass nodes under this one a single glass: they are drawn
+  /// together, where the first of them is, and two of them that come within
+  /// `merge` logical pixels of each other flow into one shape, as two drops
+  /// do. The material is the first one's. The container draws nothing of
+  /// its own and may be any node that holds them; everything else in it is
+  /// painted over the glass. At most
+  /// [`MAX_GLASS_SHAPES`](crate::layout::glass::MAX_GLASS_SHAPES) shapes are
+  /// one glass; the ones after are glasses of their own.
+  pub fn glass_container(mut self, merge: f32) -> Self {
+    self.rare_style.glass_merge = Some(merge);
+    self
+  }
+
   pub fn transform(mut self, t: Transform2D) -> Self {
     self.transform = t;
     self
@@ -5884,6 +5941,22 @@ impl Node {
     }
   }
 
+  /// The node's glass as drawn this frame: a running transition's or animation's, or its own. `None` for no
+  /// glass, and for one that is not there at all.
+  pub(crate) fn effective_glass(&self) -> Option<crate::layout::glass::Glass> {
+    let glass = match self.animation_override(crate::animation::AnimatableProperty::Glass) {
+      Some(crate::animation::AnimatableValue::Glass(animated)) => animated,
+      _ => self.rare_style.glass,
+    };
+    glass.filter(|glass| glass.amount > 0.0)
+  }
+
+  /// The distance within which the node's glass children flow together; `None` for a node that is no glass
+  /// container.
+  pub(crate) fn glass_merge(&self) -> Option<f32> {
+    self.rare_style.glass_merge
+  }
+
   /// The blur radius of the node's backdrop as drawn, in logical pixels; 0 without one.
   pub(crate) fn effective_backdrop_blur(&self) -> f32 {
     let blur = self
@@ -6603,6 +6676,7 @@ impl Node {
         AnimatableProperty::Opacity
           | AnimatableProperty::Blur
           | AnimatableProperty::BackdropBlur
+          | AnimatableProperty::Glass
           | AnimatableProperty::Foreground
           | AnimatableProperty::Outline
           | AnimatableProperty::BoxShadow

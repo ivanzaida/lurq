@@ -8,6 +8,7 @@ pub mod box_shadow;
 pub mod column_tracks;
 pub mod constraints;
 pub mod flex_direction;
+pub mod glass;
 pub mod grid;
 pub mod layout_engine;
 pub mod layout_kind;

@@ -1688,6 +1688,19 @@ macro_rules! impl_into_node {
         self
       }
 
+      /// Makes the component a piece of glass over what is painted behind it (see `Node::glass`).
+      pub fn glass(mut self, glass: $crate::layout::glass::Glass) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::glass(node, glass));
+        self
+      }
+
+      /// Makes the glass components in this one a single glass, flowing together within `merge` (see
+      /// `Node::glass_container`).
+      pub fn glass_container(mut self, merge: f32) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::glass_container(node, merge));
+        self
+      }
+
       pub fn transition(mut self, spec: $crate::animation::Transition) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::transition(node, spec));
         self

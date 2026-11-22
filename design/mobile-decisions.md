@@ -8,6 +8,39 @@ is in [design-system-plan.md](design-system-plan.md#7-phases-27--components).
 Each entry: **the question**, **the decision**, **why**, and its **state** (proposed, decided, in work on a branch,
 built, dropped). When a decision is replaced, the old entry stays and says what replaced it.
 
+## 2026-11-22
+
+### Liquid Glass is lurq's own material, drawn by its renderer
+
+- **Question.** lurq's bars on a phone are a blurred backdrop (`backdrop_blur`); the system's since iOS 26 are
+  Liquid Glass, which bends what is behind it. Can lurq draw it, and how much of it? Ivan: "нам треба реальний
+  ліквад гласс", "роби в одній гілці сам".
+- **Decision (Ivan, 2026-11-22).** The whole material, on one branch (`feat/liquid-glass`), drawn by lurq's own
+  renderer on every platform it draws on, not the system's view:
+  1. **The optics.** A node with `.glass(Glass)` bends what is painted behind it by the thickness of its shape (a
+     lens along its edge, by Snell's law), blurs it, saturates and brightens it, tints it, splits the colours a little
+     at the edge, and has a light along its rim, a glow inside and a shadow under it. Two materials as the system's:
+     `Glass::regular()` and `Glass::clear()`.
+  2. **Shapes that flow together.** The glass children of a `.glass_container(..)` are one surface: near each other
+     they join into one drop and part again, since a glass does not bend another glass.
+  3. **It follows what is behind it.** A glass tells how light its backdrop is, and what is on it (words, symbols)
+     turns dark over a light backdrop and light over a dark one.
+  4. **It changes shape.** A glass that moves, grows or changes its corners flows from one shape to the other.
+  5. **It answers a finger.** Pressed, it grows, springs back and lights up from where it is touched; a `TabBar`'s
+     lens is dragged between tabs.
+  6. **It comes and goes as a material**: its bending and blur grow in, where another thing would fade in.
+  7. **Its light follows the device** as it is tilted (the gyroscope), where there is one.
+  8. **lurq's own components are of it** on a phone: `NavigationBar`, `TabBar`, the toolbar, `Sheet`, menus; and the
+     edge of a list under a bar fades into it instead of ending in a line.
+- **Why.** An app made with lurq has to look and behave as the system's apps do ("нам треба відповідати епловим
+  гайдлайнам"); a blurred bar beside the system's glass is an app of another year. The backdrop blur already copies
+  what is behind a node, which is what glass bends, so it is one more pass and not another renderer.
+- **Limits known at the start.** The system's numbers are not published: lurq's are set by eye against recordings
+  of the system's apps. The system's own setting (clear or tinted) is still not followed, as decided on 2026-11-12.
+  lurq's Direct3D 12 renderer and DevTools' software capture draw a glass as its blur alone until they have the
+  pass.
+- **State.** In work on `feat/liquid-glass`.
+
 ## 2026-11-19
 
 ### The camera of several photos is lurq's own, on AVFoundation, as Telegram's and the Camera app's are

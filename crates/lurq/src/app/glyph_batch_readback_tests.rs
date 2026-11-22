@@ -119,6 +119,7 @@ fn list(rects: Vec<RectCmd>, glyphs: Vec<GlyphCmd>) -> RenderList {
     images: Vec::new(),
     layers: Vec::new(),
     backdrops: Vec::new(),
+    glasses: Vec::new(),
     atlas: atlas(),
   }
 }

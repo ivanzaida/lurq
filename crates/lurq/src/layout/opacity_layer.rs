@@ -1341,6 +1341,9 @@ mod tests {
       clip: ClipRect::default(),
       sigma: 4.0,
       opacity: 1.0,
+      glass: None,
+      reach: 0.0,
+      spread: 0.0,
     }
   }
 

@@ -983,6 +983,9 @@ pub struct Tree {
   render_images: Vec<crate::images::ImageCmd>,
   render_layers: Vec<crate::layout::opacity_layer::LayerCmd>,
   render_backdrops: Vec<crate::layout::backdrop::BackdropCmd>,
+  render_glasses: Vec<crate::layout::glass::GlassCmd>,
+  /// Where the light on the rims of glass comes from: see [`Tree::set_glass_light`].
+  glass_light: [f32; 2],
   opacity_groups: Vec<crate::layout::opacity_layer::OpacityGroup>,
   cached_render_list: Option<CachedRenderList>,
   #[cfg(feature = "canvas")]
@@ -1469,6 +1472,8 @@ impl Tree {
       render_images: Vec::new(),
       render_layers: Vec::new(),
       render_backdrops: Vec::new(),
+      render_glasses: Vec::new(),
+      glass_light: crate::layout::glass::DEFAULT_GLASS_LIGHT,
       opacity_groups: Vec::new(),
       cached_render_list: None,
       #[cfg(feature = "canvas")]
@@ -3396,6 +3401,9 @@ impl Tree {
 
     let mut backdrops = std::mem::take(&mut self.render_backdrops);
     backdrops.clear();
+    let mut glasses = std::mem::take(&mut self.render_glasses);
+    glasses.clear();
+    let glass_light = self.glass_light;
 
     for (order, quad) in quads.iter().enumerate() {
       let scaled_clip = if quad.clip.active {
@@ -3890,7 +3898,14 @@ impl Tree {
             scaled_clip,
           ));
         }
-        QuadContent::Backdrop { blur } => {
+        QuadContent::Backdrop {
+          glass: Some(surface), ..
+        } => {
+          if let Some(backdrop) = glass_backdrop(order, quad, surface, scale, scaled_clip, glass_light, &mut glasses) {
+            backdrops.push(backdrop);
+          }
+        }
+        QuadContent::Backdrop { blur, glass: None } => {
           let (w, h) = (quad.width * scale, quad.height * scale);
           backdrops.push(crate::layout::backdrop::BackdropCmd {
             order,
@@ -3913,6 +3928,9 @@ impl Tree {
               crate::layout::opacity_layer::blur_sigma(radius) * scale
             },
             opacity: quad.opacity.clamp(0.0, 1.0),
+            glass: None,
+            reach: 0.0,
+            spread: 0.0,
           });
         }
         QuadContent::None => {}
@@ -4045,6 +4063,7 @@ impl Tree {
       images,
       layers,
       backdrops,
+      glasses,
       atlas: glyph_engine.atlas(),
     };
 
@@ -4196,12 +4215,15 @@ impl Tree {
       mut images,
       mut layers,
       mut backdrops,
+      mut glasses,
       atlas: _,
     } = list;
     rects.clear();
     glyphs.clear();
     layers.clear();
     backdrops.clear();
+    glasses.clear();
+    self.render_glasses = glasses;
     self.render_rects = rects;
     self.render_glyphs = glyphs;
     self.render_layers = layers;
@@ -14398,6 +14420,80 @@ fn apply_opacity_gradient(gradient: &RenderGradient, opacity: f32) -> RenderGrad
     stop.color[3] *= factor;
   }
   gradient
+}
+
+/// The backdrop command of a glass quad, whose [`GlassCmd`](crate::layout::glass::GlassCmd) is added to
+/// `glasses`: the bounds of the glass's shapes, blurred by the material's blur. One shape is the command's box
+/// as it is, so that a render engine that draws no glass blurs inside that box. `None` for a glass without a
+/// shape that has a size.
+fn glass_backdrop(
+  order: usize,
+  quad: &Quad,
+  surface: &crate::layout::quad::GlassQuad,
+  scale: f32,
+  clip: crate::layout::quad::ClipRect,
+  light: [f32; 2],
+  glasses: &mut Vec<crate::layout::glass::GlassCmd>,
+) -> Option<crate::layout::backdrop::BackdropCmd> {
+  use crate::layout::opacity_layer::{MAX_BLUR_RADIUS, RoundedBox, blur_sigma};
+  let placed = |shape: &crate::layout::quad::GlassQuadShape| {
+    let (w, h) = (shape.width * scale, shape.height * scale);
+    let origin = shape
+      .transform_origin
+      .map(|[x, y]| [x * scale, y * scale])
+      .unwrap_or([w * 0.5, h * 0.5]);
+    (
+      [shape.x * scale, shape.y * scale, w, h],
+      scaled_radii(shape.border_radius, scale, w, h),
+      shape.transform.matrix_2x2(),
+      origin,
+    )
+  };
+  let shapes: Vec<RoundedBox> = surface
+    .shapes
+    .iter()
+    .filter(|shape| shape.width > 0.0 && shape.height > 0.0)
+    .filter_map(|shape| {
+      let ([x, y, w, h], radii, transform, origin) = placed(shape);
+      RoundedBox::transformed(x, y, w, h, radii, transform, origin)
+    })
+    .collect();
+  let first = surface.shapes.first()?;
+  let glass = crate::layout::glass::GlassCmd::new(
+    &surface.glass,
+    &shapes,
+    surface.merge * scale,
+    scale,
+    light,
+    [first.x * scale, first.y * scale],
+  );
+  let [x0, y0, x1, y1] = glass.extent()?;
+  let amount = surface.glass.amount.clamp(0.0, 1.0);
+  let radius = (surface.glass.blur.max(0.0) * amount).min(MAX_BLUR_RADIUS);
+  let mut backdrop = crate::layout::backdrop::BackdropCmd {
+    order,
+    x: x0,
+    y: y0,
+    width: x1 - x0,
+    height: y1 - y0,
+    radii: [0.0; 4],
+    transform: [1.0, 0.0, 0.0, 1.0],
+    transform_origin: [(x1 - x0) * 0.5, (y1 - y0) * 0.5],
+    clip,
+    // A glass that blurs nothing still reads the copy of its backdrop.
+    sigma: (blur_sigma(radius) * scale).max(0.1),
+    opacity: quad.opacity.clamp(0.0, 1.0),
+    glass: Some(glasses.len() as u32),
+    reach: glass.reach(),
+    spread: glass.spread(),
+  };
+  if let [only] = surface.shapes.as_slice() {
+    let ([x, y, w, h], radii, transform, origin) = placed(only);
+    (backdrop.x, backdrop.y, backdrop.width, backdrop.height) = (x, y, w, h);
+    (backdrop.radii, backdrop.transform, backdrop.transform_origin) = (radii, transform, origin);
+  }
+  glasses.push(glass);
+  Some(backdrop)
 }
 
 fn scaled_radii(border_radius: Option<BorderRadius>, scale: f32, width: f32, height: f32) -> [f32; 4] {

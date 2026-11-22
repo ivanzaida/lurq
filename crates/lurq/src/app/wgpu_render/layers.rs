@@ -22,6 +22,7 @@ use super::vertex::QuadVertex;
 use crate::layout::{
   backdrop::BackdropRegion,
   backdrop_reuse::{BackdropCache, BackdropInputs, BackdropUse},
+  glass::{GlassCmd, GlassPass},
   opacity_layer::{BlurPlan, LayerBlur, LayerBlurPass, LayerCmd, LayerComposite, TargetSpace},
 };
 
@@ -39,6 +40,11 @@ pub(super) struct LayerCompositor {
   /// covers, then add the blurred pixels.
   backdrop_erase_pipeline: wgpu::RenderPipeline,
   backdrop_add_pipeline: wgpu::RenderPipeline,
+  /// The same two for a backdrop put back as glass (see
+  /// [`crate::layout::glass`]): they read the finished blur through the
+  /// blur's bind group.
+  glass_erase_pipeline: wgpu::RenderPipeline,
+  glass_add_pipeline: wgpu::RenderPipeline,
   blur_bind_group_layout: wgpu::BindGroupLayout,
   blur_sampler: wgpu::Sampler,
   format: wgpu::TextureFormat,
@@ -254,18 +260,23 @@ impl LayerCompositor {
       bind_group_layouts: &[Some(&blur_bind_group_layout)],
       immediate_size: 0,
     });
-    let blur_pipeline_of = |label: &str, fragment: &str, blend: wgpu::BlendState| {
+    let glass_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+      label: Some("lurq_glass_shader"),
+      source: wgpu::ShaderSource::Wgsl(include_str!("shaders/glass.wgsl").into()),
+    });
+    let pipeline_of = |shader: &wgpu::ShaderModule, label: &str, fragment: &str, blend: wgpu::BlendState| {
+      let blur_shader = shader;
       device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some(label),
         layout: Some(&blur_layout),
         vertex: wgpu::VertexState {
-          module: &blur_shader,
+          module: blur_shader,
           entry_point: Some("vs_main"),
           buffers: &[QuadVertex::desc()],
           compilation_options: Default::default(),
         },
         fragment: Some(wgpu::FragmentState {
-          module: &blur_shader,
+          module: blur_shader,
           entry_point: Some(fragment),
           targets: &[Some(wgpu::ColorTargetState {
             format,
@@ -284,6 +295,8 @@ impl LayerCompositor {
         cache: None,
       })
     };
+    let blur_pipeline_of =
+      |label: &str, fragment: &str, blend: wgpu::BlendState| pipeline_of(&blur_shader, label, fragment, blend);
     let blur_pipeline = blur_pipeline_of(
       "lurq_layer_blur_pipeline",
       "fs_main",
@@ -312,6 +325,21 @@ impl LayerCompositor {
       "fs_backdrop_add",
       wgpu::BlendState { color: add, alpha: add },
     );
+    let glass_erase_pipeline = pipeline_of(
+      &glass_shader,
+      "lurq_glass_erase_pipeline",
+      "fs_glass_erase",
+      wgpu::BlendState {
+        color: erase,
+        alpha: erase,
+      },
+    );
+    let glass_add_pipeline = pipeline_of(
+      &glass_shader,
+      "lurq_glass_add_pipeline",
+      "fs_glass_add",
+      wgpu::BlendState { color: add, alpha: add },
+    );
     // Bilinear, so one tap reads two texels of a Gaussian or four of a box;
     // past the texture's edge it repeats the edge, which a pass never shows
     // (see `layout::opacity_layer`).
@@ -330,6 +358,8 @@ impl LayerCompositor {
       blur_pipeline,
       backdrop_erase_pipeline,
       backdrop_add_pipeline,
+      glass_erase_pipeline,
+      glass_add_pipeline,
       blur_bind_group_layout,
       blur_sampler,
       format,
@@ -433,7 +463,10 @@ impl LayerCompositor {
     let view = texture.create_view(&Default::default());
     let uniform = device.create_buffer(&wgpu::BufferDescriptor {
       label: Some("lurq_layer_composite"),
-      size: std::mem::size_of::<LayerComposite>().max(std::mem::size_of::<LayerBlurPass>()) as wgpu::BufferAddress,
+      // A glass's pass reads the texture a blur's would, with more to say.
+      size: std::mem::size_of::<LayerComposite>()
+        .max(std::mem::size_of::<LayerBlurPass>())
+        .max(std::mem::size_of::<GlassPass>()) as wgpu::BufferAddress,
       usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
       mapped_at_creation: false,
     });
@@ -673,19 +706,34 @@ impl LayerCompositor {
   /// Puts a blurred backdrop back into the pass painting `parent`, inside
   /// the node's box: what [`Self::prepare_backdrop`] left in `slots`, or
   /// what an earlier frame's did.
+  ///
+  /// With a `glass` it is put back as that glass, over the glass's shapes;
+  /// `rim` is then the width of the light on its rim, in pixels.
   pub(super) fn composite_backdrop(
     &self,
     queue: &wgpu::Queue,
     pass: &mut wgpu::RenderPass<'_>,
     slots: &BackdropSlots,
     parent: &TargetSpace,
+    glass: Option<&GlassCmd>,
+    rim: f32,
   ) {
     let blurred = slots.blurred;
     let uniforms = LayerBlurPass::backdrop(&slots.region, &slots.plan, parent, self.size(blurred));
     let slot = &self.slots[blurred];
-    slot.write_uniforms(queue, bytemuck::bytes_of(&uniforms));
+    let pipelines = match glass {
+      Some(glass) => {
+        let uniforms = GlassPass::new(glass, &uniforms, parent.origin, rim);
+        slot.write_uniforms(queue, bytemuck::bytes_of(&uniforms));
+        [&self.glass_erase_pipeline, &self.glass_add_pipeline]
+      }
+      None => {
+        slot.write_uniforms(queue, bytemuck::bytes_of(&uniforms));
+        [&self.backdrop_erase_pipeline, &self.backdrop_add_pipeline]
+      }
+    };
     pass.set_bind_group(0, &slot.blur_bind_group, &[]);
-    for pipeline in [&self.backdrop_erase_pipeline, &self.backdrop_add_pipeline] {
+    for pipeline in pipelines {
       pass.set_pipeline(pipeline);
       pass.draw_indexed(0..QuadVertex::INDICES.len() as u32, 0, 0..1);
     }

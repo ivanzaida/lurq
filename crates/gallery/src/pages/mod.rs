@@ -1613,6 +1613,14 @@ pub const PAGES: &[Page] = &[
     mount: |ctx| ctx.mount::<engine::visual::VisualPage>(()),
   },
   Page {
+    path: "/engine/glass",
+    name: "Glass",
+    icon: Some("layers"),
+    about: "engine primitive glass liquid glass lens refraction bend blur backdrop tint saturation rim light glow shadow container merge drops flow together material regular clear amount Glass GlassShadow GlassTouch glass_container",
+    group: Group::Engine,
+    mount: |ctx| ctx.mount::<engine::glass::GlassPage>(()),
+  },
+  Page {
     path: "/engine/borders",
     name: "Borders",
     icon: Some("square"),

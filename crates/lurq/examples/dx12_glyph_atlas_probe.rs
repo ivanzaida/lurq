@@ -135,6 +135,7 @@ fn main() {
         images: vec![],
         layers: vec![],
         backdrops: Vec::new(),
+        glasses: Vec::new(),
         atlas: GlyphAtlas {
           data: data.into(),
           width,

@@ -19,6 +19,9 @@ pub struct RenderList {
   /// Blurs of what is painted behind a node (`.backdrop_blur(...)`), by
   /// ascending order. Empty when nothing blurs its backdrop.
   pub backdrops: Vec<crate::layout::backdrop::BackdropCmd>,
+  /// The glasses of the backdrops that are put back as glass, by
+  /// [`BackdropCmd::glass`](crate::layout::backdrop::BackdropCmd::glass).
+  pub glasses: Vec<crate::layout::glass::GlassCmd>,
   pub atlas: GlyphAtlas,
 }
 

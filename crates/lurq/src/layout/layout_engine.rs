@@ -43,6 +43,7 @@ mod box_shadow_quads;
 pub(crate) mod control_fill;
 mod flex_shrink;
 mod foreground;
+mod glass_quads;
 mod grid_layout;
 pub(crate) mod inline_links;
 mod input_gutter;
@@ -325,6 +326,10 @@ pub(crate) struct LayoutEngine {
   /// outline is painted over what follows its node, at the end of the scope
   /// the node is in. See `outline_quads`.
   pending_outlines: RefCell<Vec<Quad>>,
+  /// The quad of the glass container the node being painted is in, by its
+  /// index among the quads: the glass nodes under it add their shapes to
+  /// it. See `Node::glass_container`.
+  glass_scope: Cell<Option<usize>>,
   /// Caret of the focused text input recorded by the last quad resolution,
   /// where an input method places its candidate window.
   ime_cursor_area: Cell<Option<crate::app::events::ImeCursorArea>>,
@@ -642,6 +647,7 @@ impl LayoutEngine {
       foreground: Cell::new(None),
       scroll_clip: Cell::new(ClipRect::default()),
       pending_outlines: RefCell::new(Vec::new()),
+      glass_scope: Cell::new(None),
       ime_cursor_area: Cell::new(None),
       opacity_groups: RefCell::new(Vec::new()),
       #[cfg(feature = "screenshot")]
@@ -1269,11 +1275,12 @@ impl LayoutEngine {
     // The node's backdrop blur is painted into the target the node's layer
     // is composited into, before that layer: the blur reads what is behind
     // the node, and the node's opacity is the blur's own (its quad's).
+    let glass_scope = self.enter_glass_scope(node, group_start, quads);
     let group_start = group_start
-      + usize::from(matches!(
-        quads.get(group_start).map(|quad| &quad.content),
-        Some(QuadContent::Backdrop { .. })
-      ));
+      + quads[group_start.min(quads.len())..]
+        .iter()
+        .take_while(|quad| matches!(quad.content, QuadContent::Backdrop { .. }))
+        .count();
 
     let select_scope = self.enter_select_scope(node);
     let scroll_scope = frame.scroll_viewport.map(|viewport| self.scroll_clip.replace(viewport));
@@ -1337,6 +1344,7 @@ impl LayoutEngine {
       self.repeat_tile(repeat, result, (abs_x, abs_y), tile_start, seen, quads);
     }
     self.leave_select_scope(select_scope);
+    self.leave_glass_scope(glass_scope);
     if let Some(outer) = scroll_scope {
       self.scroll_clip.set(outer);
       // What scrolls is painted whole, outlines and all, under the border and the bars of its container.
@@ -1688,12 +1696,16 @@ impl LayoutEngine {
         opacity: node.effective_opacity().clamp(0.0, 1.0),
         transform: backdrop_transform,
         transform_origin: backdrop_transform_origin,
-        content: QuadContent::Backdrop { blur: backdrop_blur },
+        content: QuadContent::Backdrop {
+          blur: backdrop_blur,
+          glass: None,
+        },
         border_radius: node.get_border_radius(&self.radii.borrow()),
         border: None,
         clip,
       });
     }
+    self.push_glass_quad(node, result, abs_x, abs_y, transform, clip, quads);
 
     let content_is_background = matches!(content, QuadContent::Rect { .. } | QuadContent::None);
     self.push_box_shadow_quads(node, result, abs_x, abs_y, false, opacity, transform, clip, quads);
@@ -5569,6 +5581,8 @@ fn node_is_plain_logical_wrapper(node: &Node) -> bool {
     && node.rare_style.box_shadow.is_none()
     && node.rare_style.foreground.is_none()
     && node.rare_style.outline.is_none()
+    && node.rare_style.glass.is_none()
+    && node.rare_style.glass_merge.is_none()
     && node.rare_style.caret_color.is_none()
     && node.rare_style.caret_mode.is_none()
     && node.scrollbar_style.as_ref().is_none()

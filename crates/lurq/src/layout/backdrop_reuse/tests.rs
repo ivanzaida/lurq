@@ -67,6 +67,9 @@ fn glass(order: usize, [x, y, width, height]: [f32; 4], sigma: f32) -> BackdropC
     clip: ClipRect::default(),
     sigma,
     opacity: 1.0,
+    glass: None,
+    reach: 0.0,
+    spread: 0.0,
   }
 }
 
@@ -89,6 +92,7 @@ fn list(rects: Vec<RectCmd>, backdrops: Vec<BackdropCmd>) -> RenderList {
     images: Vec::new(),
     layers: Vec::new(),
     backdrops,
+    glasses: Vec::new(),
     atlas: GlyphAtlas {
       data: Arc::from([255_u8; 4 * 4 * 4].as_slice()),
       width: 4,

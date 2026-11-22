@@ -86,6 +86,7 @@ pub use node::{
 };
 pub(crate) use node::{Node, NodeUpdate, SyntheticNodeRole, window_controls_in_use};
 pub use outline::{Outline, ResolvedOutline};
+pub use crate::layout::glass::{Glass, GlassShadow, GlassTouch};
 pub use radius_value::RadiusValue;
 pub use select_icon::{SelectAdornmentState, SelectCheckmarkPosition, SelectIcon};
 pub use select_style::{SelectPartStyle, SelectStyle};
