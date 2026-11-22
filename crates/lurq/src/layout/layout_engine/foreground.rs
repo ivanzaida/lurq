@@ -27,6 +27,8 @@ impl LayoutEngine {
         .effective_foreground()
         .and_then(|color| color.resolve(&self.palette.borrow()))
     });
+    // What is on a glass has the glass's ink, where the node names no colour of its own.
+    let own = own.or_else(|| self.glass_ink(node));
     if own.is_some() {
       self.foreground.set(own);
     }

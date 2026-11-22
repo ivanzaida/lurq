@@ -438,6 +438,9 @@ pub struct GlassQuad {
   /// [`GlassTouch`](crate::layout::glass::GlassTouch) is measured from that
   /// shape's corner.
   pub shapes: Vec<GlassQuadShape>,
+  /// The ids of the shapes' nodes, in their order: who is told how dark
+  /// what lies behind the glass is.
+  pub keys: Vec<u64>,
 }
 
 /// One box of a glass, placed as a quad is.

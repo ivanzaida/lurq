@@ -3007,8 +3007,8 @@ impl RenderEngine for WgpuRenderEngine {
     // Faded subtrees paint into offscreen layers first, each before the
     // target it is composited into; the window's pass comes last. Without
     // layers the plan is the window's pass alone.
-    // The light on a glass's rim is a logical pixel and a quarter wide.
-    let glass_rim = (1.25 * self.scale_factor).max(1.0);
+    // The light on a glass's rim falls to nothing over a logical pixel and a half, as the system's does.
+    let glass_rim = (1.42 * self.scale_factor).max(1.0);
     let mut layer_plan = std::mem::take(&mut self.layer_plan);
     layer_plan.build(
       ordered_draws.len(),

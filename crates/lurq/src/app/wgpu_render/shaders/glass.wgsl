@@ -7,10 +7,9 @@
 // The glass is the smooth union of up to eight rounded boxes. A pixel's
 // distance to that union's edge says how much of it the glass covers, how
 // deep inside it lies and, by the distance's gradient, which way the edge
-// faces. Over the bezel the surface rises from the edge to the glass's
-// thickness along a squircle's quarter, and a ray that comes straight down
-// is bent by Snell's law where it meets the surface, then followed to the
-// bottom of the glass: that is where the backdrop is read.
+// faces. Over the bezel the glass is curved, and a pixel there is read from
+// further inside: by the whole bend at the very edge, by nothing where the
+// glass is flat (`layout::glass::lens_pull`).
 //
 // As for a backdrop blur, the result replaces what the target held, with
 // two draws of the same rect: `fs_glass_erase`, blended
@@ -37,11 +36,11 @@ struct Pass {
     outer_clip:       vec4<f32>,  // and the one outside it: upright
     outer_clip_radii: vec4<f32>,
     cut:    vec4<f32>,  // the clips' scale, the opacity, the number of shapes, the merge distance
-    optics: vec4<f32>,  // thickness, bezel, index of refraction, dispersion
+    optics: vec4<f32>,  // bend, bezel, dispersion
     look:   vec4<f32>,  // saturation, brightness, rim light, inner glow
     tint:   vec4<f32>,  // premultiplied
-    shadow: vec4<f32>,  // radius, distance down, alpha, the steepest slope
-    light:  vec4<f32>,  // unit vector toward the light, then the rim's width
+    shadow: vec4<f32>,  // radius, distance down, alpha
+    light:  vec4<f32>,  // unit vector toward the light, the rim's width, how much the light's side counts
     touch:  vec4<f32>,  // centre in target pixels, radius, strength
     shapes: array<Shape, 8>,
 };
@@ -142,21 +141,11 @@ fn field(pixel: vec2<f32>) -> vec2<f32> {
     return vec2<f32>(distance, max(bezel, 1.0));
 }
 
-// How far inward a pixel is read from under itself where the surface is
-// `height` of the thickness up and rises by `slope` (see
-// `layout::glass::glass_offset`).
-fn bend(slope: f32, height: f32, index: f32) -> f32 {
-    let cos_in = inverseSqrt(1.0 + slope * slope);
-    let sin_in = slope * cos_in;
-    let eta = 1.0 / max(index, 1.0);
-    let sin_out = eta * sin_in;
-    let cos_out = sqrt(max(1.0 - sin_out * sin_out, 0.0));
-    let across = (eta * cos_in - cos_out) * sin_in;
-    let down = eta - (eta * cos_in - cos_out) * cos_in;
-    if (down <= 1.0e-4) {
-        return 0.0;
-    }
-    return -across / down * height * glass.optics.x;
+// How much of the bend the glass pulls the backdrop in by `u` of the way in
+// over the bezel (see `layout::glass::lens_pull`).
+fn lens_pull(u: f32) -> f32 {
+    let inside = clamp(1.0 - u, 0.0, 1.0);
+    return pow(inside, 1.1) * exp(-2.0 * (1.0 - inside));
 }
 
 @fragment
@@ -165,10 +154,11 @@ fn fs_glass_erase(in: VsOut) -> @location(0) vec4<f32> {
     let coverage = clamp(0.5 - field(pixel).x, 0.0, 1.0);
     var shade = 0.0;
     if (glass.shadow.z > 0.0 && coverage < 1.0) {
-        // Dark at the edge of the glass, gone a radius away from it.
+        // The glass's shape moved down and blurred: half as dark at its
+        // edge as under it, and gone three quarters of the radius out.
         let away = field(pixel - vec2<f32>(0.0, glass.shadow.y)).x;
-        let near = clamp(1.0 - away / max(glass.shadow.x, 1.0), 0.0, 1.0);
-        shade = glass.shadow.z * near * near;
+        let reach = max(glass.shadow.x * 0.75, 1.0);
+        shade = glass.shadow.z * (1.0 - smoothstep(-reach, reach, away));
     }
     return vec4<f32>(0.0, 0.0, 0.0, shown(pixel) * (coverage + (1.0 - coverage) * shade));
 }
@@ -194,25 +184,20 @@ fn fs_glass_add(in: VsOut) -> @location(0) vec4<f32> {
     let bezel = here.y;
     let u = clamp(depth / bezel, 0.0, 1.0);
 
-    // The surface: a squircle's quarter over the bezel.
     let inside = 1.0 - u;
-    let base = max(1.0 - inside * inside * inside * inside, 1.0e-6);
-    let height = pow(base, 0.25);
-    let slope = min(inside * inside * inside * pow(base, -0.75) * glass.optics.x / bezel, glass.shadow.w);
-
-    let index = glass.optics.z;
-    let spread = glass.optics.w;
+    let pull = glass.optics.x * lens_pull(u);
+    let spread = glass.optics.z;
     var color: vec4<f32>;
-    if (glass.optics.x <= 0.0 || slope <= 1.0e-4) {
+    if (pull <= 0.01) {
         color = behind(pixel);
     } else if (spread > 0.0) {
         // Red is bent least and blue most.
-        let red = behind(pixel - outward * bend(slope, height, index - spread));
-        let green = behind(pixel - outward * bend(slope, height, index));
-        let blue = behind(pixel - outward * bend(slope, height, index + spread));
+        let red = behind(pixel - outward * pull * (1.0 - spread));
+        let green = behind(pixel - outward * pull);
+        let blue = behind(pixel - outward * pull * (1.0 + spread));
         color = vec4<f32>(red.r, green.g, blue.b, green.a);
     } else {
-        color = behind(pixel - outward * bend(slope, height, index));
+        color = behind(pixel - outward * pull);
     }
 
     // The material: saturation and light on what is behind, then the tint
@@ -226,12 +211,12 @@ fn fs_glass_add(in: VsOut) -> @location(0) vec4<f32> {
     // The light: along the rim, strongest where the edge faces the light
     // and, weaker, where it faces away from it; a glow that falls off over
     // the bezel; and a touch.
-    let rim = 1.0 - smoothstep(0.0, max(glass.light.z, 0.5), depth);
-    let facing = dot(outward, glass.light.xy);
-    var lit = 0.12 + 0.88 * facing * facing;
-    if (facing < 0.0) {
-        lit = 0.12 + 0.45 * facing * facing;
-    }
+    // The rim's light is the same all the way round under a light from
+    // straight above, as the system's is on a still device; a light from a
+    // side adds to the edge that faces it and takes from the one that does
+    // not.
+    let rim = clamp(1.0 - depth / max(glass.light.z, 0.5), 0.0, 1.0);
+    let lit = 1.0 + glass.light.w * dot(outward, glass.light.xy);
     var light = glass.look.z * rim * lit + glass.look.w * inside * inside * 0.5;
     if (glass.touch.w > 0.0) {
         let from_touch = (pixel - glass.touch.xy) / glass.touch.z;

@@ -330,6 +330,11 @@ pub(crate) struct LayoutEngine {
   /// index among the quads: the glass nodes under it add their shapes to
   /// it. See `Node::glass_container`.
   glass_scope: Cell<Option<usize>>,
+  /// How dark what lies behind each glass is, by its node's id: see
+  /// `glass_quads`.
+  glass_tones: RefCell<std::collections::HashMap<u64, f32>>,
+  /// Whether the theme is in its dark appearance: what a glass not painted yet is taken to be over.
+  dark_appearance: Cell<bool>,
   /// Caret of the focused text input recorded by the last quad resolution,
   /// where an input method places its candidate window.
   ime_cursor_area: Cell<Option<crate::app::events::ImeCursorArea>>,
@@ -648,6 +653,8 @@ impl LayoutEngine {
       scroll_clip: Cell::new(ClipRect::default()),
       pending_outlines: RefCell::new(Vec::new()),
       glass_scope: Cell::new(None),
+      glass_tones: RefCell::new(std::collections::HashMap::new()),
+      dark_appearance: Cell::new(false),
       ime_cursor_area: Cell::new(None),
       opacity_groups: RefCell::new(Vec::new()),
       #[cfg(feature = "screenshot")]
@@ -714,6 +721,9 @@ impl LayoutEngine {
       return;
     }
     *self.palette.borrow_mut() = theme.palette().clone();
+    self
+      .dark_appearance
+      .set(theme.appearance() == crate::app::window::Appearance::Dark);
     *self.control_fills.borrow_mut() = control_fill::ControlFills::of(theme);
     *self.border_sizes.borrow_mut() = theme.border_sizes().clone();
     *self.spacing.borrow_mut() = theme.spacing().clone();

@@ -763,9 +763,8 @@ impl Notes {
     }
     self.f32s(&[
       glass.merge,
-      glass.thickness,
+      glass.bend,
       glass.bezel,
-      glass.refraction,
       glass.dispersion,
       glass.saturation,
       glass.brightness,

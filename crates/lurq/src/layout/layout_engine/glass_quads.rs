@@ -62,6 +62,7 @@ impl LayoutEngine {
         surface.glass = glass;
       }
       surface.shapes.push(shape);
+      surface.keys.push(node.node_id().value());
       return;
     }
     quads.push(Quad {
@@ -78,6 +79,7 @@ impl LayoutEngine {
           glass: glass.unwrap_or_default(),
           merge: container.unwrap_or(0.0).max(0.0),
           shapes: shape.into_iter().collect(),
+          keys: shape.map(|_| node.node_id().value()).into_iter().collect(),
         })),
       },
       border_radius: None,
@@ -96,6 +98,32 @@ impl LayoutEngine {
       .iter()
       .position(|quad| matches!(quad.content, QuadContent::Backdrop { glass: Some(_), .. }))?;
     Some(self.glass_scope.replace(Some(start + index)))
+  }
+
+  /// Tells how dark what lies behind each glass was found to be when the
+  /// frame before was put together: by the ids of the glasses' nodes, 0 over
+  /// a light backdrop to 1 over a dark one. A glass that follows its
+  /// backdrop gives what is on it its colour by this (see
+  /// [`Self::glass_ink`]).
+  pub(crate) fn set_glass_tones(&self, tones: impl Iterator<Item = (u64, f32)>) {
+    let mut held = self.glass_tones.borrow_mut();
+    held.clear();
+    held.extend(tones);
+  }
+
+  /// The colour `node`'s glass gives what is on it: the glass's ink, as its
+  /// backdrop has it. `None` for a node without a glass, and for a glass
+  /// that names no ink.
+  pub(super) fn glass_ink(&self, node: &Node) -> Option<crate::node::color::Color> {
+    let glass = node.effective_glass()?;
+    glass.ink?;
+    let dark = self
+      .glass_tones
+      .borrow()
+      .get(&node.node_id().value())
+      .copied()
+      .unwrap_or(f32::from(u8::from(self.dark_appearance.get())));
+    glass.toned(dark).ink
   }
 
   pub(super) fn leave_glass_scope(&self, scope: Option<Option<usize>>) {

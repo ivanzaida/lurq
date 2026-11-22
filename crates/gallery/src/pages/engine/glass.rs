@@ -94,6 +94,39 @@ fn materials() -> Stack {
   )
 }
 
+/// TEMP: the probe's pattern and glasses, to hold against the system's.
+fn probe() -> Stack {
+  use lurq::node::color::Color;
+  let colors: [(u8, u8, u8); 12] = [
+    (255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0), (0, 255, 255), (255, 0, 255),
+    (128, 0, 0), (0, 128, 0), (0, 0, 128), (204, 102, 51), (51, 102, 204), (77, 179, 102),
+  ];
+  let mut tiles = Column::new();
+  for row in 0..36 {
+    tiles = tiles.child(Row::new().with_children((0..21).map(|column| {
+      let c = colors[(row * 3 + column) % 12];
+      Rect::new(20.0, 20.0).background(if (row + column) % 2 == 0 {
+        Color::new(c.0, c.1, c.2, 255)
+      } else {
+        Color::new(230, 230, 230, 255)
+      })
+    })));
+  }
+  let at = |x: f32, y: f32, w: f32, h: f32, r: f32, glass: Glass| {
+    Row::new().size(w, h).rounded(r).glass(glass).absolute_position(x - w / 2.0, y - h / 2.0)
+  };
+  Stack::new()
+    .size(402.0, 720.0)
+    .clip()
+    .child(tiles)
+    .child(at(201.0, 80.0, 220.0, 56.0, 28.0, Glass::regular()))
+    .child(at(201.0, 200.0, 220.0, 56.0, 28.0, Glass::clear()))
+    .child(at(201.0, 360.0, 200.0, 140.0, 36.0, Glass::panel()))
+    .child(at(100.0, 520.0, 56.0, 56.0, 28.0, Glass::regular()))
+    .child(at(302.0, 520.0, 56.0, 56.0, 28.0, Glass::clear()))
+    .child(at(201.0, 660.0, 300.0, 64.0, 32.0, Glass::regular()))
+}
+
 /// Glasses in a container: near each other they are one drop.
 fn drops() -> Stack {
   let drop = |width: f32| {
@@ -143,6 +176,7 @@ impl Component for GlassPage {
         source: file!(),
       },
       vec![
+        Section::new("TEMP probe", "probe", self.frame.demo(9, probe(), "", &[])),
         Section::new(
           "Materials",
           "The system's two, and a tint. Regular blurs what is behind enough for words on it to be read over \

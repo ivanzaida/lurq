@@ -986,6 +986,11 @@ pub struct Tree {
   render_glasses: Vec<crate::layout::glass::GlassCmd>,
   /// Where the light on the rims of glass comes from: see [`Tree::set_glass_light`].
   glass_light: [f32; 2],
+  /// The glasses that follow their backdrop, by the id of their first node: which look each has and how far
+  /// it is on its way to it.
+  glass_tones: std::collections::HashMap<u64, GlassToneState>,
+  /// When a glass on its way from one look to the other is painted next.
+  glass_tone_change_at: Option<Instant>,
   opacity_groups: Vec<crate::layout::opacity_layer::OpacityGroup>,
   cached_render_list: Option<CachedRenderList>,
   #[cfg(feature = "canvas")]
@@ -1474,6 +1479,8 @@ impl Tree {
       render_backdrops: Vec::new(),
       render_glasses: Vec::new(),
       glass_light: crate::layout::glass::DEFAULT_GLASS_LIGHT,
+      glass_tones: std::collections::HashMap::new(),
+      glass_tone_change_at: None,
       opacity_groups: Vec::new(),
       cached_render_list: None,
       #[cfg(feature = "canvas")]
@@ -1712,6 +1719,16 @@ impl Tree {
   fn tick_scrollbar_change(&mut self) {
     if self.scrollbar_change_at.is_some_and(|at| self.now() >= at) {
       self.scrollbar_change_at = None;
+      self.cached_render_list = None;
+      self.needs_redraw = true;
+    }
+  }
+
+  /// Asks for a frame that paints the glasses again while one is on its way from its light look to its dark
+  /// one or back: how far it is comes from the time of the frame, which no cached render list has.
+  fn tick_glass_tones(&mut self) {
+    if self.glass_tone_change_at.is_some_and(|at| self.now() >= at) {
+      self.glass_tone_change_at = None;
       self.cached_render_list = None;
       self.needs_redraw = true;
     }
@@ -3061,6 +3078,7 @@ impl Tree {
     {
       crate::app::profile_support::frame_section!("setup:scrollbar_change");
       self.tick_scrollbar_change();
+      self.tick_glass_tones();
     }
     {
       crate::app::profile_support::frame_section!("setup:frame_callbacks");
@@ -3404,6 +3422,11 @@ impl Tree {
     let mut glasses = std::mem::take(&mut self.render_glasses);
     glasses.clear();
     let glass_light = self.glass_light;
+    let mut glass_tones = std::mem::take(&mut self.glass_tones);
+    // How dark the backdrop of each glass node is, for the words on it in the next frame.
+    let mut glass_inks: Vec<(u64, f32)> = Vec::new();
+    let (glass_now, glass_frame) = (self.now(), self.frame_count);
+    let dark_appearance = app.theme().appearance() == crate::app::window::Appearance::Dark;
 
     for (order, quad) in quads.iter().enumerate() {
       let scaled_clip = if quad.clip.active {
@@ -3901,7 +3924,34 @@ impl Tree {
         QuadContent::Backdrop {
           glass: Some(surface), ..
         } => {
-          if let Some(backdrop) = glass_backdrop(order, quad, surface, scale, scaled_clip, glass_light, &mut glasses) {
+          let mut tone = |backdrop: &crate::layout::backdrop::BackdropCmd, glass: &crate::layout::glass::GlassCmd| {
+            let lightness = match surface.glass.follows {
+              crate::layout::glass::GlassFollows::Backdrop => crate::layout::glass_tone::lightness_behind(
+                clear_color,
+                &rects,
+                #[cfg(feature = "raster")]
+                &images,
+                backdrop,
+                glass,
+              ),
+              // Light or dark as the app is, whatever is behind.
+              crate::layout::glass::GlassFollows::Appearance => Some(f32::from(u8::from(!dark_appearance))),
+            };
+            let key = surface.keys.first().copied().unwrap_or_default();
+            let dark = glass_dark_mix(&mut glass_tones, key, lightness, dark_appearance, glass_now, glass_frame);
+            glass_inks.extend(surface.keys.iter().map(|key| (*key, dark)));
+            dark
+          };
+          if let Some(backdrop) = glass_backdrop(
+            order,
+            quad,
+            surface,
+            scale,
+            scaled_clip,
+            glass_light,
+            &mut glasses,
+            &mut tone,
+          ) {
             backdrops.push(backdrop);
           }
         }
@@ -3939,6 +3989,15 @@ impl Tree {
 
     quads.clear();
     self.quad_scratch = quads;
+    // A glass that is gone starts again from what is behind it when it comes back.
+    glass_tones.retain(|_, tone| tone.frame == glass_frame);
+    let glass_turning = glass_tones.values().any(|tone| tone.mix != f32::from(u8::from(tone.dark)));
+    self.glass_tones = glass_tones;
+    self.layout_engine.set_glass_tones(glass_inks.into_iter());
+    self.glass_tone_change_at = glass_turning.then(|| glass_now + GLASS_TONE_FRAME);
+    if let Some(at) = self.glass_tone_change_at {
+      self.request_redraw_at(at);
+    }
 
     let mut layers = std::mem::take(&mut self.render_layers);
     crate::layout::opacity_layer::resolve_layers(
@@ -14422,6 +14481,67 @@ fn apply_opacity_gradient(gradient: &RenderGradient, opacity: f32) -> RenderGrad
   gradient
 }
 
+/// A glass that follows its backdrop: which look it has, and how far it is on its way to it.
+#[derive(Clone, Copy, Debug)]
+struct GlassToneState {
+  dark: bool,
+  /// 0 in the light look, 1 in the dark one.
+  mix: f32,
+  /// When `mix` was last moved.
+  at: Instant,
+  /// The frame the glass was last painted in.
+  frame: u64,
+}
+
+/// How long a glass takes from one look to the other.
+const GLASS_TONE_TIME: Duration = Duration::from_millis(280);
+/// How long after a frame the next one of a glass that is turning is painted.
+const GLASS_TONE_FRAME: Duration = Duration::from_millis(8);
+
+/// How far toward its dark look the glass `key` is in this frame, 0 to 1, with what lies behind it `lightness`
+/// light (`None` when that is not known: the glass stays as it is). A glass seen for the first time has the
+/// look of its backdrop at once; one whose backdrop crosses over turns to the other look in
+/// [`GLASS_TONE_TIME`].
+fn glass_dark_mix(
+  tones: &mut std::collections::HashMap<u64, GlassToneState>,
+  key: u64,
+  lightness: Option<f32>,
+  dark_appearance: bool,
+  now: Instant,
+  frame: u64,
+) -> f32 {
+  let (turns_dark, turns_light) = crate::layout::glass::glass_turns(dark_appearance);
+  let tone = tones.entry(key).or_insert_with(|| {
+    let dark = lightness.map_or(dark_appearance, |lightness| lightness < (turns_dark + turns_light) * 0.5);
+    GlassToneState {
+      dark,
+      mix: f32::from(u8::from(dark)),
+      at: now,
+      frame,
+    }
+  });
+  let was = tone.dark;
+  match lightness {
+    Some(lightness) if lightness < turns_dark => tone.dark = true,
+    Some(lightness) if lightness > turns_light => tone.dark = false,
+    _ => {}
+  }
+  if tone.dark != was && tone.mix == f32::from(u8::from(was)) {
+    // The turn starts now, however long ago the glass was last painted.
+    tone.at = now;
+  }
+  let step = now.saturating_duration_since(tone.at).as_secs_f32() / GLASS_TONE_TIME.as_secs_f32();
+  let target = f32::from(u8::from(tone.dark));
+  tone.mix = if tone.mix < target {
+    (tone.mix + step).min(target)
+  } else {
+    (tone.mix - step).max(target)
+  };
+  tone.at = now;
+  tone.frame = frame;
+  tone.mix
+}
+
 /// The backdrop command of a glass quad, whose [`GlassCmd`](crate::layout::glass::GlassCmd) is added to
 /// `glasses`: the bounds of the glass's shapes, blurred by the material's blur. One shape is the command's box
 /// as it is, so that a render engine that draws no glass blurs inside that box. `None` for a glass without a
@@ -14434,6 +14554,7 @@ fn glass_backdrop(
   clip: crate::layout::quad::ClipRect,
   light: [f32; 2],
   glasses: &mut Vec<crate::layout::glass::GlassCmd>,
+  tone: &mut dyn FnMut(&crate::layout::backdrop::BackdropCmd, &crate::layout::glass::GlassCmd) -> f32,
 ) -> Option<crate::layout::backdrop::BackdropCmd> {
   use crate::layout::opacity_layer::{MAX_BLUR_RADIUS, RoundedBox, blur_sigma};
   let placed = |shape: &crate::layout::quad::GlassQuadShape| {
@@ -14459,14 +14580,17 @@ fn glass_backdrop(
     })
     .collect();
   let first = surface.shapes.first()?;
-  let glass = crate::layout::glass::GlassCmd::new(
-    &surface.glass,
-    &shapes,
-    surface.merge * scale,
-    scale,
-    light,
-    [first.x * scale, first.y * scale],
-  );
+  let command = |material: &crate::layout::glass::Glass| {
+    crate::layout::glass::GlassCmd::new(
+      material,
+      &shapes,
+      surface.merge * scale,
+      scale,
+      light,
+      [first.x * scale, first.y * scale],
+    )
+  };
+  let mut glass = command(&surface.glass);
   let [x0, y0, x1, y1] = glass.extent()?;
   let amount = surface.glass.amount.clamp(0.0, 1.0);
   let radius = (surface.glass.blur.max(0.0) * amount).min(MAX_BLUR_RADIUS);
@@ -14491,6 +14615,11 @@ fn glass_backdrop(
     let ([x, y, w, h], radii, transform, origin) = placed(only);
     (backdrop.x, backdrop.y, backdrop.width, backdrop.height) = (x, y, w, h);
     (backdrop.radii, backdrop.transform, backdrop.transform_origin) = (radii, transform, origin);
+  }
+  if surface.glass.over_dark.is_some() {
+    // The look follows what is behind the glass; where it is and what it reads do not.
+    let dark = tone(&backdrop, &glass);
+    glass = command(&surface.glass.toned(dark));
   }
   glasses.push(glass);
   Some(backdrop)

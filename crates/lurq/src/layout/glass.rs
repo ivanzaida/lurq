@@ -4,9 +4,11 @@
 //! A glass is a backdrop blur (see [`crate::layout::backdrop`]) with one more
 //! thing done as the blurred pixels are put back: each pixel of the shape is
 //! read from where a ray through the glass comes out, not from under itself.
-//! The shape is thick in the middle and falls to nothing along its edge over
-//! the width of its `bezel`, so the middle shows the backdrop where it is
-//! and the edge is a lens that pulls it in. On the way the colour is
+//! The glass is flat in the middle and curved along its edge over the width
+//! of its `bezel`, so the middle shows the backdrop where it is and the edge
+//! is a lens that pulls it in from further inside, the more the nearer the
+//! edge ([`lens_pull`]): at the very edge from so far in that what is seen
+//! there is the inside turned over, as in a drop. On the way the colour is
 //! saturated, brightened and tinted; a light runs along the rim, a glow lies
 //! inside it and a shadow under it.
 //!
@@ -33,14 +35,13 @@ pub struct Glass {
   /// The blur of what is behind, as [`Node::backdrop_blur`](crate::node::Node::backdrop_blur)'s
   /// radius.
   pub blur: f32,
-  /// How thick the glass is in its middle. A thicker glass bends further.
-  pub thickness: f32,
+  /// How far inside itself the very edge of the glass shows the backdrop
+  /// from: the strength of the lens. 0 bends nothing.
+  pub bend: f32,
   /// The width of the curved edge: the lens. The glass is flat inside it. A
   /// shape narrower than two of them is curved all the way.
   pub bezel: f32,
-  /// The index of refraction: 1 bends nothing, 1.5 is window glass.
-  pub refraction: f32,
-  /// How far apart red and blue are bent, as a part of the index: 0 for
+  /// How far apart red and blue are bent, as a part of the bend: 0 for
   /// none. It colours the edges of what the lens shows.
   pub dispersion: f32,
   /// The saturation of what is behind: 1 leaves it, 0 is grey.
@@ -63,16 +64,65 @@ pub struct Glass {
   /// Where a finger lights the glass, relative to the node's box, and how
   /// strongly (0 to 1). `None` for no touch.
   pub touch: Option<GlassTouch>,
+  /// The colour of what is on the glass: the foreground of the node's
+  /// words and symbols, where the node names none. `None` leaves them as
+  /// they are.
+  pub ink: Option<Color>,
+  /// What the glass looks like over something dark: with it, the glass
+  /// follows what is behind it, a light glass with dark words over a light
+  /// backdrop and this look over a dark one, and goes from one to the other
+  /// as the backdrop changes. `None` for a glass that looks the same over
+  /// anything.
+  pub over_dark: Option<GlassLook>,
+  /// What decides between the glass's own look and its look
+  /// [over dark](Self::over_dark).
+  pub follows: GlassFollows,
+}
+
+/// What a glass with two looks takes its look from.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum GlassFollows {
+  /// What is painted behind it: a button over a list that scrolls. In the
+  /// light appearance it turns dark over a backdrop darker than the middle;
+  /// in the dark appearance it is dark over all but a very light one.
+  #[default]
+  Backdrop,
+  /// The app's appearance alone: the light look in the light appearance and
+  /// the dark look in the dark one, whatever is behind. A large surface.
+  Appearance,
+}
+
+/// The part of a glass that changes with what is behind it (see
+/// [`Glass::over_dark`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct GlassLook {
+  pub tint: Color,
+  pub brightness: f32,
+  pub saturation: f32,
+  pub rim: f32,
+  /// The colour of what is on the glass.
+  pub ink: Color,
+}
+
+/// How dark a backdrop must get for a glass that follows it to turn dark,
+/// then how light for it to turn light, as [`backdrop_lightness`](crate::layout::glass_tone::backdrop_lightness)
+/// measures it. Between the two a glass stays as it is, so one over a
+/// backdrop near the line does not flicker. The system's glass turns at a
+/// grey of 128 of 255 (0.54) in the light appearance, and in the dark one
+/// stays dark up to a grey of 225 (0.9).
+pub const fn glass_turns(dark_appearance: bool) -> (f32, f32) {
+  if dark_appearance { (0.86, 0.9) } else { (0.51, 0.56) }
 }
 
 /// The shadow a glass casts: soft, straight down.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct GlassShadow {
-  /// How far it spreads.
+  /// How far it is blurred, as a box shadow's blur.
   pub radius: f32,
   /// How far down it lies.
   pub y: f32,
-  /// How dark it is at the edge of the glass, 0 to 1.
+  /// How dark it is under the glass, 0 to 1; half of that is seen where
+  /// the shadow's own edge is.
   pub alpha: f32,
 }
 
@@ -98,49 +148,89 @@ pub struct GlassTouch {
 }
 
 impl Glass {
-  /// The glass of bars, buttons and menus: it blurs what is behind enough
-  /// for words on it to be read over anything.
+  /// The glass of buttons, bars and menus: it blurs what is behind enough
+  /// for words on it to be read over anything, and follows it: light with
+  /// dark words over a light backdrop, dark with light words over a dark
+  /// one. The numbers are the ones measured on the system's regular glass.
   pub const fn regular() -> Self {
     Self {
-      blur: 14.0,
-      thickness: 18.0,
-      bezel: 14.0,
-      refraction: 1.5,
-      dispersion: 0.02,
-      saturation: 1.6,
-      brightness: 0.02,
-      tint: Color::new(255, 255, 255, 46),
-      rim: 0.55,
-      glow: 0.18,
+      blur: 10.5,
+      bend: 45.0,
+      bezel: 19.5,
+      dispersion: 0.0,
+      saturation: 1.25,
+      brightness: 0.1,
+      tint: Color::new(255, 255, 255, 130),
+      rim: 0.68,
+      glow: 0.0,
       shadow: GlassShadow {
-        radius: 18.0,
-        y: 6.0,
-        alpha: 0.16,
+        radius: 32.0,
+        y: 8.0,
+        alpha: 0.12,
       },
       amount: 1.0,
       touch: None,
+      ink: Some(Color::new(0, 0, 0, 217)),
+      over_dark: Some(GlassLook {
+        tint: Color::new(0, 0, 0, 97),
+        brightness: 0.07,
+        saturation: 1.1,
+        rim: 0.18,
+        ink: Color::new(255, 255, 255, 255),
+      }),
+      follows: GlassFollows::Backdrop,
     }
   }
 
-  /// A glass that leaves what is behind sharp, for over pictures and video.
-  /// Words on it need a backdrop that is calm, or dimmed.
-  pub const fn clear() -> Self {
+  /// The regular glass of a large surface: a sheet, a panel, a sidebar. It
+  /// is more of a wall than a button's glass is: whiter, with the colours
+  /// behind it brought out, and it is light or dark by the app's appearance,
+  /// not by what is behind it.
+  pub const fn panel() -> Self {
     Self {
-      blur: 2.0,
-      thickness: 22.0,
-      bezel: 16.0,
-      saturation: 1.2,
+      saturation: 2.5,
       brightness: 0.0,
-      tint: Color::new(255, 255, 255, 14),
-      rim: 0.7,
-      glow: 0.1,
+      tint: Color::new(255, 255, 255, 179),
+      over_dark: Some(GlassLook {
+        tint: Color::new(26, 26, 26, 181),
+        brightness: 0.0,
+        saturation: 2.5,
+        rim: 0.18,
+        ink: Color::new(255, 255, 255, 255),
+      }),
+      follows: GlassFollows::Appearance,
       ..Self::regular()
     }
   }
 
-  /// The glass with this colour laid over what is behind, by its alpha.
-  pub const fn tint(mut self, tint: Color) -> Self {
+  /// A glass that leaves what is behind nearly sharp, for over pictures and
+  /// video. It does not follow its backdrop and gives no colour to what is
+  /// on it: words on it need a backdrop that is calm, or dimmed.
+  pub const fn clear() -> Self {
+    Self {
+      blur: 3.8,
+      saturation: 1.0,
+      brightness: 0.085,
+      tint: Color::new(255, 255, 255, 0),
+      shadow: GlassShadow::NONE,
+      ink: None,
+      over_dark: None,
+      ..Self::regular()
+    }
+  }
+
+  /// The glass in this colour, laid over what is behind by its alpha: a
+  /// coloured glass has that colour over anything, with white on it where
+  /// the colour is dark and black where it is light.
+  pub fn tint(mut self, tint: Color) -> Self {
     self.tint = tint;
+    self.over_dark = None;
+    let luma = 0.2126 * f32::from(tint.r()) + 0.7152 * f32::from(tint.g()) + 0.0722 * f32::from(tint.b());
+    self.ink = Some(if luma < 150.0 {
+      Color::new(255, 255, 255, 255)
+    } else {
+      Color::new(0, 0, 0, 217)
+    });
     self
   }
 
@@ -149,18 +239,14 @@ impl Glass {
     self
   }
 
-  pub const fn thickness(mut self, thickness: f32) -> Self {
-    self.thickness = thickness;
+  /// How far inside itself the edge shows the backdrop from (see [`Self::bend`]).
+  pub const fn bend(mut self, bend: f32) -> Self {
+    self.bend = bend;
     self
   }
 
   pub const fn bezel(mut self, bezel: f32) -> Self {
     self.bezel = bezel;
-    self
-  }
-
-  pub const fn refraction(mut self, index: f32) -> Self {
-    self.refraction = index;
     self
   }
 
@@ -200,6 +286,46 @@ impl Glass {
     self
   }
 
+  /// The colour of what is on the glass (see [`Self::ink`]).
+  pub const fn ink(mut self, ink: Option<Color>) -> Self {
+    self.ink = ink;
+    self
+  }
+
+  /// What the glass looks like over a dark backdrop; `None` for the same
+  /// look over anything (see [`Self::over_dark`]).
+  pub const fn over_dark(mut self, look: Option<GlassLook>) -> Self {
+    self.over_dark = look;
+    self
+  }
+
+  /// What decides between the two looks (see [`GlassFollows`]).
+  pub const fn follows(mut self, follows: GlassFollows) -> Self {
+    self.follows = follows;
+    self
+  }
+
+  /// The glass as it looks when what is behind it is `dark` of the way to
+  /// dark (0 over a light backdrop, 1 over a dark one): its own look, its
+  /// look [over dark](Self::over_dark), or between the two. The result
+  /// follows nothing.
+  pub fn toned(&self, dark: f32) -> Self {
+    let Some(look) = self.over_dark else {
+      return *self;
+    };
+    let dark = dark.clamp(0.0, 1.0);
+    let mix = |a: f32, b: f32| a + (b - a) * dark;
+    Self {
+      tint: mix_color(self.tint, look.tint, dark),
+      brightness: mix(self.brightness, look.brightness),
+      saturation: mix(self.saturation, look.saturation),
+      rim: mix(self.rim, look.rim),
+      ink: Some(mix_color(self.ink.unwrap_or(look.ink), look.ink, dark)),
+      over_dark: None,
+      ..*self
+    }
+  }
+
   /// Lit by a touch (see [`GlassTouch`]).
   pub const fn touch(mut self, touch: Option<GlassTouch>) -> Self {
     self.touch = touch;
@@ -210,7 +336,6 @@ impl Glass {
   /// and the tint go straight across.
   pub fn lerp(&self, other: &Self, t: f32) -> Self {
     let mix = |a: f32, b: f32| a + (b - a) * t;
-    let channel = |a: u8, b: u8| mix(f32::from(a), f32::from(b)).round().clamp(0.0, 255.0) as u8;
     let touch = match (self.touch, other.touch) {
       (Some(a), Some(b)) => Some(GlassTouch {
         x: mix(a.x, b.x),
@@ -230,18 +355,12 @@ impl Glass {
     };
     Self {
       blur: mix(self.blur, other.blur),
-      thickness: mix(self.thickness, other.thickness),
+      bend: mix(self.bend, other.bend),
       bezel: mix(self.bezel, other.bezel),
-      refraction: mix(self.refraction, other.refraction),
       dispersion: mix(self.dispersion, other.dispersion),
       saturation: mix(self.saturation, other.saturation),
       brightness: mix(self.brightness, other.brightness),
-      tint: Color::new(
-        channel(self.tint.r(), other.tint.r()),
-        channel(self.tint.g(), other.tint.g()),
-        channel(self.tint.b(), other.tint.b()),
-        channel(self.tint.a(), other.tint.a()),
-      ),
+      tint: mix_color(self.tint, other.tint, t),
       rim: mix(self.rim, other.rim),
       glow: mix(self.glow, other.glow),
       shadow: GlassShadow {
@@ -251,8 +370,38 @@ impl Glass {
       },
       amount: mix(self.amount, other.amount),
       touch,
+      ink: match (self.ink, other.ink) {
+        (Some(a), Some(b)) => Some(mix_color(a, b, t)),
+        (a, b) => if t < 0.5 { a } else { b },
+      },
+      over_dark: match (self.over_dark, other.over_dark) {
+        (Some(a), Some(b)) => Some(GlassLook {
+          tint: mix_color(a.tint, b.tint, t),
+          brightness: mix(a.brightness, b.brightness),
+          saturation: mix(a.saturation, b.saturation),
+          rim: mix(a.rim, b.rim),
+          ink: mix_color(a.ink, b.ink, t),
+        }),
+        (a, b) => if t < 0.5 { a } else { b },
+      },
+      follows: if t < 0.5 { self.follows } else { other.follows },
     }
   }
+}
+
+/// The colour `t` of the way from `a` to `b`, channel by channel.
+fn mix_color(a: Color, b: Color, t: f32) -> Color {
+  let channel = |a: u8, b: u8| {
+    (f32::from(a) + (f32::from(b) - f32::from(a)) * t)
+      .round()
+      .clamp(0.0, 255.0) as u8
+  };
+  Color::new(
+    channel(a.r(), b.r()),
+    channel(a.g(), b.g()),
+    channel(a.b(), b.b()),
+    channel(a.a(), b.a()),
+  )
 }
 
 impl Default for Glass {
@@ -262,8 +411,11 @@ impl Default for Glass {
 }
 
 /// Where the light on a glass's rim comes from when nothing says otherwise:
-/// above and to the left, as a unit vector toward the light with y down.
-pub const DEFAULT_GLASS_LIGHT: [f32; 2] = [-0.6, -0.8];
+/// straight above the screen, so that the rim is lit the same all the way
+/// round. The vector points toward the light across the screen, y down, and
+/// is as long as the light is off to that side, up to 1: the edge that
+/// faces it is lit more and the one that faces away less.
+pub const DEFAULT_GLASS_LIGHT: [f32; 2] = [0.0, 0.0];
 
 /// A glass as a render engine draws it: the shapes and the material, in
 /// physical pixels of the window. Its [`BackdropCmd`](crate::layout::backdrop::BackdropCmd)
@@ -277,9 +429,9 @@ pub struct GlassCmd {
   pub count: usize,
   /// How near two shapes flow together.
   pub merge: f32,
-  pub thickness: f32,
+  /// How far inward the very edge is read from.
+  pub bend: f32,
   pub bezel: f32,
-  pub refraction: f32,
   pub dispersion: f32,
   pub saturation: f32,
   pub brightness: f32,
@@ -289,7 +441,7 @@ pub struct GlassCmd {
   pub glow: f32,
   /// The shadow's radius, how far down it lies, and its alpha.
   pub shadow: [f32; 3],
-  /// The unit vector toward the light, y down.
+  /// Toward the light across the screen (see [`DEFAULT_GLASS_LIGHT`]).
   pub light: [f32; 2],
   /// A touch's light: its centre in the window, its radius, its strength.
   pub touch: [f32; 4],
@@ -303,10 +455,6 @@ pub const NO_GLASS_SHAPE: RoundedBox = RoundedBox {
   inverse: [1.0, 0.0, 0.0, 1.0],
   scale: 1.0,
 };
-
-/// The steepest the glass's surface is taken to be, as rise over run: its
-/// profile is upright at the very edge, where a ray would not get in.
-pub(crate) const MAX_GLASS_SLOPE: f32 = 6.0;
 
 impl GlassCmd {
   /// The command of `glass` over `shapes` (already in physical pixels), with
@@ -344,9 +492,8 @@ impl GlassCmd {
       shapes: boxes,
       count,
       merge: merge.max(0.0),
-      thickness: (glass.thickness * scale * amount).max(0.0),
+      bend: (glass.bend * scale * amount).max(0.0),
       bezel: (glass.bezel * scale).max(1.0),
-      refraction: glass.refraction.clamp(1.0, 3.0),
       dispersion: glass.dispersion.clamp(0.0, 0.5),
       saturation: 1.0 + (glass.saturation.max(0.0) - 1.0) * amount,
       brightness: glass.brightness.clamp(-1.0, 1.0) * amount,
@@ -368,20 +515,22 @@ impl GlassCmd {
     &self.shapes[..self.count.min(MAX_GLASS_SHAPES)]
   }
 
-  /// How far from under itself a pixel of the glass may be read: what the
-  /// copy of the backdrop is grown by. A ray that meets the surface at a
-  /// grazing angle leaves it within 42 degrees of the surface's normal (for
-  /// an index of 1.5), so it lands within about the glass's thickness of
-  /// where it went in; less for a surface no steeper than
-  /// [`MAX_GLASS_SLOPE`].
+  /// How far outside the glass a pixel of it may be read from: what the
+  /// copy of the backdrop is grown by. The edge reads [`Self::bend`] inward,
+  /// which is past the far side of a shape narrower than that. Where shapes
+  /// flow together the way in is not straight across one of them, and the
+  /// whole bend is allowed for.
   pub fn reach(&self) -> f32 {
-    if self.thickness <= 0.0 {
+    if self.bend <= 0.0 {
       return 0.0;
     }
-    (glass_offset(MAX_GLASS_SLOPE, 1.0, self.thickness, (self.refraction - self.dispersion).max(1.0))
-      .max(glass_offset(MAX_GLASS_SLOPE, 1.0, self.thickness, self.refraction + self.dispersion)))
-    .ceil()
-      + 1.0
+    let bend = self.bend * (1.0 + self.dispersion);
+    let across = match self.shapes() {
+      [only] => 2.0 * only.half[0].min(only.half[1]) * only.scale,
+      _ => 0.0,
+    };
+    let past = (bend - across).max(0.0);
+    if past > 0.0 { past.ceil() + 1.0 } else { 0.0 }
   }
 
   /// How far outside the shapes the glass paints: its shadow.
@@ -389,7 +538,8 @@ impl GlassCmd {
     if self.shadow[2] <= 0.0 {
       return 0.0;
     }
-    (self.shadow[0] + self.shadow[1].abs()).ceil() + 1.0
+    // The shadow is under a hundredth of its darkness three quarters of its radius out.
+    (self.shadow[0] * 0.75 + self.shadow[1].abs()).ceil() + 1.0
   }
 
   /// The bounds of the shapes in the window: x0, y0, x1, y1. `None` without
@@ -444,38 +594,20 @@ pub(crate) fn smooth_min(a: f32, b: f32, k: f32) -> f32 {
   a.min(b) - h * h * k * 0.25
 }
 
-/// The height of the glass's surface `u` of the way in from its edge over
-/// the bezel (0 at the edge, 1 where the glass is flat), as a part of its
-/// thickness, and how fast it rises there (per unit of `u`). The profile is
-/// a squircle's quarter: upright at the edge, flat at the top.
-pub(crate) fn glass_profile(u: f32) -> (f32, f32) {
+/// How much of its bend the glass pulls the backdrop in by `u` of the way
+/// in from its edge over the bezel: all of it at the edge (0), none where
+/// the glass is flat (1 and on). The curve is the one the lens of the
+/// system's glass was measured to have, with a step passed behind it in a
+/// simulator: it falls fast at first, so that just inside the edge the
+/// picture runs backwards.
+pub fn lens_pull(u: f32) -> f32 {
   let u = u.clamp(0.0, 1.0);
-  let inside = 1.0 - u;
-  let base = (1.0 - inside.powi(4)).max(1.0e-6);
-  (base.powf(0.25), inside.powi(3) * base.powf(-0.75))
+  (1.0 - u).powf(LENS_POWER) * (-LENS_DECAY * u).exp()
 }
 
-/// How far, and inward, a pixel of a glass of `thickness` is read from under
-/// itself where its surface is `height` of the thickness up and rises by
-/// `slope` (rise over run): Snell's law for a ray that comes straight down,
-/// followed to the bottom of the glass.
-pub(crate) fn glass_offset(slope: f32, height: f32, thickness: f32, index: f32) -> f32 {
-  let slope = slope.clamp(0.0, MAX_GLASS_SLOPE);
-  // The surface's normal leans outward by the slope.
-  let cos_in = 1.0 / (1.0 + slope * slope).sqrt();
-  let sin_in = slope * cos_in;
-  let eta = 1.0 / index.max(1.0);
-  let sin_out = eta * sin_in;
-  let cos_out = (1.0 - sin_out * sin_out).max(0.0).sqrt();
-  // The refracted ray, in the plane of the normal: its sideways and its
-  // downward part.
-  let across = (eta * cos_in - cos_out) * sin_in;
-  let down = eta - (eta * cos_in - cos_out) * cos_in;
-  if down <= 1.0e-4 {
-    return 0.0;
-  }
-  -across / down * height * thickness
-}
+/// The numbers of [`lens_pull`]; the shaders have the same.
+pub(crate) const LENS_POWER: f32 = 1.1;
+pub(crate) const LENS_DECAY: f32 = 2.0;
 
 /// Uniforms of the pass that puts a blurred backdrop back as glass
 /// (`glass.wgsl`): where the finished blur is read, the clips, the material
@@ -498,15 +630,14 @@ pub(crate) struct GlassPass {
   /// The clips' scale, the opacity, the number of shapes, the merge
   /// distance.
   pub cut: [f32; 4],
-  /// Thickness, bezel, index of refraction, dispersion.
+  /// Bend, bezel, dispersion, then nothing.
   pub optics: [f32; 4],
   /// Saturation, brightness, rim light, inner glow.
   pub look: [f32; 4],
   pub tint: [f32; 4],
-  /// The shadow's radius, distance down and alpha, then
-  /// [`MAX_GLASS_SLOPE`].
+  /// The shadow's radius, distance down and alpha, then nothing.
   pub shadow: [f32; 4],
-  /// The unit vector toward the light, then the width of the rim's light.
+  /// The vector toward the light, the width of the rim's light, then 1.
   pub light: [f32; 4],
   /// A touch's centre in the target's pixels, its radius and strength.
   pub touch: [f32; 4],
@@ -550,11 +681,11 @@ impl GlassPass {
       outer_clip: composite.outer_clip,
       outer_clip_radii: composite.outer_clip_radii,
       cut: [composite.mode[2], composite.kernel[3], glass.count as f32, glass.merge],
-      optics: [glass.thickness, glass.bezel, glass.refraction, glass.dispersion],
+      optics: [glass.bend, glass.bezel, glass.dispersion, 0.0],
       look: [glass.saturation, glass.brightness, glass.rim, glass.glow],
       tint: glass.tint,
-      shadow: [glass.shadow[0], glass.shadow[1], glass.shadow[2], MAX_GLASS_SLOPE],
-      light: [glass.light[0], glass.light[1], rim, 0.0],
+      shadow: [glass.shadow[0], glass.shadow[1], glass.shadow[2], 0.0],
+      light: [glass.light[0], glass.light[1], rim, 1.0],
       touch: [
         glass.touch[0] - origin[0],
         glass.touch[1] - origin[1],
@@ -569,6 +700,27 @@ impl GlassPass {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn a_glass_that_follows_its_backdrop_is_between_its_two_looks() {
+    let glass = Glass::regular();
+    let light = glass.toned(0.0);
+    assert_eq!((light.tint, light.ink), (glass.tint, glass.ink));
+    assert_eq!(light.over_dark, None);
+    let dark = glass.toned(1.0);
+    assert_eq!(dark.tint, Color::new(0, 0, 0, 97));
+    assert_eq!(dark.ink, Some(Color::new(255, 255, 255, 255)));
+    assert_eq!(dark.rim, 0.18);
+    let between = glass.toned(0.5);
+    assert_eq!(between.tint, Color::new(128, 128, 128, 114));
+    // A glass that follows nothing is itself over anything.
+    assert_eq!(Glass::clear().toned(1.0), Glass::clear());
+    assert_eq!(Glass::panel().toned(1.0).tint, Color::new(26, 26, 26, 181));
+    // A coloured glass keeps its colour, with white on it where it is dark.
+    let blue = Glass::regular().tint(Color::new(0, 122, 255, 200));
+    assert_eq!(blue.toned(1.0), blue);
+    assert_eq!(blue.ink, Some(Color::new(255, 255, 255, 255)));
+  }
 
   fn pill(x: f32, y: f32, width: f32, height: f32) -> RoundedBox {
     RoundedBox::rect(x, y, width, height, [height * 0.5; 4])
@@ -606,24 +758,23 @@ mod tests {
   }
 
   #[test]
-  fn the_edge_bends_inward_and_the_middle_does_not() {
-    let (height, rise) = glass_profile(1.0);
-    assert!((height - 1.0).abs() < 1e-5 && rise.abs() < 1e-5, "flat inside the bezel");
-    assert_eq!(glass_offset(0.0, 1.0, 20.0, 1.5), 0.0);
-    let (height, rise) = glass_profile(0.3);
-    let offset = glass_offset(rise * 20.0 / 14.0, height, 20.0, 1.5);
-    assert!(offset > 1.0, "{offset}");
-    // No index, no bending.
-    assert!(glass_offset(2.0, 0.8, 20.0, 1.0).abs() < 1e-4);
-    // Nothing is read from further than the reach.
-    let glass = cmd(&[pill(0.0, 0.0, 100.0, 40.0)], 0.0);
-    for step in 0..=100 {
-      let (height, rise) = glass_profile(step as f32 / 100.0);
-      let slope = rise * glass.thickness / glass.bezel;
-      for index in [glass.refraction - glass.dispersion, glass.refraction + glass.dispersion] {
-        assert!(glass_offset(slope, height, glass.thickness, index) <= glass.reach());
-      }
-    }
+  fn the_edge_pulls_in_and_the_middle_does_not() {
+    assert_eq!(lens_pull(0.0), 1.0);
+    assert_eq!(lens_pull(1.0), 0.0);
+    assert_eq!(lens_pull(3.0), 0.0);
+    // As measured on the system's glass: half the bend is gone a fifth of the way in.
+    assert!((lens_pull(0.2) - 0.524).abs() < 0.01, "{}", lens_pull(0.2));
+    assert!(lens_pull(0.5) < 0.18);
+  }
+
+  #[test]
+  fn a_narrow_shape_is_read_past_its_far_side() {
+    // 45 inward from the edge of a pill 40 high comes out 5 past it.
+    assert_eq!(cmd(&[pill(0.0, 0.0, 100.0, 40.0)], 0.0).reach(), 6.0);
+    assert_eq!(cmd(&[pill(0.0, 0.0, 100.0, 60.0)], 0.0).reach(), 0.0);
+    // Shapes that flow together are read from anywhere within the bend.
+    let two = cmd(&[pill(0.0, 0.0, 100.0, 60.0), pill(0.0, 70.0, 100.0, 60.0)], 20.0);
+    assert_eq!(two.reach(), 46.0);
   }
 
   #[test]
@@ -656,16 +807,16 @@ mod tests {
       DEFAULT_GLASS_LIGHT,
       [100.0, 200.0],
     );
-    assert_eq!((glass.thickness, glass.bezel), (54.0, 42.0));
+    assert_eq!((glass.bend, glass.bezel), (135.0, 58.5));
     assert_eq!(glass.touch, [130.0, 215.0, 90.0, 0.5]);
-    assert_eq!(glass.shadow, [54.0, 18.0, 0.16]);
+    assert_eq!(glass.shadow, [96.0, 24.0, 0.12]);
   }
 
   #[test]
   fn two_glasses_meet_half_way() {
     let half = Glass::regular().lerp(&Glass::clear(), 0.5);
-    assert_eq!(half.blur, 8.0);
-    assert_eq!(half.tint, Color::new(255, 255, 255, 30));
+    assert_eq!(half.blur, 7.15);
+    assert_eq!(half.tint, Color::new(255, 255, 255, 65));
     assert_eq!(half.amount, 1.0);
   }
 }
