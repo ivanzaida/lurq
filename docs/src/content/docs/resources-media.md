@@ -292,10 +292,11 @@ What a video or a sound reads as it plays:
   video opened ahead and left paused takes its start and no more; once it plays, ten seconds, by its share of its
   length in bytes, and whatever it needs while it waits for bytes. Left to itself the player read on as fast as the
   host gave it, and a seek's range came beside that: measured on a Mac over a video of 51 MB from a host that gives
-  one client 650 KB a second, it read on at the host's whole speed, and through the loader a video started 1 to 2 s
-  sooner (1.0 to 1.5 s from opening its page, where it was 2.4 to 3 s). Since it is fed, the player starts as soon as
-  it has a frame (it does not wait to be sure it will not stall, as Apple asks of a player fed this way) and stops
-  where it has nothing left to play: the media waits then, and plays on once it has enough. In a build without the
+  one client 650 KB a second, it read on at the host's whole speed, and through the loader a video started up to 2.5 s
+  sooner (1.3 to 1.9 s from opening its page, where it was 2.2 to 4.4 s). The player waits to be sure it will not
+  stall, as it does reading by itself, though Apple asks a player fed this way not to: told not to, it started 0.5 s
+  sooner on a Mac, and on an iPhone it played its sound and its clock with no picture for over a second, sure of
+  nothing. While the media waits it is given what it asks for whatever is read ahead. In a build without the
   feature `http` the system's player reads the address itself, given the headers (`AVURLAssetHTTPHeaderFieldsKey`, a
   key AVFoundation reads that is not in its headers), and reads on as it likes. A player the system pauses (iOS does as the app goes to the background, and
   for a call) is paused for the app too, and one it plays on by itself (iOS does as the app comes back) plays for the

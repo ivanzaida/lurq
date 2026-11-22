@@ -8,7 +8,7 @@ Added:
 
 Changed:
 
-- **On macOS and iOS a video at an address is read by the app's loader, as on Windows.** The system's player is fed the bytes through its asset's resource loader (`media::apple::feed`), with the loader's headers, rule, timeout, cache on the disk, kept starts and connections opened ahead, and is given no more than ten seconds past what plays (a second before it is first told to play). It read on by itself at a host's whole speed. Measured on a Mac with an album's page opened five times from a host that gives one client 650 KB a second, a video started 1.0 to 1.5 s after the page opened where it took 2.4 to 3 s, and 6 s where it took 7.8. The player starts as soon as it has a frame and is played on by the media where it stalls. A build without `http` has the system's player read the address, as before. See [Loading](docs/src/content/docs/resources-media.md#loading).
+- **On macOS and iOS a video at an address is read by the app's loader, as on Windows.** The system's player is fed the bytes through its asset's resource loader (`media::apple::feed`), with the loader's headers, rule, timeout, cache on the disk, kept starts and connections opened ahead, and is given no more than ten seconds past what plays (a second before it is first told to play). It read on by itself at a host's whole speed. Measured on a Mac with five albums' pages opened from a host that gives one client 650 KB a second, a video started 1.3 to 1.9 s after its page opened where it took 2.2 to 4.4 s. While the media waits it is given what it asks for whatever is read ahead. A build without `http` has the system's player read the address, as before. See [Loading](docs/src/content/docs/resources-media.md#loading).
 
 Fixes:
 
