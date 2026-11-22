@@ -224,6 +224,33 @@ fn drops(together: bool) -> Stack {
   )
 }
 
+/// Glasses that stand apart and are blurred as one: every one of the group is put back from one blur of what
+/// is behind them all.
+fn grouped() -> Stack {
+  let button = |caption: &str| {
+    Row::new()
+      .size(56.0, 56.0)
+      .align_items(Alignment::Center)
+      .justify(Justify::Center)
+      .rounded(RadiusSize::Full)
+      .glass(Glass::regular())
+      .backdrop_group("glass-page")
+      .child(text(caption, 16.0, FontWeight::SemiBold).nowrap())
+  };
+  stage(
+    behind(),
+    Row::new()
+      .spacing(14.0)
+      .overflow_visible()
+      .align_items(Alignment::Center)
+      .child(button("1"))
+      .child(button("2"))
+      .child(button("3"))
+      .child(button("4"))
+      .child(button("5")),
+  )
+}
+
 /// A glass that answers a press: it grows, is lit from where it is touched, and springs back.
 fn pressed() -> Stack {
   stage(
@@ -761,6 +788,23 @@ impl Component for GlassPage {
               "if there {",
               "    pane = pane.glass(Glass::regular());",
               "}",
+            ],
+          ),
+        ),
+        Section::new(
+          "Many glasses, one blur",
+          "Glasses of one backdrop group are blurred once, over the rectangle that holds them all, and each is \
+           put back from that blur with its own lens and light. A row of buttons then costs one blur and not \
+           one for each; a glass of the group does not show the ones before it behind it.",
+          self.frame.demo(
+            7,
+            fit("glass-grouped", self.frame.stage_room(), SCENE, grouped()),
+            ".glass(Glass::regular()).backdrop_group(key)",
+            &[
+              "Row::new()",
+              "    .rounded(RadiusSize::Full)",
+              "    .glass(Glass::regular())",
+              "    .backdrop_group(\"toolbar\")",
             ],
           ),
         ),

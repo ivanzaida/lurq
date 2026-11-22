@@ -150,6 +150,26 @@ A glass is a backdrop blur with one more pass, and is kept from frame to frame a
 painted behind it changes, the blurred copy is not made again. A press, a light that moves and a turn to the other
 look repaint the glass without blurring anew.
 
+Nearly all a glass costs is the blur under it, so its backdrop is blurred on a copy reduced once more than a backdrop
+blur's of the same width. On an iPhone 17 a bar of tabs, the buttons of a navigation bar and a sheet of glass over a
+page that scrolls keep 120 frames a second, and so do four full screens of glass on one another.
+
+Glasses that stand apart and near each other, a row of round buttons, are cheaper in one backdrop group (see
+[Glass Side By Side](../blur/#glass-side-by-side)): the first of them blurs what is behind them all, and each is put
+back from that blur with its own lens, light and shadow.
+
+```rust
+Row::new()
+    .rounded(RadiusSize::Full)
+    .glass(Glass::regular())
+    .backdrop_group("toolbar")
+```
+
+Twelve bars of glass over a scrolling page took 5.0 ms of a Mac's GPU a frame each on its own, and 3.7 ms in one
+group. The group's blur is of the rectangle that holds them all: glasses far apart (a button at the top and a bar at
+the bottom) blur everything between them, and are better left on their own. A glass of a group does not show the ones
+before it behind it. `mobile_demo` measures all of this in the app (`LURQ_GLASS_PROBE=1`, its `probe` feature).
+
 - The `wgpu` renderer (Metal, Vulkan, Direct3D 12 through wgpu, WebGPU and WebGL) draws glass.
 - lurq's own `dx12` renderer and DevTools' software capture do not have the pass yet: they draw a glass as its blur
   alone, inside its box (the bounds of the shapes, for a container).

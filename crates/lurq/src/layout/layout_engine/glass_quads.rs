@@ -116,7 +116,8 @@ impl LayoutEngine {
       transform_origin,
       content: QuadContent::Backdrop {
         blur: 0.0,
-        group: None,
+        // A glass in a group of backdrop blurs is blurred with the others of its key, as a blur is.
+        group: node.backdrop_group_key(),
         glass: Some(Box::new(GlassQuad {
           glass: glass.unwrap_or_default(),
           merge: container.unwrap_or(0.0).max(0.0),

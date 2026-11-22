@@ -3080,9 +3080,11 @@ impl RenderEngine for WgpuRenderEngine {
         window,
         &mut self.scratch_backdrop_slots,
       );
+      let mut followers = 0;
       for (index, lead) in follows.iter().enumerate() {
         if let (Some(lead), Some(region)) = (lead, self.scratch_backdrop_regions[index]) {
-          let followed = self.scratch_backdrop_slots[*lead].map(|slots| slots.followed_by(region));
+          let followed = self.scratch_backdrop_slots[*lead].map(|slots| slots.followed_by(region, followers));
+          followers += 1;
           self.scratch_backdrop_slots[index] = followed;
         }
       }
@@ -3267,7 +3269,7 @@ impl RenderEngine for WgpuRenderEngine {
               let glass = list.backdrops[*index]
                 .glass
                 .and_then(|glass| list.glasses.get(glass as usize));
-              compositor.composite_backdrop(queue, &mut pass, &backdrop, &space, glass, glass_rim);
+              compositor.composite_backdrop(device, queue, &mut pass, &backdrop, &space, glass, glass_rim);
               profile_if! {
                 _draw_calls += 2;
                 _layers.blur_draws += 2;

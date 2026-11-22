@@ -59,6 +59,8 @@ enum Over {
   Blur,
   Glass,
   Clear,
+  /// Glass in one group of backdrop blurs: every piece is put back from one blur.
+  Grouped,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -94,7 +96,7 @@ struct Case {
   over: Over,
 }
 
-const CASES: [Case; 16] = [
+const CASES: [Case; 19] = [
   Case {
     name: "bar-nothing",
     pieces: Pieces::Bar,
@@ -166,6 +168,21 @@ const CASES: [Case; 16] = [
     over: Over::Glass,
   },
   Case {
+    name: "bars-grouped",
+    pieces: Pieces::Bars,
+    over: Over::Grouped,
+  },
+  Case {
+    name: "eight-grouped",
+    pieces: Pieces::Eight,
+    over: Over::Grouped,
+  },
+  Case {
+    name: "twelve-grouped",
+    pieces: Pieces::Twelve,
+    over: Over::Grouped,
+  },
+  Case {
     name: "layers-blur",
     pieces: Pieces::Layers,
     over: Over::Blur,
@@ -199,6 +216,7 @@ fn piece(row: Row, over: Over, panel: bool) -> Row {
     Over::Blur => row.background(Color::new(30, 41, 59, 120)).backdrop_blur(glass.blur),
     Over::Glass => row.glass(glass),
     Over::Clear => row.glass(Glass::clear()),
+    Over::Grouped => row.glass(glass).backdrop_group("probe"),
   }
 }
 

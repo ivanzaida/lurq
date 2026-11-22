@@ -73,6 +73,11 @@ built, dropped). When a decision is replaced, the old entry stays and says what 
 - **Why.** Tried on the Mac with the limit at 4: a sheet of glass over a scrolling page went from 3.4 to 1.8 ms of
   GPU time, a bar of tabs with three buttons from 3.0 to 2.4, and the gallery's glass page differed by 2 levels
   of 255 at most. Many small glasses did not get cheaper: their cost is the passes of each one, not their pixels.
+- **Many glasses (Ivan, 2026-11-22: "а чому б не перевикористати блюр груп?").** A glass takes
+  `.backdrop_group(key)`, as a backdrop blur does, and the glasses of a group are put back from one blur. It is
+  the app's to say, not found by lurq: the group's blur is of the rectangle that holds them all, which for
+  glasses far apart is more than their own. Twelve bars of glass went from 5.0 to 3.7 ms on the Mac. Making it
+  work showed that a group drew only its last blur (every follower wrote the leader's uniforms): fixed.
 - **State.** Built.
 
 ## 2026-11-19

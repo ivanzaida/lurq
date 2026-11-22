@@ -3998,7 +3998,9 @@ impl Tree {
           ));
         }
         QuadContent::Backdrop {
-          glass: Some(surface), ..
+          glass: Some(surface),
+          group,
+          ..
         } => {
           let mut tone = |backdrop: &crate::layout::backdrop::BackdropCmd, glass: &crate::layout::glass::GlassCmd| {
             let lightness = match surface.glass.follows {
@@ -4038,7 +4040,10 @@ impl Tree {
             &mut glasses,
             &mut tone,
           ) {
-            backdrops.push(backdrop);
+            backdrops.push(crate::layout::backdrop::BackdropCmd {
+              group: *group,
+              ..backdrop
+            });
           }
         }
         QuadContent::Backdrop {
