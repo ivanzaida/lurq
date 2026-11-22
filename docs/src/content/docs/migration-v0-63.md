@@ -18,15 +18,15 @@ lurq 0.63 brings the design system: the components of `lurq::ui`, a theme that i
 - The Cargo features `svg`, `i18n` and `resources`, which are gone: see [Features](#features).
 - `WgpuExternalImageSlot::set_texture_view`, which returns a `Result`: see [Drawing With Your Own GPU Code](#drawing-with-your-own-gpu-code).
 
-The palette roles of 0.62 still compile. Each gives a deprecation warning that names its replacement: see [Renamed Palette Roles](#renamed-palette-roles).
+The palette roles of 0.62 compiled in 0.63 with a deprecation warning that named the replacement, and were removed in 0.67: see [Renamed Palette Roles](#renamed-palette-roles).
 
-`FormTheme`, `theme.form()` and `theme.set_form(..)` still compile, with a warning: nothing reads them, since the form controls are the design system's components: see [The Form Controls](#the-form-controls).
+`FormTheme`, `theme.form()` and `theme.set_form(..)` compiled in 0.63 with a warning, read by nothing, and were removed in 0.67: the form controls are the design system's components: see [The Form Controls](#the-form-controls).
 
 `lurq::components::Image` still compiles too, with a warning that names `lurq::ui::Picture`: see [Images And Loading](#images-and-loading).
 
 lurq has default features now, the desktop set: an app that named no feature gets a window, a renderer, pictures, drawing, forms, routes and queries. See [Features](#features).
 
-The engine's `Checkbox` and `ActivityIndicator`, and the `dark()` and `for_appearance(..)` of the phone's sheet, tab bar, navigation bar and pull to refresh, still compile, each with a warning that names what to write: see [Components That Moved To `lurq::ui`](#components-that-moved-to-lurqui).
+The engine's `Checkbox` still compiles, with a warning that names what to write. `ActivityIndicator`, and the `dark()` and `for_appearance(..)` of the phone's sheet, tab bar, navigation bar and pull to refresh, compiled in 0.63 with such a warning and were removed in 0.67: see [Components That Moved To `lurq::ui`](#components-that-moved-to-lurqui).
 
 **What changes with no build error**
 
@@ -192,7 +192,7 @@ The other way is to let the app be dark when the system is. Then every color the
 
 ### Renamed Palette Roles
 
-The roles of 0.62 are deprecated. They compile with a warning that names the replacement.
+The roles of 0.62 were deprecated in 0.63, where they compiled with a warning that named the replacement, and removed in 0.67.
 
 | 0.62 | 0.63 |
 | --- | --- |
@@ -233,9 +233,7 @@ Text::new("Saved").color(PaletteColor::MutedForeground);
 What to know while both sets exist:
 
 - **Two roles became one.** `TextSecondary` and `TextMuted` are both `MutedForeground`, and `SurfaceBase` and `SurfaceInput` are both `Background`. An app that gave the two different colors keeps a name of its own for one of them: `PaletteColor::extra("text-secondary")`.
-- **A deprecated role still has a color of its own.** In the design's palettes it is the color of its replacement. In `ThemePalette::legacy()` it is the color it had in 0.62.
-- **Setting a role sets the deprecated roles it replaces.** The form controls do not read the deprecated roles: they are the design system's components, on the new roles (see [The Form Controls](#the-form-controls)). The engine's `Select`, and a checkbox or a slider node with no style of its own, read the new roles through their recipes, and the deprecated ones only under `ThemeDefinition::legacy()`: see [The Engine's Select Takes Its Colors From A Recipe](#the-engines-select-takes-its-colors-from-a-recipe).
-- **Setting a deprecated role sets only that role.** An app that sets `Accent` and uses a role's replacement elsewhere sets `Primary`.
+- **In 0.67 the old roles are gone.** `ThemePalette::legacy()` gives the roles that replaced them the colors of 0.62; where two became one, it has the one color (`MutedForeground` is 0.62's `TextMuted`, `Foreground` the black of text that named no color).
 
 ### A Color Set Once
 
@@ -507,7 +505,7 @@ The form controls of `lurq::components` (feature `form`) are the design system's
 
 ### `FormTheme` Styles Nothing
 
-`FormTheme` and its parts (`FormFieldTheme`, `FormInputTheme`, `FormCheckboxStyle`, `FormSliderStyle`, `FormButtonTheme`, `FormButtonRole`, `FormTextRole`), `theme.form()`, `theme.set_form(..)` and `ThemeDefinition::form` are deprecated and read by nothing: a form set with `set_form` changes nothing on the screen. The controls take the recipes of the components they are, as every one of those components does. Each role of the form theme is a part or a state of a recipe ([Form Theme](../theme/#form-theme) has the table):
+`FormTheme` and its parts (`FormFieldTheme`, `FormInputTheme`, `FormCheckboxStyle`, `FormSliderStyle`, `FormButtonTheme`, `FormButtonRole`, `FormTextRole`), `theme.form()`, `theme.set_form(..)` and `ThemeDefinition::form` were read by nothing in 0.63 and removed in 0.67: a form set with `set_form` changes nothing on the screen. The controls take the recipes of the components they are, as every one of those components does. Each role of the form theme is a part or a state of a recipe ([Form Theme](../theme/#form-theme) has the table):
 
 ```rust
 // 0.62
@@ -784,7 +782,7 @@ Not bound to a signal, it is `Checkbox::new(label).checked(value).on_change(|che
 
 ### `components::ActivityIndicator` Is `ui::Spinner`
 
-`lurq::components::ActivityIndicator` is deprecated: it compiles, with a warning that names `lurq::ui::Spinner`, the design's spinner, drawn in the color of the text around it.
+`lurq::components::ActivityIndicator` was deprecated in 0.63 for `lurq::ui::Spinner`, the design's spinner, drawn in the color of the text around it, and is no component of an app's since 0.67: the pull to refresh draws it.
 
 ```rust
 // 0.62
@@ -807,7 +805,7 @@ Spinner::new().size(SpinnerSize::Md).label("Loading")
 | `PullToRefreshStyle` | spokes of `rgba(60,60,67,0.6)` | `MutedForeground` |
 | `SwipeAction::new`, `destructive` | white on `#8E8E93`, on `#FF3B30` | `Background` on `MutedForeground`; `DestructiveForeground` on `Destructive` |
 
-`dark()` and `for_appearance(..)` are deprecated: they compile, with a warning, and give 0.62's colors.
+`dark()` and `for_appearance(..)` were deprecated in 0.63, where they gave 0.62's colors, and removed in 0.67.
 
 ```rust
 // 0.62

@@ -351,7 +351,7 @@ ctx.form_view(self.form.clone(), |ctx| {
 
 - What the form says of a control, the field shows: the error the form shows of it ([`ErrorVisibility`](#submit-state)) in the place of the hint, in `Destructive`, and the control judged invalid with it; the field's `*` after the label of a control that is `required(true)`; a control that is `disabled(true)`, or one of a form that is submitting, disabled.
 - Each control and its field are as wide as what holds them, the buttons too.
-- They are styled by the theme's recipes for `ui::Field`, `ui::Input`, `ui::Textarea`, `ui::Checkbox`, `ui::Slider` and `ui::Button`, as every one of those components is: `theme.patch_recipe::<ui::Input>(..)` changes the box of a form's text field and of every other input. The deprecated `FormTheme` is read by nothing: see [Form Theme](../theme/#form-theme).
+- They are styled by the theme's recipes for `ui::Field`, `ui::Input`, `ui::Textarea`, `ui::Checkbox`, `ui::Slider` and `ui::Button`, as every one of those components is: `theme.patch_recipe::<ui::Input>(..)` changes the box of a form's text field and of every other input. `FormTheme` was removed in 0.67: see [Form Theme](../theme/#form-theme).
 - The focus is drawn as those components draw it: a ring in `Ring` around a button, a checkbox's box and a slider's thumb from the keyboard, and a line of 2 inside a text box for any focus. A press of a field's label focuses its control.
 
 A form control has the props above and no more. For what it does not have (a size, an icon, a fluid field, a description beside an error), build the field of the design system's components, bound to the control the same way:

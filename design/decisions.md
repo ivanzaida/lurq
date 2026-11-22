@@ -9,6 +9,40 @@ them says so. Decisions about phones and tablets are in [mobile-decisions.md](mo
 Each entry: **the question**, **the decision**, **why**, and its **state** (decided, in work on a branch, built,
 dropped). When a decision is replaced, the old entry stays and says what replaced it.
 
+## 2026-11-22
+
+### What 0.63 deprecated is removed
+
+- **Question.** 0.63 left the old API beside the new one, deprecated, so an app could move at its own pace: 24
+  `#[deprecated]` items on master. Ivan: "давай тепер приберемо все що ми депрекейтнули з кода на мастері".
+- **Decision (Ivan, 2026-11-22).** Every item that carries `#[deprecated]` goes, with what only it used:
+  - `WinitWindow::on_frame` (`on_paint`);
+  - `FormTheme` and its parts, `Theme::form`, `Theme::set_form`, `ThemeDefinition::form` (the recipes of the
+    `ui` controls);
+  - the fifteen palette roles of 0.61 (`Accent`, `SurfaceBase`, `TextMuted`, ...) and their fields of
+    `ThemePalette` (the roles that replaced them);
+  - `dark()` and `for_appearance(..)` of `TabBar`, `SheetStyle` and `NavigationBar`, and
+    `PullToRefreshStyle::dark()` (the theme's appearance);
+  - `components::ActivityIndicator` (`ui::Spinner`), `components::Checkbox` (`ui::Checkbox`) and
+    `components::Image` (`ui::Picture`), as far as the engine does not need them (see below).
+- **Decided by Claude in the work, to be confirmed.**
+  - What is not marked `#[deprecated]` stays, the legacy theme with it (`ThemeDefinition::legacy`,
+    `ThemePalette::legacy`). Its palette keeps 0.61's colors in the roles that replaced the old ones; where two
+    became one it has one color (`TextSecondary`'s and `TextPrimary`'s own colors are in no role). Nothing the
+    engine draws read those two, so nothing it draws in the legacy theme changes.
+  - `PaletteColor::replacement` went with the roles: it answered only for them.
+  - `components::ActivityIndicator` is no longer exported and loses its mark: the pull to refresh draws it.
+    `ActivityIndicatorProps` and its builders are untouched (Ivan: builders that are not deprecated stay).
+  - **`components::Image` and `components::Checkbox` are not removed**, and stay deprecated and exported. The
+    engine draws with both (`ui::Picture`, Markdown, the bars' symbols, the form's checkbox), `Checkbox` is the
+    key of the recipe of the engine's checkbox node (`EngineLook::in_theme::<Checkbox>`), and about seventeen
+    test files check the engine's own nodes through them: decoding from bytes with a placeholder and an error
+    view, fit, the checkbox's own styles. `ui::Picture` and `ui::Checkbox` are other components (`ui::Checkbox`
+    is built on a button), so moving those tests to them would test something else, and `Node::image` /
+    `Node::checkbox` do not reach all of it. Open: either they are engine primitives and lose the mark, or the
+    node API first gains what the wrappers have.
+- **State.** Built on `chore/remove-deprecated`, but for `components::Image` and `components::Checkbox`: open.
+
 ## 2026-11-21
 
 ### A video draws the window for each of its frames, and the system's player reads ahead only so far

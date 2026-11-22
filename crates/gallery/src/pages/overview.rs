@@ -59,11 +59,7 @@ impl Component for Overview {
       ))
       .child(fact(
         "Palette roles",
-        // The design's roles: the deprecated ones of 0.61 are not counted.
-        lurq::app::theme::ThemePalette::roles()
-          .iter()
-          .filter(|role| role.replacement().is_none())
-          .count(),
+        lurq::app::theme::ThemePalette::roles().len(),
         "In a light and a dark set. Switch the theme in the header: every page follows.",
       ));
 

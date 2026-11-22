@@ -217,10 +217,6 @@ fn every_role_of_the_palette_is_a_variable_of_the_design() {
     .map(|variable| role_name(&variable.name))
     .collect();
   for role in ThemePalette::roles() {
-    // A deprecated role is one of lurq 0.61, not of the design.
-    if role.replacement().is_some() {
-      continue;
-    }
     assert!(
       on_the_board.iter().any(|name| name == role.as_str()),
       "`{}` is not a variable of the design",

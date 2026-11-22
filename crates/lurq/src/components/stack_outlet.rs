@@ -308,40 +308,6 @@ impl NavigationBar {
       .base(NavigationBarPart::Action, |s| s.foreground(legacy::TINT))
   }
 
-  /// A dark bar of 0.62.
-  #[deprecated(
-    since = "0.63.0",
-    note = "the theme's appearance gives the dark colors: `NavigationBar::new()` built in a dark theme is dark"
-  )]
-  pub fn dark() -> Self {
-    Self {
-      background: Color::new(28, 28, 30, 204),
-      tint: Color::from_hex("#0a84ff"),
-      title: Color::from_hex("#ffffff"),
-      border: Color::from_hex("#38383a"),
-      ..Self::new()
-    }
-  }
-
-  /// The platform's bar of 0.62 for an appearance.
-  #[deprecated(
-    since = "0.63.0",
-    note = "the theme's appearance gives the colors: `NavigationBar::new()` is light or dark as the theme is"
-  )]
-  #[allow(deprecated)]
-  pub fn for_appearance(appearance: crate::app::window::Appearance) -> Self {
-    match appearance {
-      crate::app::window::Appearance::Light => Self {
-        background: legacy::BACKGROUND,
-        tint: legacy::TINT,
-        title: legacy::TITLE,
-        border: legacy::BORDER,
-        ..Self::new()
-      },
-      crate::app::window::Appearance::Dark => Self::dark(),
-    }
-  }
-
   pub fn background(mut self, color: Color) -> Self {
     self.background = color;
     self

@@ -15,14 +15,13 @@ use crate::{
 
 /// The roles 0.62 painted a checkbox and a slider node in: what the legacy theme gives, and what a theme with no
 /// recipe for them keeps.
-#[allow(deprecated)]
 pub(crate) mod legacy {
   use crate::app::theme::PaletteColor;
 
-  pub(crate) const BOX: PaletteColor = PaletteColor::SurfaceInput;
-  pub(crate) const CHECKED: PaletteColor = PaletteColor::Accent;
+  pub(crate) const BOX: PaletteColor = PaletteColor::Background;
+  pub(crate) const CHECKED: PaletteColor = PaletteColor::Primary;
   pub(crate) const TRACK: PaletteColor = PaletteColor::Border;
-  pub(crate) const THUMB: PaletteColor = PaletteColor::Accent;
+  pub(crate) const THUMB: PaletteColor = PaletteColor::Primary;
 }
 
 /// What a checkbox and a slider node fill with when nothing styles them, as a theme's recipes say.

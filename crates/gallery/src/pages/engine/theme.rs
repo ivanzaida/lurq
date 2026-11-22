@@ -25,7 +25,7 @@ use lurq::{
 use super::kit::named;
 use crate::{
   doc::{Frame, Header, Section},
-  kit::{FILL, mono, muted, props_table, quiet},
+  kit::{FILL, mono, props_table, quiet},
   playground::{Playground, Shown, Spec, divider, flag, prop},
 };
 
@@ -153,7 +153,7 @@ fn surface(name: &str, fill: PaletteColor, ink: PaletteColor) -> Column {
 fn swatch(role: PaletteColor) -> Column {
   // A name breaks after an underscore where it does not fit its swatch, not inside a word.
   let name = role.as_str().replace('_', "_\u{200B}");
-  let mut swatch = Column::new()
+  Column::new()
     .spacing(4.0)
     .child(
       Rect::new(FILL, 28.0)
@@ -161,17 +161,10 @@ fn swatch(role: PaletteColor) -> Column {
         .rounded(RadiusSize::Sm)
         .border(Border::inside(1.0, PaletteColor::Border)),
     )
-    .child(Text::new(&name).variant(TypographyStyle::Caption));
-  if let Some(replacement) = role.replacement() {
-    swatch = swatch.child(muted(
-      &format!("→ {}", replacement.as_str().replace('_', "_\u{200B}")),
-      TypographyStyle::Caption,
-    ));
-  }
-  swatch
+    .child(Text::new(&name).variant(TypographyStyle::Caption))
 }
 
-/// The surfaces with their foregrounds, and every role of the palette, the deprecated ones last.
+/// The surfaces with their foregrounds, and every role of the palette.
 fn palette(wide: bool) -> Column {
   use PaletteColor::*;
   let pairs = [
@@ -188,17 +181,14 @@ fn palette(wide: bool) -> Column {
   for (name, fill, ink) in pairs {
     surfaces = surfaces.child(surface(name, fill, ink));
   }
-  let (current, deprecated): (Vec<PaletteColor>, Vec<PaletteColor>) = ThemePalette::roles()
-    .into_iter()
-    .partition(|role| role.replacement().is_none());
   let mut swatches = Grid::with_columns(if wide { 6 } else { 3 }).gap(10.0).width(FILL);
-  for role in current.into_iter().chain(deprecated) {
+  for role in ThemePalette::roles() {
     swatches = swatches.child(swatch(role));
   }
   panel()
     .child(Text::new("Surfaces, each with the color of what is drawn on it").variant(TypographyStyle::Description))
     .child(surfaces)
-    .child(Text::new("Every role, the deprecated ones last").variant(TypographyStyle::Description))
+    .child(Text::new("Every role").variant(TypographyStyle::Description))
     .child(swatches)
 }
 

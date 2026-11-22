@@ -1,7 +1,7 @@
 //! Pulling a list down to load it anew, and the spinner that says something is being waited for.
 //!
-//! [`ActivityIndicator`] is the platform's spinner: spokes around a centre that light one after another. It is
-//! deprecated for an app, which wants [`ui::Spinner`](crate::ui::Spinner); the pull to refresh still draws it.
+//! `ActivityIndicator` is the platform's spinner: spokes around a centre that light one after another. The pull to
+//! refresh draws it; an app's own spinner is [`ui::Spinner`](crate::ui::Spinner).
 //! [`PullToRefresh`] goes around a list: pulled down past its top far enough, the list asks for a refresh and
 //! stays down, with the spinner over it, until the app says the refresh is done.
 
@@ -83,26 +83,20 @@ impl crate::app::component::DevtoolsInspectable for ActivityIndicatorProps {
   fn write_info(&self, _buffer: &mut Vec<crate::app::component::ComponentInfo>) {}
 }
 
-/// The platform's spinner, as 0.62 drew it.
-#[deprecated(
-  since = "0.63.0",
-  note = "use `lurq::ui::Spinner`: the design's spinner, in the color of the text around it, with a size and a label"
-)]
+/// The platform's spinner, as 0.62 drew it: what a pull to refresh turns. An app's own spinner is
+/// [`ui::Spinner`](crate::ui::Spinner).
 pub struct ActivityIndicator {
   step: Signal<usize>,
   turns: Interval,
   turning: AtomicBool,
 }
 
-// The pull to refresh draws it, and it is still there for an app that names it.
-#[allow(deprecated)]
 impl ActivityIndicator {
   pub fn mount(ctx: &mut Ctx, props: ActivityIndicatorProps) -> Element {
     ctx.mount::<Self>(props)
   }
 }
 
-#[allow(deprecated)]
 impl Component for ActivityIndicator {
   type Props = ActivityIndicatorProps;
 
@@ -236,20 +230,7 @@ impl PullToRefreshStyle {
   /// 0.62's color: the recipe [`UiDefinition::legacy`](crate::ui::UiDefinition::legacy) gives the pull to refresh.
   pub(crate) fn legacy_recipe() -> Recipe {
     Recipe::new().base(PullToRefreshPart::Spinner, |s| s.foreground(LEGACY_SPINNER))
-  }
-
-  /// The platform's dark spinner of 0.62.
-  #[deprecated(
-    since = "0.63.0",
-    note = "the theme's appearance gives the dark color: `PullToRefreshStyle::new()` built in a dark theme is dark"
-  )]
-  pub fn dark() -> Self {
-    Self {
-      spinner_color: Color::new(235, 235, 245, 153),
-      ..Self::default()
-    }
-  }
-}
+  }}
 
 #[derive(Clone)]
 pub struct PullToRefreshProps {
@@ -363,7 +344,6 @@ impl Component for PullToRefresh {
     for child in ctx.children() {
       list = list.child(child.clone());
     }
-    #[allow(deprecated)]
     let spinner = ActivityIndicator::mount(
       ctx,
       ActivityIndicatorProps {

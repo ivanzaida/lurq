@@ -155,11 +155,11 @@ fn the_legacy_theme_keeps_the_controls_of_0_62() {
   // 0.62 painted the roles of 0.61, which keep their own colors in the legacy palette.
   assert_eq!(
     fills_in(legacy.clone(), Appearance::Light, Checkbox::new(Signal::new(false))),
-    [palette.get(PaletteColor::SurfaceInput)]
+    [palette.get(PaletteColor::Background)]
   );
   assert_eq!(
     fills_in(legacy.clone(), Appearance::Dark, Checkbox::new(Signal::new(true))),
-    [palette.get(PaletteColor::Accent)]
+    [palette.get(PaletteColor::Primary)]
   );
   assert_eq!(
     fills_in(
@@ -167,7 +167,7 @@ fn the_legacy_theme_keeps_the_controls_of_0_62() {
       Appearance::Light,
       Slider::new(Signal::new(5)).range(0, 10).width(100.0)
     ),
-    [palette.get(PaletteColor::Border), palette.get(PaletteColor::Accent)]
+    [palette.get(PaletteColor::Border), palette.get(PaletteColor::Primary)]
   );
 }
 

@@ -74,7 +74,6 @@ The main theme accessors are:
 | `theme.control_sizes()`, `theme.icon_sizes()`, `theme.densities()`, `theme.durations()`, `theme.easings()`, `theme.opacities()`, `theme.blurs()` | Read one of the design's other scales; `set_…` replaces it. |
 | `theme.control_size_value(key)`, `icon_size_value`, `density_value`, `duration_value`, `easing_value`, `opacity_value`, `blur_value` | Read one role of a scale; `set_…_value(key, value)` sets one. |
 | `theme.focus_ring()` / `theme.set_focus_ring(...)` | Read or replace `ThemeFocusRing`. |
-| `theme.form()` / `theme.set_form(...)` | Deprecated: `FormTheme` is read by nothing. The form controls are styled by the recipes of the design system's components: see [Form Theme](#form-theme). |
 | `theme.apply(definition)` / `theme.definition()` | Install a whole theme at once, or read the theme back as one value. See [Themes As One Value](#themes-as-one-value). |
 
 Use `theme.lens(getter, setter)` when UI code needs a focused mutable handle for one theme value:
@@ -227,34 +226,27 @@ Text::new("Muted").color(PaletteColor::MutedForeground);
 A window whose root paints no background is cleared to `Background`, so an app that sets no colors at all is dark
 when the theme is, under text that takes the dark `Foreground`.
 
-### Deprecated Roles
+### The Roles Of 0.61
 
-The roles of lurq 0.61 are deprecated, each in favor of one of the design's. They still compile, with a warning that
-names the replacement; the [migration guide](../migration-v0-63/#renamed-palette-roles) has what to change.
+The roles of lurq 0.61 were removed in 0.67, each for one of the design's; the
+[migration guide](../migration-v0-63/#renamed-palette-roles) has what to change.
 
-| Deprecated | Use | In `ThemePalette::legacy()` |
-| --- | --- | --- |
-| `Accent` | `Primary` | `#2563eb` |
-| `AccentHover` | `PrimaryHover` | `#1d4ed8` |
-| `AccentMuted` | `Highlight` | `#dbeafe` |
-| `SurfaceBase` | `Background` | `#ffffff` |
-| `SurfacePanel` | `Canvas` | `#f8fafc` |
-| `SurfaceRaised` | `Card` | `#ffffff` |
-| `SurfaceInput` | `Background` | `#ffffff` |
-| `BorderStrong` | `Input` | `#94a3b8` |
-| `BorderFocus` | `Ring` | `#2563eb` |
-| `TextPrimary` | `Foreground` | `#0f172a` |
-| `TextSecondary` | `MutedForeground` | `#334155` |
-| `TextMuted` | `MutedForeground` | `#64748b` |
-| `TextInverse` | `PrimaryForeground` | `#ffffff` |
-| `Danger` | `Destructive` | `#dc2626` |
-| `DangerMuted` | `DestructiveMuted` | `#fee2e2` |
+| Was | Is |
+| --- | --- |
+| `Accent` | `Primary` |
+| `AccentHover` | `PrimaryHover` |
+| `AccentMuted` | `Highlight` |
+| `SurfaceBase`, `SurfaceInput` | `Background` |
+| `SurfacePanel` | `Canvas` |
+| `SurfaceRaised` | `Card` |
+| `BorderStrong` | `Input` |
+| `BorderFocus` | `Ring` |
+| `TextPrimary` | `Foreground` |
+| `TextSecondary`, `TextMuted` | `MutedForeground` |
+| `TextInverse` | `PrimaryForeground` |
+| `Danger` | `Destructive` |
+| `DangerMuted` | `DestructiveMuted` |
 
-- A deprecated role still has a color of its own. In the design's palettes it is the color of its replacement.
-- Setting a role also sets the deprecated roles it replaces, so what still reads them follows: `Select`, the form
-  controls, and a checkbox or a slider with no style of its own read the deprecated roles until they are rebuilt on
-  the new ones.
-- Setting a deprecated role sets only that role.
 - `ThemePalette::legacy()` is the palette of 0.61, color for color. The roles 0.61 did not have take the 0.61 color
   nearest to what they are for (`primary` is the accent, `canvas` the panel surface), text that names no color is
   black, and there is no dark set.
@@ -944,7 +936,7 @@ Any `T` works, so the same pattern drives padding, font sizes, widths, or whole 
 
 ## Form Theme
 
-`FormTheme` is deprecated, with `theme.form()`, `theme.set_form(..)` and `ThemeDefinition::form`: nothing reads it. The form controls of `lurq::components` (feature `form`) are the design system's components, and a theme styles them as it styles those, by their [recipes](../design-system/): a form's field is a `ui::Field`, its text box a `ui::Input` (a `ui::Textarea` where it is multiline), its checkbox a `ui::Checkbox`, its slider a `ui::Slider`, its buttons a primary and an outline `ui::Button`. See [Forms](../forms/#form-controls). What was a role of `FormTheme` is a part or a state of one of those recipes:
+`FormTheme` was removed in 0.67, with `theme.form()`, `theme.set_form(..)` and `ThemeDefinition::form`: nothing read it since 0.63. The form controls of `lurq::components` (feature `form`) are the design system's components, and a theme styles them as it styles those, by their [recipes](../design-system/): a form's field is a `ui::Field`, its text box a `ui::Input` (a `ui::Textarea` where it is multiline), its checkbox a `ui::Checkbox`, its slider a `ui::Slider`, its buttons a primary and an outline `ui::Button`. See [Forms](../forms/#form-controls). What was a role of `FormTheme` is a part or a state of one of those recipes:
 
 | `FormTheme` | The recipe |
 | --- | --- |
@@ -1070,4 +1062,4 @@ System". `None`, the default, is "System".
 - `Sheet`: with motion reduced it fades in where it stands, and out.
 - `NavigationBar::new()`, `TabBar::new()` and `SheetStyle::new()` are in the theme's colors, light or dark as the
   theme is ([Colors from the theme](../ios/#colors-from-the-theme)). Their `for_appearance(..)` and `dark()`,
-  0.62's colors, are deprecated.
+  0.62's colors, were removed in 0.67.

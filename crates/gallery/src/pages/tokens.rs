@@ -109,11 +109,7 @@ impl Tokens {
     }
     let palette = ctx.theme().palette().clone();
     let mut swatches = Grid::with_columns(if wide { 6 } else { 3 }).gap(12.0).width(FILL);
-    // The roles of the design: a deprecated one has the color of the role that replaces it.
-    for role in ThemePalette::roles()
-      .into_iter()
-      .filter(|role| role.replacement().is_none())
-    {
+    for role in ThemePalette::roles() {
       swatches = swatches.child(swatch(role, &palette));
     }
     Column::new()
