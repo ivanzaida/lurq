@@ -113,6 +113,8 @@ pub mod menu;
 pub mod open_url;
 pub use menu::{Accelerator, ApplicationMenu, Menu, MenuAction, MenuBar, MenuBarSupport, MenuController, MenuItem};
 pub use open_url::{OpenUrlError, open_url};
+pub mod share;
+pub use share::{Share, ShareError};
 pub mod system_appearance;
 pub use system_appearance::system_appearance;
 #[cfg(all(feature = "winit", target_os = "macos"))]

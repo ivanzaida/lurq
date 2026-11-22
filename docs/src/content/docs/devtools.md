@@ -212,7 +212,7 @@ The main tree exposes this through internal tree methods such as debug overlay s
 `devtools` turns on frame profiling (`perf_profile`) at compile time:
 
 ```toml
-lurq = { version = "0.64.0", features = ["winit", "wgpu", "devtools"] }
+lurq = { version = "0.66.1", features = ["winit", "wgpu", "devtools"] }
 ```
 
 The Profiler tab records on the inspected tree's [profiling session service](../profiling/), the one `Tree::profiling_handle()` returns:

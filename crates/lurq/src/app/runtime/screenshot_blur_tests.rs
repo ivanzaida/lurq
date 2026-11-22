@@ -94,6 +94,7 @@ fn a_backdrop_blur_softens_the_capture_inside_its_rounded_box_only() {
     glass: None,
     reach: 0.0,
     spread: 0.0,
+    group: None,
   };
   blur_screenshot_backdrop(&mut capture, bounds, &backdrop);
 

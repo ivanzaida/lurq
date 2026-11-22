@@ -591,6 +591,17 @@ struct CachedRenderList {
   video_sources: Vec<Option<crate::images::ImageData>>,
 }
 
+/// Whether one of `sources` is to be drawn again: a picture whose frames come by themselves, with a frame not drawn
+/// yet, or another that changes by itself. `drawn` are the images of the list drawn last, which `sources` lie along.
+#[cfg(feature = "raster")]
+fn redraws(sources: &[Option<crate::images::ImageData>], drawn: &[crate::images::ImageCmd]) -> bool {
+  sources.iter().zip(drawn).any(|(source, drawn)| {
+    source
+      .as_ref()
+      .is_some_and(|source| source.redraws_after(drawn.version))
+  })
+}
+
 /// Lets go of the atlas pixels a drawn list holds. A list kept for another
 /// frame would otherwise hold a snapshot of the glyph atlas, and the atlas
 /// packs its next new glyph into a copy of all its pixels while a snapshot
@@ -869,6 +880,9 @@ pub struct Tree {
   /// The window's loop, noted for the medias this thread listens to: what wakes it when one of them changed.
   #[cfg(feature = "media")]
   media_loop: Option<crate::media::LoopNoted>,
+  /// The window's loop, as the pictures it draws whose frames come by themselves wake it with each new one.
+  #[cfg(feature = "raster")]
+  frame_waker: Option<crate::app::window::WindowWaker>,
   /// The loading-image nodes built when the tree last walked for them.
   #[cfg(feature = "image")]
   loading_images_built_seen: u64,
@@ -1397,6 +1411,8 @@ impl Tree {
       loading_image_waker: None,
       #[cfg(feature = "media")]
       media_loop: None,
+      #[cfg(feature = "raster")]
+      frame_waker: None,
       #[cfg(feature = "image")]
       loading_images_built_seen: 0,
       clipboard_reader: None,
@@ -2085,12 +2101,36 @@ impl Tree {
   pub(crate) fn has_continuous_redraw_image(&self) -> bool {
     #[cfg(feature = "raster")]
     {
+      self
+        .cached_render_list
+        .as_ref()
+        .is_some_and(|cached| redraws(&cached.image_sources, &cached.list.images))
+    }
+
+    #[cfg(not(feature = "raster"))]
+    {
+      false
+    }
+  }
+
+  /// [`Self::has_continuous_redraw_image`] for the pictures that are not a video's: the shell presents a video's
+  /// frames directly, and paces only the others.
+  #[cfg_attr(not(feature = "winit"), allow(dead_code))]
+  pub(crate) fn has_continuous_redraw_still(&self) -> bool {
+    #[cfg(feature = "raster")]
+    {
       self.cached_render_list.as_ref().is_some_and(|cached| {
         cached
           .image_sources
           .iter()
-          .flatten()
-          .any(crate::images::ImageData::requires_continuous_redraw)
+          .zip(&cached.video_sources)
+          .zip(&cached.list.images)
+          .any(|((source, video), drawn)| {
+            video.is_none()
+              && source
+                .as_ref()
+                .is_some_and(|source| source.redraws_after(drawn.version))
+          })
       })
     }
 
@@ -2104,13 +2144,10 @@ impl Tree {
   pub(crate) fn has_continuous_redraw_video(&self) -> bool {
     #[cfg(feature = "raster")]
     {
-      self.cached_render_list.as_ref().is_some_and(|cached| {
-        cached
-          .video_sources
-          .iter()
-          .flatten()
-          .any(crate::images::ImageData::requires_continuous_redraw)
-      })
+      self
+        .cached_render_list
+        .as_ref()
+        .is_some_and(|cached| redraws(&cached.video_sources, &cached.list.images))
     }
 
     #[cfg(not(feature = "raster"))]
@@ -3906,6 +3943,10 @@ impl Tree {
             clip: scaled_clip,
             opacity: quad.opacity,
           });
+          if let Some(wakers) = data.frame_wakers() {
+            let wake = self.frame_waker.get_or_insert_with(|| self.window.loop_waker());
+            wakers.attach(Arc::as_ptr(wake).cast::<()>() as usize, wake);
+          }
           image_sources.push(Some(data.clone()));
           video_sources.push(is_video.then(|| data.clone()));
         }
@@ -4000,7 +4041,11 @@ impl Tree {
             backdrops.push(backdrop);
           }
         }
-        QuadContent::Backdrop { blur, glass: None } => {
+        QuadContent::Backdrop {
+          blur,
+          glass: None,
+          group,
+        } => {
           let (w, h) = (quad.width * scale, quad.height * scale);
           backdrops.push(crate::layout::backdrop::BackdropCmd {
             order,
@@ -4026,6 +4071,7 @@ impl Tree {
             glass: None,
             reach: 0.0,
             spread: 0.0,
+            group: *group,
           });
         }
         QuadContent::None => {}
@@ -14656,6 +14702,8 @@ fn glass_backdrop(
   let amount = surface.glass.amount.clamp(0.0, 1.0);
   let radius = (surface.glass.blur.max(0.0) * amount).min(MAX_BLUR_RADIUS);
   let mut backdrop = crate::layout::backdrop::BackdropCmd {
+    // A glass reads what is behind it alone: it is in no group of backdrop blurs.
+    group: None,
     order,
     x: x0,
     y: y0,

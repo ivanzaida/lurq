@@ -204,6 +204,7 @@ struct State {
   /// The frame to show, and how many were shown before it.
   shown: Mutex<Option<(u64, CardFrame)>>,
   count: AtomicU64,
+  wakers: super::FrameWakers,
   /// The way the frames come to the screen: nothing before they are opened, and then a [`CardFramesWay`] and
   /// one.
   way: AtomicU8,
@@ -263,6 +264,7 @@ impl CardFrames {
         fence,
         shown: Mutex::new(None),
         count: AtomicU64::new(0),
+        wakers: super::FrameWakers::default(),
         way: AtomicU8::new(0),
       }),
     }
@@ -290,6 +292,11 @@ impl CardFrames {
     let before = self.state.shown.lock().replace((count, frame));
     // Its lease may run code of the decoder's: not under the lock.
     drop(before);
+    self.state.wakers.wake();
+  }
+
+  pub(crate) fn wakers(&self) -> &super::FrameWakers {
+    &self.state.wakers
   }
 
   /// The frame to show, where one was shown.

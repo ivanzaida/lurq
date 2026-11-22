@@ -1,6 +1,5 @@
 //! A transition runs while a video plays. The shell then draws the window at the video's pace: it calls a pass for
-//! each frame of the display and asks for no frame of the timeline meanwhile, so each pass comes with no redraw
-//! asked for. Each such pass steps the transition all the same, as a pass the timeline asked for does: a sidebar
+//! each frame of the video and of the timeline as they come, and each pass comes with no redraw asked for. Each such pass steps the transition all the same, as a pass the timeline asked for does: a sidebar
 //! that collapses beside a playing video moves at the display's pace. Such passes once drew the list the window
 //! kept, where the transition was when something else last laid the window out, and the sidebar moved only when
 //! the player's own clock rendered it again, four times a second. Once the transition is over, the video's frames
@@ -53,6 +52,7 @@ struct Stage {
   tree: Tree,
   start: Instant,
   drawn: Arc<Mutex<Option<f32>>>,
+  video: ImageData,
 }
 
 impl Stage {
@@ -73,13 +73,14 @@ impl Stage {
             .hovered(|style| style.width(NARROW))
             .transition(Transition::width().duration_ms(TAKES).easing(Easing::Linear)),
         )
-        .child(Video::new(frames).size(320.0, 180.0)),
+        .child(Video::new(frames.clone()).size(320.0, 180.0)),
     );
     let mut stage = Self {
       app: App::new(),
       tree,
       start: Instant::now(),
       drawn,
+      video: frames,
     };
     stage.tree.set_animation_clock(Some(stage.start));
     stage.tree.request_redraw();
@@ -89,6 +90,12 @@ impl Stage {
 
   /// The pass the shell runs for the video's frame `millis` after the start: no redraw asked for.
   fn video_frame(&mut self, millis: u64) -> PassReport {
+    self.video.set_streaming_rgba(vec![0; 16 * 9 * 4]);
+    self.pass_at(millis)
+  }
+
+  /// A pass `millis` after the start with no new frame of the video.
+  fn pass_at(&mut self, millis: u64) -> PassReport {
     self
       .tree
       .set_animation_clock(Some(self.start + Duration::from_millis(millis)));
@@ -158,4 +165,15 @@ fn a_sidebar_collapses_at_the_displays_pace_beside_a_playing_video() {
     );
   }
   assert_eq!(stage.width(), NARROW);
+}
+
+#[test]
+fn a_video_between_two_of_its_frames_asks_for_no_pass() {
+  let mut stage = Stage::new();
+  assert!(stage.video_frame(FRAME).rendered);
+  // Nothing changed since its frame was drawn: a paused video, or the display's refresh before the next frame.
+  let between = stage.pass_at(2 * FRAME);
+  assert!(!between.required, "no pass is required between two of a video's frames");
+  assert!(!between.rendered);
+  assert!(stage.video_frame(3 * FRAME).rendered, "its next frame is drawn");
 }

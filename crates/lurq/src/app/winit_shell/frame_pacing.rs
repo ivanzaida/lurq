@@ -68,7 +68,7 @@ impl FramePacing {
     }
     tree.tick_perf_overlay();
     let changes_at = if tree.perf_overlay_enabled()
-      || tree.has_continuous_redraw_image()
+      || tree.has_continuous_redraw_still()
       || tree.autoscroll_moving()
       || tree.has_moving_canvas()
     {
@@ -98,6 +98,11 @@ impl FramePacing {
     self.hidden = hidden;
     tree.set_frames_hidden(hidden);
     (hidden, shown)
+  }
+
+  /// Whether the window was minimized or occluded at the last request.
+  pub(super) fn hidden(&self) -> bool {
+    self.hidden
   }
 
   /// The display's refresh interval, read with `refresh` at most once a second.

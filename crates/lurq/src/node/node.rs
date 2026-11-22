@@ -821,6 +821,7 @@ pub(crate) trait NodeUpdate {
   fn glass(&mut self, glass: crate::layout::glass::Glass);
   fn glass_container(&mut self, merge: f32);
   fn on_glass_look(&mut self, heard: crate::layout::glass::GlassLookHandler);
+  fn backdrop_group(&mut self, key: u64);
   fn transform(&mut self, t: Transform2D);
   fn transition(&mut self, spec: Transition);
   fn animation(&mut self, spec: Animation);
@@ -1193,6 +1194,8 @@ pub(crate) struct RareNode {
   /// The name the node's value has in a form.
   #[cfg(feature = "form")]
   pub(crate) form_name: Option<Arc<str>>,
+  /// The glass the node's backdrop blur is blurred with, by its key; see `Node::backdrop_group`.
+  pub(crate) backdrop_group: Option<u64>,
 }
 
 /// Whether any node of the process was ever disabled. Until one is, no tree
@@ -1204,6 +1207,14 @@ static KEY_CAPTURE_IN_USE: std::sync::atomic::AtomicBool = std::sync::atomic::At
 
 pub(crate) fn key_capture_in_use() -> bool {
   KEY_CAPTURE_IN_USE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// The key [`Node::backdrop_group`] keeps for `key`.
+pub(crate) fn backdrop_group_key(key: impl std::hash::Hash) -> u64 {
+  use std::hash::Hasher;
+  let mut hasher = std::collections::hash_map::DefaultHasher::new();
+  key.hash(&mut hasher);
+  hasher.finish()
 }
 
 pub(crate) fn disabled_in_use() -> bool {
@@ -2560,6 +2571,10 @@ impl NodeUpdate for Node {
 
   fn on_glass_look(&mut self, heard: crate::layout::glass::GlassLookHandler) {
     self.rare_style.glass_look_handler = Some(heard);
+  }
+
+  fn backdrop_group(&mut self, key: u64) {
+    self.rare.backdrop_group = Some(key);
   }
 
   fn transform(&mut self, t: Transform2D) {
@@ -4650,6 +4665,16 @@ impl Node {
     self
   }
 
+  /// Blurs the node's backdrop together with the other backdrop blurs of the same `key` and radius painted into
+  /// the same window or layer, as one: the first of them reads what is behind all of their boxes, and the others
+  /// show what it read. Glass that stands close together (a column of round buttons) then costs one blur of the
+  /// pixels about it, not one for each; but a glass of the group does not show the ones before it behind it, as
+  /// each would alone. Without a group, each backdrop blur is blurred on its own. See the Blur guide.
+  pub fn backdrop_group(mut self, key: impl std::hash::Hash) -> Self {
+    self.rare.backdrop_group = Some(backdrop_group_key(key));
+    self
+  }
+
   pub fn transform(mut self, t: Transform2D) -> Self {
     self.transform = t;
     self
@@ -5972,6 +5997,11 @@ impl Node {
   /// container.
   pub(crate) fn glass_merge(&self) -> Option<f32> {
     self.rare_style.glass_merge
+  }
+
+  /// The key of the group the node's backdrop blur is blurred with, if it is in one.
+  pub(crate) fn backdrop_group_key(&self) -> Option<u64> {
+    self.rare.backdrop_group
   }
 
   /// The blur radius of the node's backdrop as drawn, in logical pixels; 0 without one.

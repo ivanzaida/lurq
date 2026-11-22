@@ -477,6 +477,8 @@ pub enum QuadContent {
   Backdrop {
     blur: f32,
     glass: Option<Box<GlassQuad>>,
+    /// The key of the group it is blurred with; see [`crate::node::Node::backdrop_group`].
+    group: Option<u64>,
   },
   Text {
     text: String,

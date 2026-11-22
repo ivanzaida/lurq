@@ -272,7 +272,7 @@ pub(super) fn told(shared: &Shared) {
         let at = shared.inner().at;
         element.set_current_time(at);
       }
-      Command::Seek(to) => {
+      Command::Seek(to) | Command::SeekNear(to) => {
         let to = shared.inner().duration.map_or(to, |duration| to.min(duration));
         element.set_current_time(to);
       }

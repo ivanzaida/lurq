@@ -1376,6 +1376,7 @@ mod tests {
       glass: None,
       reach: 0.0,
       spread: 0.0,
+      group: None,
     }
   }
 

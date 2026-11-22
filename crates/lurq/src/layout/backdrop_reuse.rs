@@ -78,6 +78,69 @@ pub(crate) fn backdrop_regions(
   }
 }
 
+/// Puts together the backdrop blurs of a frame that are blurred as one (see
+/// [`Node::backdrop_group`](crate::node::Node::backdrop_group)): those of a
+/// target with the same group, deviation and rounded clips. The first of
+/// them, the leader, copies and blurs the union of their rectangles in its
+/// place in the target; the others put back what it blurred, each in its own
+/// box. `regions` are the blurs' regions, by their index in
+/// [`RenderList::backdrops`]: a group's blurs all take the leader's grown
+/// rectangle, which their pixels are read from. Returns, by the same index,
+/// the leader a blur follows; `None` for a leader and a blur on its own.
+pub(crate) fn group_backdrops(
+  list: &RenderList,
+  plan: &LayerPlan,
+  regions: &mut [Option<BackdropRegion>],
+) -> Vec<Option<usize>> {
+  let mut follows = vec![None; regions.len()];
+  if list.backdrops.iter().all(|backdrop| backdrop.group.is_none()) {
+    return follows;
+  }
+  for target in plan.targets() {
+    let mut leaders: Vec<usize> = Vec::new();
+    for step in plan.steps(target) {
+      let LayerStep::Backdrop(index) = step else {
+        continue;
+      };
+      let index = *index;
+      let (Some(group), Some(blur)) = (
+        list.backdrops[index].group,
+        regions[index].and_then(|region| region.layer.blur),
+      ) else {
+        continue;
+      };
+      let leader = leaders.iter().copied().find(|&leader| {
+        list.backdrops[leader].group == Some(group)
+          && regions[leader]
+            .and_then(|region| region.layer.blur)
+            .is_some_and(|led| led.sigma == blur.sigma && led.clips == blur.clips)
+      });
+      let Some(leader) = leader else {
+        leaders.push(index);
+        continue;
+      };
+      if let Some(led) = regions[leader].as_mut().and_then(|region| region.layer.blur.as_mut()) {
+        let x1 = (led.x + led.width as i32).max(blur.x + blur.width as i32);
+        let y1 = (led.y + led.height as i32).max(blur.y + blur.height as i32);
+        led.x = led.x.min(blur.x);
+        led.y = led.y.min(blur.y);
+        led.width = (x1 - led.x) as u32;
+        led.height = (y1 - led.y) as u32;
+      }
+      follows[index] = Some(leader);
+    }
+  }
+  for index in 0..regions.len() {
+    if let Some(leader) = follows[index] {
+      let grown = regions[leader].and_then(|region| region.layer.blur);
+      if let Some(region) = regions[index].as_mut() {
+        region.layer.blur = grown;
+      }
+    }
+  }
+  follows
+}
+
 /// The inputs of a frame's backdrop blurs, by their index in
 /// [`RenderList::backdrops`].
 #[derive(Default)]
@@ -196,6 +259,106 @@ impl BackdropInputs {
   }
 }
 
+/// The inputs of a frame's blurred layers, by the index of their target in
+/// the frame's [`LayerPlan`]: what decides the pixels a layer's blur gives,
+/// so that a render engine keeps the blurred texture of a layer that holds
+/// still (a blurred picture under a playing video) and composites it again
+/// without painting the layer or blurring it.
+#[derive(Default)]
+pub(crate) struct LayerBlurInputs {
+  inputs: Vec<Input>,
+  extents: Vec<Cell<Option<Extent>>>,
+}
+
+impl LayerBlurInputs {
+  /// Writes down the input of every blurred layer of a frame, with the same
+  /// arguments as [`BackdropInputs::describe`].
+  ///
+  /// The input of a blurred layer is the place it is painted for (its origin
+  /// and size), its blur (deviation and rectangle), and everything painted
+  /// into it: what a layer composited into its target is noted with (its
+  /// draws, the layers inside it and their blurs, its backdrop blurs), its
+  /// bounds, opacity and clips. A layer that holds an image with pixels of its
+  /// owner's (a video frame, a canvas, an external texture), or whose input
+  /// would take more than [`MAX_INPUT_BYTES`], has no known input and is
+  /// blurred every frame; so is one with a backdrop blur inside it, which
+  /// reads pixels painted in the same frame.
+  pub(crate) fn describe(
+    &mut self,
+    list: &RenderList,
+    plan: &LayerPlan,
+    draws: usize,
+    draw: impl Fn(usize) -> PaintedDraw,
+    regions: &[Option<BackdropRegion>],
+    window: [u32; 2],
+  ) {
+    let targets = plan.targets();
+    self.inputs.resize_with(targets.len(), Input::default);
+    self.inputs.truncate(targets.len());
+    for input in &mut self.inputs {
+      input.bytes.clear();
+      input.known = false;
+    }
+    if !targets
+      .iter()
+      .any(|target| target.layer.is_some_and(|layer| list.layers[layer].blur.is_some()))
+    {
+      return;
+    }
+    self.extents.clear();
+    self.extents.resize(draws, Cell::new(None));
+    let frame = Frame {
+      list,
+      plan,
+      draw: &draw,
+      extents: &self.extents,
+      regions,
+      window,
+    };
+    for (index, target) in targets.iter().enumerate() {
+      let Some(layer) = target.layer.map(|layer| &list.layers[layer]) else {
+        continue;
+      };
+      let Some(blur) = layer.blur else {
+        continue;
+      };
+      if frame.has_backdrop(target) {
+        continue;
+      }
+      let mut notes = Notes {
+        bytes: std::mem::take(&mut self.inputs[index].bytes),
+        atlas_noted: false,
+      };
+      // The place first, laid out as a backdrop blur's in a layer: see `place_len`.
+      let (origin, size) = layer.painted();
+      notes.tag(b'L');
+      notes.i32s(&origin);
+      notes.u32s(&size);
+      notes.f32(blur.sigma);
+      notes.i32s(&[blur.x, blur.y]);
+      notes.u32s(&[blur.width, blur.height]);
+      let known = frame.note_layer(&mut notes, target, layer) && notes.bytes.len() <= MAX_INPUT_BYTES;
+      if !known {
+        notes.bytes.clear();
+      }
+      self.inputs[index] = Input {
+        bytes: notes.bytes,
+        known,
+      };
+    }
+  }
+
+  /// The input of the blurred layer painted by target `index`; `None` when it
+  /// is not known, and the layer is painted and blurred every frame.
+  pub(crate) fn input(&self, index: usize) -> Option<&[u8]> {
+    self
+      .inputs
+      .get(index)
+      .filter(|input| input.known)
+      .map(|input| input.bytes.as_slice())
+  }
+}
+
 /// A frame being described.
 struct Frame<'a, D> {
   list: &'a RenderList,
@@ -283,6 +446,15 @@ impl<D: Fn(usize) -> PaintedDraw> Frame<'_, D> {
       }
     }
     true
+  }
+
+  /// Whether a backdrop blur is painted into `target` or a layer inside it.
+  fn has_backdrop(&self, target: &LayerTarget) -> bool {
+    self.plan.steps(target).iter().any(|step| match step {
+      LayerStep::Backdrop(index) => self.regions.get(*index).copied().flatten().is_some(),
+      LayerStep::Composite(child) => self.has_backdrop(&self.plan.targets()[*child]),
+      LayerStep::Draws(_) => false,
+    })
   }
 
   /// Notes everything painted into the layer `target` paints, as the layer
@@ -855,6 +1027,29 @@ impl BackdropCache {
     uses: &mut Vec<Option<BackdropUse>>,
     released: &mut Vec<u64>,
   ) {
+    self.begin_frame_of(
+      regions.len(),
+      |index| regions[index].is_some(),
+      |index| inputs.input(index),
+      budget,
+      uses,
+      released,
+    );
+  }
+
+  /// [`Self::begin_frame`] for `count` blurs of any kind: `blurs(index)` says
+  /// whether the frame runs blur `index`, `input(index)` what it reads. The
+  /// cache of a window's blurred layers is one of these, by the layers'
+  /// targets.
+  pub(crate) fn begin_frame_of<'a>(
+    &mut self,
+    count: usize,
+    blurs: impl Fn(usize) -> bool,
+    input: impl Fn(usize) -> Option<&'a [u8]>,
+    budget: usize,
+    uses: &mut Vec<Option<BackdropUse>>,
+    released: &mut Vec<u64>,
+  ) {
     self.budget = budget;
     uses.clear();
     released.clear();
@@ -867,8 +1062,8 @@ impl BackdropCache {
     }
     // First the blurs whose input is a kept one, so that a blur that has to
     // run again does not take their result for its place.
-    for (index, region) in regions.iter().enumerate() {
-      uses.push(region.map(|_| match inputs.input(index) {
+    for index in 0..count {
+      uses.push(blurs(index).then(|| match input(index) {
         None => BackdropUse::Blur { keep: false },
         Some(input) => match self.kept.iter_mut().find(|kept| !kept.taken && kept.input == input) {
           Some(kept) => {
@@ -880,7 +1075,7 @@ impl BackdropCache {
       }));
     }
     for (index, used) in uses.iter_mut().enumerate() {
-      let (Some(BackdropUse::Blur { keep: true }), Some(input)) = (*used, inputs.input(index)) else {
+      let (Some(BackdropUse::Blur { keep: true }), Some(input)) = (*used, input(index)) else {
         continue;
       };
       let at_place = self
@@ -908,9 +1103,13 @@ impl BackdropCache {
   /// [`BackdropUse::Blur`]. Returns whether it is kept: not when that would
   /// take the kept textures past their budget or their number.
   pub(crate) fn keep(&mut self, inputs: &BackdropInputs, index: usize, texture: u64, bytes: usize) -> bool {
-    let Some(input) = inputs.input(index) else {
-      return false;
-    };
+    inputs
+      .input(index)
+      .is_some_and(|input| self.keep_input(input, texture, bytes))
+  }
+
+  /// [`Self::keep`] of a blur that reads `input`.
+  pub(crate) fn keep_input(&mut self, input: &[u8], texture: u64, bytes: usize) -> bool {
     if self.kept.len() >= MAX_KEPT || self.bytes() + bytes > self.budget {
       return false;
     }

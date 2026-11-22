@@ -70,6 +70,7 @@ fn glass(order: usize, [x, y, width, height]: [f32; 4], sigma: f32) -> BackdropC
     glass: None,
     reach: 0.0,
     spread: 0.0,
+    group: None,
   }
 }
 
@@ -109,6 +110,9 @@ fn list(rects: Vec<RectCmd>, backdrops: Vec<BackdropCmd>) -> RenderList {
 struct Scene {
   inputs: BackdropInputs,
   regions: Vec<Option<BackdropRegion>>,
+  layer_blurs: LayerBlurInputs,
+  /// The target of the first blurred layer.
+  blurred: Option<usize>,
 }
 
 impl Scene {
@@ -143,7 +147,26 @@ impl Scene {
     backdrop_regions(list, &plan, window, &mut regions);
     let mut inputs = BackdropInputs::default();
     inputs.describe(list, &plan, draws.len(), |index| draws[index].1, &regions, window);
-    Self { inputs, regions }
+    let mut layer_blurs = LayerBlurInputs::default();
+    layer_blurs.describe(list, &plan, draws.len(), |index| draws[index].1, &regions, window);
+    let blurred = plan
+      .targets()
+      .iter()
+      .position(|target| target.layer.is_some_and(|layer| list.layers[layer].blur.is_some()));
+    Self {
+      inputs,
+      regions,
+      layer_blurs,
+      blurred,
+    }
+  }
+
+  /// The input of the frame's first blurred layer.
+  fn layer_blur_input(&self) -> Option<Vec<u8>> {
+    self
+      .blurred
+      .and_then(|target| self.layer_blurs.input(target))
+      .map(<[u8]>::to_vec)
   }
 
   fn input(&self, index: usize) -> Option<Vec<u8>> {
@@ -870,4 +893,179 @@ fn a_blur_without_a_known_input_keeps_nothing() {
     frame(&mut cache, &video(Some(native.clone())), 1000),
     (vec![Some(BackdropUse::Blur { keep: false })], vec![100])
   );
+}
+
+/// A backdrop at order 0, then a blurred layer over orders [1, 3) holding a rect at 1 and, where the test puts it,
+/// a draw at 2, then a rect at 3 painted after the layer.
+fn blurred_layer() -> RenderList {
+  let mut list = list(
+    vec![
+      rect(0, [0.0, 0.0, 400.0, 300.0]),
+      rect(1, [20.0, 20.0, 200.0, 150.0]),
+      rect(3, [300.0, 200.0, 20.0, 20.0]),
+    ],
+    Vec::new(),
+  );
+  let mut blurred = layer(1, 3, [0, 0, 260, 210]);
+  blurred.opacity = 1.0;
+  blurred.blur = Some(LayerBlur {
+    sigma: 12.0,
+    coarse: false,
+    x: -36,
+    y: -36,
+    width: 332,
+    height: 282,
+    clips: Default::default(),
+  });
+  list.layers = vec![blurred];
+  list
+}
+
+fn layer_blur_input(list: &RenderList) -> Option<Vec<u8>> {
+  Scene::new(list).layer_blur_input()
+}
+
+#[test]
+fn a_blurred_layer_that_holds_still_has_the_same_input() {
+  let first = layer_blur_input(&blurred_layer()).expect("a known input");
+  assert_eq!(layer_blur_input(&blurred_layer()), Some(first));
+}
+
+#[test]
+fn a_blurred_layer_s_input_is_what_it_holds_and_where_it_is() {
+  let before = layer_blur_input(&blurred_layer());
+  let mut inside = blurred_layer();
+  inside.rects[1].color = Color::new(10, 40, 200, 255);
+  assert_ne!(layer_blur_input(&inside), before, "a draw inside it");
+  let mut moved = blurred_layer();
+  moved.layers[0].bounds.y += 4;
+  assert_ne!(layer_blur_input(&moved), before, "its place");
+  let mut wider = blurred_layer();
+  wider.layers[0].blur.as_mut().unwrap().sigma = 16.0;
+  assert_ne!(layer_blur_input(&wider), before, "its blur");
+  // What lies under it or is painted after it is not in its pixels.
+  let mut around = blurred_layer();
+  around.rects[0].color = Color::new(0, 0, 0, 255);
+  around.rects[2].x += 10.0;
+  assert_eq!(layer_blur_input(&around), before, "what is painted around it");
+}
+
+#[cfg(feature = "raster")]
+#[test]
+fn a_blurred_picture_is_its_id_and_version_and_a_video_has_no_known_input() {
+  let with = |image: crate::images::ImageCmd| {
+    let mut list = blurred_layer();
+    list.images = vec![image];
+    list
+  };
+  let picture = layer_blur_input(&with(image(2, 3, None))).expect("a known input");
+  assert_eq!(layer_blur_input(&with(image(2, 3, None))), Some(picture.clone()));
+  assert_ne!(layer_blur_input(&with(image(2, 4, None))), Some(picture), "another version of it");
+  let native = crate::images::NativeImageData::new(
+    4,
+    4,
+    crate::images::ImagePixelFormat::Rgba8,
+    crate::images::NativeImageBackend::Test,
+    (),
+  );
+  assert_eq!(layer_blur_input(&with(image(2, 3, Some(native)))), None);
+}
+
+#[test]
+fn a_blurred_layer_with_a_glass_inside_has_no_known_input() {
+  let mut list = blurred_layer();
+  list.backdrops = vec![glass(2, [40.0, 40.0, 60.0, 40.0], 4.0)];
+  assert_eq!(layer_blur_input(&list), None);
+}
+
+#[test]
+fn a_blurred_layer_s_kept_result_is_put_back_while_it_holds_still() {
+  let mut cache = BackdropCache::default();
+  let blur_frame = |cache: &mut BackdropCache, list: &RenderList| {
+    let scene = Scene::new(list);
+    let (mut uses, mut released) = (Vec::new(), Vec::new());
+    let target = scene.blurred.expect("a blurred layer");
+    cache.begin_frame_of(
+      target + 1,
+      |index| index == target,
+      |index| scene.layer_blurs.input(index),
+      1 << 20,
+      &mut uses,
+      &mut released,
+    );
+    let used = uses[target];
+    if used == Some(BackdropUse::Blur { keep: true }) {
+      assert!(cache.keep_input(scene.layer_blurs.input(target).unwrap(), 42, 1000));
+    }
+    cache.commit();
+    used
+  };
+  assert_eq!(blur_frame(&mut cache, &blurred_layer()), Some(BackdropUse::Blur { keep: true }));
+  assert_eq!(blur_frame(&mut cache, &blurred_layer()), Some(BackdropUse::Reuse { texture: 42 }));
+  let mut changed = blurred_layer();
+  changed.rects[1].x += 1.0;
+  assert_eq!(blur_frame(&mut cache, &changed), Some(BackdropUse::Refresh { texture: 42 }));
+}
+
+/// The leaders the backdrop blurs of `list` follow, and their regions, as a render engine puts them together.
+fn grouped(list: &RenderList) -> (Vec<Option<usize>>, Vec<Option<BackdropRegion>>) {
+  let draws: Vec<usize> = {
+    let mut orders: Vec<usize> = list.rects.iter().map(|rect| rect.order).collect();
+    orders.sort_unstable();
+    orders
+  };
+  let mut plan = LayerPlan::default();
+  plan.build(draws.len(), |index| draws[index], &list.layers, &list.backdrops);
+  let mut regions = Vec::new();
+  backdrop_regions(list, &plan, WINDOW, &mut regions);
+  let follows = group_backdrops(list, &plan, &mut regions);
+  (follows, regions)
+}
+
+fn in_group(mut glass: BackdropCmd, key: u64) -> BackdropCmd {
+  glass.group = Some(key);
+  glass
+}
+
+#[test]
+fn glass_of_one_group_is_blurred_once_over_the_rectangles_of_all_of_it() {
+  let above = in_group(glass(1, [100.0, 40.0, 40.0, 40.0], 4.0), 7);
+  let below = in_group(glass(3, [100.0, 110.0, 40.0, 40.0], 4.0), 7);
+  let alone = [
+    BackdropRegion::new(&above, [0, 0], WINDOW).unwrap(),
+    BackdropRegion::new(&below, [0, 0], WINDOW).unwrap(),
+  ];
+  let (follows, regions) = grouped(&list(
+    vec![rect(0, [0.0, 0.0, 400.0, 300.0]), rect(2, GLASS)],
+    vec![above, below],
+  ));
+  assert_eq!(follows, vec![None, Some(0)]);
+  let union = regions[0].unwrap().layer.blur.unwrap();
+  let [first, second] = alone.map(|region| region.layer.blur.unwrap());
+  assert_eq!((union.x, union.y), (first.x, first.y));
+  assert_eq!(union.y + union.height as i32, second.y + second.height as i32);
+  assert_eq!(
+    regions[1].unwrap().layer.blur,
+    Some(union),
+    "the follower reads from the leader's rectangle"
+  );
+  assert_eq!(
+    regions[1].unwrap().layer.bounds,
+    alone[1].layer.bounds,
+    "and is put back in its own box"
+  );
+}
+
+#[test]
+fn glass_of_another_group_or_radius_or_of_none_is_blurred_on_its_own() {
+  let first = in_group(glass(1, [100.0, 40.0, 40.0, 40.0], 4.0), 7);
+  let other_group = in_group(glass(2, [100.0, 110.0, 40.0, 40.0], 4.0), 8);
+  let other_radius = in_group(glass(3, [100.0, 180.0, 40.0, 40.0], 6.0), 7);
+  let no_group = glass(4, [160.0, 40.0, 40.0, 40.0], 4.0);
+  let (follows, regions) = grouped(&list(
+    vec![rect(0, [0.0, 0.0, 400.0, 300.0])],
+    vec![first, other_group, other_radius, no_group],
+  ));
+  assert_eq!(follows, vec![None; 4]);
+  assert_eq!(regions[0], BackdropRegion::new(&first, [0, 0], WINDOW));
 }

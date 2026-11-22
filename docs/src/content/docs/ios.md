@@ -179,6 +179,16 @@ ctx.window().haptic(Haptic::Selection);
 `Haptic` is `Light`, `Medium`, `Heavy`, `Selection`, `Success`, `Warning` or `Error`. It does nothing where there
 is no haptic engine.
 
+### The share sheet
+
+```rust
+let _ = ctx.window().share(Share::url(address).title(title).at(&button));
+```
+
+The system's share sheet (`UIActivityViewController`) for an address, presented over what the window shows; on
+an iPad it is a popover that points at the element given with `at`, or stands at the middle of the window. See
+[Sharing an address](../ctx/#sharing-an-address).
+
 ## Screens
 
 `StackOutlet` moves between the router's screens as the platform's apps do: a push comes in from the right, a
@@ -552,3 +562,8 @@ key reaches the tree as on a desktop.
 
 The shell presents from a `CADisplayLink` at the display's full rate, and only while something changes: an idle
 app draws nothing. Going to the background and coming back needs nothing from the app.
+
+A video draws the window once for each of its frames, as the frame comes, and not at every refresh of the display:
+a video of 30 frames a second beside nothing else that moves has the window drawn 30 times a second on a display
+of 120, and a paused one not at all. Up to 0.64 a video on screen, playing or not, had the window drawn at every
+refresh, with all that lay under and over it: on an iPhone 17 the graphics card was busy most of the time.

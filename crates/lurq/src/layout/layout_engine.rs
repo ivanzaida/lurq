@@ -1710,8 +1710,13 @@ impl LayoutEngine {
 
     // A backdrop blur comes first: it is under everything the node paints,
     // and outside the node's own opacity group (see `collect_quads`).
+    // Under a background of one opaque color the blurred backdrop shows nowhere but in the half-covered pixels of
+    // the box's edge: a bar with a solid fill and the blur of the platform's glass is not blurred, which spares a
+    // copy of what is behind it and the blur's passes in every frame that changes it.
+    let backdrop_hidden = node.effective_opacity() >= 1.0
+      && matches!(&content, QuadContent::Rect { color, gradient: None } if color.a() == 255);
     let backdrop_blur = node.effective_backdrop_blur();
-    if backdrop_blur > 0.0 {
+    if backdrop_blur > 0.0 && !backdrop_hidden {
       let (backdrop_x, backdrop_y, backdrop_transform, backdrop_transform_origin) =
         transformed_quad_frame(abs_x, abs_y, transform);
       quads.push(Quad {
@@ -1725,6 +1730,7 @@ impl LayoutEngine {
         content: QuadContent::Backdrop {
           blur: backdrop_blur,
           glass: None,
+          group: node.backdrop_group_key(),
         },
         border_radius: node.get_border_radius(&self.radii.borrow()),
         border: None,

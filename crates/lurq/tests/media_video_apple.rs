@@ -24,6 +24,7 @@ fn main() {
     a_file_opens_with_its_size_its_length_and_its_first_frame,
     it_plays_by_its_clock_shows_frames_and_stops_where_it_is_paused,
     it_goes_where_it_is_sent_and_ends_at_its_end,
+    it_goes_near_where_it_is_sent_and_plays_on_from_the_frame_it_shows,
     bytes_play_as_a_file_does_and_what_is_no_video_says_why,
     a_clip_has_its_sound_and_what_is_only_heard_of_it_has_no_picture,
     a_clip_at_an_address_is_asked_for_with_the_headers_of_its_source_and_goes_where_it_is_sent,

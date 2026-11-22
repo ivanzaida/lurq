@@ -1157,9 +1157,11 @@ unsafe fn play(
       let commands = shared.take(wait);
       worked = !commands.is_empty();
       // Sent to many times while a seek bar is dragged, it goes to the last of them.
-      let last_seek = commands.iter().rposition(|command| matches!(command, Command::Seek(_)));
+      let last_seek = commands
+        .iter()
+        .rposition(|command| matches!(command, Command::Seek(_) | Command::SeekNear(_)));
       for (index, command) in commands.into_iter().enumerate() {
-        if matches!(command, Command::Seek(_)) {
+        if matches!(command, Command::Seek(_) | Command::SeekNear(_)) {
           gone += 1;
           if Some(index) != last_seek {
             continue;
@@ -1193,7 +1195,7 @@ unsafe fn play(
             inner.hold();
             inner.playing = false;
           }
-          Command::Seek(to) => {
+          Command::Seek(to) | Command::SeekNear(to) => {
             let to = duration.map_or(to, |duration| to.min(duration));
             go(&reader, to)?;
             if let Some(picture) = &mut picture {

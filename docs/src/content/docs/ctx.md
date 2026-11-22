@@ -529,6 +529,53 @@ are the same call. It is what `ui::LinkPreview` and `ui::Link::href` do when the
   on: `let _held = open_url::stand_in(|url| opened.lock().unwrap().push(url.to_owned()));`. Nothing leaves the app
   while it is held.
 
+## Sharing An Address
+
+```rust
+use lurq::app::{Share, ShareError};
+
+// In a handler, which has no `Ctx`: it holds the window.
+let (window, button) = (ctx.window(), self.button.clone());
+Button::new("Share").ref_element(self.button.clone()).on_click(move |_| {
+  let share = Share::url("https://lurq.dev/docs").title("The lurq docs").at(&button);
+  if window.share(share) == Err(ShareError::Unsupported) {
+    window.copy_to_clipboard("https://lurq.dev/docs");
+  }
+});
+```
+
+`window.share(share)` shows the system's share sheet over the window: the apps and people the system offers an
+address to (Messages, Mail, Copy, AirDrop), as an iPhone's Share button does. `ctx.share(share)` is the same call
+from a component, for the window it is in. It answers once the sheet is asked for; what the person picks in it,
+and whether they pick anything, is the system's and is not told.
+
+| | |
+| --- | --- |
+| `Share::url(address)` | The address shared: one with a scheme (`https:`, `mailto:`, an app's own) |
+| `title(..)` | What the address is called, where the system has a place for it |
+| `text(..)` | A text that goes with the address: what a message starts with |
+| `at(&element)`, `at_rect(rect)` | The element the sheet comes from, as it is when the handler runs. Without one, the middle of the window |
+
+- **iOS**: `UIActivityViewController`, over what the window shows. On an iPad it is a popover, which points at
+  `at`. The title is the subject of what takes one (a mail); the sheet's own heading is what the system reads of
+  the address.
+- **macOS**: `NSSharingServicePicker`, the menu of services, under `at`. It has no place for a title.
+- **Windows**: the system's share window (`DataTransferManager`, shown for the app's window), which the system
+  places itself. It asks for a title, and is given the address where the share has none; the text is its
+  description. An address that is not of the web (`mailto:`) is shared as its text.
+- **A browser**: `navigator.share`, where the browser has it and the page is a secure one, asked within the press
+  that shares.
+- **Linux, and a browser without it**: there is no sheet. The call answers `ShareError::Unsupported` at once and
+  does nothing else: it copies nothing by itself. An app copies the address then, as above, or asks
+  `share::supported()` ahead and shows another button.
+- What is not an address with a scheme (a path, a `file:` address, nothing) is `ShareError::NotAnAddress`, and
+  nothing is asked of the system. Sharing a file or a picture is another thing, which this does not do yet.
+- The sheet is shown by the window's shell as the handler returns. Where the system then refuses it, the log says
+  so (`lurq::share`, at warn): `Ok` is that it was asked for.
+- A test, or a tool that drives the app, puts a stand-in in place of the system for the thread the app's handlers
+  run on: `let _held = share::stand_in(move |share| shared.lock().unwrap().push(share.clone()));`. It is given
+  the `Share`, whose fields are public to read, and no sheet is shown while it is held.
+
 ## Slot Children
 
 Parents pass slot children with `mount_with` or `mount_keyed_with`:

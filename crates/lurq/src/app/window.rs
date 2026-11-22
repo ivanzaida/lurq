@@ -392,6 +392,8 @@ pub struct ScreenshotRegion {
 pub(crate) enum WindowCommand {
   /// Play a tap of the device's haptic engine; see [`Haptic`].
   Haptic(Haptic),
+  /// Show the system's share sheet for an address; see [`Share`](crate::app::Share).
+  Share(crate::app::Share),
   Close,
   RequestClose(CloseRequestSource),
   SetMinimized(bool),

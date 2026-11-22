@@ -62,7 +62,9 @@ Column::new()
 
 `.backdrop_blur(radius)` blurs what is already painted behind the element, inside the element's box, and the element
 then paints itself over the result. The blur shows wherever the element is translucent, so give it a translucent
-background; an opaque one hides it.
+background; an opaque one hides it. Under an opaque background of one color, with the element at full opacity, the
+frame does not blur at all: only the half-covered pixels along the box's edge show what is behind it, and they show it
+sharp.
 
 ```rust
 use lurq::components::{Column, Text};
@@ -96,6 +98,33 @@ as in CSS: the ancestor is drawn into a layer of its own, and the glass does not
 A glass panel that is the only thing inside a faded wrapper therefore blurs nothing. Put the opacity on the glass
 element itself, or keep the content it should blur inside the same wrapper.
 
+### Glass Side By Side
+
+Each backdrop blur reads what is behind it at its own place in the frame, so glass that stands close together (a column
+of round buttons over a video) blurs the same pixels over and over, and each next one shows the ones before it, blurred,
+at its edge. `.backdrop_group(key)` blurs the backdrops of the same key and radius in one window or layer as one: the
+first of them reads what is behind all of their boxes, and the others show what it read, each in its own box.
+
+```rust
+use lurq::components::Row;
+
+let button = |key: &str| {
+  Row::new()
+    .size(44.0, 44.0)
+    .rounded(22.0)
+    .background("#ffffff24")
+    .backdrop_blur(20.0)
+    .backdrop_group(key)
+};
+// Five buttons cost one copy and one blur in a frame where what is behind them moves, not five.
+```
+
+- A glass of the group does not show the glass before it behind it, as it would alone; it shows what was behind the
+  first.
+- The key is any `Hash` value. Glass of one key that stands apart (two columns of buttons on two pages a pager shows at
+  once) is still blurred as one, over the rectangle that holds them all: give each column its own key.
+- The DX12 renderer blurs each backdrop of a group on its own.
+
 ## Animating
 
 Both radii animate like any other style value, in transitions and in keyframe animations:
@@ -113,14 +142,20 @@ blur transition lays nothing out again.
 
 - `.blur(...)`: the cost follows the layer's pixels, not the radius. A wide blur runs on a reduced copy of the layer,
   so `blur(64.0)` is not slower than `blur(8.0)`. A blurred layer takes three or four pooled textures for its frame
-  and is painted for `1.5 * radius` more on each side than it shows, which is what the radius limit bounds.
+  and is painted for `1.5 * radius` more on each side than it shows, which is what the radius limit bounds. The wgpu
+  renderer keeps the blurred pixels, and a frame in which the layer holds what it held and stands where it stood
+  composites them again with one draw: the layer is not painted, nor blurred (see
+  [When A Layer Is Blurred Again](#when-a-layer-is-blurred-again)). A blurred picture under a playing video, or under
+  anything else that moves, costs that one draw a frame.
 - `.backdrop_blur(...)`: a frame that blurs a backdrop stops the frame's drawing, copies the pixels around the box and
   blurs the copy. That is a few passes and pooled textures of about the box's size. The blurred pixels are then kept,
   and a frame in which the same pixels are behind the glass puts them back with two draws: no copy, no pass, no
   texture taken (see [When A Backdrop Is Blurred Again](#when-a-backdrop-is-blurred-again)). Glass over a backdrop
   that holds still costs next to nothing, however much of the window it covers; glass over something that moves is
   blurred in every frame it moves. A long list in which every row is glass is not what it is for: blur the list's
-  backdrop once with one element instead.
+  backdrop once with one element instead. Glass that stands close together is blurred as one with
+  `.backdrop_group(...)` (see [Glass Side By Side](#glass-side-by-side)), and glass under an opaque background is not
+  blurred.
 - Textures are pooled and reused across frames, and released after a while without use. A frame without blurs
   creates none.
 
@@ -169,6 +204,25 @@ back to the pool when its glass is gone, has moved or changed size, and when the
 
 A custom `RenderEngine` keeps what it chooses to: the `RenderList` of a frame says nothing about the frame before.
 
+### When A Layer Is Blurred Again
+
+The wgpu renderer keeps the blurred pixels of an element with `.blur(...)` the same way, and composites them in the
+frames that follow without painting the element or blurring it, for as long as the element holds what it held. A kept
+layer is put back while all of this is what it was in the frame that blurred it:
+
+- The rectangle the layer is painted for, and the blur's radius and rectangle, in physical pixels: so its place and
+  size, its radius and the window's scale.
+- Everything painted into the layer, in the order it is painted, as for a faded or blurred group behind glass above:
+  every fill, border, shadow, glyph, image and SVG with all it is drawn from, the groups inside it, and its
+  `.opacity(...)` and clips.
+
+It is painted and blurred again in a frame where any of that differs: a picture in it loads or changes its version,
+it moves (a page that slides blurs it in every frame of the slide, and not after), it fades. What lies under it or
+over it changes nothing. A layer that holds a video frame, a camera image, a `Canvas` or an external texture is
+blurred in every frame, and so is one with a `.backdrop_blur(...)` inside it, which reads what the same frame paints.
+The kept textures are counted as a backdrop blur's are, apart from them: at most 64, in at most twice the bytes of the
+window's pixels. The DX12 renderer paints and blurs a blurred layer in every frame.
+
 ## Checking The Result
 
 - A devtools node screenshot draws both blurs on the CPU. Its capture is the node's own size, so what lies outside it
@@ -188,7 +242,7 @@ A custom `RenderEngine` sees the blurs in the `RenderList`:
   rectangle the layer's content is painted for (`LayerCmd::painted()`; larger than the `bounds` it shows in, and
   possibly reaching outside the window), and the rounded clip to cut the result to, if the element is under one.
 - A backdrop blur is a `BackdropCmd` in `RenderList::backdrops`: the box, its radii, transform and clip, the deviation
-  in physical pixels, and the render order it happens at. No draw has that order: the blur comes after every draw of a
+  in physical pixels, the render order it happens at, and the key of the group it is blurred with, if any. No draw has that order: the blur comes after every draw of a
   lower order and before every draw of a higher one, in the target those draws are in.
 - `RoundedBox` (`layout::opacity_layer`) describes a rounded box that may be turned or scaled, with its bounds and its
   coverage of a pixel.

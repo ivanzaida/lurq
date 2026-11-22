@@ -306,6 +306,7 @@ mod tests {
     let shape = RoundedBox::rect(50.0, 50.0, 100.0, 40.0, [20.0; 4]);
     let glass = GlassCmd::new(&Glass::regular(), &[shape], 0.0, 1.0, DEFAULT_GLASS_LIGHT, [50.0, 50.0]);
     let backdrop = BackdropCmd {
+      group: None,
       order: 10,
       x: 50.0,
       y: 50.0,

@@ -26,6 +26,7 @@ use std::{
 };
 
 use block2::RcBlock;
+use dispatch2::{DispatchQueue, DispatchRetained};
 use objc2::{
   AnyThread, MainThreadMarker,
   rc::{Retained, autoreleasepool},
@@ -36,7 +37,7 @@ use objc2_av_foundation::{
   AVPlayerTimeControlStatus, AVURLAsset,
 };
 use objc2_core_foundation::CFString;
-use objc2_core_media::{CMTime, CMTimeFlags, kCMTimeZero};
+use objc2_core_media::{CMTime, CMTimeFlags, kCMTimePositiveInfinity, kCMTimeZero};
 use objc2_core_video::{
   CVGetCurrentHostTime, CVGetHostClockFrequency, CVPixelBuffer, CVPixelBufferGetBaseAddressOfPlane,
   CVPixelBufferGetBytesPerRowOfPlane, CVPixelBufferGetHeight, CVPixelBufferGetPlaneCount, CVPixelBufferGetWidth,
@@ -46,9 +47,13 @@ use objc2_core_video::{
 };
 use objc2_foundation::{NSDictionary, NSError, NSNumber, NSString, NSURL};
 
-use super::super::{Command, Headers, MediaError, Opened, Shared};
-use crate::images::{
-  CvPixelBufferFrames, ImageData, MacosCvPixelBuffer, NativeImageData, cv_pixel_buffer_frames_drawn,
+use super::{
+  super::{Command, Headers, MediaError, Opened, Shared},
+  feed::Feeder,
+};
+use crate::{
+  images::{CvPixelBufferFrames, ImageData, MacosCvPixelBuffer, NativeImageData, cv_pixel_buffer_frames_drawn},
+  resources::Reader,
 };
 
 /// How often the thread asks for a frame while it plays, and while it waits for one it was sent to.
@@ -114,6 +119,9 @@ unsafe impl Send for Output {}
 struct Player {
   player: Retained<AVPlayer>,
   item: Retained<AVPlayerItem>,
+  /// What gives the player the bytes the app's loader reads, and the queue it is asked on: the asset holds them
+  /// weakly.
+  _fed: Option<(Retained<Feeder>, DispatchRetained<DispatchQueue>)>,
   /// How fast it goes while it plays: a player told its speed plays, so one that stands is told when it starts.
   rate: f32,
 }
@@ -282,6 +290,8 @@ fn look(link: &Link, main: MainThreadMarker) {
 enum Place {
   File(PathBuf),
   Url(Arc<str>, Headers),
+  /// What the app's loader reads, at the address it is at: see [`feed`](super::feed).
+  Reader(Arc<dyn Reader>, Arc<str>),
 }
 
 /// The player's item of what is at `address`, whose requests carry `headers`.
@@ -366,12 +376,7 @@ pub(super) fn run(shared: &Arc<Shared>, opened: Opened, picture: bool) {
       Err(error) => return shared.fail(MediaError::Other(Arc::from(error.to_string()))),
     },
     Opened::Url(address, headers) => Place::Url(address, headers),
-    // Only Windows reads an address through the app's loader.
-    Opened::Reader(..) => {
-      return shared.fail(MediaError::Unavailable(Arc::from(
-        "the system's player reads an address itself",
-      )));
-    }
+    Opened::Reader(reader, address) => Place::Reader(reader, address),
   };
   play(shared, place, picture);
   // The file of its bytes is the media's own, and goes with it.
@@ -484,8 +489,9 @@ fn show(image: &mut Option<ImageData>, frames: &mut Option<CvPixelBufferFrames>,
 /// What is done once the player arrived where it was sent.
 type Then = Box<dyn Fn() + Send + Sync>;
 
-/// Sends the player to `to`, and counts it arrived when the player says so: there, or sent on before it was.
-fn go(link: &Arc<Link>, player: &Player, to: f64, then: Option<Then>) {
+/// Sends the player to `to`, or `near` it to the key frame nearest, and counts it arrived when the player says so:
+/// there, or sent on before it was.
+fn go(link: &Arc<Link>, player: &Player, to: f64, near: bool, then: Option<Then>) {
   let link = link.clone();
   let arrived = RcBlock::new(move |_: Bool| {
     link.arrived.fetch_add(1, Ordering::Release);
@@ -494,14 +500,15 @@ fn go(link: &Arc<Link>, player: &Player, to: f64, then: Option<Then>) {
     }
   });
   // SAFETY: on the main thread; the block is called once, from where the player chooses, and holds what any
-  // thread may.
+  // thread may. The constants are the framework's.
   unsafe {
+    let tolerance = if near { kCMTimePositiveInfinity } else { kCMTimeZero };
     player
       .player
       .seekToTime_toleranceBefore_toleranceAfter_completionHandler(
         CMTime::with_seconds(to, SCALE),
-        kCMTimeZero,
-        kCMTimeZero,
+        tolerance,
+        tolerance,
         &arrived,
       );
   }
@@ -528,28 +535,42 @@ fn play(shared: &Arc<Shared>, place: Place, picture: bool) {
     let inner = shared.inner();
     (inner.volume, inner.muted)
   };
+  // The player is held to what the media reads ahead: left to itself it reads on while it stands, from a host
+  // that gives one client only so much, beside the video that plays.
+  let ahead = shared.ahead();
   // The player is made on the main thread, with the output its frames are taken from.
   on_main({
-    let (link, output) = (link.clone(), output.clone().map(Output));
+    let (link, output, shared) = (link.clone(), output.clone().map(Output), shared.clone());
     move |main| {
       let output = output.map(|Output(output)| output);
-      let (address, headers) = match &place {
-        Place::File(path) => (NSURL::from_file_path(path), None),
-        Place::Url(address, headers) => (NSURL::URLWithString(&NSString::from_str(address)), Some(headers)),
+      let mut fed = None;
+      // SAFETY: on the main thread, as every call of the player and its item.
+      let item = unsafe {
+        match &place {
+          Place::File(path) => {
+            NSURL::from_file_path(path).map(|address| AVPlayerItem::playerItemWithURL(&address, main))
+          }
+          Place::Url(address, headers) => {
+            NSURL::URLWithString(&NSString::from_str(address)).map(|address| item_at(&address, headers, main))
+          }
+          Place::Reader(reader, address) => {
+            Feeder::asset(address, address, reader.clone(), &shared).map(|(asset, feeder, queue)| {
+              fed = Some((feeder, queue));
+              AVPlayerItem::playerItemWithAsset(&asset, main)
+            })
+          }
+        }
       };
-      let Some(address) = address else {
+      let Some(item) = item else {
         link.seen().state = State::Failed(MediaError::NotFound);
         return;
       };
       // SAFETY: on the main thread, as every call of the player and its item.
       unsafe {
-        let item = match headers {
-          Some(headers) => item_at(&address, headers, main),
-          None => AVPlayerItem::playerItemWithURL(&address, main),
-        };
         if let Some(output) = &output {
           item.addOutput(output);
         }
+        item.setPreferredForwardBufferDuration(ahead);
         let player = AVPlayer::playerWithPlayerItem(Some(&item), main);
         player.setVolume(volume);
         player.setMuted(muted);
@@ -557,6 +578,7 @@ fn play(shared: &Arc<Shared>, place: Place, picture: bool) {
           player,
           item,
           rate: 1.0,
+          _fed: fed,
         });
       }
       look(&link, main);
@@ -575,18 +597,22 @@ fn play(shared: &Arc<Shared>, place: Place, picture: bool) {
   let mut expected: Option<Instant> = None;
   let mut nudged = false;
   let mut looked: Option<Instant> = None;
+  // Paused by the system, not by the app: the player is watched for it to play again by itself.
+  let mut held_by_system = false;
   loop {
     let playing = shared.inner().playing;
     let wait = match (opened, playing, expected) {
       (false, ..) => OPENING,
       (true, true, _) => STEP,
       (true, false, Some(_)) => STILL,
+      (true, false, None) if held_by_system => LOOKS,
       (true, false, None) => Duration::from_secs(3600),
     };
     for command in shared.take(Some(wait)) {
       match command {
         Command::Close => return,
         Command::Play => {
+          held_by_system = false;
           let (again, rate) = {
             let mut inner = shared.inner();
             let again = inner.ended;
@@ -599,7 +625,9 @@ fn play(shared: &Arc<Shared>, place: Place, picture: bool) {
             (again, inner.rate as f32)
           };
           // SAFETY: on the main thread, as every call of the player.
-          let start = |player: &Player| unsafe {
+          let ahead = shared.ahead();
+          let start = move |player: &Player| unsafe {
+            player.item.setPreferredForwardBufferDuration(ahead);
             player.player.play();
             if player.rate != 1.0 {
               player.player.setRate(player.rate);
@@ -622,7 +650,7 @@ fn play(shared: &Arc<Shared>, place: Place, picture: bool) {
                 }
               });
               match link.player.get(main).borrow().as_ref() {
-                Some(player) => go(&link, player, 0.0, Some(then)),
+                Some(player) => go(&link, player, 0.0, false, Some(then)),
                 None => then(),
               }
             });
@@ -636,6 +664,7 @@ fn play(shared: &Arc<Shared>, place: Place, picture: bool) {
           shared.wake();
         }
         Command::Pause => {
+          held_by_system = false;
           let mut inner = shared.inner();
           inner.since = Instant::now();
           inner.playing = false;
@@ -644,7 +673,8 @@ fn play(shared: &Arc<Shared>, place: Place, picture: bool) {
           // SAFETY: on the main thread, as every call of the player.
           link.tell(|player| unsafe { player.player.pause() });
         }
-        Command::Seek(to) => {
+        Command::Seek(to) | Command::SeekNear(to) => {
+          let near = matches!(command, Command::SeekNear(_));
           heard += 1;
           sent += 1;
           told += 1;
@@ -657,7 +687,7 @@ fn play(shared: &Arc<Shared>, place: Place, picture: bool) {
           }
           link.tell({
             let link = link.clone();
-            move |player| go(&link, player, to, None)
+            move |player| go(&link, player, to, near, None)
           });
           expected = Some(Instant::now());
           nudged = true;
@@ -691,7 +721,7 @@ fn play(shared: &Arc<Shared>, place: Place, picture: bool) {
     let playing = shared.inner().playing;
     // What the player is changes by itself while it opens and while it plays: the main thread is asked then.
     let every = if opened { LOOKS } else { OPENING };
-    if (!opened || playing) && looked.is_none_or(|looked| looked.elapsed() >= every) {
+    if (!opened || playing || held_by_system) && looked.is_none_or(|looked| looked.elapsed() >= every) {
       looked = Some(Instant::now());
       link.look();
     }
@@ -760,13 +790,24 @@ fn play(shared: &Arc<Shared>, place: Place, picture: bool) {
         sent += 1;
         told += 1;
         let (to, at) = (link.clone(), shared.inner().position());
-        link.tell(move |player| go(&to, player, at, None));
+        link.tell(move |player| go(&to, player, at, false, None));
       }
       if since.elapsed() >= EXPECTED {
         expected = None;
       }
     }
     let mut inner = shared.inner();
+    if held_by_system && seen.done == told && seen.control != Control::Paused {
+      // The system plays it again by itself: iOS pauses a video as the app goes to the background and plays it
+      // on as the app comes back. It plays here too, or its sound would go on under a picture that stands still.
+      held_by_system = false;
+      inner.playing = true;
+      inner.at = seen.at;
+      inner.since = Instant::now();
+      drop(inner);
+      shared.wake();
+      continue;
+    }
     if !inner.playing {
       continue;
     }
@@ -802,6 +843,7 @@ fn play(shared: &Arc<Shared>, place: Place, picture: bool) {
       inner.since = Instant::now();
       inner.ended = over;
       inner.playing = false;
+      held_by_system = !over;
       changed = true;
     } else if !waits && inner.sent == heard && link.arrived.load(Ordering::Acquire) == sent {
       // The media's clock is the player's: what is seen and heard is where it is. A media that is only heard has

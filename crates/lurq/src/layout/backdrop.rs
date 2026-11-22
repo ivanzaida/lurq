@@ -58,6 +58,9 @@ pub struct BackdropCmd {
   /// How far outside the box the command paints, in physical pixels: a
   /// glass's shadow.
   pub spread: f32,
+  /// The key of the backdrop blurs it is blurred with as one; see
+  /// [`Node::backdrop_group`](crate::node::Node::backdrop_group).
+  pub group: Option<u64>,
 }
 
 impl std::fmt::Debug for BackdropCmd {
@@ -81,6 +84,7 @@ impl std::fmt::Debug for BackdropCmd {
       .field("glass", &self.glass)
       .field("reach", &self.reach)
       .field("spread", &self.spread)
+      .field("group", &self.group)
       .finish()
   }
 }
@@ -217,6 +221,7 @@ mod tests {
       glass: None,
       reach: 0.0,
       spread: 0.0,
+      group: None,
     }
   }
 

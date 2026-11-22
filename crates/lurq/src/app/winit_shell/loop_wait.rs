@@ -9,7 +9,8 @@ use crate::time::Instant;
 /// What the windows of the loop need from it after a turn.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) struct LoopNeeds {
-  /// A video is presented directly from the loop, every turn.
+  /// A video is presented directly from the loop, and it has a frame or a redraw not presented yet. Its frames
+  /// wake the loop as they come, so it does not turn for nothing between them.
   pub(super) continuous_video: bool,
   /// A redraw was requested and its event is on its way (unless the window is minimized or occluded).
   pub(super) redraw_pending: bool,

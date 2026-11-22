@@ -64,6 +64,7 @@ fn backdrop(order: usize, [x, y, width, height]: [f32; 4], sigma: f32) -> Backdr
     glass: None,
     reach: 0.0,
     spread: 0.0,
+    group: None,
   }
 }
 

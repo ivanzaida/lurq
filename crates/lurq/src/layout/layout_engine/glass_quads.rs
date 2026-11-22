@@ -116,6 +116,7 @@ impl LayoutEngine {
       transform_origin,
       content: QuadContent::Backdrop {
         blur: 0.0,
+        group: None,
         glass: Some(Box::new(GlassQuad {
           glass: glass.unwrap_or_default(),
           merge: container.unwrap_or(0.0).max(0.0),

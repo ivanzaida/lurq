@@ -126,12 +126,23 @@ fn load_failed(error: LoadError) -> MediaError {
   }
 }
 
+/// How far past where it stands a media reads before it is first told to play, in seconds, unless the app says
+/// ([`Media::set_ahead`]): a video opened ahead and left paused takes its start and no more, and a host that gives
+/// one client only so much gives the rest to the video that plays.
+pub(crate) const AHEAD_UNTIL_PLAYED: f64 = 1.0;
+/// How far past where it is a media reads at least once it plays: a few seconds against a slow moment of the
+/// network, and not the whole video, which a reader left to itself reads as fast as the host gives, at the cost of
+/// the radio, the battery and the person's data.
+pub(crate) const AHEAD_WHILE_PLAYING: f64 = 10.0;
+
 /// What the thread of a media is told.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum Command {
   Play,
   Pause,
   Seek(f64),
+  /// A seek to the frame nearest a time that the media shows quickest: see [`Media::seek_near`].
+  SeekNear(f64),
   Rate(f64),
   Volume(f32),
   Muted(bool),
@@ -160,6 +171,8 @@ pub(crate) struct Shared {
   /// It was told to play, once: what it reads of an address is fetched ahead from then on, and until then only
   /// what its decoder asks for, so that a video opened ahead and left paused takes its start and no more.
   eager: std::sync::atomic::AtomicBool,
+  /// How far past where it is it reads before it is told to play, in seconds, as bits: see [`Media::set_ahead`].
+  ahead: std::sync::atomic::AtomicU64,
   /// What the app's loader reads of it, where it plays an address.
   stream: Mutex<Option<Arc<dyn Reader>>>,
   /// All of what it plays is there: a file, or bytes.
@@ -252,6 +265,39 @@ impl Inner {
 }
 
 impl Shared {
+  /// How far past where it is it reads now, in seconds: what the app said before it is first told to play, and at
+  /// least [`AHEAD_WHILE_PLAYING`] from then on.
+  pub(crate) fn ahead(&self) -> f64 {
+    use std::sync::atomic::Ordering;
+    let told = f64::from_bits(self.ahead.load(Ordering::Acquire));
+    if self.eager.load(Ordering::Acquire) {
+      told.max(AHEAD_WHILE_PLAYING)
+    } else {
+      told
+    }
+  }
+
+  /// Has the reader of what it plays fetch as far as it reads ahead, by the share of its length that is in time.
+  /// Nothing until its length in time and in bytes are known.
+  pub(crate) fn reach_ahead(&self) {
+    let Some(stream) = self
+      .stream
+      .lock()
+      .unwrap_or_else(|poisoned| poisoned.into_inner())
+      .clone()
+    else {
+      return;
+    };
+    let (position, duration) = {
+      let inner = self.inner();
+      (inner.position(), inner.duration)
+    };
+    if let (Some(duration), Some(len)) = (duration.filter(|duration| *duration > 0.0), stream.len()) {
+      let share = ((position + self.ahead()) / duration).clamp(0.0, 1.0);
+      stream.read_ahead_to((share * len as f64) as u64);
+    }
+  }
+
   /// What a media and its thread share, as a media starts: waiting to open, paused at its start.
   fn new() -> Arc<Self> {
     Arc::new(Self {
@@ -286,6 +332,7 @@ impl Shared {
       starved: std::sync::atomic::AtomicBool::new(false),
       awaits_start: std::sync::atomic::AtomicBool::new(false),
       eager: std::sync::atomic::AtomicBool::new(false),
+      ahead: std::sync::atomic::AtomicU64::new(AHEAD_UNTIL_PLAYED.to_bits()),
       stream: Mutex::new(None),
       whole: std::sync::atomic::AtomicBool::new(false),
     })
@@ -502,12 +549,16 @@ pub(crate) enum Opened {
   Reader(Arc<dyn Reader>, Arc<str>),
 }
 
-/// What a media opens of `source` at `address`, read as it plays. On Windows the app's loader reads it, and the
-/// decoder only decodes; elsewhere the system's player reads it, given the headers. `None` where it cannot be
-/// opened, which the media's state then says.
+/// What a media opens of `source` at `address`, read as it plays. On Windows, macOS and iOS the app's loader reads
+/// it, and the decoder only decodes; elsewhere the system's player reads it, given the headers. `None` where it
+/// cannot be opened, which the media's state then says.
 fn stream(shared: &Arc<Shared>, loader: &Loader, source: &Source, address: Arc<str>) -> Option<Opened> {
-  #[cfg(windows)]
+  #[cfg(any(windows, target_os = "macos", target_os = "ios"))]
   match loader.open_to_play(source, shared.eager.load(std::sync::atomic::Ordering::Acquire)) {
+    // A stream of HTTP Live Streaming is a list of the addresses of its parts, which the system's player reads
+    // itself on Apple's systems: it is given the address.
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    Ok(reader) if is_playlist(reader.content_type().as_deref(), &address) => drop(reader),
     Ok(reader) => {
       // Until it is told to play it reads what its decoder asks for and nothing ahead of that. Kept before
       // that is read: one told to play meanwhile turns the reading ahead on itself.
@@ -524,6 +575,14 @@ fn stream(shared: &Arc<Shared>, loader: &Loader, source: &Source, address: Arc<s
   }
   let _ = shared;
   Some(Opened::Url(address, Arc::from(loader.headers_of(source))))
+}
+
+/// Whether what a server says is `content_type`, at `address`, is a playlist of HTTP Live Streaming.
+#[cfg_attr(not(any(target_os = "macos", target_os = "ios")), allow(dead_code))]
+fn is_playlist(content_type: Option<&str>, address: &str) -> bool {
+  let kind = content_type.map(str::to_ascii_lowercase);
+  let path = address.split(['?', '#']).next().unwrap_or(address).to_ascii_lowercase();
+  kind.is_some_and(|kind| kind.contains("mpegurl")) || path.ends_with(".m3u8") || path.ends_with(".m3u")
 }
 
 /// A reader of what a media plays: it counts the reads that wait for the network, from which the media tells it is
@@ -612,6 +671,10 @@ impl Reader for Watched {
     let read = self.reader.read_at(offset, buf);
     if !there && let Some(shared) = &shared {
       shared.reads_waiting.fetch_sub(1, Ordering::AcqRel);
+    }
+    // What is read ahead follows where it is.
+    if let Some(shared) = &shared {
+      shared.reach_ahead();
     }
     read.map_err(|error| {
       let why = LoadError::from(error);
@@ -930,6 +993,7 @@ impl Media {
     if let Some(stream) = stream {
       stream.read_ahead(true);
     }
+    shared.reach_ahead();
     shared.tell(Command::Play);
   }
 
@@ -947,6 +1011,23 @@ impl Media {
   /// Goes to `seconds` and shows the frame there, playing or not. Its state is at that time at once, so what
   /// draws where it is (a seek bar being dragged) does not see it go back: the frame comes when it is decoded.
   pub fn seek(&self, seconds: f64) {
+    self.seek_to(seconds, false);
+  }
+
+  /// Goes near `seconds`, to the frame there that shows quickest, and plays on from there: on macOS and iOS the
+  /// key frame nearest it, a few seconds either side, which needs no frame before it. Its state is at `seconds`
+  /// until that frame shows, and at the frame's time from then on.
+  ///
+  /// What a finger lets go of on a video's line of time is where it is to be about, not to the frame, and an exact
+  /// seek is slow where the video is read from an address: the system's player reads and decodes from the key frame
+  /// before the time to the time itself. Measured on a Mac over an hour-long video of a slow host: an exact seek
+  /// showed its frame 1 to 3.9 s after it was asked for, this one 0.77 s, which is the host's own answer to a request
+  /// for a new place. Elsewhere it is [`Media::seek`].
+  pub fn seek_near(&self, seconds: f64) {
+    self.seek_to(seconds, true);
+  }
+
+  fn seek_to(&self, seconds: f64, near: bool) {
     if !seconds.is_finite() {
       return;
     }
@@ -963,7 +1044,9 @@ impl Media {
       to
     };
     self.shared().noted();
-    self.shared().tell(Command::Seek(to));
+    self
+      .shared()
+      .tell(if near { Command::SeekNear(to) } else { Command::Seek(to) });
   }
 
   /// How fast it goes: 1 is as it was made. Nothing that is not a speed is taken.
@@ -1014,6 +1097,32 @@ impl Media {
 
   pub fn looped(&self) -> bool {
     self.shared().inner().looped
+  }
+
+  /// How far past where it stands it reads before it is first told to play, in seconds: what a video opened ahead
+  /// (the next one of a feed) has there when it is shown. A second unless told; once it plays it reads at least
+  /// ten seconds ahead, or this where it is more. Where it plays an address its app's loader reads (Windows, macOS,
+  /// iOS); a file and bytes are there whole, and what the system reads itself (a browser, a build without `http`)
+  /// reads as it likes.
+  ///
+  /// A host gives one client only so much a second, and the parts of a feed are often on several: a video opened
+  /// ahead on another host than the one that plays takes nothing from it, and can read more ahead than one on the
+  /// same host, which shares what that host gives.
+  pub fn set_ahead(&self, seconds: f64) {
+    if !seconds.is_finite() || seconds < 0.0 {
+      return;
+    }
+    let shared = self.shared();
+    shared
+      .ahead
+      .store(seconds.to_bits(), std::sync::atomic::Ordering::Release);
+    shared.reach_ahead();
+    shared.told.notify_all();
+  }
+
+  /// How far past where it stands it reads before it is first told to play: see [`set_ahead`](Self::set_ahead).
+  pub fn ahead(&self) -> f64 {
+    f64::from_bits(self.shared().ahead.load(std::sync::atomic::Ordering::Acquire))
   }
 
   /// Calls `wake` when the media changes in a way its clock does not tell: it opened, it ended, it failed, it
@@ -1159,5 +1268,29 @@ mod tests {
     shared.reads_waiting.fetch_sub(1, Ordering::AcqRel);
     drop(decoding);
     assert!(!shared.inner().waiting, "and goes on as the sample comes");
+  }
+
+  #[test]
+  fn a_playlist_of_http_live_streaming_is_told_by_its_type_or_its_ending() {
+    assert!(is_playlist(Some("application/vnd.apple.mpegurl"), "https://h/live"));
+    assert!(is_playlist(Some("audio/x-mpegURL"), "https://h/live"));
+    assert!(is_playlist(None, "https://h/live/index.M3U8?token=1"));
+    assert!(!is_playlist(Some("video/mp4"), "https://h/clip.mp4"));
+    assert!(!is_playlist(None, "https://h/clip.mp4#m3u8"));
+  }
+
+  #[test]
+  fn what_is_read_ahead_is_what_the_app_says_until_it_plays_and_ten_seconds_at_least_from_then_on() {
+    let media = Media::of(Shared::new());
+    assert_eq!(media.ahead(), AHEAD_UNTIL_PLAYED);
+    media.set_ahead(5.0);
+    assert_eq!(media.shared().ahead(), 5.0);
+    media.set_ahead(f64::NAN);
+    media.set_ahead(-1.0);
+    assert_eq!(media.ahead(), 5.0, "what is no time is not taken");
+    media.shared().eager.store(true, Ordering::Release);
+    assert_eq!(media.shared().ahead(), AHEAD_WHILE_PLAYING);
+    media.set_ahead(30.0);
+    assert_eq!(media.shared().ahead(), 30.0);
   }
 }
