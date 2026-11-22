@@ -43,6 +43,9 @@ const MIN_BLUR_SIGMA: f32 = 0.05;
 /// The widest Gaussian one pass samples directly, in texels of its source.
 /// Wider blurs run on a reduced copy of the layer.
 const MAX_PASS_SIGMA: f32 = 8.0;
+/// The same under a glass, which is reduced once more: its lens and its light hide what a smaller copy loses,
+/// and the blur is nearly all a glass costs (`design/mobile-decisions.md`, 2026-11-22).
+const MAX_COARSE_PASS_SIGMA: f32 = 4.0;
 /// Most the layer is reduced by for a wide blur, per axis.
 const MAX_BLUR_REDUCTION: u32 = 64;
 
@@ -125,6 +128,8 @@ impl LayerCmd {
 pub struct LayerBlur {
   /// Standard deviation of the Gaussian, in physical pixels.
   pub sigma: f32,
+  /// Reduced further before its passes than a blur of its width is: a glass's backdrop.
+  pub coarse: bool,
   pub x: i32,
   pub y: i32,
   pub width: u32,
@@ -287,7 +292,7 @@ pub(crate) struct BlurPlan {
 #[cfg_attr(not(feature = "render"), allow(dead_code))]
 impl BlurPlan {
   pub(crate) fn new(blur: &LayerBlur) -> Self {
-    let reduction = blur_reduction(blur.sigma);
+    let reduction = blur_reduction(blur.sigma, blur.coarse);
     if reduction == 1 {
       return Self {
         reduction,
@@ -316,13 +321,14 @@ impl BlurPlan {
 /// How far past the pixels a blur of `sigma` shows the pixels it reads lie,
 /// in whole physical pixels: the blur's reach, and what the passes' sampling
 /// adds (a reduced texel on either side, and the bilinear taps' neighbour).
-pub(crate) fn blur_pad(sigma: f32) -> i32 {
-  (sigma * 3.0).ceil() as i32 + 2 * blur_reduction(sigma) as i32 + 1
+pub(crate) fn blur_pad(sigma: f32, coarse: bool) -> i32 {
+  (sigma * 3.0).ceil() as i32 + 2 * blur_reduction(sigma, coarse) as i32 + 1
 }
 
-fn blur_reduction(sigma: f32) -> u32 {
+fn blur_reduction(sigma: f32, coarse: bool) -> u32 {
+  let widest = if coarse { MAX_COARSE_PASS_SIGMA } else { MAX_PASS_SIGMA };
   let mut reduction = 1;
-  while sigma / reduction as f32 > MAX_PASS_SIGMA && reduction < MAX_BLUR_REDUCTION {
+  while sigma / reduction as f32 > widest && reduction < MAX_BLUR_REDUCTION {
     reduction *= 2;
   }
   reduction
@@ -1088,7 +1094,7 @@ fn blurred_bounds(
   if bounds.is_empty() {
     return (bounds, None);
   }
-  let pad = blur_pad(sigma) as f32;
+  let pad = blur_pad(sigma, false) as f32;
   let visible = [
     bounds.x as f32,
     bounds.y as f32,
@@ -1109,6 +1115,7 @@ fn blurred_bounds(
     bounds,
     Some(LayerBlur {
       sigma,
+      coarse: false,
       x: x0 as i32,
       y: y0 as i32,
       width: (x1 - x0) as u32,
@@ -1200,9 +1207,34 @@ mod tests {
   }
 
   #[test]
+  fn a_glass_is_blurred_on_a_copy_reduced_once_more() {
+    let blur = |sigma: f32, coarse: bool| LayerBlur {
+      sigma,
+      coarse,
+      x: 0,
+      y: 0,
+      width: 200,
+      height: 100,
+      clips: [None; MAX_ROUNDED_CLIPS],
+    };
+    // A blur a pass takes as it is, and one that is reduced already.
+    for (sigma, reduction) in [(6.0, 1), (16.0, 2)] {
+      assert_eq!(BlurPlan::new(&blur(sigma, false)).reduction, reduction);
+      let coarse = BlurPlan::new(&blur(sigma, true));
+      assert_eq!(coarse.reduction, reduction * 2);
+      assert!(coarse.sigma <= MAX_COARSE_PASS_SIGMA, "{coarse:?}");
+      // The copy holds what the wider reduction reads past the blur's reach.
+      assert!(blur_pad(sigma, true) > blur_pad(sigma, false));
+    }
+    // A narrow one is reduced by neither.
+    assert_eq!(BlurPlan::new(&blur(3.0, true)).reduction, 1);
+  }
+
+  #[test]
   fn a_narrow_blur_runs_on_the_layer_and_a_wide_one_on_a_reduced_copy() {
     let blur = |sigma: f32| LayerBlur {
       sigma,
+      coarse: false,
       x: -10,
       y: 0,
       width: 201,

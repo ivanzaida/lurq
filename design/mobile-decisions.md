@@ -61,6 +61,20 @@ built, dropped). When a decision is replaced, the old entry stays and says what 
   not tried on a device. Tried in a simulator: the materials against the system's side by side, the tab bar, the
   navigation bar's edge and a sheet.
 
+### A glass's backdrop is blurred on a smaller copy than a backdrop blur's
+
+- **Question.** What a glass costs a frame was measured (`crates/mobile_demo/src/glass_probe.rs`): on an iPhone 17
+  every screen an app shows keeps 120 frames a second, and nearly all of a glass's GPU time is the blur under it.
+  A blur reduces its copy only when it is wider than 8 pixels a pass. Can a glass be cheaper? Ivan: "можео якось
+  оптимізувати?", and to the proposal of a lower limit, "роби".
+- **Decision (Ivan, 2026-11-22).** The limit is 4 pixels a pass under a glass, so its copy is reduced once more
+  than a backdrop blur's of the same width. Claude chose to change it for glass only: `backdrop_blur` and a
+  blurred layer keep 8, since they are not this branch's and their pictures are compared in their own tests.
+- **Why.** Tried on the Mac with the limit at 4: a sheet of glass over a scrolling page went from 3.4 to 1.8 ms of
+  GPU time, a bar of tabs with three buttons from 3.0 to 2.4, and the gallery's glass page differed by 2 levels
+  of 255 at most. Many small glasses did not get cheaper: their cost is the passes of each one, not their pixels.
+- **State.** Built.
+
 ## 2026-11-19
 
 ### The camera of several photos is lurq's own, on AVFoundation, as Telegram's and the Camera app's are

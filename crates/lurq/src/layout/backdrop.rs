@@ -163,7 +163,8 @@ impl BackdropRegion {
     }
     // As for a blurred layer: the reach of the blur, and what the passes'
     // sampling adds. Past the target's edge its edge pixels repeat.
-    let pad = crate::layout::opacity_layer::blur_pad(cmd.sigma) + cmd.reach.max(0.0).ceil() as i32;
+    let coarse = cmd.glass.is_some();
+    let pad = crate::layout::opacity_layer::blur_pad(cmd.sigma, coarse) + cmd.reach.max(0.0).ceil() as i32;
     let copied_x0 = (x0 - pad).max(target_origin[0]);
     let copied_y0 = (y0 - pad).max(target_origin[1]);
     let copied_x1 = (x1 + pad).min(target[2]);
@@ -181,6 +182,7 @@ impl BackdropRegion {
         },
         blur: Some(LayerBlur {
           sigma: cmd.sigma,
+          coarse,
           x: copied_x0,
           y: copied_y0,
           width: (copied_x1 - copied_x0) as u32,

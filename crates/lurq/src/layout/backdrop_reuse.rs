@@ -733,6 +733,7 @@ impl Notes {
     self.flag(blur.is_some());
     if let Some(LayerBlur {
       sigma,
+      coarse,
       x,
       y,
       width,
@@ -741,6 +742,7 @@ impl Notes {
     }) = blur
     {
       self.f32(sigma);
+      self.flag(coarse);
       self.i32s(&[x, y]);
       self.u32s(&[width, height]);
       for clip in &clips {
