@@ -91,6 +91,9 @@ fn a_backdrop_blur_softens_the_capture_inside_its_rounded_box_only() {
     clip: ClipRect::default(),
     sigma: 2.0,
     opacity: 1.0,
+    glass: None,
+    reach: 0.0,
+    spread: 0.0,
     group: None,
   };
   blur_screenshot_backdrop(&mut capture, bounds, &backdrop);
@@ -111,6 +114,9 @@ fn a_backdrop_blur_softens_the_capture_inside_its_rounded_box_only() {
     bounds,
     &BackdropCmd {
       opacity: 0.5,
+      glass: None,
+      reach: 0.0,
+      spread: 0.0,
       ..backdrop
     },
   );

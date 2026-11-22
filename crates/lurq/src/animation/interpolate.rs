@@ -32,6 +32,9 @@ pub enum AnimatableProperty {
   /// The blur radius of the node's backdrop (`Node::backdrop_blur`), in
   /// logical pixels.
   BackdropBlur,
+  /// The node's glass (`Node::glass`) as one value: between two materials every number moves, and to and
+  /// from no glass its amount goes to and from nothing, so a glass comes and goes as a material.
+  Glass,
   Transform,
   /// The color of the text in the node and under it (`Node::foreground`).
   Foreground,
@@ -65,6 +68,8 @@ pub enum AnimatableValue {
   Transform(Decomposed),
   /// An outline, or none.
   Outline(Option<ResolvedOutline>),
+  /// A glass, or none.
+  Glass(Option<crate::layout::glass::Glass>),
   /// A list of box shadows.
   Shadows(ShadowList),
   /// A height of `px` and `content` times the height the element's content
@@ -184,6 +189,22 @@ fn lerp_outline(from: Option<ResolvedOutline>, to: Option<ResolvedOutline>, t: f
   })
 }
 
+/// Between two glasses every value moves; to and from no glass the material keeps its numbers and its amount
+/// goes to nothing.
+fn lerp_glass(
+  from: Option<crate::layout::glass::Glass>,
+  to: Option<crate::layout::glass::Glass>,
+  t: f32,
+) -> Option<crate::layout::glass::Glass> {
+  let (a, b) = match (from, to) {
+    (Some(a), Some(b)) => (a, b),
+    (Some(a), None) => (a, a.amount(0.0)),
+    (None, Some(b)) => (b.amount(0.0), b),
+    (None, None) => return None,
+  };
+  Some(a.lerp(&b, t))
+}
+
 /// What reading the value a node is heading to needs of the theme: the roles
 /// its colors, widths and shadows may be given as.
 #[derive(Clone, Default)]
@@ -200,6 +221,7 @@ impl AnimatableValue {
       (AnimatableValue::Float(a), AnimatableValue::Float(b)) => AnimatableValue::Float(a + (b - a) * t),
       (AnimatableValue::Transform(a), AnimatableValue::Transform(b)) => AnimatableValue::Transform(a.lerp(b, t)),
       (AnimatableValue::Outline(a), AnimatableValue::Outline(b)) => AnimatableValue::Outline(lerp_outline(*a, *b, t)),
+      (AnimatableValue::Glass(a), AnimatableValue::Glass(b)) => AnimatableValue::Glass(lerp_glass(*a, *b, t)),
       (AnimatableValue::Shadows(a), AnimatableValue::Shadows(b)) => AnimatableValue::Shadows(a.lerp(b, t)),
       (AnimatableValue::Percent(a), AnimatableValue::Percent(b)) => AnimatableValue::Percent(a + (b - a) * t),
       (AnimatableValue::Dash { dash: a, gap: a_gap }, AnimatableValue::Dash { dash: b, gap: b_gap }) => {
@@ -310,6 +332,7 @@ pub(crate) fn read_target(
           .and_then(|outline| outline.resolve(&theme.palette, &theme.border_sizes)),
       ));
     }
+    AnimatableProperty::Glass => return Some(AnimatableValue::Glass(node.rare_style.glass)),
     AnimatableProperty::BoxShadow => {
       let shadows: Vec<_> = node.effective_box_shadow().map_or_else(Vec::new, |value| {
         value
@@ -325,7 +348,10 @@ pub(crate) fn read_target(
   }
   let style = node.target_style();
   match prop {
-    AnimatableProperty::Foreground | AnimatableProperty::Outline | AnimatableProperty::BoxShadow => None,
+    AnimatableProperty::Foreground
+    | AnimatableProperty::Outline
+    | AnimatableProperty::BoxShadow
+    | AnimatableProperty::Glass => None,
     AnimatableProperty::BackgroundColor => style
       .color
       .or_else(|| <Option<_> as Clone>::clone(&node.color))

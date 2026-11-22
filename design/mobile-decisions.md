@@ -8,6 +8,78 @@ is in [design-system-plan.md](design-system-plan.md#7-phases-27--components).
 Each entry: **the question**, **the decision**, **why**, and its **state** (proposed, decided, in work on a branch,
 built, dropped). When a decision is replaced, the old entry stays and says what replaced it.
 
+## 2026-11-22
+
+### Liquid Glass is lurq's own material, drawn by its renderer
+
+- **Question.** lurq's bars on a phone are a blurred backdrop (`backdrop_blur`); the system's since iOS 26 are
+  Liquid Glass, which bends what is behind it. Can lurq draw it, and how much of it? Ivan: "нам треба реальний
+  ліквад гласс", "роби в одній гілці сам".
+- **Decision (Ivan, 2026-11-22).** The whole material, on one branch (`feat/liquid-glass`), drawn by lurq's own
+  renderer on every platform it draws on, not the system's view:
+  1. **The optics.** A node with `.glass(Glass)` bends what is painted behind it by the thickness of its shape (a
+     lens along its edge, by Snell's law), blurs it, saturates and brightens it, tints it, splits the colours a little
+     at the edge, and has a light along its rim, a glow inside and a shadow under it. Two materials as the system's:
+     `Glass::regular()` and `Glass::clear()`.
+  2. **Shapes that flow together.** The glass children of a `.glass_container(..)` are one surface: near each other
+     they join into one drop and part again, since a glass does not bend another glass.
+  3. **It follows what is behind it.** A glass tells how light its backdrop is, and what is on it (words, symbols)
+     turns dark over a light backdrop and light over a dark one.
+  4. **It changes shape.** A glass that moves, grows or changes its corners flows from one shape to the other.
+  5. **It answers a finger.** Pressed, it grows, springs back and lights up from where it is touched; a `TabBar`'s
+     lens is dragged between tabs.
+  6. **It comes and goes as a material**: its bending and blur grow in, where another thing would fade in.
+  7. **Its light follows the device** as it is tilted (the gyroscope), where there is one.
+  8. **lurq's own components are of it** on a phone: `NavigationBar`, `TabBar`, the toolbar, `Sheet`, menus; and the
+     edge of a list under a bar fades into it instead of ending in a line.
+- **Why.** An app made with lurq has to look and behave as the system's apps do ("нам треба відповідати епловим
+  гайдлайнам"); a blurred bar beside the system's glass is an app of another year. The backdrop blur already copies
+  what is behind a node, which is what glass bends, so it is one more pass and not another renderer.
+- **Limits known at the start.** The system's numbers are not published: lurq's are set by eye against recordings
+  of the system's apps. The system's own setting (clear or tinted) is still not followed, as decided on 2026-11-12.
+  lurq's Direct3D 12 renderer and DevTools' software capture draw a glass as its blur alone until they have the
+  pass.
+- **How its numbers were found (2026-11-22).** Not from the system's code: by measuring. A probe app in an iOS
+  26.5 simulator showed the system's glass (`glassEffect` regular and clear, a capsule, a circle, a large rounded
+  box) over patterns that changed on a timer, and each frame was read from a screenshot: a step passed behind the
+  glass one point at a time gives, for every pixel, where it reads the backdrop from and how wide the step is
+  there (the lens and the blur); plain greys and colours give the tints, the rim and the shadow, and where the
+  glass turns dark. What came out: a bezel of 19 to 20 points whatever the shape, the very edge reading 45 points
+  inward along `(1 - u)^1.1 * e^(-2u)`; a blur of 5.3 points of deviation for regular and 1.9 for clear; white
+  laid over by a half for a small regular glass and by 0.7, with the colours behind brought out 2.5 times, for a
+  large one; a rim of white 0.6 falling to nothing over one point, the same all the way round; and a small
+  regular glass that turns dark under a grey of 128 in the light appearance and stays dark up to 225 in the dark
+  one.
+- **Decided on the way (Claude, for Ivan to overrule).** How light the backdrop is is told from the frame's
+  commands on the CPU, not read back from the GPU: the answer is in the same frame and the same in every
+  renderer, at the cost of not seeing words or a video's frames. A theme is dark when its page is, since an app's
+  theme may be dark in the system's light appearance (the demo's is). `NavigationBar` and `Sheet` are of glass by
+  default on iOS only, and `TabBar::floating()` everywhere, so no desktop app changes its look unasked.
+- **State.** Built on `feat/liquid-glass` (2026-11-22), all eight parts, with these left, each in
+  `docs/ios-gaps.md`: the `dx12` renderer and DevTools' capture draw a glass as its blur; the navigation bar's
+  way back and a screen's own buttons are not glass by themselves; the tilt's light and the tab bar's lens were
+  not tried on a device. Tried in a simulator: the materials against the system's side by side, the tab bar, the
+  navigation bar's edge and a sheet.
+
+### A glass's backdrop is blurred on a smaller copy than a backdrop blur's
+
+- **Question.** What a glass costs a frame was measured (`crates/mobile_demo/src/glass_probe.rs`): on an iPhone 17
+  every screen an app shows keeps 120 frames a second, and nearly all of a glass's GPU time is the blur under it.
+  A blur reduces its copy only when it is wider than 8 pixels a pass. Can a glass be cheaper? Ivan: "можео якось
+  оптимізувати?", and to the proposal of a lower limit, "роби".
+- **Decision (Ivan, 2026-11-22).** The limit is 4 pixels a pass under a glass, so its copy is reduced once more
+  than a backdrop blur's of the same width. Claude chose to change it for glass only: `backdrop_blur` and a
+  blurred layer keep 8, since they are not this branch's and their pictures are compared in their own tests.
+- **Why.** Tried on the Mac with the limit at 4: a sheet of glass over a scrolling page went from 3.4 to 1.8 ms of
+  GPU time, a bar of tabs with three buttons from 3.0 to 2.4, and the gallery's glass page differed by 2 levels
+  of 255 at most. Many small glasses did not get cheaper: their cost is the passes of each one, not their pixels.
+- **Many glasses (Ivan, 2026-11-22: "а чому б не перевикористати блюр груп?").** A glass takes
+  `.backdrop_group(key)`, as a backdrop blur does, and the glasses of a group are put back from one blur. It is
+  the app's to say, not found by lurq: the group's blur is of the rectangle that holds them all, which for
+  glasses far apart is more than their own. Twelve bars of glass went from 5.0 to 3.7 ms on the Mac. Making it
+  work showed that a group drew only its last blur (every follower wrote the leader's uniforms): fixed.
+- **State.** Built.
+
 ## 2026-11-19
 
 ### The camera of several photos is lurq's own, on AVFoundation, as Telegram's and the Camera app's are

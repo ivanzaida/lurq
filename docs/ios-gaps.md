@@ -54,9 +54,10 @@ inside its input.
 
 - **The way back's arrow** is the platform's symbol with the `raster` feature; without it, a drawing after
   it.
-- **The bar** is over a screen's list, which shows through it blurred, as it does through the toolbar and
-  the list a long press on the way back opens; the platform's material also brightens and saturates what is
-  behind it, and the newest system's bar is glass that bends it.
+- **The bar** is over a screen's list. On a phone it has no fill: the list fades into the page under it, a
+  screen's toolbar is a floating bar of glass and the list a long press on the way back opens is of glass
+  (see Glass under the system's settings below). The platform also blurs the list more the nearer the top
+  it is, which lurq's fade does not.
 - **How things move** in the stack (the spring's length, how far a large title grows and the way it takes to
   a way back) was set by eye and not measured against the platform; `StackMotion` changes the numbers.
 - **A search field** is the field alone: no scopes under it, no suggestions, and it does not come and go
@@ -67,8 +68,7 @@ inside its input.
   sheet does not give the finger to the sheet at its top; and the numbers (the radii, the dim, the spring,
   how small the app gets) were set by eye.
 - **Tabs** are there (`Tabs`, `TabOutlet`, `TabBar`), flat or floating, with these differences from the
-  platform's: a floating bar is a blurred rounded bar, not glass, and has no lens a finger drags between
-  tabs; as a list is scrolled the bar goes out of view, where the platform's shrinks to a small one; the
+  platform's: a floating bar is of lurq's own glass, with a lens a finger drags between tabs, set by eye; as a list is scrolled the bar goes out of view, where the platform's shrinks to a small one; the
   picture of a tab that is chosen does not spring; the tab to search in is a place apart and does not open
   into a field; the list of the tabs that do not fit cannot be put in another order; there is no accessory
   over the bar, and no sidebar in a wide window. Its sizes were set by eye in a simulator.
@@ -132,6 +132,20 @@ app runs. Not checked on a device, and bold text, reduced motion and reduced tra
 - **The Liquid Glass setting** (clear or tinted) is not followed. No API tells it. UIKit keeps it in its own
   defaults (`UIViewGlassTintAmount` in `com.apple.UIKit`), which an app can read and which was seen to change
   with the setting on an iPhone 17, but the name is in no documentation and lurq does not lean on it.
+- **Glass** is lurq's own (`docs/src/content/docs/glass.md`), with the lens, the tints, the blur, the rim and
+  the thresholds measured on the system's in an iOS 26.5 simulator (a step passed behind the glass, greys and
+  colours under it). What is not the system's:
+  - the tone curves are a tint, a brightness and a saturation fitted to the measurements, within a few
+    steps of 255 for greys and further for strong colours; the system's own curve is not known;
+  - the shadow is one soft shadow fitted to a small glass; the system's is lighter under a large one;
+  - a glass flows into another only inside a container, with one distance for all of it; the system's
+    morph between two glasses with the same id (`glassEffectID`) is an element's own transition here;
+  - the rim's light leans with the device by gravity alone, set by eye, and not checked on a device; the
+    system's also takes the motion of what is behind;
+  - the navigation bar's way back and a screen's own buttons are not glass buttons by themselves: an app
+    gives its `leading` and `trailing` a glass; a tab bar's lens was tried only through the engine's tests;
+  - what is behind a glass is told light or dark from the frame's commands, without words and without a
+    video's frames.
 - **A change while the app is in front and nothing happens** (the appearance at sunset) is taken at the next
   touch or frame, not at once.
 - **VoiceOver, Switch Control, Voice Control:** the screen is one opaque view to them. Nothing in it has a

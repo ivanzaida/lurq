@@ -162,6 +162,10 @@ const SETTLE_AFTER: Duration = Duration::from_millis(50);
 /// No finger is dragging the top screen.
 const NO_DRAG: f32 = -1.0;
 /// The way back's arrow, its stroke, and the space between it and the label.
+/// With a bar of glass: how far past the bar what scrolls under it goes on fading, and the room between a
+/// screen's floating toolbar and the window's edges.
+const EDGE_FADE: f32 = 18.0;
+const TOOLBAR_MARGIN: f32 = 16.0;
 const CHEVRON_WIDTH: f32 = 11.0;
 const CHEVRON_HEIGHT: f32 = 20.0;
 const CHEVRON_STROKE: f32 = 2.6;
@@ -235,6 +239,12 @@ pub struct NavigationBar {
   pub search_height: f32,
   pub search_background: Option<Color>,
   pub search_placeholder: Option<Color>,
+  /// The glass of the bar's floating parts, as the newest system's are: with it the bar has no fill of its
+  /// own, what scrolls under it fades into it instead of ending at a line, a screen's toolbar is a bar of
+  /// this glass that floats over the screen, and the list of the screens to go back to is of it. `None` for
+  /// a bar of its `background`, blurred. A phone's bar is of [`Glass::regular`](crate::layout::glass::Glass::regular)
+  /// unless told otherwise; with transparency reduced or contrast increased it has none.
+  pub glass: Option<crate::layout::glass::Glass>,
 }
 
 impl NavigationBar {
@@ -248,6 +258,7 @@ impl NavigationBar {
     if system.reduce_transparency || system.increase_contrast {
       self.background = Color::new(self.background.r(), self.background.g(), self.background.b(), 255);
       self.blur = 0.0;
+      self.glass = None;
     }
     if system.increase_contrast {
       self.border = Color::new(self.border.r(), self.border.g(), self.border.b(), 255);
@@ -284,6 +295,7 @@ impl NavigationBar {
       search_height: 36.0,
       search_background: None,
       search_placeholder: None,
+      glass: cfg!(target_os = "ios").then(crate::layout::glass::Glass::regular),
     }
   }
 
@@ -352,6 +364,12 @@ impl NavigationBar {
 
   pub fn blur(mut self, radius: f32) -> Self {
     self.blur = radius;
+    self
+  }
+
+  /// The glass of the bar's floating parts, or none; see the field.
+  pub fn glass(mut self, glass: Option<crate::layout::glass::Glass>) -> Self {
+    self.glass = glass;
     self
   }
 
@@ -1583,13 +1601,17 @@ impl Component for StackOutlet {
           .clip()
           // Over a large title still in view the bar has no color of its own: it is one with what is behind
           // the screens.
-          .background(Color::new(
-            bar.background.r(),
-            bar.background.g(),
-            bar.background.b(),
-            (f32::from(bar.background.a()) * lined).round() as u8,
-          ))
-          .backdrop_blur(bar.blur * lined)
+          .background(if bar.glass.is_some() {
+            Color::new(0, 0, 0, 0)
+          } else {
+            Color::new(
+              bar.background.r(),
+              bar.background.g(),
+              bar.background.b(),
+              (f32::from(bar.background.a()) * lined).round() as u8,
+            )
+          })
+          .backdrop_blur(if bar.glass.is_some() { 0.0 } else { bar.blur * lined })
           .transition(Transition::height().duration(line_pace).easing(line_curve))
           .transition(Transition::background_color().duration(line_pace).easing(line_curve))
           .transition(Transition::backdrop_blur().duration(line_pace).easing(line_curve))
@@ -1607,35 +1629,84 @@ impl Component for StackOutlet {
           .width(FILL)
           .height(0.5 * shown_share)
           .background(bar.border)
-          .opacity(lined * bar_share)
+          .opacity(if bar.glass.is_some() { 0.0 } else { lined * bar_share })
           .transition(Transition::opacity().duration(line_pace).easing(line_curve)),
       );
+    // With glass, what scrolls under the bar fades into the bar's color toward the top of the window, where
+    // a bar of a fill would end at a line.
+    let edge = bar.glass.map(|_| {
+      // Into the bar's own color, all of it at the top whatever it lets through as a bar.
+      let page = bar.background;
+      let fill = |alpha: f32| Color::new(page.r(), page.g(), page.b(), (255.0 * alpha).round() as u8);
+      Column::new()
+        .width(FILL)
+        .height((safe_area.top + items_height * bar_share + EDGE_FADE) * shown_share)
+        .pointer_events_none()
+        .background_gradient(crate::node::Gradient::linear(
+          180.0,
+          [
+            crate::node::GradientStop::at(fill(0.97), 0.0),
+            crate::node::GradientStop::at(fill(0.86), 0.68),
+            crate::node::GradientStop::at(fill(0.0), 1.0),
+          ],
+        ))
+        .opacity(lined)
+        .transition(Transition::opacity().duration(line_pace).easing(line_curve))
+        .transition(Transition::height().duration(line_pace).easing(line_curve))
+    });
     // A screen's toolbar: across the bottom, over the home indicator's room and over the screen, whose list
     // shows through it as it does through the bar.
-    let toolbar = Column::new()
-      .width(FILL)
-      .height((bar.toolbar_height + safe_area.bottom + 0.5) * toolbar_share)
-      .clip()
-      .align(Alignment::End)
-      .transition(Transition::height().duration(line_pace).easing(line_curve))
-      .background(bar.background)
-      .backdrop_blur(bar.blur)
-      .child(Row::new().width(FILL).height(0.5).background(bar.border))
-      .child(
+    let toolbar = match bar.glass {
+      None => Column::new()
+        .width(FILL)
+        .height((bar.toolbar_height + safe_area.bottom + 0.5) * toolbar_share)
+        .clip()
+        .align(Alignment::End)
+        .transition(Transition::height().duration(line_pace).easing(line_curve))
+        .background(bar.background)
+        .backdrop_blur(bar.blur)
+        .child(Row::new().width(FILL).height(0.5).background(bar.border))
+        .child(
+          Column::new()
+            .width(FILL)
+            .padding_left(safe_area.left)
+            .padding_right(safe_area.right)
+            .child(tools),
+        ),
+      // A bar of glass that floats over the screen, clear of the window's edges: it comes and goes as a
+      // material.
+      Some(glass) => {
+        let mut floating = Column::new()
+          .width(FILL)
+          .height(bar.toolbar_height)
+          .rounded(bar.toolbar_height / 2.0)
+          .transition(Transition::glass().duration(line_pace).easing(line_curve))
+          .child(tools);
+        if toolbar_share > 0.0 {
+          floating = floating.glass(glass);
+        }
         Column::new()
           .width(FILL)
-          .padding_left(safe_area.left)
-          .padding_right(safe_area.right)
-          .child(tools),
-      );
+          .align(Alignment::End)
+          .overflow_visible()
+          .hit_test(crate::node::HitTestBehavior::ContentOnly)
+          .padding_left(safe_area.left + TOOLBAR_MARGIN)
+          .padding_right(safe_area.right + TOOLBAR_MARGIN)
+          .padding_bottom(safe_area.bottom.max(TOOLBAR_MARGIN))
+          .opacity(toolbar_share)
+          .transition(Transition::opacity().duration(line_pace).easing(line_curve))
+          .child(floating)
+      }
+    };
     let mut whole = Stack::new()
       .size(FILL, FILL)
       .ref_element(self.origin.clone())
       .stack_align(StackAlignment::TopStart)
-      .child(screens)
-      .child(toolbar)
-      .child(over)
-      .child(overlay);
+      .child(screens);
+    if let Some(edge) = edge {
+      whole = whole.child(edge);
+    }
+    let mut whole = whole.child(toolbar).child(over).child(overlay);
     if bar.back_menu && !menu_titles.is_empty() {
       // The list of the screens under, over everything: a tap on a screen's name goes back to it, and a tap
       // anywhere else puts the list away. It is always there, unseen and untouched while closed, so that it
@@ -1643,12 +1714,17 @@ impl Component for StackOutlet {
       let opening = Transition::all()
         .duration(MENU_MOVE)
         .easing(Easing::Spring { velocity: 0.0 });
-      let mut list = Column::new()
-        .width(bar.back_menu_width)
-        .background(bar.background)
-        .backdrop_blur(bar.blur)
-        .border_inside(0.5, bar.border)
-        .rounded(13.0)
+      let list = Column::new().width(bar.back_menu_width);
+      let list = match bar.glass {
+        Some(glass) if menu_open => list.glass(glass).rounded(22.0),
+        Some(_) => list.rounded(22.0),
+        None => list
+          .background(bar.background)
+          .backdrop_blur(bar.blur)
+          .border_inside(0.5, bar.border)
+          .rounded(13.0),
+      };
+      let mut list = list
         .clip()
         .absolute_position(safe_area.left + 8.0, safe_area.top + bar_height + 4.0)
         .opacity(if menu_open { 1.0 } else { 0.0 })

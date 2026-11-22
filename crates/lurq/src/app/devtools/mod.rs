@@ -252,7 +252,14 @@ mod tests {
         style.font_family, style.font_size, style.weight, style.color
       ),
       QuadContent::RichText { spans, .. } => format!("rich text of {}", spans.len()),
-      QuadContent::Backdrop { blur, .. } => format!("backdrop {blur}"),
+      QuadContent::Backdrop { blur, glass: None, .. } => format!("backdrop {blur}"),
+      QuadContent::Backdrop {
+        blur,
+        glass: Some(glass),
+        ..
+      } => {
+        format!("glass of {} blurred {blur}", glass.shapes.len())
+      }
       _ => "other".to_owned(),
     };
     format!(

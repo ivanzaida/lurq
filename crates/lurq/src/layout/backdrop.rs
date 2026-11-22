@@ -46,6 +46,18 @@ pub struct BackdropCmd {
   /// How much of the blurred backdrop replaces the sharp one, `0.0..=1.0`:
   /// the node's own opacity.
   pub opacity: f32,
+  /// The glass the blurred backdrop is put back as, by its index in
+  /// [`RenderList::glasses`](crate::layout::render_list::RenderList::glasses);
+  /// `None` for a blur alone. The box is then the bounds of the glass's
+  /// shapes, upright and without radii. A render engine that draws no glass
+  /// puts the blur back in the box.
+  pub glass: Option<u32>,
+  /// How far outside the pixels it changes the command reads, beside the
+  /// blur's own reach, in physical pixels: what a glass's lens pulls in.
+  pub reach: f32,
+  /// How far outside the box the command paints, in physical pixels: a
+  /// glass's shadow.
+  pub spread: f32,
   /// The key of the backdrop blurs it is blurred with as one; see
   /// [`Node::backdrop_group`](crate::node::Node::backdrop_group).
   pub group: Option<u64>,
@@ -69,6 +81,9 @@ impl std::fmt::Debug for BackdropCmd {
       .field("clip", &clip)
       .field("sigma", &self.sigma)
       .field("opacity", &self.opacity)
+      .field("glass", &self.glass)
+      .field("reach", &self.reach)
+      .field("spread", &self.spread)
       .field("group", &self.group)
       .finish()
   }
@@ -115,6 +130,13 @@ impl BackdropRegion {
       cmd.transform_origin,
     )?;
     let mut shown = mask.extent();
+    let spread = cmd.spread.max(0.0);
+    shown = [
+      shown[0] - spread,
+      shown[1] - spread,
+      shown[2] + spread,
+      shown[3] + spread,
+    ];
     let mut clips = [None; crate::layout::quad::MAX_ROUNDED_CLIPS];
     if cmd.clip.active {
       shown = [
@@ -145,7 +167,8 @@ impl BackdropRegion {
     }
     // As for a blurred layer: the reach of the blur, and what the passes'
     // sampling adds. Past the target's edge its edge pixels repeat.
-    let pad = crate::layout::opacity_layer::blur_pad(cmd.sigma);
+    let coarse = cmd.glass.is_some();
+    let pad = crate::layout::opacity_layer::blur_pad(cmd.sigma, coarse) + cmd.reach.max(0.0).ceil() as i32;
     let copied_x0 = (x0 - pad).max(target_origin[0]);
     let copied_y0 = (y0 - pad).max(target_origin[1]);
     let copied_x1 = (x1 + pad).min(target[2]);
@@ -163,6 +186,7 @@ impl BackdropRegion {
         },
         blur: Some(LayerBlur {
           sigma: cmd.sigma,
+          coarse,
           x: copied_x0,
           y: copied_y0,
           width: (copied_x1 - copied_x0) as u32,
@@ -194,6 +218,9 @@ mod tests {
       clip: ClipRect::default(),
       sigma,
       opacity: 1.0,
+      glass: None,
+      reach: 0.0,
+      spread: 0.0,
       group: None,
     }
   }
@@ -297,5 +324,28 @@ mod tests {
     let mut flat = cmd(40.0, 30.0, 50.0, 20.0, 4.0);
     flat.transform = [1.0, 0.0, 0.0, 0.0];
     assert!(BackdropRegion::new(&flat, [0, 0], [200, 100]).is_none());
+  }
+
+  #[test]
+  fn a_glass_reads_further_and_paints_past_its_box() {
+    let mut glass = cmd(40.0, 30.0, 50.0, 20.0, 4.0);
+    glass.glass = Some(0);
+    glass.reach = 9.5;
+    glass.spread = 6.0;
+    let region = BackdropRegion::new(&glass, [0, 0], [200, 200]).unwrap();
+    // The shadow is painted 6 pixels around the box.
+    assert_eq!(
+      region.layer.bounds,
+      LayerBounds {
+        x: 34,
+        y: 24,
+        width: 62,
+        height: 32
+      }
+    );
+    let blur = region.layer.blur.unwrap();
+    // And the lens reads 10 pixels past what the blur does, as far as the target goes.
+    assert_eq!((blur.x, blur.y), (34 - 15 - 10, 0));
+    assert_eq!(blur.x + blur.width as i32, 96 + 15 + 10);
   }
 }

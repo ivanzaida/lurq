@@ -12,6 +12,7 @@ pub mod controls;
 pub mod drag_and_drop;
 pub mod events;
 pub mod gestures;
+pub mod glass;
 pub mod glyph_atlas;
 pub mod gpu_viewport;
 pub mod grid;

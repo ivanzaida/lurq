@@ -427,6 +427,36 @@ impl Quad {
 #[doc(hidden)]
 pub use crate::app::glyph_engine::input_tokens::DecoratedInputLayout;
 
+/// The glass of a [`QuadContent::Backdrop`]: the material and the boxes that
+/// are one surface, in logical pixels.
+#[derive(Clone, Debug, PartialEq)]
+pub struct GlassQuad {
+  pub glass: crate::layout::glass::Glass,
+  /// How near two shapes flow together.
+  pub merge: f32,
+  /// The node the first shape is of gave the material; a
+  /// [`GlassTouch`](crate::layout::glass::GlassTouch) is measured from that
+  /// shape's corner.
+  pub shapes: Vec<GlassQuadShape>,
+  /// The ids of the shapes' nodes, in their order: who is told how dark
+  /// what lies behind the glass is.
+  pub keys: Vec<u64>,
+  /// Who hears the glass turn to its other look: the shapes' nodes that asked to, and the container.
+  pub look_handlers: Vec<crate::layout::glass::GlassLookHandler>,
+}
+
+/// One box of a glass, placed as a quad is.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct GlassQuadShape {
+  pub x: f32,
+  pub y: f32,
+  pub width: f32,
+  pub height: f32,
+  pub border_radius: Option<BorderRadius>,
+  pub transform: Transform2D,
+  pub transform_origin: Option<[f32; 2]>,
+}
+
 pub enum QuadContent {
   #[doc(hidden)]
   DecoratedInput {
@@ -440,8 +470,13 @@ pub enum QuadContent {
   /// pixels, before the quads after it are painted. Paints nothing itself;
   /// the quad's opacity is how much of the blurred backdrop shows. See
   /// [`crate::layout::backdrop`].
+  ///
+  /// With a `glass` the blurred backdrop is put back as glass over the
+  /// glass's shapes, which may lie anywhere: the quad's own box is then
+  /// unused. See [`crate::layout::glass`].
   Backdrop {
     blur: f32,
+    glass: Option<Box<GlassQuad>>,
     /// The key of the group it is blurred with; see [`crate::node::Node::backdrop_group`].
     group: Option<u64>,
   },

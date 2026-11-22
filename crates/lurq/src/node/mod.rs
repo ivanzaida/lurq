@@ -93,3 +93,5 @@ pub use slider_style::{SliderOrientation, SliderPartStyle};
 pub use spacing_value::SpacingValue;
 pub use style::Style;
 pub use text_color::TextColor;
+
+pub use crate::layout::glass::{Glass, GlassFollows, GlassLook, GlassShadow, GlassTouch};

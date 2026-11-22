@@ -11,6 +11,8 @@ mcp = ["lurq/mcp"]
 # Addresses on the network: the Sound screen's last player loads one. Without it that player says the build
 # loads no address.
 http = ["lurq/http"]
+# The glass probe: what a glass costs a frame, measured in the app (`src/glass_probe.rs`).
+probe = ["lurq/perf_profile"]
 
 [dependencies]
 lurq = { version = "=0.66.1", path = "../lurq", default-features = false, features = ["winit", "wgpu", "router", "media"] }

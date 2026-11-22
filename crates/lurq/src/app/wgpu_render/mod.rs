@@ -3010,6 +3010,8 @@ impl RenderEngine for WgpuRenderEngine {
     // Faded subtrees paint into offscreen layers first, each before the
     // target it is composited into; the window's pass comes last. Without
     // layers the plan is the window's pass alone.
+    // The light on a glass's rim falls to nothing over a logical pixel and a half, as the system's does.
+    let glass_rim = (1.42 * self.scale_factor).max(1.0);
     let mut layer_plan = std::mem::take(&mut self.layer_plan);
     layer_plan.build(
       ordered_draws.len(),
@@ -3078,9 +3080,11 @@ impl RenderEngine for WgpuRenderEngine {
         window,
         &mut self.scratch_backdrop_slots,
       );
+      let mut followers = 0;
       for (index, lead) in follows.iter().enumerate() {
         if let (Some(lead), Some(region)) = (lead, self.scratch_backdrop_regions[index]) {
-          let followed = self.scratch_backdrop_slots[*lead].map(|slots| slots.followed_by(region));
+          let followed = self.scratch_backdrop_slots[*lead].map(|slots| slots.followed_by(region, followers));
+          followers += 1;
           self.scratch_backdrop_slots[index] = followed;
         }
       }
@@ -3262,7 +3266,10 @@ impl RenderEngine for WgpuRenderEngine {
             }
             active_pipeline = Some(ActivePipeline::Layer);
             if set_scissor(&mut pass, space.layer_rect(backdrop.bounds()), &space) {
-              compositor.composite_backdrop(queue, &mut pass, &backdrop, &space);
+              let glass = list.backdrops[*index]
+                .glass
+                .and_then(|glass| list.glasses.get(glass as usize));
+              compositor.composite_backdrop(device, queue, &mut pass, &backdrop, &space, glass, glass_rim);
               profile_if! {
                 _draw_calls += 2;
                 _layers.blur_draws += 2;

@@ -91,6 +91,11 @@ pub struct SheetStyle {
   /// How far ahead of where a finger let the sheet go it is taken to be going, in seconds of the finger's
   /// speed: the height nearest to there is where it goes.
   pub throw: f32,
+  /// The glass the sheet is made of, as the newest system's sheets are: what is behind the sheet shows
+  /// through it, bent along its edge. `None` for a sheet of its `background`. A phone's sheet is of
+  /// [`Glass::panel`](crate::layout::glass::Glass::panel) unless told otherwise; with transparency reduced
+  /// or contrast increased it has none.
+  pub glass: Option<crate::layout::glass::Glass>,
 }
 
 /// The colors of 0.62's sheet: what the legacy theme gives, and what a theme with no recipe for the sheet keeps.
@@ -116,6 +121,7 @@ impl Default for SheetStyle {
       max_width: f32::INFINITY,
       duration: Duration::from_millis(500),
       throw: 0.15,
+      glass: cfg!(target_os = "ios").then(crate::layout::glass::Glass::panel),
     }
   }
 }
@@ -193,6 +199,12 @@ impl SheetStyle {
 
   pub fn corner_radius(mut self, radius: f32) -> Self {
     self.corner_radius = radius;
+    self
+  }
+
+  /// The glass the sheet is made of, or none; see the field.
+  pub fn glass(mut self, glass: Option<crate::layout::glass::Glass>) -> Self {
+    self.glass = glass;
     self
   }
 
@@ -782,9 +794,21 @@ impl Component for Sheet {
       .width(FILL)
       .max_width(style.max_width)
       .height(room + UNDER)
-      .background(style.background)
       .rounded(style.corner_radius)
       .clip();
+    // Of glass, unless the person asked the system for less of what shows through.
+    let glass = style
+      .glass
+      .filter(|_| !(window.system.reduce_transparency || window.system.increase_contrast));
+    let panel = match glass {
+      // A glass that goes by the app's appearance goes by the sheet's own color here: a sheet that would
+      // be dark is a dark glass, whatever the theme around it.
+      Some(glass) if glass.follows == crate::layout::glass::GlassFollows::Appearance => panel.glass(glass.toned(
+        f32::from(u8::from(crate::layout::glass_tone::dark_page(style.background))),
+      )),
+      Some(glass) => panel.glass(glass),
+      None => panel.background(style.background),
+    };
     let panel = dress(SheetNode::Panel, panel)
       .child(body)
       .opacity(if reduce_motion && away { 0.0 } else { 1.0 })

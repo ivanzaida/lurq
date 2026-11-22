@@ -19,6 +19,11 @@ pub(crate) struct Screen {
 
 pub(crate) const SCREENS: &[Screen] = &[
   Screen {
+    path: "/glass",
+    title: "Glass",
+    checks: "Glass over a page that scrolls: its lens, its two looks, a press, two that flow together",
+  },
+  Screen {
     path: "/touch",
     title: "Touch",
     checks: "Tap, double tap, long press, drag, a slider under the finger",

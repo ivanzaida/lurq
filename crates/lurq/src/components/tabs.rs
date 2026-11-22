@@ -23,6 +23,7 @@ use crate::{
   app::{
     component::Component,
     ctx::{BottomBarInset, Ctx},
+    events::{GesturePhase, PanEvent},
     window::SafeAreaInsets,
   },
   components::{Column, Router, Row, Stack, Text},
@@ -467,6 +468,10 @@ pub struct TabBar {
   pub floating_bottom: f32,
   pub floating_height: f32,
   pub floating_selection: Color,
+  /// The glass a floating bar is made of, as the newest system's is; `None` for a bar of its `background`,
+  /// blurred. On glass the bar follows what is behind it, its tabs with it, and the mark of the chosen tab
+  /// is a lens a finger drags from tab to tab. See [`TabBar::floating`] and [`TabBar::glass`].
+  pub glass: Option<crate::layout::glass::Glass>,
 }
 
 impl TabBar {
@@ -583,6 +588,7 @@ impl Default for TabBar {
       floating_bottom: 21.0,
       floating_height: 62.0,
       floating_selection: look.background(TabBarPart::Selection, legacy::SELECTION),
+      glass: None,
     }
   }
 }
@@ -618,6 +624,7 @@ impl TabBar {
       badge_background: legacy::BADGE,
       badge_color: legacy::BADGE_TEXT,
       floating_selection: legacy::SELECTION,
+      glass: None,
       ..Self::default()
     }
   }
@@ -652,10 +659,42 @@ impl TabBar {
   }
 
   /// A bar that floats over the content, clear of the window's edges, with the place of the chosen tab
-  /// marked: the look of the newest system's, without its glass.
+  /// marked: the newest system's, of its glass ([`Glass::regular`](crate::layout::glass::Glass::regular)).
+  /// [`Self::glass`] gives it another glass, or none.
   pub fn floating(mut self) -> Self {
     self.floating = true;
+    self.glass = Some(crate::layout::glass::Glass::regular());
     self
+  }
+
+  /// The glass of a floating bar; `None` for a floating bar of its `background`, blurred.
+  pub fn glass(mut self, glass: Option<crate::layout::glass::Glass>) -> Self {
+    self.glass = glass;
+    self
+  }
+
+  /// The bar in the colours its glass wants: black on a light glass and white on a dark one, the tabs that
+  /// are not chosen fainter. A `tint` that is a colour, and not a shade of grey, is kept for the chosen tab.
+  fn on_glass(&self, dark: bool) -> Self {
+    let ink = |alpha: u8| {
+      if dark {
+        Color::new(255, 255, 255, alpha)
+      } else {
+        Color::new(0, 0, 0, alpha)
+      }
+    };
+    let (low, high) = (
+      self.tint.r().min(self.tint.g()).min(self.tint.b()),
+      self.tint.r().max(self.tint.g()).max(self.tint.b()),
+    );
+    let mut bar = self.clone();
+    if high - low < 32 {
+      bar.tint = ink(if dark { 255 } else { 230 });
+    }
+    bar.color = ink(150);
+    bar.contrast_color = ink(210);
+    bar.floating_selection = ink(if dark { 46 } else { 28 });
+    bar
   }
 
   pub fn minimizes_on_scroll(mut self, minimizes: bool) -> Self {
@@ -770,6 +809,17 @@ pub struct TabOutlet {
   bar_height: Signal<f32>,
   /// The list of the tabs that have no place in the bar is shown.
   more_open: Signal<bool>,
+  /// A bar of glass: whether its glass is the dark one, and where a finger holds its lens.
+  glass: BarGlass,
+}
+
+/// What a bar of glass remembers between renders.
+#[derive(Clone)]
+struct BarGlass {
+  /// The glass is in its dark look: what is behind the bar is dark.
+  dark: Signal<bool>,
+  /// Where the finger that drags the lens is, from the bar's left edge; `None` while none does.
+  lens: Signal<Option<f32>>,
 }
 
 impl TabOutlet {
@@ -790,6 +840,10 @@ impl Component for TabOutlet {
       bar: ElementRef::default(),
       bar_height: Signal::new(0.0),
       more_open: Signal::new(false),
+      glass: BarGlass {
+        dark: Signal::new(false),
+        lens: Signal::new(None),
+      },
     }
   }
 
@@ -891,6 +945,7 @@ impl Component for TabOutlet {
           let solid = |color: Color| Color::new(color.r(), color.g(), color.b(), 255);
           bar.background = solid(bar.background);
           bar.blur = 0.0;
+          bar.glass = None;
           if window.system.increase_contrast {
             bar.border = solid(bar.border);
             bar.color = bar.contrast_color;
@@ -903,6 +958,7 @@ impl Component for TabOutlet {
           safe_area,
           low,
           &self.more_open,
+          &self.glass,
           drawn_in,
           window.logical_width(),
         ))
@@ -1087,6 +1143,12 @@ fn place_content(bar: &TabBar, item: &TabItem, active: bool, low: bool) -> Colum
   }
 }
 
+/// How long the mark of the chosen tab takes from one place to another, and a lens to come and to go.
+const LENS_MOVE: Duration = Duration::from_millis(420);
+const LENS_TURN: Duration = Duration::from_millis(180);
+/// How near the bar and the round place beside it flow together.
+const GLASS_MERGE: f32 = 14.0;
+
 /// The tabs that have a place in the bar and those that have none: with more tabs than the bar has places,
 /// the last place is for the rest.
 fn placed<'a>(bar: &TabBar, entries: &'a [TabEntry]) -> (&'a [TabEntry], &'a [TabEntry]) {
@@ -1105,10 +1167,15 @@ fn standard_bar(
   safe_area: SafeAreaInsets,
   low: bool,
   more_open: &Signal<bool>,
+  glass_state: &BarGlass,
   drawn_in: bool,
   window_width: f32,
 ) -> Element {
   let floating = bar.floating && bar.place == TabBarPlace::Bottom;
+  let glass = bar.glass.filter(|_| floating);
+  // On glass the bar's colours are the glass's: they turn with it.
+  let on_glass = glass.map(|_| bar.on_glass(glass_state.dark.get()));
+  let bar = on_glass.as_ref().unwrap_or(bar);
   let (shown, rest) = placed(bar, entries);
   let height = if floating {
     bar.floating_height
@@ -1157,7 +1224,7 @@ fn standard_bar(
       .overflow_visible()
       .child(content)
       .on_click(move |_| press());
-    if floating {
+    if floating && glass.is_none() {
       // The chosen tab's place is marked, as far as the bar's own round ends.
       place = place.rounded((height - 8.0) / 2.0).background(if chosen {
         bar.floating_selection
@@ -1171,37 +1238,54 @@ fn standard_bar(
     .height(if floating { height - 8.0 } else { height })
     .justify(Justify::Center);
   let mut apart: Option<Element> = None;
+  // What a press on each place of the row does, and which of them is the chosen one: a lens let go over a
+  // place presses it.
+  let mut presses: Vec<Arc<dyn Fn() + Send + Sync>> = Vec::new();
+  let mut chosen_place = None;
   for entry in shown {
     let chosen = entry.active && !opened;
     let (tabs, key, open) = (tabs.clone(), entry.key.clone(), more_open.clone());
     let (scrolled, opens) = (entry.scrolled.clone(), drawn_in && entry.active && !entry.item.search);
+    let press: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
+      if opens {
+        scrolled.set(false);
+        return;
+      }
+      open.set(false);
+      tabs.press(&key);
+    });
+    let in_row = !(floating && entry.item.search);
+    if in_row {
+      if chosen {
+        chosen_place = Some(presses.len());
+      }
+      presses.push(press.clone());
+    }
     let made = place(
       format!("tab-{}", entry.key),
       place_content(bar, &entry.item, chosen, low),
       chosen,
       !entry.item.search,
-      Box::new(move || {
-        if opens {
-          scrolled.set(false);
-          return;
-        }
-        open.set(false);
-        tabs.press(&key);
-      }),
+      Box::new(move || press()),
     );
     if floating && entry.item.search {
       // The tab to search in stands apart from the others, a round place of its own at the bar's end.
+      let round = Row::new()
+        .width(height)
+        .height(height)
+        .padding(4.0)
+        .rounded(height / 2.0);
       apart = Some(
-        Row::new()
-          .width(height)
-          .height(height)
-          .padding(4.0)
-          .rounded(height / 2.0)
-          .background(bar.background)
-          .backdrop_blur(bar.blur)
-          .border_inside(0.5, bar.border)
-          .child(made)
-          .into(),
+        match glass {
+          // A button of glass by the bar's side: it answers a press as one.
+          Some(glass) => round.glass(glass.interactive(true)),
+          None => round
+            .background(bar.background)
+            .backdrop_blur(bar.blur)
+            .border_inside(0.5, bar.border),
+        }
+        .child(made)
+        .into(),
       );
     } else {
       places = places.child(made);
@@ -1213,25 +1297,130 @@ fn standard_bar(
     let chosen = opened || rest.iter().any(|entry| entry.active);
     let item = TabItem::new(bar.more_title()).symbol(bar.more_symbol.clone());
     let open = more_open.clone();
+    let press: Arc<dyn Fn() + Send + Sync> = Arc::new(move || open.set(!open.get_untracked()));
+    if chosen {
+      chosen_place = Some(presses.len());
+    }
+    presses.push(press.clone());
     places = places.child(place(
       "tab-more-places".to_owned(),
       place_content(bar, &item, chosen, low),
       chosen,
       true,
-      Box::new(move || open.set(!open.get_untracked())),
+      Box::new(move || press()),
     ));
   }
 
   if floating {
-    let capsule = places
-      .width(if drawn_in { alone + 8.0 } else { full })
-      .transition(resize.clone())
-      .height(height)
-      .padding(4.0)
-      .rounded(height / 2.0)
-      .background(bar.background)
-      .backdrop_blur(bar.blur)
-      .border_inside(0.5, bar.border);
+    let width = if drawn_in { alone + 8.0 } else { full };
+    let left = safe_area.left + bar.floating_margin;
+    let capsule: Element = match glass {
+      None => places
+        .width(width)
+        .transition(resize.clone())
+        .height(height)
+        .padding(4.0)
+        .rounded(height / 2.0)
+        .background(bar.background)
+        .backdrop_blur(bar.blur)
+        .border_inside(0.5, bar.border)
+        .into(),
+      Some(glass) => {
+        // The mark of the chosen tab slides from place to place under the tabs; under a finger it is a lens
+        // of clear glass over them, a little larger, that goes where the finger goes.
+        let (slot, slot_width) = match (drawn_in, chosen_place) {
+          (true, _) => (4.0, alone),
+          (false, place) => (4.0 + place.unwrap_or(0) as f32 * each, each),
+        };
+        let held = glass_state.lens.get();
+        let at = held.map_or(slot, |finger| {
+          (finger - slot_width / 2.0).clamp(4.0, (width - 4.0 - slot_width).max(4.0))
+        });
+        let slide = Transition::transform()
+          .duration(LENS_MOVE)
+          .easing(Easing::Spring { velocity: 0.0 });
+        let moved = |row: Row| {
+          let row = row
+            .size(slot_width, height - 8.0)
+            .absolute_position(0.0, 4.0)
+            .transform(Transform2D::translate(at, 0.0))
+            .pointer_events_none();
+          // Under a finger it is where the finger is, at once.
+          if held.is_some() {
+            row
+          } else {
+            row.transition(slide.clone())
+          }
+        };
+        let mark = moved(Row::new())
+          .rounded((height - 8.0) / 2.0)
+          .background(bar.floating_selection)
+          .opacity(if chosen_place.is_some() && held.is_none() {
+            1.0
+          } else {
+            0.0
+          })
+          .transition(Transition::opacity().duration(LENS_TURN));
+        let mut lens = Row::new()
+          .size(FILL, FILL)
+          .rounded((height - 8.0) / 2.0)
+          .transform(Transform2D::scale_uniform(if held.is_some() { 1.16 } else { 1.0 }))
+          .transition(
+            Transition::transform()
+              .duration(LENS_MOVE)
+              .easing(Easing::Spring { velocity: 0.0 }),
+          )
+          .transition(Transition::glass().duration(LENS_TURN));
+        if held.is_some() {
+          lens = lens.glass(crate::layout::glass::Glass::clear().blur(0.0));
+        }
+        let (dark, finger) = (glass_state.dark.clone(), glass_state.lens.clone());
+        let places_in_row = presses.len();
+        Stack::new()
+          .width(width)
+          .transition(resize.clone())
+          .height(height)
+          .rounded(height / 2.0)
+          .overflow_visible()
+          .glass(glass)
+          .on_glass_look(move |now_dark| dark.set(now_dark))
+          .child(mark)
+          .child(places.width(FILL).height(height).padding(4.0))
+          .child(moved(Row::new()).overflow_visible().child(lens))
+          .on_pan(move |event: PanEvent| {
+            let x = event.x - left;
+            match event.phase {
+              GesturePhase::Start => {
+                // Along the bar: the finger has the lens, and presses nothing as it lifts.
+                if drawn_in || event.fingers != 1 || event.translation_x.abs() <= event.translation_y.abs() {
+                  return;
+                }
+                event.prevent_default();
+                event.stop_propagation();
+                finger.set(Some(x));
+              }
+              GesturePhase::Change => {
+                if finger.get_untracked().is_some() {
+                  finger.set(Some(x));
+                }
+              }
+              GesturePhase::End => {
+                if finger.get_untracked().is_none() {
+                  return;
+                }
+                finger.set(None);
+                // The place the lens is over when it is let go is the tab that is chosen.
+                let place =
+                  (((x - 4.0) / each.max(1.0)).floor().max(0.0) as usize).min(places_in_row.saturating_sub(1));
+                if let Some(press) = presses.get(place) {
+                  press();
+                }
+              }
+            }
+          })
+          .into()
+      }
+    };
     // The room around the bar is the content's: a touch there goes to what is under.
     let mut row = Row::new()
       .width(FILL)
@@ -1245,6 +1434,10 @@ fn standard_bar(
       row = row
         .child(Row::new().flex(1.0).min_width(10.0).pointer_events_none())
         .child(apart);
+    }
+    if glass.is_some() {
+      // The bar and the round place beside it are one glass: they flow together as the bar draws out to it.
+      row = row.glass_container(GLASS_MERGE).overflow_visible();
     }
     return row.into();
   }

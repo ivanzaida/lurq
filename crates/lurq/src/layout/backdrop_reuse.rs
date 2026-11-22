@@ -370,6 +370,12 @@ struct Frame<'a, D> {
 }
 
 impl<D: Fn(usize) -> PaintedDraw> Frame<'_, D> {
+  /// The glass the backdrop `index` is put back as, if it is one.
+  fn glass_of(&self, index: usize) -> Option<&crate::layout::glass::GlassCmd> {
+    let glass = self.list.backdrops.get(index)?.glass?;
+    self.list.glasses.get(glass as usize)
+  }
+
   /// Notes the input of a blur that copies `blur`'s rectangle out of
   /// `target` once `before`, the steps of the target before it, are painted.
   /// `inputs` holds the inputs of the blurs before it. Returns whether the
@@ -427,6 +433,7 @@ impl<D: Fn(usize) -> PaintedDraw> Frame<'_, D> {
             };
             notes.tag(b'B');
             notes.region(&region);
+            notes.glass(self.glass_of(*index));
             notes.u32(input.bytes.len() as u32);
             notes.bytes.extend_from_slice(&input.bytes);
             true
@@ -470,6 +477,7 @@ impl<D: Fn(usize) -> PaintedDraw> Frame<'_, D> {
           if let Some(region) = self.regions.get(*index).copied().flatten() {
             notes.tag(b'B');
             notes.region(&region);
+            notes.glass(self.glass_of(*index));
           }
           true
         }
@@ -897,6 +905,7 @@ impl Notes {
     self.flag(blur.is_some());
     if let Some(LayerBlur {
       sigma,
+      coarse,
       x,
       y,
       width,
@@ -905,12 +914,41 @@ impl Notes {
     }) = blur
     {
       self.f32(sigma);
+      self.flag(coarse);
       self.i32s(&[x, y]);
       self.u32s(&[width, height]);
       for clip in &clips {
         self.rounded(clip.as_ref());
       }
     }
+  }
+
+  /// The glass a backdrop is put back as: everything that decides the
+  /// pixels it leaves. A blur alone is told from a glass by its tag.
+  fn glass(&mut self, glass: Option<&crate::layout::glass::GlassCmd>) {
+    let Some(glass) = glass else {
+      self.tag(b'b');
+      return;
+    };
+    self.tag(b'G');
+    self.u32(glass.count as u32);
+    for shape in glass.shapes() {
+      self.rounded(Some(shape));
+    }
+    self.f32s(&[
+      glass.merge,
+      glass.bend,
+      glass.bezel,
+      glass.dispersion,
+      glass.saturation,
+      glass.brightness,
+      glass.rim,
+      glass.glow,
+    ]);
+    self.f32s(&glass.tint);
+    self.f32s(&glass.shadow);
+    self.f32s(&glass.light);
+    self.f32s(&glass.touch);
   }
 
   /// A backdrop blur as it is run and put back.

@@ -14,6 +14,8 @@ lurq has two blurs, and they answer different questions:
 
 Both work on every node and component, on the wgpu renderer and the native DX12 one, and need no feature flag.
 
+Glass that also bends what is behind it, as a phone's newest system does, is [`.glass(..)`](../glass/).
+
 ## The Radius
 
 `radius` is in logical pixels and means what a shadow's blur radius means: the Gaussian's standard deviation is half of

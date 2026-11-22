@@ -19,9 +19,9 @@ mod link;
 mod markdown;
 #[cfg(feature = "router")]
 mod outlet;
+pub(crate) mod pager;
 mod popup;
 mod rect;
-pub(crate) mod pager;
 pub(crate) mod refresh;
 #[cfg(feature = "router")]
 mod router_component;
@@ -1685,6 +1685,27 @@ macro_rules! impl_into_node {
       /// `Node::backdrop_blur`).
       pub fn backdrop_blur(mut self, radius: f32) -> Self {
         self.update_node(|node| $crate::node::NodeUpdate::backdrop_blur(node, radius));
+        self
+      }
+
+      /// Makes the component a piece of glass over what is painted behind it (see `Node::glass`).
+      pub fn glass(mut self, glass: $crate::layout::glass::Glass) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::glass(node, glass));
+        self
+      }
+
+      /// Makes the glass components in this one a single glass, flowing together within `merge` (see
+      /// `Node::glass_container`).
+      pub fn glass_container(mut self, merge: f32) -> Self {
+        self.update_node(|node| $crate::node::NodeUpdate::glass_container(node, merge));
+        self
+      }
+
+      /// Hears the component's glass turn to its other look: whether it is the dark one (see
+      /// `Node::on_glass_look`).
+      pub fn on_glass_look(mut self, heard: impl Fn(bool) + Send + Sync + 'static) -> Self {
+        let heard = $crate::layout::glass::GlassLookHandler(std::sync::Arc::new(heard));
+        self.update_node(|node| $crate::node::NodeUpdate::on_glass_look(node, heard));
         self
       }
 

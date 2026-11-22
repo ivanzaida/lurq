@@ -392,6 +392,9 @@ struct ManagedWindow {
   presented_size: Option<winit::dpi::PhysicalSize<u32>>,
   #[cfg(target_os = "ios")]
   status_bar_tap: Option<ios::StatusBarTap>,
+  /// The device's tilt, read while the window shows glass: the light on its rims leans with it.
+  #[cfg(target_os = "ios")]
+  tilt: Option<ios::Tilt>,
   /// How much of the window the keyboard covered at the last frame, in logical pixels.
   #[cfg(target_os = "ios")]
   keyboard_overlap: f32,
@@ -463,6 +466,8 @@ impl ManagedWindow {
       #[cfg(target_os = "ios")]
       #[cfg(target_os = "ios")]
       status_bar_tap: None,
+      #[cfg(target_os = "ios")]
+      tilt: None,
       #[cfg(target_os = "ios")]
       keyboard_overlap: 0.0,
       #[cfg(target_os = "ios")]
@@ -1073,6 +1078,15 @@ impl ManagedWindow {
       }
       if self.status_bar_tap.as_mut().is_some_and(ios::StatusBarTap::take_tapped) {
         self.tree.touch_scroll_to_top(now);
+      }
+      // The light on glass leans as the device is tilted; the sensor is read only while there is glass.
+      let has_glass = self.tree.has_glass();
+      if has_glass || self.tilt.is_some() {
+        let tilt = self.tilt.get_or_insert_with(ios::Tilt::new);
+        tilt.set_running(has_glass);
+        if let Some(light) = tilt.take() {
+          self.tree.set_glass_light(light);
+        }
       }
     }
     self
