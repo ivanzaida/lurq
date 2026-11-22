@@ -75,6 +75,19 @@ pub use cache::{DEFAULT_SOUND_CACHE_BYTES, SoundCache, sound_cache};
 pub use driven::{DrivenMedias, MediaDriver, drive_media};
 pub(crate) use events::{LoopNoted, note_loop, tell_news};
 pub use session::AudioCategory;
+
+/// How much what a media reads is wanted beside what the other medias of the same host read
+/// ([`Media::set_priority`]). Among medias of one priority, one that plays goes before one that does not.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Priority {
+  /// What is read in the background: a video two swipes away.
+  Low,
+  /// Unless told.
+  #[default]
+  Normal,
+  /// What is in front of the person: the video shown.
+  High,
+}
 pub(crate) use session::set_category as set_audio_category;
 
 /// What changed in a media is told to these, from its own thread.
@@ -178,6 +191,8 @@ pub(crate) struct Shared {
   /// The index of what it plays, where that is an MP4 file the app's loader reads: where in its bytes each moment
   /// is. Read beside it as it opens.
   index: Mutex<Option<Arc<mp4_index::Index>>>,
+  /// What the app said of its priority ([`Media::set_priority`]), as its place among the priorities.
+  priority: std::sync::atomic::AtomicU8,
   /// What the app's loader reads of it, where it plays an address.
   stream: Mutex<Option<Arc<dyn Reader>>>,
   /// All of what it plays is there: a file, or bytes.
@@ -282,6 +297,22 @@ impl Shared {
     }
   }
 
+  /// Tells the reader of what it plays its rank among the readers of its host: its priority, and then whether it
+  /// `plays` ([`Reader::set_rank`]). A media of normal priority that plays reads as a reader nobody ranks.
+  pub(crate) fn rank_reader(&self, plays: bool) {
+    use std::sync::atomic::Ordering;
+    let Some(stream) = self
+      .stream
+      .lock()
+      .unwrap_or_else(|poisoned| poisoned.into_inner())
+      .clone()
+    else {
+      return;
+    };
+    let priority = self.priority.load(Ordering::Acquire);
+    stream.set_rank(priority * 2 + u8::from(plays));
+  }
+
   /// Has the reader of what it plays fetch as far as it reads ahead, by the share of its length that is in time.
   /// Nothing until its length in time and in bytes are known.
   pub(crate) fn reach_ahead(&self) {
@@ -355,6 +386,7 @@ impl Shared {
       eager: std::sync::atomic::AtomicBool::new(false),
       ahead: std::sync::atomic::AtomicU64::new(AHEAD_UNTIL_PLAYED.to_bits()),
       index: Mutex::new(None),
+      priority: std::sync::atomic::AtomicU8::new(Priority::Normal as u8),
       stream: Mutex::new(None),
       whole: std::sync::atomic::AtomicBool::new(false),
     })
@@ -587,6 +619,7 @@ fn stream(shared: &Arc<Shared>, loader: &Loader, source: &Source, address: Arc<s
       *shared.stream.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(reader.clone());
       reader.read_ahead(shared.eager.load(std::sync::atomic::Ordering::Acquire));
       read_index(shared, &reader);
+      shared.rank_reader(shared.eager.load(std::sync::atomic::Ordering::Acquire));
       return Some(Opened::Reader(Arc::new(Watched::new(reader, shared)), address));
     }
     // A build without the feature `http`: Media Foundation reads the address itself, and sends no header.
@@ -1036,6 +1069,7 @@ impl Media {
     }
     shared.reach_ahead();
     shared.tell(Command::Play);
+    shared.rank_reader(true);
   }
 
   /// Stops where it is. Its state says so at once: the thread stops decoding when it hears.
@@ -1047,6 +1081,7 @@ impl Media {
     }
     self.shared().noted();
     self.shared().tell(Command::Pause);
+    self.shared().rank_reader(false);
   }
 
   /// Goes to `seconds` and shows the frame there, playing or not. Its state is at that time at once, so what
@@ -1159,6 +1194,29 @@ impl Media {
       .store(seconds.to_bits(), std::sync::atomic::Ordering::Release);
     shared.reach_ahead();
     shared.told.notify_all();
+  }
+
+  /// How much what it reads is wanted beside what the other medias of the same host read: a host gives one client
+  /// only so much a second, whatever it asks for. The requests of a media of a higher priority go first, and those
+  /// of one of a lower priority stand still while a read of the higher one waits for its bytes; of one priority,
+  /// one that plays goes first. Normal unless told. Where it plays an address its app's loader reads (Windows,
+  /// macOS, iOS).
+  pub fn set_priority(&self, priority: Priority) {
+    let shared = self.shared();
+    shared
+      .priority
+      .store(priority as u8, std::sync::atomic::Ordering::Release);
+    let plays = shared.inner().playing;
+    shared.rank_reader(plays);
+  }
+
+  /// Its priority among the medias of its host: see [`set_priority`](Self::set_priority).
+  pub fn priority(&self) -> Priority {
+    match self.shared().priority.load(std::sync::atomic::Ordering::Acquire) {
+      0 => Priority::Low,
+      1 => Priority::Normal,
+      _ => Priority::High,
+    }
   }
 
   /// How far past where it stands it reads before it is first told to play: see [`set_ahead`](Self::set_ahead).
@@ -1333,5 +1391,40 @@ mod tests {
     assert_eq!(media.shared().ahead(), AHEAD_WHILE_PLAYING);
     media.set_ahead(30.0);
     assert_eq!(media.shared().ahead(), 30.0);
+  }
+
+  /// A reader that keeps the ranks it is told.
+  #[derive(Default)]
+  struct Ranked(Mutex<Vec<u8>>);
+
+  impl Reader for Ranked {
+    fn len(&self) -> Option<u64> {
+      Some(0)
+    }
+
+    fn read_at(&self, _: u64, _: &mut [u8]) -> std::io::Result<usize> {
+      Ok(0)
+    }
+
+    fn set_rank(&self, rank: u8) {
+      self.0.lock().unwrap().push(rank);
+    }
+  }
+
+  #[test]
+  fn a_media_ranks_its_reader_by_its_priority_and_then_by_whether_it_plays() {
+    let media = Media::of(Shared::new());
+    let ranked = Arc::new(Ranked::default());
+    *media.shared().stream.lock().unwrap() = Some(ranked.clone());
+    assert_eq!(media.priority(), Priority::Normal);
+    media.play();
+    media.pause();
+    media.set_priority(Priority::High);
+    media.set_priority(Priority::Low);
+    assert_eq!(
+      *ranked.0.lock().unwrap(),
+      [3, 2, 4, 0],
+      "normal playing as a reader nobody ranks"
+    );
   }
 }
