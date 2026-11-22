@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+Fixes:
+
+- **What is read ahead of an MP4 is where its index says.** A media read ahead by the share of its length in bytes that a time is, which is as far off as its bitrate is uneven: over seven videos of a site, up to 12.6 s of video short of what read ahead of 10 s was to have, and up to 44 s over on an hour-long one. Its index is read beside it as it opens, and says where each moment is: what plays until then needs the bytes of every track's chunk that plays before it.
+
 Added:
 
 - **`Media::set_ahead` and `VideoPlayer::ahead` say how far a media reads before it is first told to play.** It was a second, for every media: a video opened ahead (the next of a feed) can now read more where it is on another host than the one that plays, which gives one client only so much a second and gives it to each of its hosts. Once it plays it reads ten seconds at least, as before. The reader of an address fetches that far whether or not its decoder asks (`Reader::read_ahead_to`). See [Loading](docs/src/content/docs/resources-media.md#loading).
