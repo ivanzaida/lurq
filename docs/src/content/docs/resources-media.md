@@ -281,7 +281,12 @@ What a video or a sound reads as it plays:
 
 - **What is read ahead.** A media reads a second past where it stands before it is first told to play, and ten
   seconds at least once it plays; `media.set_ahead(seconds)` says how far before it plays (`VideoPlayer::ahead`). The
-  reader of its address fetches that far whether or not its decoder asks (`Reader::read_ahead_to`). A host gives one
+  reader of its address fetches that far whether or not its decoder asks (`Reader::read_ahead_to`). Where what it
+  plays is an MP4 file, its index (`moov`) is read beside it as it opens, and says where in its bytes each moment
+  is: what plays until then needs the bytes of every track's chunk that plays before it. Until the index is there,
+  and for what has none, a time is taken to be at its share of the length in bytes, which is as far off as the
+  bitrate is uneven: measured over seven videos of a site, up to 12.6 s of video short (read ahead of 10 s fell
+  behind what played) and up to 44 s over, on an hour-long video. A host gives one
   client only so much a second, and a feed's videos are often on several: one opened ahead on another host than the
   one that plays takes nothing from it, and can read further than one on the same host, which shares what it gives.
 - **Windows**: the app's loader reads every address (`loader.open`, below) and gives Media Foundation the stream,

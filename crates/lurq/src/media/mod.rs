@@ -56,6 +56,8 @@ mod driven;
 mod events;
 #[cfg(windows)]
 mod mf;
+#[cfg_attr(not(any(windows, target_os = "macos", target_os = "ios")), allow(dead_code))]
+mod mp4_index;
 mod session;
 
 /// Has the next frame a media shows on a card find its device removed, as a card that is reset removes it.
@@ -173,6 +175,9 @@ pub(crate) struct Shared {
   eager: std::sync::atomic::AtomicBool,
   /// How far past where it is it reads before it is told to play, in seconds, as bits: see [`Media::set_ahead`].
   ahead: std::sync::atomic::AtomicU64,
+  /// The index of what it plays, where that is an MP4 file the app's loader reads: where in its bytes each moment
+  /// is. Read beside it as it opens.
+  index: Mutex<Option<Arc<mp4_index::Index>>>,
   /// What the app's loader reads of it, where it plays an address.
   stream: Mutex<Option<Arc<dyn Reader>>>,
   /// All of what it plays is there: a file, or bytes.
@@ -288,14 +293,30 @@ impl Shared {
     else {
       return;
     };
+    if let Some(end) = stream.len().and_then(|len| self.read_to(len)) {
+      stream.read_ahead_to(end);
+    }
+  }
+
+  /// How far into its `len` bytes it is to be read now: as far as all that plays until it has read ahead needs, by
+  /// its index where it has one, and by the share of its length in time that is where it has none. `None` until
+  /// its length in time is known.
+  pub(crate) fn read_to(&self, len: u64) -> Option<u64> {
     let (position, duration) = {
       let inner = self.inner();
       (inner.position(), inner.duration)
     };
-    if let (Some(duration), Some(len)) = (duration.filter(|duration| *duration > 0.0), stream.len()) {
-      let share = ((position + self.ahead()) / duration).clamp(0.0, 1.0);
-      stream.read_ahead_to((share * len as f64) as u64);
+    let until = position + self.ahead();
+    let index = self
+      .index
+      .lock()
+      .unwrap_or_else(|poisoned| poisoned.into_inner())
+      .clone();
+    if let Some(index) = index {
+      return Some(index.byte_at(until).min(len));
     }
+    let duration = duration.filter(|duration| *duration > 0.0)?;
+    Some(((until / duration).clamp(0.0, 1.0) * len as f64) as u64)
   }
 
   /// What a media and its thread share, as a media starts: waiting to open, paused at its start.
@@ -333,6 +354,7 @@ impl Shared {
       awaits_start: std::sync::atomic::AtomicBool::new(false),
       eager: std::sync::atomic::AtomicBool::new(false),
       ahead: std::sync::atomic::AtomicU64::new(AHEAD_UNTIL_PLAYED.to_bits()),
+      index: Mutex::new(None),
       stream: Mutex::new(None),
       whole: std::sync::atomic::AtomicBool::new(false),
     })
@@ -564,6 +586,7 @@ fn stream(shared: &Arc<Shared>, loader: &Loader, source: &Source, address: Arc<s
       // that is read: one told to play meanwhile turns the reading ahead on itself.
       *shared.stream.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(reader.clone());
       reader.read_ahead(shared.eager.load(std::sync::atomic::Ordering::Acquire));
+      read_index(shared, &reader);
       return Some(Opened::Reader(Arc::new(Watched::new(reader, shared)), address));
     }
     // A build without the feature `http`: Media Foundation reads the address itself, and sends no header.
@@ -583,6 +606,24 @@ fn is_playlist(content_type: Option<&str>, address: &str) -> bool {
   let kind = content_type.map(str::to_ascii_lowercase);
   let path = address.split(['?', '#']).next().unwrap_or(address).to_ascii_lowercase();
   kind.is_some_and(|kind| kind.contains("mpegurl")) || path.ends_with(".m3u8") || path.ends_with(".m3u")
+}
+
+/// Reads the index of what `reader` reads beside the media, which plays meanwhile, and reads ahead by it once it is
+/// there. Where it is at the end of the file, the reader asks for it as it opens.
+#[cfg_attr(not(any(windows, target_os = "macos", target_os = "ios")), allow(dead_code))]
+fn read_index(shared: &Arc<Shared>, reader: &Arc<dyn Reader>) {
+  let (shared, reader) = (Arc::downgrade(shared), reader.clone());
+  let _ = std::thread::Builder::new()
+    .name("lurq-media-index".to_owned())
+    .spawn(move || {
+      let Some(index) = mp4_index::Index::read(&*reader) else {
+        return;
+      };
+      if let Some(shared) = shared.upgrade() {
+        *shared.index.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(Arc::new(index));
+        shared.reach_ahead();
+      }
+    });
 }
 
 /// A reader of what a media plays: it counts the reads that wait for the network, from which the media tells it is
