@@ -8805,7 +8805,7 @@ impl Tree {
       if !overlay.holds_leaving_child() {
         continue;
       }
-      let (placed, _) = place_overlay(
+      let (placed, ..) = place_overlay(
         std::mem::take(overlay),
         *placing,
         viewport,
@@ -9800,6 +9800,7 @@ fn build_overlay_node(
   theme_changed: bool,
   #[cfg(feature = "perf_profile")] profiling: &mut crate::app::profiler::producer::WindowProfiler,
 ) -> (Node, ElementRect, OverlayPlacing) {
+  let told = spec.tells_placement.then(|| spec.anchor.clone());
   let mut node = spec.node;
   if spec.match_anchor_width {
     node = node.width(Dimension::Px(anchor.width));
@@ -9833,7 +9834,7 @@ fn build_overlay_node(
         }
       }),
   };
-  let (node, bounds) = place_overlay(
+  let (node, bounds, placed) = place_overlay(
     node,
     placing,
     viewport,
@@ -9844,6 +9845,9 @@ fn build_overlay_node(
     #[cfg(feature = "perf_profile")]
     profiling,
   );
+  if let Some(anchor) = told {
+    anchor.set_placed(Some(placed));
+  }
   (node, bounds, placing)
 }
 
@@ -9865,8 +9869,8 @@ pub(super) struct OverlayPlacing {
   within: Option<ElementRect>,
 }
 
-/// Measures `node`, an overlay's content, and puts it by its anchor at that size. Run again on a layer that
-/// was placed, it measures the layer as it is now.
+/// Measures `node`, an overlay's content, and puts it by its anchor at that size, and says where it put it, after
+/// it flipped. Run again on a layer that was placed, it measures the layer as it is now.
 #[allow(clippy::too_many_arguments)]
 fn place_overlay(
   node: Node,
@@ -9877,7 +9881,7 @@ fn place_overlay(
   constraints: Constraints,
   theme_changed: bool,
   #[cfg(feature = "perf_profile")] profiling: &mut crate::app::profiler::producer::WindowProfiler,
-) -> (Node, ElementRect) {
+) -> (Node, ElementRect, Placement) {
   let OverlayPlacing {
     anchor,
     placement,
@@ -9905,6 +9909,7 @@ fn place_overlay(
     invalidate_layout_cache_recursive(&node);
   }
   let overlay_size = measured.size;
+  let placed;
   let (x, y) = match (at, at_placement) {
     // By the point as by an anchor of no size there, flipped where the window less what it keeps clear of has no
     // room that way.
@@ -9924,10 +9929,21 @@ fn place_overlay(
         (viewport.height - top - bottom).max(0.0),
       );
       let placement = resolve_overlay_collision(placement, anchor, overlay_size, room, offset_x, offset_y, collision);
+      placed = placement;
       let (x, y) = overlay_position(anchor, overlay_size, placement, offset_x, offset_y);
       (x + left, y + top)
     }
-    (Some(point), None) => point_position(point, overlay_size, viewport, offset_x, offset_y, collision),
+    (Some(point), None) => {
+      let (x, y) = point_position(point, overlay_size, viewport, offset_x, offset_y, collision);
+      // Down and toward the end of the point, or on its other side along an axis where it flipped.
+      placed = match (y < point.1, x < point.0) {
+        (false, false) => Placement::BottomStart,
+        (false, true) => Placement::BottomEnd,
+        (true, false) => Placement::TopStart,
+        (true, true) => Placement::TopEnd,
+      };
+      (x, y)
+    }
     (None, _) => {
       // It flips where the box it is kept inside has no room, the window's or an element's: the anchor is taken
       // into that box's space.
@@ -9940,6 +9956,7 @@ fn place_overlay(
         ..anchor
       };
       let placement = resolve_overlay_collision(placement, moved, overlay_size, room, offset_x, offset_y, collision);
+      placed = placement;
       overlay_position(anchor, overlay_size, placement, offset_x, offset_y)
     }
   };
@@ -9985,6 +10002,7 @@ fn place_overlay(
       Some(Dimension::Px(overlay_size.height)),
     ),
     bounds,
+    placed,
   )
 }
 

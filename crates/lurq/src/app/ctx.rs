@@ -238,6 +238,8 @@ pub(crate) struct OverlaySpec {
   /// The element it is placed by in place of its anchor, wholly or on the side it opens on: see
   /// [`Overlay::placed_by`] and [`Overlay::clear_of`].
   pub(crate) frame: Option<PlacingFrame>,
+  /// Whether its anchor is told where it was put, after it flipped: see [`Overlay::tells_placement`].
+  pub(crate) tells_placement: bool,
 }
 
 /// An element an overlay is placed by in place of its anchor, and how.
@@ -405,6 +407,7 @@ impl OverlaySpec {
       within: self.within.clone(),
       within_inset: self.within_inset,
       frame: self.frame.clone(),
+      tells_placement: self.tells_placement,
     }
   }
 }
@@ -544,6 +547,7 @@ pub struct Overlay {
   within: Option<ElementRef>,
   within_inset: [f32; 4],
   frame: Option<PlacingFrame>,
+  tells_placement: bool,
 }
 
 impl Overlay {
@@ -572,7 +576,15 @@ impl Overlay {
       within: None,
       within_inset: [0.0; 4],
       frame: None,
+      tells_placement: false,
     }
+  }
+
+  /// Tells its anchor where it was put, after it flipped (`ElementRef::placed`): what a component reads to give its
+  /// recipe the side its panel is on.
+  pub(crate) fn tells_placement(mut self) -> Self {
+    self.tells_placement = true;
+    self
   }
 
   pub fn anchor(mut self, anchor: impl Into<ElementRef>) -> Self {
@@ -799,6 +811,7 @@ impl Overlay {
       within: self.within,
       within_inset: self.within_inset,
       frame: self.frame,
+      tells_placement: self.tells_placement,
     })
   }
 }

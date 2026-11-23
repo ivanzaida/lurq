@@ -317,6 +317,14 @@ impl ContextMenu {
     let target = holds_children(self.target);
     // An element that has an anchor of its own keeps it, and the menu hangs from it.
     let anchor = target.node.element_ref.clone().unwrap_or(kept_anchor);
+    // The side of the point it is on, above where there was no room below: what an enter that moves away from
+    // the point picks its way by.
+    let case = if self.inline {
+      case
+    } else {
+      let placed = anchor.placed().unwrap_or(crate::app::ctx::Placement::BottomStart);
+      case.state(super::tip::side_of(placed), true)
+    };
     let view = ContextMenuView {
       entries: self.entries,
       bar: self.bar,
@@ -525,6 +533,7 @@ impl ContextMenuView {
       .map_or(0.0, |offset| offset.resolve(&self.theme().spacing(), 0.0));
     let (x, y) = (gap, gap);
     let mut popup = Popup::new(self.anchor.clone(), panel)
+      .tells_placement()
       .open(self.open.clone())
       .at(self.point)
       .offset(x, y)

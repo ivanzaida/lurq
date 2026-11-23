@@ -281,6 +281,8 @@ pub struct AnimationEngine {
   active: HashMap<(NodeId, KeyframesId), AnimationRun>,
   keyframe_store: HashMap<KeyframesId, Vec<KeyframeEntry>>,
   seen: HashSet<NodeId>,
+  /// The runs this frame's walks played: a node that plays other keyframes now lets the run of the old ones go.
+  seen_runs: HashSet<(NodeId, KeyframesId)>,
   next_change: Option<Instant>,
   /// Keyframes whose runs play on the process's animation clock: see [`Self::register_keyframes_in_phase`].
   in_phase: HashSet<KeyframesId>,
@@ -307,6 +309,7 @@ impl AnimationEngine {
       active: HashMap::new(),
       keyframe_store: HashMap::new(),
       seen: HashSet::new(),
+      seen_runs: HashSet::new(),
       next_change: None,
       in_phase: HashSet::new(),
       resumed: HashMap::new(),
@@ -429,6 +432,7 @@ impl AnimationEngine {
     self.resumed.clear();
     self.active.clear();
     self.seen.clear();
+    self.seen_runs.clear();
     self.next_change = None;
     self.has_active = false;
   }
@@ -439,17 +443,19 @@ impl AnimationEngine {
   /// are done — see [`Self::finish_frame`].
   pub(crate) fn begin_frame(&mut self) {
     self.seen.clear();
+    self.seen_runs.clear();
     self.next_change = None;
   }
 
   /// Ends a frame after every tick walk ran: drops runs whose node was not
-  /// visited by any walk. Runs are kept for the node's whole lifetime (a
+  /// visited by any walk, or plays other keyframes now (a panel whose recipe
+  /// gave it another enter once it knew the side it opened on). Runs are kept for the node's whole lifetime (a
   /// finished run guards against restarting the animation), so without this
   /// prune an unmounted spinner's infinite run would keep `has_active` — and
   /// with it full per-frame relayout — for the rest of the process.
   pub(crate) fn finish_frame(&mut self) {
-    let seen = &self.seen;
-    self.active.retain(|(node_id, _), _| seen.contains(node_id));
+    let (seen, runs) = (&self.seen, &self.seen_runs);
+    self.active.retain(|key, _| runs.contains(key));
     // A node that came back with no animation to enter with has nothing to go on from.
     self.resumed.retain(|node_id, _| seen.contains(node_id));
     self.has_active = self.active.values().any(|run| !run.finished);
@@ -486,6 +492,7 @@ impl AnimationEngine {
       && let Some(spec) = node.playing_animation()
     {
       self.seen.insert(node_id);
+      self.seen_runs.insert((node_id, spec.keyframes));
       let spec = Animation::clone(spec);
       needs_layout = self.process_node(node, &spec, now);
     }

@@ -38,6 +38,9 @@ pub struct ScrollBarStyle {
   /// The color of the thumb. A style that never set one has [`Self::THEME_THUMB`], which is drawn in the
   /// theme's `Ring`: grey on a light theme and on a dark one, as the design system's scrollbar is.
   pub thumb_color: Color,
+  /// The role of the palette the thumb is drawn in, over [`Self::thumb_color`]: a thumb that is the palette's
+  /// `Border` in a light appearance and in a dark one, where a color is one for both. `None` keeps the color.
+  pub thumb_role: Option<PaletteColor>,
   /// The color of the thumb of the bar under the pointer, a color or a role of the palette. `None` keeps
   /// [`Self::thumb_color`].
   pub thumb_hovered_color: Option<BackgroundColor>,
@@ -132,8 +135,12 @@ impl ScrollBarStyle {
   /// draws.
   pub const LEGACY_THUMB: Color = LEGACY_SCROLLBAR_THUMB_COLOR;
 
-  /// The color the thumb is drawn in under `palette`: its own, or the palette's `Ring` where it set none.
+  /// The color the thumb is drawn in under `palette`: its role's, its own, or the palette's `Ring` where it set
+  /// none.
   pub fn thumb_in(&self, palette: &ThemePalette) -> Color {
+    if let Some(color) = self.thumb_role.as_ref().and_then(|role| palette.try_get(role)) {
+      return color;
+    }
     if self.thumb_color == Self::THEME_THUMB {
       palette.try_get(&PaletteColor::Ring).unwrap_or(self.thumb_color)
     } else {
@@ -183,6 +190,7 @@ impl ScrollBarStyle {
       min_thumb_length: DEFAULT_SCROLLBAR_MIN_THUMB_LENGTH,
       track_color: DEFAULT_SCROLLBAR_TRACK_COLOR,
       thumb_color: Self::THEME_THUMB,
+      thumb_role: None,
       thumb_hovered_color: None,
       thumb_pressed_color: None,
       thumb_inset: 0.0,

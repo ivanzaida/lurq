@@ -63,6 +63,9 @@ pub enum CodeBlockPart {
   Scroll,
   /// The button under a block folded to its first lines, that shows all of them, and fewer again.
   Fold,
+  /// The glyph after its text, where the block has one ([`CodeBlock::fold_icon`]): down while folded, up once
+  /// unfolded.
+  FoldIcon,
   /// The code, in the color of what is none of the tokens below.
   Code,
   /// The numbers of the lines.
@@ -81,6 +84,7 @@ names!(CodeBlockPart {
   Body => "body",
   Scroll => "scroll",
   Fold => "fold",
+  FoldIcon => "fold_icon",
   Code => "code",
   LineNumber => "line_number",
   Marked => "marked",
@@ -97,6 +101,7 @@ const OWN_PARTS: &[&str] = &[
   "body",
   "scroll",
   "fold",
+  "fold_icon",
   "code",
   "line_number",
   "marked",
@@ -147,6 +152,9 @@ const CHUNK: usize = 64;
 /// What hears the code copied.
 type CopyHandler = Arc<dyn Fn(&str) + Send + Sync>;
 
+/// What hears a block folded or unfolded.
+type FoldHandler = Arc<dyn Fn(bool) + Send + Sync>;
+
 /// A block of code: a snippet in a page of docs, a command to run, a file's lines.
 ///
 /// ```
@@ -191,6 +199,10 @@ pub struct CodeBlock {
   min_height: Option<Length>,
   max_height: Option<Length>,
   fold: Option<usize>,
+  fold_open: bool,
+  fold_state: Option<Signal<bool>>,
+  on_fold: Vec<FoldHandler>,
+  fold_icon: bool,
   show_all_text: Arc<str>,
   show_less_text: Arc<str>,
   copy_button: bool,
@@ -233,6 +245,10 @@ impl CodeBlock {
       min_height: None,
       max_height: None,
       fold: None,
+      fold_open: false,
+      fold_state: None,
+      on_fold: Vec::new(),
+      fold_icon: false,
       show_all_text: super::current_locale().editing.show_all_code.clone(),
       show_less_text: super::current_locale().editing.show_less_code.clone(),
       copy_button: true,
@@ -395,6 +411,35 @@ impl CodeBlock {
     self
   }
 
+  /// Whether a block that [folds](Self::fold) starts with all its lines shown, its button saying
+  /// [`show_less_text`](Self::show_less_text): a block at rest in its shown state. Folded unless told. Mounted, the
+  /// block keeps what the person made it after that.
+  pub fn fold_open(mut self, open: bool) -> Self {
+    self.fold_open = open;
+    self
+  }
+
+  /// Whether the block is folded, held by the app: `true` folded, `false` all its lines shown. A press of its
+  /// button sets it; the app sets it to fold or unfold the block, and keeps it across a block mounted again. In
+  /// place of [`fold_open`](Self::fold_open) and of the state the block keeps itself.
+  pub fn folded(mut self, folded: Signal<bool>) -> Self {
+    self.fold_state = Some(folded);
+    self
+  }
+
+  /// Told whether the block is folded after a press of its button: `true` folded, `false` unfolded.
+  pub fn on_fold(mut self, handler: impl Fn(bool) + Send + Sync + 'static) -> Self {
+    self.on_fold.push(Arc::new(handler));
+    self
+  }
+
+  /// Whether the button under a folded block has a chevron after its text ([`CodeBlockPart::FoldIcon`]): down
+  /// while the block is folded, up once it is unfolded. Off unless told.
+  pub fn fold_icon(mut self, icon: bool) -> Self {
+    self.fold_icon = icon;
+    self
+  }
+
   /// What the button under a folded block says ("Show all").
   pub fn show_all_text(mut self, text: &str) -> Self {
     self.show_all_text = Arc::from(text);
@@ -546,6 +591,11 @@ impl CodeBlock {
     matches!(self.max_height, Some(Length::Px(_)))
   }
 
+  /// Whether it shows its first lines alone at times: it [folds](Self::fold), and has more lines than it shows.
+  pub(crate) fn folds(&self) -> bool {
+    self.fold_at().is_some()
+  }
+
   /// Where it folds its code, in bytes of it: the end of the last line it shows folded, where it has more.
   fn fold_at(&self) -> Option<usize> {
     let lines = self.fold?;
@@ -559,7 +609,27 @@ impl CodeBlock {
       .unwrap_or(self.copy_button || self.title.is_some() || self.meta.is_some() || self.language.is_some());
     let fold_at = self.fold_at();
     let unfolded = host.map(|host| host.unfolded.clone());
-    let folded = fold_at.is_some() && !unfolded.as_ref().is_some_and(Signal::get);
+    // Folded as the app holds it, or as the person left it where it is mounted, or as it starts.
+    let folded = fold_at.is_some()
+      && match &self.fold_state {
+        Some(folded) => folded.get(),
+        None => !unfolded.as_ref().and_then(Signal::get).unwrap_or(self.fold_open),
+      };
+    let fold_press: Option<FoldPress> = fold_at.map(|_| {
+      let (state, handlers) = (self.fold_state.clone(), self.on_fold.clone());
+      let unfolded = unfolded.clone();
+      Arc::new(move || {
+        let now = !folded;
+        match (&state, &unfolded) {
+          (Some(state), _) => state.set(now),
+          (None, Some(unfolded)) => unfolded.set(Some(!now)),
+          (None, None) => {}
+        }
+        for handler in &handlers {
+          handler(now);
+        }
+      }) as FoldPress
+    });
     let is_copied = copied.as_ref().is_some_and(|copied| copied.on.get());
     let copy_failed = copied.as_ref().is_some_and(|copied| copied.failed.get());
     let mut case = Case::new()
@@ -622,9 +692,10 @@ impl CodeBlock {
       max_height: self.max_height,
       fold: fold_at.and(self.fold),
       folded,
+      fold_icon: self.fold_icon,
       show_all_text: self.show_all_text,
       show_less_text: self.show_less_text,
-      unfolded,
+      fold_press,
       copy_button: self.copy_button,
       copy_label: self.copy_label,
       copied_text: self.copied_text,
@@ -793,6 +864,9 @@ struct Copied {
   off: Timeout,
 }
 
+/// What a press of a block's fold button does.
+type FoldPress = Arc<dyn Fn() + Send + Sync>;
+
 /// A code block as a renderer sees it: its code, how it is shown, and the style of its parts.
 pub struct CodeBlockView {
   /// The code it shows: all of it, or its first lines where it is folded.
@@ -825,8 +899,10 @@ pub struct CodeBlockView {
   pub folded: bool,
   pub show_all_text: Arc<str>,
   pub show_less_text: Arc<str>,
-  /// Whether it is unfolded, where it is mounted.
-  unfolded: Option<Signal<bool>>,
+  /// Whether its button has a chevron after its text.
+  pub fold_icon: bool,
+  /// What a press of its button does: folds or unfolds it, where it folds.
+  fold_press: Option<FoldPress>,
   pub copy_button: bool,
   pub copy_label: Arc<str>,
   pub copied_text: Arc<str>,
@@ -1114,14 +1190,31 @@ impl CodeBlockView {
       .describe("a11y_role", "button")
       .describe("a11y_name", text.clone())
       .describe("a11y_expanded", if self.folded { "false" } else { "true" })
+      .on_click(self.fold_press())
       .child(part.text(text).nowrap());
-    if let Some(unfolded) = self.unfolded.clone() {
-      button = button.on_click(move |_: MouseEvent| unfolded.set(!unfolded.get_untracked()));
+    if self.fold_icon {
+      let chevron = if self.folded {
+        icons::CHEVRON_DOWN
+      } else {
+        icons::CHEVRON_UP
+      };
+      button = button.child(glyph(&self.part(CodeBlockPart::FoldIcon), Name::from(chevron), false));
     }
     if let Some(id) = &self.id {
       button = button.id(format!("{id}-fold"));
     }
     Some(button.into())
+  }
+
+  /// What a press of the button under a folded block does, for a renderer that builds its own: folds the block, or
+  /// shows all its lines, and tells [`CodeBlock::on_fold`]. Nothing where it does not fold.
+  pub fn fold_press(&self) -> impl Fn(MouseEvent) + Send + Sync + 'static {
+    let press = self.fold_press.clone();
+    move |_| {
+      if let Some(press) = &press {
+        press();
+      }
+    }
   }
 
   /// The pitch of a line: the code's size on its line.
@@ -1662,6 +1755,7 @@ impl Themed for CodeBlock {
         fading(
           s.height(32.0)
             .padding_x(14.0)
+            .gap(6.0)
             .top_line(Border::inside(BorderSize::Sm, Edge))
             .typography(TypographyStyle::Label)
             .font_size(12.0)
@@ -1669,6 +1763,7 @@ impl Themed for CodeBlock {
             .cursor(crate::node::CursorIcon::Pointer),
         )
       })
+      .base(FoldIcon, |s| s.square(Length::Icon(IconSize::Sm)))
       .hovered(Fold, |s| s.background(Highlight).foreground(HighlightForeground))
       .pressed(Fold, |s| s.veil(PaletteColor::StatePressed))
       .focus_visible(Fold, |s| s.focus_ring())
@@ -1691,8 +1786,8 @@ impl crate::app::component::DevtoolsInspectable for CodeBlockProps {}
 /// What keeps a mounted block's check for a while after it copied, and a long block's lines in view.
 struct CodeBlockHost {
   copied: Copied,
-  /// Whether a folded block shows all its lines.
-  unfolded: Signal<bool>,
+  /// Whether a folded block shows all its lines, once a press said: `None` as it starts.
+  unfolded: Signal<Option<bool>>,
   follow: Follow,
   /// What is kept of the code's lines.
   lines: Arc<Mutex<crate::code::LineCache>>,
@@ -1712,7 +1807,7 @@ impl Component for CodeBlockHost {
     });
     Self {
       copied: Copied { on, failed, off },
-      unfolded: ctx.signal(false),
+      unfolded: ctx.signal(None),
       lines: Arc::default(),
       follow: Follow {
         window: Signal::new(None),

@@ -27,6 +27,46 @@ dropped). When a decision is replaced, the old entry stays and says what replace
     bounds through its controller are what an app builds one with.
 - **State.** Built on `feat/input-selection-unfocused`.
 
+### The side an overlay opened on is a state of its recipe
+
+- **Question.** An enter that moves a panel away from its trigger moves the wrong way after the panel flips: a
+  recipe could not see the side a menu, a popover or a select opened on (issue #236).
+- **Decision (Ivan).** Do it, without breaking the current API.
+- **Decided by Claude in the work, to be confirmed.**
+  - *The side is a state by the names of `TooltipSide`* (`top`, `bottom`, `left`, `right`), not a new
+    `OverlaySide::{Above, Below, Start, End}`: a hover card's, a teaching tip's and a toggletip's side are already
+    states of those names, and a tooltip's is its variant. Physical sides, as `Placement`'s are.
+  - *The layout tells the anchor where it put the overlay*, after it flipped (`Overlay::tells_placement`, crate's
+    own; `ElementRef::placed`, read in a render), so `Popover`, `Menu` and `ContextMenu`, which are builders with no
+    component of their own, read it where they build. A popover and a menu on the same anchor, open at once, would
+    see one side: not a case lurq has.
+  - *Known before the frame is painted*: a placement that changed renders what read it and lays the frame out
+    again, as an element watched before paint does, so a panel that flipped plays its own enter from its first
+    frame. The animation engine lets a node's old run go when it plays other keyframes, where it kept it, unfinished,
+    and with it a layout at every frame.
+  - *A select's list is left out*: the engine draws it, and its recipe gives it no enter.
+- **State.** Built on `feat/overlay-side`.
+
+### A code block's fold the app holds, its chevron, and a document's code blocks given by the app
+
+- **Question.** 0.71's fold could not start shown, keep its state across a block mounted again, or draw a chevron
+  (issue #234); a document's fenced blocks could not have a fold, a bar's count or a scroll part (issue #233); and a
+  scrollbar's thumb at rest could not follow the palette (issue #235).
+- **Decision (Ivan).** Do the three, and do not break the current API.
+- **Decided by Claude in the work, to be confirmed.**
+  - *`fold_open(bool)` and `folded(Signal<bool>)` with `on_fold(Fn(bool))`*, both the issue names: a block that starts
+    open keeps what the person made it after that where it is mounted; the signal is the app's, `true` folded, in
+    place of the block's own state. `CodeBlockView::fold_press()` gives a renderer the press, the state being private.
+  - *`fold_icon(bool)`, off unless told*, a chevron in a `FoldIcon` part, so that a block that does not ask looks as
+    it did. Its text stays `show_all_text`, which an app gives its count (*Show all 22 lines*).
+  - *`MarkdownProps::code_blocks(Fn(CodeBlock, &MarkdownCode) -> CodeBlock)`*, the issue's first way: the closure
+    gets the block lurq built (its key, its language, not selectable by itself) and returns it changed, so a recipe
+    state, a fold and a scroll part are all a `CodeBlock`'s own. A block that folds is mounted on its own, as a
+    block of more than 400 lines is, since only a mounted block unfolds.
+  - *`ScrollBarStyle::thumb_role: Option<PaletteColor>`*, a field more, in place of making `thumb_color` a
+    `BackgroundColor`, which would break every style that sets it.
+- **State.** Built on `feat/code-card-polish`.
+
 ## 2026-11-23
 
 ### A cut text says itself whole in a tooltip where the app asks for it

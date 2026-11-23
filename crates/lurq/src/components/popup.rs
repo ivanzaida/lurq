@@ -28,6 +28,12 @@ impl Popup {
     self
   }
 
+  /// Tells its anchor where it was put, after it flipped: see `Overlay::tells_placement`.
+  pub(crate) fn tells_placement(mut self) -> Self {
+    self.overlay = self.overlay.tells_placement();
+    self
+  }
+
   pub fn open(mut self, open: impl Into<OpenState>) -> Self {
     self.overlay = self.overlay.open(open);
     self
