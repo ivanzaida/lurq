@@ -37,6 +37,9 @@ struct Held {
   seen: Option<u64>,
   /// Which items can be chosen, in order.
   choosable: Vec<bool>,
+  /// The key of each item, in order, as the menu was last built: what the active item is followed by when what the
+  /// menu holds changes.
+  names: Vec<Option<Arc<str>>>,
   /// The item the keys are on, among the menu's items.
   active: Option<usize>,
   rows: Vec<Row>,
@@ -218,11 +221,12 @@ impl MenuKeys {
     self.redraw();
   }
 
-  /// Starts a build of the menu, `open` or not, whose items are `items` (each one's label and whether it can be
-  /// chosen), closed by a person with `dismiss`: says which item is the active one. It is the first that can be chosen
-  /// as the menu opens and whenever what it holds changes; else it stays where the keys put it. Read so that a move of
-  /// it renders the menu again.
-  pub(crate) fn begin(&self, open: bool, items: &[(&str, bool)], dismiss: Action) -> Option<usize> {
+  /// Starts a build of the menu, `open` or not, whose items are `items` (each one's label, whether it can be chosen,
+  /// and its key), closed by a person with `dismiss`: says which item is the active one. It is the first that can be
+  /// chosen as the menu opens; it stays where the keys put it while the items are the same, and, where they change,
+  /// on the item of the same key while there is one that can be chosen. Else it goes back to the first,
+  /// and the sections that scroll to their tops. Read so that a move of it renders the menu again.
+  pub(crate) fn begin(&self, open: bool, items: &[MenuKeysItem<'_>], dismiss: Action) -> Option<usize> {
     self.tick.get();
     let mut held = self.held.lock();
     held.rows = vec![Row::default(); items.len()];
@@ -231,16 +235,31 @@ impl MenuKeys {
     if !open {
       (held.open, held.seen, held.active) = (false, None, None);
       held.choosable.clear();
+      held.names.clear();
       return None;
     }
     let mut hasher = DefaultHasher::new();
-    items.hash(&mut hasher);
+    items
+      .iter()
+      .for_each(|(label, choosable, _)| (label, choosable).hash(&mut hasher));
     let seen = hasher.finish();
-    held.choosable = items.iter().map(|(_, choosable)| *choosable).collect();
-    let first = held.choosable.iter().position(|choosable| *choosable);
-    let kept = held
+    // The key of the item the keys were on, before the items are taken anew.
+    let was = held
       .active
-      .filter(|at| held.open && held.seen == Some(seen) && held.choosable.get(*at).copied().unwrap_or(false));
+      .filter(|_| held.open)
+      .and_then(|at| held.names.get(at).cloned().flatten());
+    held.choosable = items.iter().map(|(_, choosable, _)| *choosable).collect();
+    held.names = items.iter().map(|(_, _, name)| name.map(Arc::from)).collect();
+    let first = held.choosable.iter().position(|choosable| *choosable);
+    let choosable = |at: &usize| held.choosable.get(*at).copied().unwrap_or(false);
+    let kept = if held.open && held.seen == Some(seen) {
+      held.active.filter(choosable)
+    } else {
+      // Other items: the same one, where it is still there by its key.
+      was
+        .and_then(|was| held.names.iter().position(|name| name.as_deref() == Some(&*was)))
+        .filter(choosable)
+    };
     // Opened, or holding other items: its sections go back to their tops, where the first item is.
     if kept.is_none() {
       for (scroll, _) in &held.sections {
@@ -307,6 +326,9 @@ impl Held {
     scroll.set_scroll_pending(scroll.scroll_x(), (scroll.scroll_y() + by).max(0.0));
   }
 }
+
+/// An item of a menu as its keys see it: its label, whether it can be chosen, and its key.
+pub(crate) type MenuKeysItem<'a> = (&'a str, bool, Option<&'a str>);
 
 /// What a menu that keeps the focus in a field gives each of its items: the keys, its place among the items, and
 /// whether it is the active one.

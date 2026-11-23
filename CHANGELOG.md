@@ -11,6 +11,7 @@ Added:
 Fixes:
 
 - **The entries of a menu's section that scrolls are as far apart as `MenuPart::Scroll`'s gap** ([#216](https://github.com/ivanzaida/lurq/issues/216)). The part's style went on the scroll container round the one column that holds them, so its gap was never between them: they sat flush.
+- **A menu that keeps the focus in a field keeps its active item by its key when what it holds changes** ([#219](https://github.com/ivanzaida/lurq/issues/219)). `MenuKeys` put the active item back on the first, and the sections that scroll back to their tops, whenever the items changed at all, though the item was still there: an account opened in place from the keyboard sent the keys and the list back to the top. The active item now stays the item of the same `MenuItem::key` where there is one that can be chosen, and its section stays where it is scrolled to. An item with no key, or one that is gone, gives way to the first, as in a list that typing filters; an id is not followed, since a menu's ids are often by place.
 
 ## 0.69.0 — 2026-11-23
 
