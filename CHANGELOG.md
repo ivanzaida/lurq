@@ -4,8 +4,13 @@
 
 Added:
 
+- **A recipe sees the side of its anchor a menu, a popover or a context menu opened on** ([#236](https://github.com/ivanzaida/lurq/issues/236), decided 2026-11-24, `design/decisions.md`). The side it was put on, after it flipped where there was no room, is a state of the recipe by the names of `TooltipSide` (`"top"`, `"bottom"`, `"left"`, `"right"`), as a hover card's and a teaching tip's were and a tooltip's variant is: an enter that moves the panel 4 away from its trigger picks its keyframes by it (`.state(TooltipSide::Top, MenuPart::Panel, |s| s.enter(..))`), and moves the right way after a flip. The side is known before the frame is painted, so a panel that flipped plays its own enter from its first frame. A select's list is drawn by the engine and has no enter of its recipe's.
 - **A cut title of a list item, and a cut text cell of a table, said whole in a tooltip** ([#222](https://github.com/ivanzaida/lurq/issues/222), decided 2026-11-23, `design/decisions.md`). `ListItem::title_tooltip_when_cut(true)` and `TableColumn::tooltip_when_cut(true)` show the whole text in a tooltip after the theme's delay, only while the last layout cut it with an ellipsis, as `Tooltip::when_cut` does: a long title in a fixed column can be read. Off unless told, so a row and a table are as they were.
 - **`TableColumn::title_hidden(bool)` on any column** ([#223](https://github.com/ivanzaida/lurq/issues/223)). Its header draws nothing and the column keeps its title as its name to what reads the tree, as an `actions` column did alone: a narrow column of a state's glyph has a name and no word it has no room for.
+
+Fixes:
+
+- **A node that plays other keyframes lets the run of the old ones go.** The animation engine kept a run by its node for as long as the node was there: a node whose recipe gave it another animation kept the old run, unfinished, and with it a layout at every frame.
 
 ## 0.71.0 — 2026-11-23
 

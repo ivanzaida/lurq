@@ -692,3 +692,61 @@ fn under_reduced_motion_the_panel_plays_what_its_recipe_says_it_plays_then() {
   stage.pass_after(Duration::ZERO);
   assert!(stage.paints("Dimensions"), "fading out");
 }
+
+/// An app whose popover's panel moves in away from its anchor: down from 4 over it where it is under it, up from 4
+/// under it where it is over it.
+fn away_from_the_anchor() -> App {
+  use lurq::{
+    animation::Keyframes,
+    ui::{PartAnimation, TooltipSide},
+  };
+  const DOWN: lurq::animation::KeyframesId = lurq::animation::KeyframesId::new(9);
+  const UP: lurq::animation::KeyframesId = lurq::animation::KeyframesId::new(10);
+  let app = App::new();
+  let theme = app.theme().clone();
+  for (id, from) in [(DOWN, -4.0), (UP, 4.0)] {
+    theme.set_keyframes(
+      Keyframes::new(id)
+        .frame(0.0, move |k| {
+          k.translate(0.0, from);
+        })
+        .frame(1.0, |k| {
+          k.translate(0.0, 0.0);
+        }),
+    );
+  }
+  theme.patch_recipe::<Popover>(|recipe| {
+    recipe
+      .state(TooltipSide::Bottom, PopoverPart::Panel, |s| {
+        s.enter(PartAnimation::new(DOWN, MotionDuration::Base, MotionEasing::Enter))
+      })
+      .state(TooltipSide::Top, PopoverPart::Panel, |s| {
+        s.enter(PartAnimation::new(UP, MotionDuration::Base, MotionEasing::Enter))
+      })
+  });
+  app
+}
+
+/// How far below its place at rest the popover's title is as it opens over an anchor `y` down the page.
+fn opened_at(y: f32) -> f32 {
+  let open = Signal::new(false);
+  let over = |anchor, open| dimensions(anchor, open).placement(lurq::app::ctx::Placement::TopStart);
+  let mut stage = Stage::in_app(away_from_the_anchor(), page((20.0, y), 120.0, &open, over));
+  open.set(true);
+  stage.pass_after(Duration::ZERO);
+  let first = stage.text_quad("Dimensions").expect("the title is painted").y;
+  stage.pass();
+  let rest = stage.text_quad("Dimensions").expect("the title is painted").y;
+  first - rest
+}
+
+#[test]
+fn a_recipe_moves_the_panel_in_away_from_its_anchor_on_the_side_it_opened_on() {
+  let over = opened_at(200.0);
+  assert!(near(over, 4.0), "over its anchor it comes up: {over}");
+  let flipped = opened_at(20.0);
+  assert!(
+    near(flipped, -4.0),
+    "with no room over it, it flips under its anchor and comes down: {flipped}"
+  );
+}
