@@ -3646,6 +3646,7 @@ RichTextEditor::new(notes.clone())
 | `on_change(handler)` | Called with the `&RichText` after each change a person makes: typing, a tool, a key, undo. The signal is set first. Not when the app sets it |
 | `placeholder(&str)` | What the box shows while it holds nothing |
 | `rows(min, max)` | The rows of body text the box shows at least, and at most before its text scrolls inside it: 6 and 16 unless told (`RICH_TEXT_MIN_ROWS`, `RICH_TEXT_MAX_ROWS`) |
+| `keep_selection(bool)` | Its selection stays painted, at half the selection's opacity, while another element has the focus: a toolbar of the app's over the selected words takes the focus and the words stay marked. `controller.input().selection_bounds()` says where they are. Off unless told |
 | `tools(tools)` | The `RichTextTool`s of the bar, in order: `Style`, `Bold`, `Italic`, `Underline`, `Strikethrough`, `Bullet`, `Ordered`, `Quote`, `Code`, `Link`, `Image`, `Undo`, `Redo`. A line stands between two groups and the history is at the bar's end. All but `Image` unless told (`RichTextTool::DEFAULT`) |
 | `toolbar(bool)`, `footer(bool)` | Whether it has its bar, and the row under the box that says Markdown shortcuts are on and counts the words: both unless told |
 | `markdown_shortcuts(bool)` | Whether Markdown typed becomes what it says: on unless told |

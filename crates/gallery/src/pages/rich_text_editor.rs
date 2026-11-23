@@ -485,6 +485,13 @@ impl Component for RichTextEditorPage {
         "The rows of body text the box shows at least, and at most before its text scrolls inside it.",
       ),
       (
+        "keep_selection",
+        "bool",
+        "false",
+        "Its selection stays painted, at half its opacity, while another element has the focus: a toolbar of the \
+         app's over the selected words.",
+      ),
+      (
         "tools",
         "impl IntoIterator<Item = RichTextTool>",
         "all but Image",

@@ -11,6 +11,22 @@ dropped). When a decision is replaced, the old entry stays and says what replace
 
 ## 2026-11-24
 
+### A selection painted without the focus, and its rectangles
+
+- **Question.** A selection vanished when the focus went to a toolbar over it, and nothing gave the bounds of the
+  selected text across its rows (issue #232).
+- **Decision (Ivan).** Do it, without breaking the current API.
+- **Decided by Claude in the work, to be confirmed.**
+  - *`keep_selection(bool)`, off unless told*, so an input that does not ask looks as before; painted in the
+    selection's color at half its opacity, or in `inactive_selection_color(..)`, in place of a palette role or a
+    recipe state: `TextInput` is the engine's and has no recipe, and the palette has no role of it.
+  - *`TextInputController::selection_rects()` and `selection_bounds()`*, in `caret_point`'s coordinates, read on
+    demand from the last layout. Not on `CaretInfo`: it is `Copy` and its fields are public, and a rectangle is not
+    known when the caret moves, only once it is laid out.
+  - *No floating toolbar mode on `RichTextEditor`*, the issue's optional third: `keep_selection` there and the
+    bounds through its controller are what an app builds one with.
+- **State.** Built on `feat/input-selection-unfocused`.
+
 ### The side an overlay opened on is a state of its recipe
 
 - **Question.** An enter that moves a panel away from its trigger moves the wrong way after the panel flips: a

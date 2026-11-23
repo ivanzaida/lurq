@@ -768,6 +768,13 @@ impl Component for TextInputPage {
         "All of its text selected as it takes the focus, so that what is typed takes its place.",
       ),
       (
+        "keep_selection / inactive_selection_color",
+        "bool / impl Into<TextColor>",
+        "false",
+        "Its selection stays painted while another element has the focus: at half its opacity, or in a color of \
+         its own. The controller's selection_rects() and selection_bounds() say where it is.",
+      ),
+      (
         "controller",
         "TextInputController",
         "",

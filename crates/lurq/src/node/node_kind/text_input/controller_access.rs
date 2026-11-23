@@ -83,6 +83,23 @@ impl TextInputState {
     (x, y + top, height)
   }
 
+  /// Where the selected text was drawn, a rectangle for each row, in the coordinates of [`Self::controller_point`].
+  pub(crate) fn controller_selection_rects(&self) -> Vec<crate::components::InputTextRect> {
+    let ranges = self.selection_ranges();
+    let inner = self.inner.lock();
+    let (top, height) = inner.text_band.unwrap_or((0.0, inner.caret_height));
+    let scroll_y = inner.scroll_y();
+    ranges
+      .into_iter()
+      .map(|range| crate::components::InputTextRect {
+        x: range.x,
+        y: range.y - scroll_y + top,
+        width: range.width,
+        height,
+      })
+      .collect()
+  }
+
   /// Has the input painted anew, for a change of what is drawn over it that is not its own to know of.
   pub(crate) fn repaint(&self) {
     self.mark_layout_dirty_keeping_scroll();
