@@ -1050,9 +1050,13 @@ impl MenuView {
     let section = build.sections;
     build.sections += 1;
     let outer = build.section.replace(section);
-    let content = Column::new()
+    let mut content = Column::new()
       .align_items(Alignment::Stretch)
       .with_children(self.entries_of(entries, build));
+    // The part's gap is between the entries it scrolls, not round the one column that holds them.
+    if let Some(gap) = self.part(MenuPart::Scroll).rest().gap {
+      content = content.spacing(gap);
+    }
     build.section = outer;
     let mut scroll = ScrollVertical::new(content)
       .part(&self.part(MenuPart::Scroll))

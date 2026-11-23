@@ -238,3 +238,67 @@ fn under_a_mouse_a_press_of_the_field_types_and_opens_nothing() {
   assert!(!opened(&mut stage), "its button and Down open it");
   assert!(stage.tree.keyboard_traits().is_some(), "it is typed into");
 }
+
+/// The quads painted as a line of 1 in the border's color.
+fn lines(stage: &Stage) -> Vec<lurq::layout::quad::Quad> {
+  let border = light(PaletteColor::Border);
+  stage
+    .quads()
+    .into_iter()
+    .filter(|quad| {
+      quad.width == 1.0
+        && matches!(&quad.content, lurq::layout::quad::QuadContent::Rect { color, .. } if *color == border)
+    })
+    .collect()
+}
+
+#[test]
+fn a_recipe_draws_a_separator_between_the_columns_as_high_as_they_are() {
+  use lurq::ui::{Recipe, TimePickerPart};
+  // None by default: the minutes start the panel's gap after the hours.
+  let value = Signal::new(at(9, 30));
+  let mut stage = picker(&value, |picker| picker);
+  stage.click("tp-trigger");
+  stage.pass();
+  assert!(lines(&stage).is_empty());
+  let (hour_x, _, hour_width, _) = stage.bounds("tp-hour-9");
+  let (minute_x, ..) = stage.bounds("tp-minute-30");
+  assert!((minute_x - (hour_x + hour_width + 4.0)).abs() < 0.5);
+
+  // A line of 1 in the border's color, the gap on each side of it, as high as a column.
+  let mut stage = picker(&value, |picker| {
+    picker.rules(&Recipe::new().base(TimePickerPart::Separator, |s| {
+      s.width(1.0).background(PaletteColor::Border)
+    }))
+  });
+  stage.click("tp-trigger");
+  stage.pass();
+  let lines = lines(&stage);
+  assert_eq!(lines.len(), 1, "between the hours and the minutes");
+  let line = &lines[0];
+  let (hour_x, _, hour_width, _) = stage.bounds("tp-hour-9");
+  let (minute_x, ..) = stage.bounds("tp-minute-30");
+  assert!(
+    (line.x - (hour_x + hour_width + 4.0)).abs() < 0.5,
+    "{} {hour_x}",
+    line.x
+  );
+  assert!((minute_x - (line.x + 1.0 + 4.0)).abs() < 0.5, "{minute_x} {}", line.x);
+  assert!(
+    (line.height - 126.0).abs() < 0.5,
+    "as high as a column: {}",
+    line.height
+  );
+
+  // On a clock of twelve hours there is one before the halves of the day too.
+  let mut stage = picker(&value, |picker| {
+    picker
+      .locale(DateLocale::for_tag("en-US"))
+      .rules(&Recipe::new().base(TimePickerPart::Separator, |s| {
+        s.width(1.0).background(PaletteColor::Border)
+      }))
+  });
+  stage.click("tp-trigger");
+  stage.pass();
+  assert_eq!(super::time_picker::lines(&stage).len(), 2);
+}

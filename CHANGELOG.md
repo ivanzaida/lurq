@@ -6,6 +6,11 @@ Added:
 
 - **An app's keyframes are set on its theme** ([#214](https://github.com/ivanzaida/lurq/issues/214), decided 2026-11-23, `design/decisions.md`). `Theme::set_keyframes(Keyframes)` and `Theme::set_keyframes_in_phase(Keyframes)` hold keyframes for the app, and every window drawn with the theme plays them, those already open too: `theme::install(&mut app)` sets an overlay's motion with the rest of its look, and a recipe names it (`PartStyle::enter`, `exit`). Before, keyframes were registered only on a running `Tree`. They are the app's, as reduced motion is: not a part of `ThemeDefinition`, and kept when one is applied. Keyframes of one of lurq's ids (`ui::FADE_IN`, ...) replace lurq's. `KeyframeBuilder::opacity`, `translate` and `scale` write a frame's common values; `translate` and `scale` in one frame are one transform of both.
 - **A recipe says what a part plays while motion is reduced** ([#215](https://github.com/ivanzaida/lurq/issues/215)). `PartStyle::reduced_enter(Option<PartAnimation>)` and `reduced_exit(..)`: another animation in place of the part's enter or exit while `Theme::reduced_motion` is on (a fade where the enter moves), or `None`, for a part that is there, or gone, at once. Under reduced motion only transitions were cut, and an overlay's enter and exit played as ever, with no way for the theme to stop them. A part that does not say plays them as before: lurq's overlays fade, which reduced motion keeps.
+- **`TimePickerPart::Separator`: a line between the columns of a time picker's panel** ([#217](https://github.com/ivanzaida/lurq/issues/217)). A recipe that gives the part a width draws it between the hours and the minutes, and before the halves of the day on a clock of twelve hours, with the panel's gap on each side and as high as the columns unless it has a height of its own. There is none by default.
+
+Fixes:
+
+- **The entries of a menu's section that scrolls are as far apart as `MenuPart::Scroll`'s gap** ([#216](https://github.com/ivanzaida/lurq/issues/216)). The part's style went on the scroll container round the one column that holds them, so its gap was never between them: they sat flush.
 
 ## 0.69.0 — 2026-11-23
 
