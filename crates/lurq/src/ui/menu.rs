@@ -271,7 +271,8 @@ impl Menu {
   /// branches of a long list. Its items are the menu's as any other: choosing one closes the menu, they are named
   /// after the menu's id, the arrows and typing reach them, and the one the focus goes to is scrolled into view. In a
   /// menu that [keeps the focus](Self::keeps_focus) they are among the items the keys move, and the active one is
-  /// scrolled into view; the section goes back to its top as the menu opens and whenever what it holds changes.
+  /// scrolled into view; the section goes back to its top as the menu opens and whenever what it holds changes, unless
+  /// the active item stays by its key ([`keeps_focus`](Self::keeps_focus)).
   pub fn scrolling(mut self, entries: impl IntoIterator<Item = impl Into<MenuEntry>>, max_height: f32) -> Self {
     self.entries.push(MenuEntry::Scroll {
       entries: entries.into_iter().map(Into::into).collect(),
@@ -439,7 +440,10 @@ impl Menu {
   /// Leaves the focus in the app's field as the menu opens, where a person goes on typing: a combobox's list, the
   /// commands after a `/`, the people after an `@`. The panel takes no focus, nor does a press of an item; one item is
   /// the active one (state [`MenuItemState::Active`], `a11y_selected` to tooling), the first that can be chosen as the
-  /// menu opens and whenever what it holds changes, and the one the pointer comes onto. While the field `keys` was
+  /// menu opens and the one the pointer comes onto. Where what the menu holds changes while it is open (a row that
+  /// opens its own rows under it), the active item stays the item of the same [`key`](MenuItem::key) where there is
+  /// one that can be chosen, and its section stays where it is scrolled to; an item with no key, or one gone, gives
+  /// way to the first, as in a list that typing filters. While the field `keys` was
   /// made with has the focus, the panel reads its keys ([`MenuKeys::key_down`]): Up and Down move the active item,
   /// Enter chooses it, Ctrl+Enter (Cmd+Enter on macOS) asks for it aside, Escape closes the menu, and every other key
   /// is the field's. A press outside the panel, in the field too, closes the menu and goes on to what it was on,
@@ -903,10 +907,10 @@ impl MenuView {
   /// the keys, the place of the next item among the items (0), and the active one.
   fn begin_keys(&self, entries: &[MenuEntry]) -> Option<(MenuKeys, usize, Option<usize>)> {
     let keys = self.keys.clone()?;
-    let items: Vec<(&str, bool)> = entries::flat(entries)
+    let items: Vec<keys::MenuKeysItem<'_>> = entries::flat(entries)
       .into_iter()
       .filter_map(|entry| match entry {
-        MenuEntry::Item(item) => Some((item.label.as_ref(), !item.is_disabled())),
+        MenuEntry::Item(item) => Some((item.label.as_ref(), !item.is_disabled(), item.key.as_deref())),
         _ => None,
       })
       .collect();
@@ -1502,6 +1506,9 @@ impl MenuItem {
     self
   }
 
+  /// What tells the item from the others across renders: in a menu that keeps the focus in a field, the item the
+  /// keys are on stays the active one by it while what the menu holds changes ([`Menu::keeps_focus`]). Unlike a
+  /// label, it is not the same for two items.
   pub fn key(mut self, key: impl Into<Arc<str>>) -> Self {
     self.key = Some(key.into());
     self
