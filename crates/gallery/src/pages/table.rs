@@ -808,6 +808,19 @@ impl Component for TablePage {
          `controls`; `TableColumn::actions(id, cell)` for a row's buttons.",
         ),
         (
+          "TableColumn::tooltip_when_cut",
+          "bool",
+          "false",
+          "A text cell cut with an ellipsis says its whole text in a tooltip, after the theme's delay, while it is cut.",
+        ),
+        (
+          "TableColumn::title_hidden",
+          "bool",
+          "false",
+          "The header draws nothing, and the column is still called by its title to what reads the tree: a narrow \
+         column of a state's glyph.",
+        ),
+        (
           "rows",
           "impl IntoIterator<Item = R>",
           "",

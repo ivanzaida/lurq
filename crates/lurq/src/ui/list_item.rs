@@ -163,6 +163,7 @@ type Press = Arc<dyn Fn(&MouseEvent) + Send + Sync>;
 pub struct ListItem {
   title: Arc<str>,
   title_pending: bool,
+  title_tooltip_when_cut: bool,
   description: Option<Arc<str>>,
   description_pending: bool,
   tags: Vec<Element>,
@@ -198,6 +199,7 @@ impl ListItem {
     Self {
       title: Arc::from(title),
       title_pending: false,
+      title_tooltip_when_cut: false,
       description: None,
       description_pending: false,
       tags: Vec::new(),
@@ -253,6 +255,14 @@ impl ListItem {
   /// *Default* or *Changed*, a [`Badge`](super::Badge). The title gives way before them.
   pub fn tag(mut self, tag: impl Into<Element>) -> Self {
     self.tags.push(tag.into());
+    self
+  }
+
+  /// Whether the whole title is said in a tooltip while it is cut with an ellipsis, as
+  /// [`Tooltip::when_cut`](super::Tooltip::when_cut) says: shown after the theme's delay, and only while the last
+  /// layout cut the title. Off unless told.
+  pub fn title_tooltip_when_cut(mut self, tooltip: bool) -> Self {
+    self.title_tooltip_when_cut = tooltip;
     self
   }
 
@@ -514,6 +524,7 @@ impl ListItem {
     let view = ListItemView {
       title: self.title,
       title_pending: self.title_pending,
+      title_tooltip_when_cut: self.title_tooltip_when_cut,
       description: self.description,
       description_pending: self.description_pending,
       tags: self.tags,
@@ -586,6 +597,8 @@ pub struct ListItemView {
   pub title: Arc<str>,
   /// Whether the title is still read: a bone stands in its place.
   pub title_pending: bool,
+  /// Whether the whole title is said in a tooltip while it is cut.
+  pub title_tooltip_when_cut: bool,
   pub description: Option<Arc<str>>,
   /// Whether the description is still read: a bone stands in its place.
   pub description_pending: bool,
@@ -781,12 +794,19 @@ impl ListItemView {
     let title: Element = if self.title_pending {
       self.bone(ListItemPart::Title, ListItemPart::TitleSkeleton).into()
     } else {
-      part
+      let text = part
         .text(&self.title)
         .nowrap()
         .text_overflow(TextOverflow::Elipsis)
-        .part(&part)
-        .into()
+        .part(&part);
+      if self.title_tooltip_when_cut {
+        let cut = crate::core::ElementRef::new();
+        super::Tooltip::new(&self.title)
+          .when_cut(&cut)
+          .declared(text.ref_element(cut.clone()))
+      } else {
+        text.into()
+      }
     };
     let line: Element = if self.tags.is_empty() && self.info.is_none() {
       Column::new()

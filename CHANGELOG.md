@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+Added:
+
+- **A cut title of a list item, and a cut text cell of a table, said whole in a tooltip** ([#222](https://github.com/ivanzaida/lurq/issues/222), decided 2026-11-23, `design/decisions.md`). `ListItem::title_tooltip_when_cut(true)` and `TableColumn::tooltip_when_cut(true)` show the whole text in a tooltip after the theme's delay, only while the last layout cut it with an ellipsis, as `Tooltip::when_cut` does: a long title in a fixed column can be read. Off unless told, so a row and a table are as they were.
+- **`TableColumn::title_hidden(bool)` on any column** ([#223](https://github.com/ivanzaida/lurq/issues/223)). Its header draws nothing and the column keeps its title as its name to what reads the tree, as an `actions` column did alone: a narrow column of a state's glyph has a name and no word it has no room for.
+
 ## 0.71.0 — 2026-11-23
 
 Added:

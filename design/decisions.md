@@ -11,6 +11,18 @@ dropped). When a decision is replaced, the old entry stays and says what replace
 
 ## 2026-11-23
 
+### A cut text says itself whole in a tooltip where the app asks for it
+
+- **Question.** A list item's title and a table's text cell are cut with an ellipsis, and nothing let a person read
+  them whole (issue #222): should the tooltip be on by default, or asked for?
+- **Decision (Ivan).** Asked for: `ListItem::title_tooltip_when_cut(bool)` and `TableColumn::tooltip_when_cut(bool)`,
+  off unless told, "do not break the current API". A row and a table are as they were.
+- **Decided by Claude in the work, to be confirmed.** Both are `Tooltip::when_cut` over the text, as
+  `Badge::tooltip_when_cut` is: shown after the theme's delay, only while the last layout cut the text. Of a table,
+  a text column that does not wrap; an element cell keeps its own. `TableColumn::title_hidden(bool)` (issue #223)
+  is the field `actions` set, made public.
+- **State.** Built on `feat/cut-text-tooltips`.
+
 ### A code block's fold, its bar's other text and its scroll part
 
 - **Question.** A chat's code card (Orchester v2) needs a second text in a code block's bar (*22 lines*), its first

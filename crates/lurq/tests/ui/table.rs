@@ -1738,3 +1738,72 @@ fn in_the_touch_form_a_tap_opens_a_row_at_once() {
   stage.click("t-row-2");
   assert_eq!(told.activated.lock().unwrap().len(), 1);
 }
+
+/// Whether `content` is painted whole: a text of it and nothing cut from it.
+fn whole(stage: &Stage, content: &str) -> bool {
+  stage
+    .quads()
+    .iter()
+    .any(|quad| matches!(&quad.content, lurq::layout::quad::QuadContent::Text { text, .. } if text == content))
+}
+
+#[test]
+fn a_cut_text_cell_is_said_whole_in_a_tooltip_while_it_is_cut() {
+  let mut stage = wide(|| {
+    let columns = vec![
+      TableColumn::new("name", "Name")
+        .width(90.0)
+        .tooltip_when_cut(true)
+        .text(|row: &Crate| row.name.to_owned()),
+      TableColumn::new("status", "Status")
+        .width(120.0)
+        .tooltip_when_cut(true)
+        .text(|row: &Crate| row.status.to_owned()),
+    ];
+    Table::new(columns, crates())
+      .row_key(|row: &Crate| row.name)
+      .id("t")
+      .checkboxes(false)
+      .into()
+  });
+  assert!(!whole(&stage, "crates/lurq_macros"), "cut at rest");
+  stage.own_timers();
+  stage.hover("t-cell-0-1");
+  stage.tick_timers(std::time::Duration::from_secs(2));
+  stage.pass();
+  assert_eq!(texts(&stage, "Passing").len(), 1, "no tooltip over a text that fits");
+  stage.hover("t-cell-1-0");
+  stage.tick_timers(std::time::Duration::from_secs(4));
+  stage.pass();
+  assert!(whole(&stage, "crates/lurq_macros"), "its tooltip says it whole");
+}
+
+#[test]
+fn any_column_hides_its_title_and_keeps_it_as_its_name() {
+  let mut stage = wide(|| {
+    let mut columns = columns();
+    columns.insert(
+      0,
+      TableColumn::new("state", "State")
+        .width(14.0)
+        .title_hidden(true)
+        .text(|row: &Crate| row.status[..1].to_owned()),
+    );
+    Table::new(columns, crates())
+      .row_key(|row: &Crate| row.name)
+      .id("t")
+      .into()
+  });
+  assert!(!whole(&stage, "State"), "the header draws nothing");
+  assert!(stage.paints("Name"));
+  #[cfg(any(feature = "mcp", feature = "devtools"))]
+  assert_eq!(
+    stage
+      .tree
+      .get_element_by_id_mut("t-header-state")
+      .and_then(|element| element.description("a11y_name"))
+      .as_deref(),
+    Some("State"),
+    "called by its title"
+  );
+}
