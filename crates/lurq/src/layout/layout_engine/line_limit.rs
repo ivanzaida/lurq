@@ -138,6 +138,83 @@ mod tests {
   }
 
   #[test]
+  fn a_one_line_cut_has_no_white_space_before_its_ellipsis() {
+    let engine = LayoutEngine::new();
+    let mut glyph_engine = GlyphEngine::new();
+    let style = TextStyle::default();
+    let text = "Publish the payload schema v2 to the registry";
+    let mut cut = 0;
+    let mut after_a_word = 0;
+    for step in 0..600 {
+      let width = 10.0 + step as f32 * 0.5;
+      let Some(shown) = engine.ellipsize_text(&mut glyph_engine, text, &style, width) else {
+        continue;
+      };
+      let Some(kept) = shown.strip_suffix(ELLIPSIS) else {
+        // Too narrow for the ellipsis itself.
+        assert!(shown.is_empty());
+        continue;
+      };
+      cut += 1;
+      assert_eq!(kept, kept.trim_end(), "{shown:?} at {width}");
+      assert!(text.starts_with(kept));
+      assert!(engine.text_width(&mut glyph_engine, &shown, &style) <= width);
+      if text[kept.len()..].starts_with(' ') {
+        after_a_word += 1;
+      }
+    }
+    assert!(cut > 0, "the widths cut the text");
+    assert!(after_a_word > 0, "some cuts fall right after a word");
+  }
+
+  #[test]
+  fn a_text_as_wide_as_it_measures_is_painted_on_one_line_at_any_scale() {
+    // A text with no width of its own is in a box of the width layout measured. In a monospace font that box
+    // is often a whole number of device pixels, where rounding it out gives the paint no room: ten letters of
+    // 7.2 at x1.5 are a box of 108, and the paint's own sum of ten advances of 10.8 is 108.00002. The probe's
+    // semibold face advances 0.6 em a letter, as Geist Mono and JetBrains Mono do.
+    const PROBE: &[u8] = include_bytes!("../../../tests/assets/weight_probe/LurqWeightProbe-SemiBold.ttf");
+    let engine = LayoutEngine::new();
+    let mut glyph_engine = GlyphEngine::new();
+    glyph_engine.load_font(PROBE.to_vec());
+    let letters = "a".repeat(40);
+    let (mut whole, mut over) = (0, 0);
+    for size in 8..=24 {
+      let style = TextStyle {
+        font_family: "Lurq Weight Probe".into(),
+        weight: crate::layout::text_style::FontWeight::SemiBold,
+        font_size: size as f32,
+        ..TextStyle::default()
+      };
+      let five = glyph_engine.measure_text("aaaaa", &style, f32::MAX).width;
+      assert!(
+        (five - size as f32 * 3.0).abs() < 0.001,
+        "the probe's face: five letters are {five}"
+      );
+      for scale in [1.1_f32, 1.25, 1.33, 1.5, 1.75, 2.0, 2.25, 2.5, 3.0] {
+        engine.set_paint_scale(scale);
+        let mut scaled = style.clone();
+        scaled.scale_pixels(scale);
+        for count in 1..=letters.len() {
+          let text = &letters[..count];
+          let width = glyph_engine.measure_text(text, &style, f32::MAX).width;
+          let painted = glyph_engine.measure_text(text, &scaled, f32::MAX).width;
+          whole += usize::from((width * scale).fract() == 0.0);
+          over += usize::from(painted > (width * scale).ceil());
+          let max_width = painted_max_width(scale, true, style.text_align, width);
+          assert_eq!(
+            glyph_engine.wrapped_line_count(text, &scaled, max_width),
+            1,
+            "{count} letters of {size} at x{scale}: measured {width}, painted {painted}, wrapped at {max_width}"
+          );
+        }
+      }
+    }
+    assert!(whole > 0, "some boxes are a whole number of device pixels");
+    assert!(over > 0, "and the paint's sum is over some of them");
+  }
+
+  #[test]
   fn the_paint_needs_no_more_lines_than_layout_measured() {
     // What the limit rests on at a fractional scale; the cut checks both layouts all the same. The paint wraps
     // at the box's width rounded up to a device pixel, so it has the room layout had and up to a pixel more:

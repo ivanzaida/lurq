@@ -83,9 +83,10 @@ pub type ButtonGroupRenderer = Arc<dyn Fn(ButtonGroup) -> Element + Send + Sync>
 /// ```
 ///
 /// The group gives its buttons their variant and their size, and squares
-/// their corners: the corners of the group are the ones that are round. A
-/// button keeps everything else it was given: its icon, what a press does,
-/// whether it is disabled.
+/// their corners where they meet: the corners of the group are the ones
+/// that are round, and the buttons at its ends are round with it, so a
+/// focus ring follows the group's shape. A button keeps everything else it
+/// was given: its icon, what a press does, whether it is disabled.
 pub struct ButtonGroup {
   items: Vec<Button>,
   variant: Name,
@@ -222,13 +223,19 @@ impl ButtonGroup {
     };
     let separator = recipe.part(ButtonGroupPart::Separator);
     let separated = separator.rest().width.is_some();
-    // The group is clipped to its corners: the buttons at its ends are round where it is.
+    // The buttons at the group's ends are round where the group is, and every other corner is the item's. The
+    // group does not clip them to its corners: a clip would cut the focus ring of a button, which is drawn
+    // outside it.
+    let outer = recipe.part(ButtonGroupPart::Root).rest().radius.unwrap_or_default();
+    let inner = recipe.part(ButtonGroupPart::Item).rest().radius.unwrap_or_default();
+    let last = self.items.len().saturating_sub(1);
     // Each button is its own stop of Tab, as each is its own action; the arrow keys move between them too.
-    let mut root = Row::new().part(&recipe.part(ButtonGroupPart::Root))
+    let mut root = Row::new()
+      .part(&recipe.part(ButtonGroupPart::Root))
       .focus_group(FocusGroup::horizontal())
       // The line between two of them is as high as they are.
       .align_items(Alignment::Stretch)
-      .clip()
+      .overflow_visible()
       .describe("a11y_role", "group");
     if let Some(label) = &self.label {
       root = root.describe("a11y_name", label.clone());
@@ -243,11 +250,18 @@ impl ButtonGroup {
       if index == 0 && self.forced.is_some() {
         button = button.force(self.forced);
       }
+      let (start, end) = (
+        if index == 0 { outer } else { inner },
+        if index == last { outer } else { inner },
+      );
+      let corners = item.clone().base(ButtonPart::Root, |s| {
+        s.corners(start.top_left, end.top_right, end.bottom_right, start.bottom_left)
+      });
       root = root.child(
         button
           .variant(of_button.clone())
           .size(self.size.clone())
-          .rules(&item)
+          .rules(&corners)
           .build(theme),
       );
     }

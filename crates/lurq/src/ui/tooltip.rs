@@ -720,6 +720,7 @@ impl TooltipView {
   pub fn render(self) -> Element {
     let (panel, arrow) = (self.panel(), self.arrow());
     let root = self.part(TooltipPart::Root);
+    // The root is the box and the room around it, and does not clip: a shadow of the box reaches past that room.
     let toward_after = matches!(self.side, TooltipSide::Top | TooltipSide::Left);
     let mut children: Vec<Element> = vec![panel.into()];
     if let Some(arrow) = arrow {
@@ -733,6 +734,7 @@ impl TooltipView {
       Column::new()
         .align_items(Alignment::Center)
         .part(&root)
+        .overflow_visible()
         .describe("a11y_role", "tooltip")
         .with_children(children)
         .into()
@@ -740,6 +742,7 @@ impl TooltipView {
       Row::new()
         .align_items(Alignment::Center)
         .part(&root)
+        .overflow_visible()
         .describe("a11y_role", "tooltip")
         .with_children(children)
         .into()
