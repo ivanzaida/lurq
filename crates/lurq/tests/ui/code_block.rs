@@ -1051,3 +1051,51 @@ fn a_block_gives_the_area_its_code_scrolls_in_bars_of_its_own() {
     thumbs.iter().map(|quad| (quad.width, quad.height)).collect::<Vec<_>>()
   );
 }
+
+fn eight_lines() -> String {
+  twenty_lines().lines().take(8).collect::<Vec<_>>().join("\n")
+}
+
+#[test]
+fn a_fold_starts_open_where_told_and_its_chevron_follows_it() {
+  use lurq::ui::icons;
+  let code = eight_lines();
+  let mut stage = staged(move || {
+    CodeBlock::new(&code)
+      .fold(3)
+      .fold_open(true)
+      .fold_icon(true)
+      .id("block")
+  });
+  assert!(painted(&stage).contains("line 8"), "open at rest");
+  stage.text("Show less");
+  stage.text(&glyph(icons::CHEVRON_UP));
+  stage.click("block-fold");
+  assert!(!painted(&stage).contains("line 4"), "and a press folds it");
+  stage.text("Show all");
+  stage.text(&glyph(icons::CHEVRON_DOWN));
+}
+
+#[test]
+fn a_fold_the_app_holds_is_set_by_a_press_and_by_the_app() {
+  let folded = Signal::new(false);
+  let told = Arc::new(Mutex::new(Vec::new()));
+  let (held, heard) = (folded.clone(), told.clone());
+  let code = eight_lines();
+  let mut stage = staged(move || {
+    let heard = heard.clone();
+    CodeBlock::new(&code)
+      .fold(3)
+      .folded(held.clone())
+      .on_fold(move |folded| heard.lock().unwrap().push(folded))
+      .id("block")
+  });
+  assert!(painted(&stage).contains("line 8"), "the app said it is not folded");
+  stage.click("block-fold");
+  assert!(folded.get_untracked(), "a press folds it, in the app's signal");
+  assert_eq!(*told.lock().unwrap(), [true]);
+  assert!(!painted(&stage).contains("line 4"));
+  folded.set(false);
+  stage.pass();
+  assert!(painted(&stage).contains("line 8"), "and the app unfolds it");
+}
