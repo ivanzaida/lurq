@@ -1474,7 +1474,10 @@ the menu opens under a field a person goes on typing in, and the focus stays the
 `aria-activedescendant`). `Menu::keeps_focus(&keys)` takes a `MenuKeys`, made once by the app with the field's
 `ElementRef`, as a `DateMemory` is. The panel takes no focus, and a press of an item leaves the focus in the field;
 one item is the active one (state `MenuItemState::Active`, `a11y_selected` to tooling), the first that can be chosen as
-the menu opens and whenever what it holds changes, and the one the pointer comes onto. While the field has the focus
+the menu opens, and the one the pointer comes onto. Where what the menu holds changes while it is open (an account
+that opens its models under it), the active item stays the item of the same `key` (`MenuItem::key`), where there is
+one that can be chosen, and the section stays where it is scrolled to. An item with no key, or one that is gone,
+gives way to the first, as in a list that typing filters. While the field has the focus
 the panel reads its keys: Up and Down move the active item round the items that can be chosen, Enter chooses it,
 Ctrl+Enter (Cmd+Enter on macOS) asks for it aside (`MenuItem::on_open_aside`), Escape closes the menu, and every other
 key, letters and Home and End among them, is the field's. Enter with no item that can be chosen is the field's too. A
@@ -1501,7 +1504,7 @@ let input = TextInput::new(draft.clone()).ref_element(field.clone()).on_key_down
   // The field's own Enter: send.
 });
 ```
-- <a id="a-section-of-a-menu-that-scrolls"></a>**A section that scrolls.** `Menu::scrolling(entries, max_height)` (or `MenuEntry::Scroll`) is a section of the menu, the part `MenuPart::Scroll` (`x-scroll`, `x-scroll-2` …), that scrolls where what it holds is higher than `max_height`, with the part's `gap` between what it holds: the skills under a menu's commands, the files after an `@`, a long list of branches. What it holds is the menu's: its items close the menu, are named after the menu's id in order with the rest, are reached by the arrows and by typing their label, and the one the focus goes to is scrolled into view. In a menu that keeps the focus in a field they are among the items the keys move, in order, and the active one is scrolled into view by the least that shows it; the section goes back to its top as the menu opens and whenever what it holds changes. An item's place for `page` counts the section and then what it holds. A context menu's bar has no room to scroll: what the section holds stands in the bar as the rest does.
+- <a id="a-section-of-a-menu-that-scrolls"></a>**A section that scrolls.** `Menu::scrolling(entries, max_height)` (or `MenuEntry::Scroll`) is a section of the menu, the part `MenuPart::Scroll` (`x-scroll`, `x-scroll-2` …), that scrolls where what it holds is higher than `max_height`, with the part's `gap` between what it holds: the skills under a menu's commands, the files after an `@`, a long list of branches. What it holds is the menu's: its items close the menu, are named after the menu's id in order with the rest, are reached by the arrows and by typing their label, and the one the focus goes to is scrolled into view. In a menu that keeps the focus in a field they are among the items the keys move, in order, and the active one is scrolled into view by the least that shows it; the section goes back to its top as the menu opens and whenever what it holds changes, unless the active item stays by its key. An item's place for `page` counts the section and then what it holds. A context menu's bar has no room to scroll: what the section holds stands in the bar as the rest does.
 
 ```rust
 use lurq::ui::{Menu, MenuItem};

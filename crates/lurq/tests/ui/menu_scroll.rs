@@ -262,3 +262,92 @@ fn the_entries_of_a_section_that_scrolls_are_as_far_apart_as_its_part_says() {
     );
   }
 }
+
+/// Ten accounts, keyed `account-<n>` where `keyed`, and under the one `opened` its three models, whose labels are
+/// the same under every account.
+fn accounts(opened: Option<usize>, keyed: bool) -> Vec<MenuEntry> {
+  let mut entries = Vec::new();
+  for account in 0..10 {
+    let mut item = MenuItem::new(&format!("Account {account}")).id(format!("account-{account}"));
+    if keyed {
+      item = item.key(format!("account-{account}"));
+    }
+    entries.push(item.into());
+    if opened == Some(account) {
+      for model in ["Small", "Medium", "Large"] {
+        let mut item = MenuItem::new(model);
+        if keyed {
+          item = item.key(format!("account-{account}-{model}"));
+        }
+        entries.push(item.into());
+      }
+    }
+  }
+  entries
+}
+
+fn account_picker(opened: &Signal<Option<usize>>, keyed: bool) -> (Stage, MenuKeys, Signal<bool>) {
+  let (field, open) = (ElementRef::new(), Signal::new(false));
+  let keys = MenuKeys::new(field.clone());
+  let (held, shown, opened) = (keys.clone(), open.clone(), opened.clone());
+  let mut stage = Stage::new(move |_| {
+    let menu = Menu::new(shown.clone(), field.clone())
+      .id("menu")
+      .keeps_focus(&held)
+      .scrolling(accounts(opened.get(), keyed), 128.0);
+    Column::new()
+      .size(400.0, 500.0)
+      .padding(20.0)
+      .child(
+        TextInput::new(Signal::new(String::new()))
+          .id("field")
+          .width(200.0)
+          .ref_element(field.clone()),
+      )
+      .child(menu)
+      .into()
+  });
+  stage.click("field");
+  open.set(true);
+  stage.pass();
+  (stage, keys, open)
+}
+
+#[test]
+fn the_active_item_stays_by_its_key_when_what_the_menu_holds_changes() {
+  let opened = Signal::new(None);
+  let (mut stage, keys, open) = account_picker(&opened, true);
+  for _ in 0..7 {
+    stage.key("ArrowDown");
+  }
+  assert_eq!(keys.active(), Some(7));
+  assert!(!shown_in(&mut stage, "account-0", "menu-scroll"));
+
+  // The account opens its models under it: it stays the active one, and the section where it is scrolled to.
+  opened.set(Some(7));
+  stage.pass();
+  assert!(open.get());
+  assert_eq!(keys.active(), Some(7), "Account 7 still");
+  assert!(shown_in(&mut stage, "account-7", "menu-scroll"));
+  assert!(!shown_in(&mut stage, "account-0", "menu-scroll"), "not back at the top");
+
+  // Models open above it: it is further down the items, and still the active one.
+  opened.set(Some(2));
+  stage.pass();
+  assert_eq!(keys.active(), Some(10), "Account 7, after three models");
+  stage.key("Enter");
+  assert!(!open.get(), "Enter chose it");
+}
+
+#[test]
+fn an_item_with_no_key_gives_way_to_the_first_when_what_the_menu_holds_changes() {
+  let opened = Signal::new(None);
+  let (mut stage, keys, _) = account_picker(&opened, false);
+  for _ in 0..7 {
+    stage.key("ArrowDown");
+  }
+  opened.set(Some(7));
+  stage.pass();
+  assert_eq!(keys.active(), Some(0));
+  assert!(shown_in(&mut stage, "account-0", "menu-scroll"));
+}
