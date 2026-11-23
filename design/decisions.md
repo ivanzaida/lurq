@@ -42,6 +42,32 @@ dropped). When a decision is replaced, the old entry stays and says what replace
 - **Why.** A write needs the same three things on every screen; kept by hand they drift between screens.
 - **State.** Built, on `feat/query-mutations`. Out of scope, as the issue says: persisting the cache, prefetch.
 
+### How a renderer asks for its device is the app's to say
+
+- **Question.** Three issues of one user of the `wgpu` renderer on Windows
+  ([#131](https://github.com/ivanzaida/lurq/issues/131), [#132](https://github.com/ivanzaida/lurq/issues/132) and
+  what is left of [#134](https://github.com/ivanzaida/lurq/issues/134)): the device is asked for with wgpu's default
+  memory hints, which on Direct3D 12 reserve about 180 MB a window that a UI never uses; the instance takes the
+  flags of the build, so a debug build always runs with validation and the debug layer and a release build never
+  can; and the renderers pick the graphics card themselves, so a decoder can only follow.
+- **Decision (Ivan, 2026-11-23).**
+  - Memory: `WgpuRenderEngine::with_memory_hints`, and lurq's default is `MemoryHints::MemoryUsage`, not wgpu's
+    `Performance`. An app that wants the large blocks back says so.
+  - Flags: `WgpuRenderEngine::with_instance_flags`, the build's by default as before, and wgpu's environment
+    variables (`WGPU_DEBUG`, `WGPU_VALIDATION`, ...) are applied over either, for one run.
+  - The card: by power preference and by its LUID, on both renderers (`wgpu` and lurq's own Direct3D 12).
+- **Why.** A UI allocates a few MiB on the card: the measured cost of the large blocks is most of the footprint of
+  an app that sits in the background, and nobody measured a gain from them. The time of a frame under
+  `MemoryUsage` was not measured (the issue's author expects none with under 10 MiB allocated). A LUID is what
+  `images::card_frames_adapter()` already speaks, and what a decoder knows its card by.
+- **Decided by Claude in the work, to be confirmed.**
+  - One type says the card for both renderers, `app::GraphicsCard` (`Any`, `LowPower`, `HighPerformance`,
+    `Luid(low, high)`), given with `with_graphics_card`. A LUID is a thing of Windows: elsewhere, and where no card
+    of that LUID draws to the window, the system's choice is taken, and a line is logged.
+  - A device made ahead is asked for the same way: `WgpuDeviceRequest`, with `WgpuDevice::request_as`.
+  - Engines share a device, and the program an instance, only where all of this is the same too.
+- **State.** In work on `feat/wgpu-device-choices`.
+
 ## 2026-11-22
 
 ### What 0.63 deprecated is removed

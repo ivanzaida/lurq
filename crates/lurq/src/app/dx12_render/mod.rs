@@ -71,6 +71,7 @@ use windows::{
         },
         CreateDXGIFactory2, DXGI_ADAPTER_FLAG_SOFTWARE, DXGI_CREATE_FACTORY_DEBUG, DXGI_CREATE_FACTORY_FLAGS,
         DXGI_ERROR_DEVICE_HUNG, DXGI_ERROR_DEVICE_REMOVED, DXGI_ERROR_DEVICE_RESET, DXGI_ERROR_DRIVER_INTERNAL_ERROR,
+        DXGI_GPU_PREFERENCE, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE, DXGI_GPU_PREFERENCE_MINIMUM_POWER,
         DXGI_GPU_PREFERENCE_UNSPECIFIED, DXGI_MWA_NO_ALT_ENTER, DXGI_SCALING_NONE, DXGI_SWAP_CHAIN_DESC1,
         DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT, DXGI_SWAP_EFFECT_FLIP_DISCARD,
         DXGI_USAGE_RENDER_TARGET_OUTPUT, IDXGIAdapter1, IDXGIFactory4, IDXGIFactory6, IDXGIOutput, IDXGISwapChain2,
@@ -230,6 +231,8 @@ impl Dx12RenderCadence {
 pub struct Dx12RenderEngine {
   /// Whether the device was found lost, and the engine waits for the tree to make another in its place.
   lost: bool,
+  /// The card the device is made on, where the app said one.
+  card: crate::app::GraphicsCard,
   #[cfg(feature = "canvas")]
   canvases: Vec<crate::canvas::CanvasHandle>,
   #[cfg(feature = "canvas")]
@@ -256,6 +259,7 @@ impl Dx12RenderEngine {
   pub fn new() -> Self {
     Self {
       lost: false,
+      card: crate::app::GraphicsCard::Any,
       state: None,
       #[cfg(feature = "canvas")]
       canvases: Vec::new(),
@@ -294,6 +298,17 @@ impl Dx12RenderEngine {
       .map_or((0, 0), layers::LayerCompositor::backdrop_reuse)
   }
 
+  /// The graphics card this draws on, on a machine with more than one: by the power it takes, or by its
+  /// identifier ([`GraphicsCard`](crate::app::GraphicsCard)). Without this the system chooses.
+  ///
+  /// A window that shows a decoder's frames is put on the decoder's card with `GraphicsCard::Luid(..)`, and
+  /// the frames are drawn where they are. Where the card of the identifier makes no device, the system's
+  /// choice is taken. Told before the first frame, when the device is made.
+  pub fn with_graphics_card(mut self, card: crate::app::GraphicsCard) -> Self {
+    self.card = card;
+    self
+  }
+
   /// How many charged bytes of uploaded Canvas images and text this renderer
   /// keeps between frames; 64 MiB by default. See [`CanvasAssetBudget`] for
   /// how a frame that needs more is handled.
@@ -312,7 +327,7 @@ impl Dx12RenderEngine {
 
     let hwnd = hwnd_from_window(window)?;
     #[cfg_attr(not(feature = "canvas"), allow(unused_mut))]
-    let mut state = unsafe { Dx12State::new(hwnd, self.width.max(1), self.height.max(1))? };
+    let mut state = unsafe { Dx12State::new(hwnd, self.width.max(1), self.height.max(1), self.card)? };
     #[cfg(feature = "canvas")]
     {
       state.canvas_asset_budget = self.canvas_asset_budget;
@@ -2221,9 +2236,9 @@ fn frame_image_srv_range(frame_index: usize) -> (usize, usize) {
 }
 
 impl Dx12State {
-  unsafe fn new(hwnd: HWND, width: u32, height: u32) -> Result<Self> {
+  unsafe fn new(hwnd: HWND, width: u32, height: u32, card: crate::app::GraphicsCard) -> Result<Self> {
     let factory = create_factory()?;
-    let adapter = choose_adapter(&factory)?;
+    let adapter = choose_adapter(&factory, card)?;
     let device = create_device(&adapter)?;
 
     let queue_desc = D3D12_COMMAND_QUEUE_DESC {
@@ -4375,8 +4390,39 @@ impl Drop for Dx12State {
   }
 }
 
-unsafe fn choose_adapter(factory: &IDXGIFactory4) -> Result<IDXGIAdapter1> {
-  if let Some(adapter) = choose_preferred_adapter(factory) {
+/// What the system is told of the card asked for: which of two it lists first. A card asked for by its
+/// identifier is found otherwise, and where it is not, nothing is preferred.
+fn gpu_preference(card: crate::app::GraphicsCard) -> DXGI_GPU_PREFERENCE {
+  match card {
+    crate::app::GraphicsCard::Any | crate::app::GraphicsCard::Luid(..) => DXGI_GPU_PREFERENCE_UNSPECIFIED,
+    crate::app::GraphicsCard::LowPower => DXGI_GPU_PREFERENCE_MINIMUM_POWER,
+    crate::app::GraphicsCard::HighPerformance => DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE,
+  }
+}
+
+/// The card of the identifier `luid`, where the system has it and it makes a device.
+unsafe fn adapter_of_luid(factory: &IDXGIFactory4, luid: (u32, i32)) -> Option<IDXGIAdapter1> {
+  let adapter = factory
+    .EnumAdapterByLuid::<IDXGIAdapter1>(windows::Win32::Foundation::LUID {
+      LowPart: luid.0,
+      HighPart: luid.1,
+    })
+    .ok()?;
+  create_device(&adapter).is_ok().then_some(adapter)
+}
+
+unsafe fn choose_adapter(factory: &IDXGIFactory4, card: crate::app::GraphicsCard) -> Result<IDXGIAdapter1> {
+  if let Some(luid) = card.luid() {
+    if let Some(adapter) = adapter_of_luid(factory, luid) {
+      return Ok(adapter);
+    }
+    tracing::warn!(
+      low = luid.0,
+      high = luid.1,
+      "no graphics card of this identifier makes a device: the system's choice is taken"
+    );
+  }
+  if let Some(adapter) = choose_preferred_adapter(factory, gpu_preference(card)) {
     return Ok(adapter);
   }
 
@@ -4401,11 +4447,11 @@ unsafe fn choose_adapter(factory: &IDXGIFactory4) -> Result<IDXGIAdapter1> {
   factory.EnumAdapters1(0)
 }
 
-unsafe fn choose_preferred_adapter(factory: &IDXGIFactory4) -> Option<IDXGIAdapter1> {
+unsafe fn choose_preferred_adapter(factory: &IDXGIFactory4, preference: DXGI_GPU_PREFERENCE) -> Option<IDXGIAdapter1> {
   let factory = factory.cast::<IDXGIFactory6>().ok()?;
   let mut index = 0;
   loop {
-    let adapter = match factory.EnumAdapterByGpuPreference::<IDXGIAdapter1>(index, DXGI_GPU_PREFERENCE_UNSPECIFIED) {
+    let adapter = match factory.EnumAdapterByGpuPreference::<IDXGIAdapter1>(index, preference) {
       Ok(adapter) => adapter,
       Err(_) => return None,
     };

@@ -72,7 +72,7 @@ let engine = WgpuRenderEngine::new().with_backends(WgpuBackends::DX12);
 
 Excluded backend loaders are never initialized by that engine. Explicitly opting into Vulkan on Windows also opts back into its platform loader behavior.
 
-An engine asks for its GPU device at its first frame and waits for it. The engines of an app's windows share one device: an engine takes the device of another window's engine on its thread that was asked for among the same backends with the same optional features and limits, while one draws, so a texture of the app's can be shown in any window. `WgpuRenderEngine::new().with_own_device()` keeps a window's device apart. `WgpuDevice` is a device made ahead: an app awaits `WgpuDevice::request()` and gives the device to each engine the factory makes.
+An engine asks for its GPU device at its first frame and waits for it. The engines of an app's windows share one device: an engine takes the device of another window's engine on its thread that was asked for the same way (the same backends, instance flags, optional features and limits, memory hints and graphics card), while one draws, so a texture of the app's can be shown in any window. `WgpuRenderEngine::new().with_own_device()` keeps a window's device apart. `WgpuDevice` is a device made ahead: an app awaits `WgpuDevice::request()` and gives the device to each engine the factory makes.
 
 ```rust
 use lurq::app::wgpu_render::{WgpuDevice, WgpuRenderEngine};
@@ -83,7 +83,29 @@ tree.set_render_engine_factory(move || {
 });
 ```
 
-On a desktop this is optional and moves the wait off the first frame. In a browser it is how an engine gets a device at all, since a page cannot wait inside a frame; see [Web](../web/#the-device). The engine's backends and optional features and limits are then the device's: `WgpuDevice::request_with(backends)` chooses the backends, and `WgpuDevice::backend()` says which the device draws through.
+On a desktop this is optional and moves the wait off the first frame. In a browser it is how an engine gets a device at all, since a page cannot wait inside a frame; see [Web](../web/#the-device). How the device is asked for is then the device's, not the engine's: `WgpuDevice::request_with(backends)` chooses the backends, `WgpuDevice::request_as(WgpuDeviceRequest::new()...)` says all an engine's builders say, and `WgpuDevice::backend()` says which the device draws through.
+
+### Memory, validation and the graphics card
+
+Three things an engine is told before its first frame, each with a builder:
+
+```rust
+use lurq::app::{
+  GraphicsCard,
+  wgpu_render::{WgpuInstanceFlags, WgpuMemoryHints, WgpuRenderEngine},
+};
+
+let engine = WgpuRenderEngine::new()
+  .with_memory_hints(WgpuMemoryHints::Performance)
+  .with_instance_flags(WgpuInstanceFlags::empty())
+  .with_graphics_card(GraphicsCard::HighPerformance);
+```
+
+- **Memory.** lurq asks the card for memory in small blocks as they are needed (`WgpuMemoryHints::MemoryUsage`): a UI keeps a few MiB there. wgpu's own default, `Performance`, takes large blocks ahead, which on Direct3D 12 was measured at about 180 MB of a window's GPU memory and private bytes that nothing used. An app that keeps much on the card may want it back with `with_memory_hints`.
+- **Validation and the debug layer.** By default wgpu's instance takes the flags of the build (`WgpuInstanceFlags::from_build_config()`): a build with debug assertions validates every call and turns on the backend's debug layer, which on Direct3D 12 costs memory and time, and a release build has neither. `with_instance_flags(WgpuInstanceFlags::empty())` measures a debug build as a release one runs; `WgpuInstanceFlags::debugging()` looks for a fault of drawing in a release build. wgpu's environment variables are applied over either, for one run: `WGPU_VALIDATION=0`, `WGPU_DEBUG=1` and the others turn one flag off or on.
+- **The graphics card.** On a machine with two, `with_graphics_card` says which the window is drawn on: `GraphicsCard::LowPower`, `GraphicsCard::HighPerformance`, or on Windows `GraphicsCard::Luid(low, high)`, the card's identifier as a decoder knows it and as `images::card_frames_adapter()` gives it. A window that shows a decoder's frames (`images::CardFrames`) is put on the decoder's card this way, and the frames are drawn where they are. Where no card of the identifier draws to the window, the system's choice is taken and a warning is logged. Under wgpu a card is found by its maker and model, so two cards of one model are not told apart. `Dx12RenderEngine::with_graphics_card` is the same for lurq's own Direct3D 12 renderer.
+
+Give every engine of an app the same of these: engines that ask alike share one instance and one device.
 
 On Windows with `dx12`:
 
