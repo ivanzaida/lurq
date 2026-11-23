@@ -883,3 +883,75 @@ fn a_link_with_an_address_opens_it_after_the_app_is_told_unless_a_handler_refuse
     "opened by a click and by Enter, not where a handler refused it nor where it is disabled"
   );
 }
+
+#[test]
+fn the_focus_ring_of_a_groups_end_button_is_round_where_the_group_is_and_whole() {
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .padding(20.0)
+      .spacing(8.0)
+      .child(
+        ButtonGroup::new([
+          Button::new("Request change").id("action"),
+          Button::new("How").icon(icons::CHEVRON_DOWN).icon_only(true).id("how"),
+        ])
+        .variant(ButtonGroupVariant::Primary)
+        .id("split"),
+      )
+      .child(ButtonGroup::new([Button::new("Alone").id("alone")]).id("single"))
+      .into()
+  });
+  let ring_color = light(PaletteColor::Ring);
+  let ring = |stage: &Stage| -> Quad {
+    let mut rings: Vec<Quad> = stage
+      .quads()
+      .into_iter()
+      .filter(|quad| quad.border.and_then(|border| border.top).map(|side| side.color) == Some(ring_color))
+      .collect();
+    assert_eq!(rings.len(), 1, "one ring");
+    rings.remove(0)
+  };
+  let corners = |quad: &Quad| {
+    let radius = quad.border_radius.unwrap_or_default();
+    (
+      radius.top_left,
+      radius.top_right,
+      radius.bottom_right,
+      radius.bottom_left,
+    )
+  };
+  // Nothing cuts a ring: its clip, if it has one, holds the whole of it and has no round corner to cut it with.
+  let whole = |quad: &Quad| {
+    !quad.clip.active
+      || (quad.clip.x <= quad.x
+        && quad.clip.y <= quad.y
+        && quad.clip.x + quad.clip.width >= quad.x + quad.width
+        && quad.clip.y + quad.clip.height >= quad.y + quad.height
+        && quad.clip.rounded.iter().flatten().next().is_none())
+  };
+
+  // The first button: round at the group's start, square where it meets the next one.
+  stage.key("Tab");
+  let first = ring(&stage);
+  let (x, _, width, _) = stage.bounds("action");
+  let reach = x - first.x;
+  assert!(reach > 0.0, "the ring is outside the button");
+  assert_eq!(first.width, width + reach * 2.0);
+  let (top_left, top_right, bottom_right, bottom_left) = corners(&first);
+  assert_eq!((top_left, bottom_left), (6.0 + reach, 6.0 + reach));
+  assert_eq!((top_right, bottom_right), (0.0, 0.0));
+  assert!(whole(&first), "the ring of the first button is cut: {:?}", first.clip);
+
+  // The last one: the other way round.
+  stage.key("Tab");
+  let second = ring(&stage);
+  let (top_left, top_right, bottom_right, bottom_left) = corners(&second);
+  assert_eq!((top_left, bottom_left), (0.0, 0.0));
+  assert_eq!((top_right, bottom_right), (6.0 + reach, 6.0 + reach));
+  assert!(whole(&second), "the ring of the last button is cut: {:?}", second.clip);
+
+  // A group of one button is round at both ends.
+  stage.key("Tab");
+  let alone = ring(&stage);
+  assert_eq!(corners(&alone), (6.0 + reach, 6.0 + reach, 6.0 + reach, 6.0 + reach));
+}

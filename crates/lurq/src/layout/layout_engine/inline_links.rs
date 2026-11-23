@@ -193,11 +193,7 @@ impl LayoutEngine {
     let scale = self.paint_scale.get();
     let wrap = node.text_wrap && node.text_overflow == TextOverflow::Clip;
     let align = spans.first().map_or(TextAlign::Left, |span| span.style.text_align);
-    let max_width = if (wrap || align != TextAlign::Left) && width > 0.0 {
-      (width * scale).ceil()
-    } else {
-      f32::MAX
-    };
+    let max_width = super::selection_layout::painted_max_width(scale, wrap, align, width);
     if scale == 1.0 {
       return glyph_engine.rich_text_span_boxes(spans, max_width, wrap);
     }

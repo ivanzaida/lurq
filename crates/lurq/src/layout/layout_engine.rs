@@ -77,6 +77,7 @@ mod theme_scope;
 mod track_layout;
 
 use flex_shrink::{DroppedRoom, FlexShrinkLine, FreeRoom, LineOverflow, main_size, occupies_line};
+pub(crate) use selection_layout::painted_max_width;
 pub(crate) use text_layout_output::TextLayoutOutput;
 use text_layout_output::{TextInputOutput, TextOutput};
 
@@ -3769,7 +3770,8 @@ impl LayoutEngine {
     let mut high = boundaries.len() - 1;
     while low < high {
       let mid = (low + high).div_ceil(2);
-      let candidate = format!("{}{}", &text[..boundaries[mid]], ELLIPSIS);
+      // White space at the end of what is kept is dropped: "schema…", never "schema …".
+      let candidate = format!("{}{}", text[..boundaries[mid]].trim_end(), ELLIPSIS);
       if self.text_width(glyph_engine, &candidate, style) <= max_width {
         low = mid;
       } else {
@@ -3777,7 +3779,7 @@ impl LayoutEngine {
       }
     }
 
-    Some(format!("{}{}", &text[..boundaries[low]], ELLIPSIS))
+    Some(format!("{}{}", text[..boundaries[low]].trim_end(), ELLIPSIS))
   }
 
   fn layout_flex(

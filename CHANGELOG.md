@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+Fixes:
+
+- **A text as wide as it measures stays on one line at a fractional display scale** (#202). A text with no width of its own is in a box of the width layout measured, and the paint, which shapes it again at the font size of the display's scale, wrapped it at that box rounded out to a device pixel. Where the box was a whole number of device pixels already there was no room, and the paint's sum of the advances came out a few millionths over it: in Geist Mono 12 at a scale of 1.5, ten letters of 10.8 are 108.00002 in a box of 108, so `background` was drawn as `backgroun` and `d` on a second line, over what is below it. Every text of five letters or a multiple of five did, in any monospace font of 0.6 em a letter. The paint wraps at a hundredth of a device pixel more, in its glyphs, its carets, its decorations and its links alike.
+- **A one-line text cut to an ellipsis has no white space before it** (#203). `Text::nowrap().text_overflow(TextOverflow::Elipsis)` cut right after a word read `schema …`; it reads `schema…`, as a text cut to a number of lines does, and the room the space took goes to the text.
+- **A shadow on a tooltip's box is whole** (#204). The tooltip's root, which is its box and the room between it and what it describes, clipped: a shadow given to `TooltipPart::Panel` ended in a straight edge 6 from the box. The root lets it out, as a hover card's and a teaching tip's do.
+- **The focus ring of a button at a `ButtonGroup`'s end is whole, and round where the group is** (#205). The group clipped its square buttons to its round corners, and a button's ring with them: the ring's outer corners were cut to fragments. The buttons at the group's ends are round at the group's corners, with the radius of `ButtonGroupPart::Root`, and square where they meet the next, with the radius of `ButtonGroupPart::Item`; the group clips nothing. A renderer or a rule that relied on the group's clip to round what it puts at its ends rounds it itself.
+
 ## 0.67.0 — 2026-11-22
 
 Breaking:
