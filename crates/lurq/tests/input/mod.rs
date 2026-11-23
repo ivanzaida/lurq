@@ -36,6 +36,7 @@ mod text_input {
   mod empty_value;
   mod focus;
   mod ime;
+  mod kept_selection;
   mod letter_spacing;
   mod line_metrics;
   mod marks;

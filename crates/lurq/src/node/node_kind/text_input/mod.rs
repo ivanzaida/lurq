@@ -135,6 +135,9 @@ struct TextInputInner {
   keeps_text_while_focused: bool,
   /// Whether all its text is selected as it takes the focus: see [`crate::components::TextInput::select_on_focus`].
   select_on_focus: bool,
+  /// Whether its selection is painted while it does not have the focus, and in what: `Some(None)` the default
+  /// inactive color. See [`crate::components::TextInput::keep_selection`].
+  kept_selection: Option<Option<crate::node::TextColor>>,
   /// Wavy lines under ranges of the text: see [`crate::components::InputSquiggles`].
   squiggles: Option<crate::components::InputSquiggles>,
   /// What is drawn after the end of the text while the caret is there: see [`crate::components::InputGhost`].
@@ -240,6 +243,7 @@ impl TextInputState {
         focused: false,
         keeps_text_while_focused: false,
         select_on_focus: false,
+        kept_selection: None,
         squiggles: None,
         ghost: None,
         composition: None,
@@ -426,6 +430,15 @@ impl TextInputState {
 
   pub(crate) fn set_select_on_focus(&self, selects: bool) {
     self.inner.lock().select_on_focus = selects;
+  }
+
+  pub(crate) fn set_kept_selection(&self, kept: Option<Option<crate::node::TextColor>>) {
+    self.inner.lock().kept_selection = kept;
+  }
+
+  /// Whether its selection is painted while it does not have the focus, and in what color, where told one.
+  pub(crate) fn kept_selection(&self) -> Option<Option<crate::node::TextColor>> {
+    self.inner.lock().kept_selection.clone()
   }
 
   pub(crate) fn set_keyboard(&self, keyboard: KeyboardKind) {

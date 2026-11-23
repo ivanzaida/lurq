@@ -4,6 +4,8 @@
 
 Added:
 
+- **A selection painted while another element has the focus, and where it is** ([#232](https://github.com/ivanzaida/lurq/issues/232), decided 2026-11-24, `design/decisions.md`). `TextInput::keep_selection(true)` keeps an input's selection painted when the focus goes elsewhere (a toolbar over the selected words, pressed to make them bold), at half the selection's opacity or in `inactive_selection_color(..)`; `RichTextEditor::keep_selection(true)` does it for an editor. Off unless told: the selection was kept and not painted, as before. `TextInputController::selection_rects()` gives a rectangle for each row of the selected text, in the coordinates `caret_point` gives (`InputTextRect`), and `selection_bounds()` the box round them, which such a toolbar is centered on.
+
 - **A cut title of a list item, and a cut text cell of a table, said whole in a tooltip** ([#222](https://github.com/ivanzaida/lurq/issues/222), decided 2026-11-23, `design/decisions.md`). `ListItem::title_tooltip_when_cut(true)` and `TableColumn::tooltip_when_cut(true)` show the whole text in a tooltip after the theme's delay, only while the last layout cut it with an ellipsis, as `Tooltip::when_cut` does: a long title in a fixed column can be read. Off unless told, so a row and a table are as they were.
 - **`TableColumn::title_hidden(bool)` on any column** ([#223](https://github.com/ivanzaida/lurq/issues/223)). Its header draws nothing and the column keeps its title as its name to what reads the tree, as an `actions` column did alone: a narrow column of a state's glyph has a name and no word it has no room for.
 

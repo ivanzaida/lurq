@@ -26,6 +26,16 @@ impl InputSelection {
   }
 }
 
+/// A rectangle of an input's text, in the coordinates [`TextInputController::caret_point`] gives: from the start of
+/// the text's box, inside the input's padding, with what the input scrolled taken off.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct InputTextRect {
+  pub x: f32,
+  pub y: f32,
+  pub width: f32,
+  pub height: f32,
+}
+
 /// Where an input's caret is, as [`TextInput::on_caret`](super::TextInput::on_caret) tells it: what an editor's
 /// *Ln 6, Col 15* shows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -201,6 +211,30 @@ impl TextInputController {
   pub fn caret_point(&self, byte: usize) -> Result<InputCaretPoint, InputEditError> {
     let (x, y, height) = self.state()?.controller_point(byte);
     Ok(InputCaretPoint { x, y, height })
+  }
+
+  /// Where the selected text was drawn when the input was last laid out: a rectangle for each row it is on, in the
+  /// coordinates [`caret_point`](Self::caret_point) gives, each the height of the text's band. None where nothing
+  /// is selected. What a toolbar over the selection is centered on; it reads the selection the input keeps while
+  /// another element has the focus too.
+  pub fn selection_rects(&self) -> Result<Vec<InputTextRect>, InputEditError> {
+    Ok(self.state()?.controller_selection_rects())
+  }
+
+  /// The box that holds every row of the selected text ([`selection_rects`](Self::selection_rects)): `None` where
+  /// nothing is selected.
+  pub fn selection_bounds(&self) -> Result<Option<InputTextRect>, InputEditError> {
+    let rects = self.selection_rects()?;
+    Ok(rects.into_iter().reduce(|a, b| {
+      let (x, y) = (a.x.min(b.x), a.y.min(b.y));
+      let (right, bottom) = ((a.x + a.width).max(b.x + b.width), (a.y + a.height).max(b.y + b.height));
+      InputTextRect {
+        x,
+        y,
+        width: right - x,
+        height: bottom - y,
+      }
+    }))
   }
 
   /// Request normal runtime focus/scroll after the picker closes in the following render.

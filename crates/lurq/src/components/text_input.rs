@@ -578,6 +578,31 @@ impl TextInput {
   /// Whether all the input's text is selected as it takes the focus, so that what is typed takes its place: a
   /// name being renamed, a cell being edited, a text edited where it stands. A press that brings the focus puts
   /// the caret where it is, as in any input.
+  /// Whether its selection stays painted while another element has the focus, in a color of its own: a toolbar
+  /// over the selected words that takes the focus to make them bold still shows what it acts on. The selection is
+  /// kept either way; off unless told, it is painted only while the input has the focus. The color is the
+  /// selection's at half its opacity unless told ([`inactive_selection_color`](Self::inactive_selection_color)).
+  pub fn keep_selection(mut self, keep: bool) -> Self {
+    self.update_node(|node| {
+      if let crate::node::node_kind::NodeKind::TextInput { state, .. } = node.node_kind() {
+        state.set_kept_selection(keep.then_some(None));
+      }
+    });
+    self
+  }
+
+  /// Keeps its selection painted while another element has the focus, as [`keep_selection`](Self::keep_selection)
+  /// does, in `color`: a role of the palette, or a color.
+  pub fn inactive_selection_color(mut self, color: impl Into<crate::node::TextColor>) -> Self {
+    let color = color.into();
+    self.update_node(move |node| {
+      if let crate::node::node_kind::NodeKind::TextInput { state, .. } = node.node_kind() {
+        state.set_kept_selection(Some(Some(color.clone())));
+      }
+    });
+    self
+  }
+
   pub fn select_on_focus(mut self, selects: bool) -> Self {
     self.update_node(|node| {
       if let crate::node::node_kind::NodeKind::TextInput { state, .. } = node.node_kind() {

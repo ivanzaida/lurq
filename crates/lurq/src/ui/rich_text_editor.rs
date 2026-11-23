@@ -501,6 +501,7 @@ pub struct RichTextEditor {
   placeholder: Option<Arc<str>>,
   min_rows: usize,
   max_rows: usize,
+  keep_selection: bool,
   tools: Vec<RichTextTool>,
   toolbar: bool,
   footer: bool,
@@ -565,6 +566,7 @@ impl RichTextEditor {
       placeholder: None,
       min_rows: RICH_TEXT_MIN_ROWS,
       max_rows: RICH_TEXT_MAX_ROWS,
+      keep_selection: false,
       tools: RichTextTool::DEFAULT.to_vec(),
       toolbar: true,
       footer: true,
@@ -687,6 +689,15 @@ impl RichTextEditor {
   pub fn label(mut self, label: &str) -> Self {
     self.words.label = Some(Arc::from(label));
     self.boxed.label = Some(Arc::from(label));
+    self
+  }
+
+  /// Whether its selection stays painted while another element has the focus, as
+  /// [`TextInput::keep_selection`](crate::components::TextInput::keep_selection) says: a toolbar of the app's over
+  /// the selected words takes the focus and the words stay marked. Off unless told.
+  /// [`RichTextController::input`] gives where they are ([`TextInputController::selection_bounds`]).
+  pub fn keep_selection(mut self, keep: bool) -> Self {
+    self.keep_selection = keep;
     self
   }
 
@@ -934,6 +945,7 @@ impl RichTextEditor {
       placeholder: self.placeholder,
       min_rows: self.min_rows,
       max_rows: self.max_rows,
+      keep_selection: self.keep_selection,
       tools: self.tools,
       has_toolbar: self.toolbar,
       has_footer: self.footer,
@@ -1148,6 +1160,8 @@ pub struct RichTextEditorView {
   pub placeholder: Option<Arc<str>>,
   pub min_rows: usize,
   pub max_rows: usize,
+  /// Whether its selection stays painted while another element has the focus.
+  pub keep_selection: bool,
   /// The tools of the bar, in order.
   pub tools: Vec<RichTextTool>,
   pub has_toolbar: bool,
@@ -1577,6 +1591,7 @@ impl RichTextEditorView {
       // What is copied keeps its marks and kinds beside its text, and comes back with them.
       .rich_clipboard(true)
       .controller(kept.controller.input.clone())
+      .keep_selection(self.keep_selection)
       .multiline()
       .rows(self.min_rows, self.max_rows)
       .part(&part)

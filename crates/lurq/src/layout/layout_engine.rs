@@ -1889,7 +1889,9 @@ impl LayoutEngine {
         }
 
         if let NodeKind::TextInput { state, .. } = node.node_kind()
-          && state.is_focused()
+          && let focused = state.is_focused()
+          && let kept = (!focused).then(|| state.kept_selection()).flatten()
+          && (focused || kept.is_some())
         {
           let palette = self.palette.borrow();
           let selection_color = node
@@ -1897,6 +1899,13 @@ impl LayoutEngine {
             .and_then(|color| color.resolve(&palette))
             .or_else(|| palette.try_get(&PaletteColor::Selection))
             .unwrap_or(DEFAULT_TEXT_SELECTION_COLOR);
+          // Without the focus, a selection kept painted is in its own color, or the selection's at half its
+          // opacity.
+          let selection_color = match &kept {
+            Some(Some(color)) => color.resolve(&palette).unwrap_or(selection_color),
+            Some(None) => selection_color.with_alpha(selection_color.a() / 2),
+            None => selection_color,
+          };
           let padding = self.resolved_padding_for_size(node, result.size);
           let content_height = (result.size.height - padding.top - padding.bottom).max(0.0);
           // Selections cover the glyphs' band in each line box (the font's
@@ -1910,7 +1919,7 @@ impl LayoutEngine {
               .transformed(transform),
           );
           let selections = state.selection_ranges();
-          let native = self.native_text_selection.get();
+          let native = focused && self.native_text_selection.get();
           if native && !selections.is_empty() {
             for (x, y, width, height) in self.native_selection_rects.borrow().iter().copied() {
               let (x, y, transform, transform_origin) = transformed_quad_frame(x, y, transform);

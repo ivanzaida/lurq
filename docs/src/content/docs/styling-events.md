@@ -1478,6 +1478,8 @@ TextInput::new(command.clone())
 
 `select_on_focus(true)` has all an input's text selected as it takes the focus, so that what is typed takes its place: a name being renamed, a cell being edited. A press that brings the focus puts the caret where it is, as in any input.
 
+An input keeps its selection when the focus goes elsewhere, and paints it only while it has the focus. `keep_selection(true)` keeps it painted, in the selection's color at half its opacity, or in `inactive_selection_color(..)` (a role of the palette or a color): a toolbar over the selected words that takes the focus to make them bold still shows what it acts on. `TextInputController::selection_rects()` says where the selected text was drawn, a rectangle for each row in the coordinates `caret_point` gives (`InputTextRect`), and `selection_bounds()` the box round them, what such a toolbar is centered on.
+
 Single-line inputs can align value and placeholder text inside their content box:
 
 ```rust
