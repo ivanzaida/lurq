@@ -527,6 +527,14 @@ impl Menu {
     } else {
       Placement::BottomStart
     };
+    // The side of its anchor it is on, after it flipped where there was no room: what an enter that moves away
+    // from the anchor picks its way by.
+    let case = if self.inline {
+      case
+    } else {
+      let placed = self.anchor.placed().unwrap_or(self.placement.unwrap_or(default));
+      case.state(super::tip::side_of(placed), true)
+    };
     // The open signals of the submenus of its items, which the pointer on another item closes.
     let submenus = entries::flat(&self.entries)
       .into_iter()
@@ -965,6 +973,7 @@ impl MenuView {
     // menu that keeps it in the app's field leaves it there, and a press outside it goes on to what it was on.
     let keeps = self.keys.is_some();
     let mut popup = Popup::new(self.anchor.clone(), panel)
+      .tells_placement()
       .open(self.open.clone())
       .placement(self.placement)
       .offset(x, y)

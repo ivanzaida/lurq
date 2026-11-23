@@ -52,6 +52,9 @@ struct ElementRefInner {
   active: bool,
   focused: bool,
   focus_signal: Option<crate::core::Signal<bool>>,
+  /// Where the overlay it anchors that tells it was put last, after it flipped: see [`ElementRef::placed`].
+  placed: Option<crate::app::ctx::Placement>,
+  placed_signal: Option<crate::core::Signal<Option<crate::app::ctx::Placement>>>,
   focus_visible: bool,
   focus_visible_signal: Option<crate::core::Signal<bool>>,
   focus_visible_within: bool,
@@ -252,6 +255,39 @@ impl ElementRef {
 
   pub fn focused(&self) -> bool {
     self.focus_signal().get()
+  }
+
+  /// Where the overlay this element anchors was put when it was last laid out, after it flipped to the other side
+  /// where there was no room: a menu's, a popover's. `None` before one was. Read in a render, it renders again when
+  /// the overlay goes to another side.
+  pub(crate) fn placed(&self) -> Option<crate::app::ctx::Placement> {
+    let signal = {
+      let mut inner = self.inner.write().unwrap();
+      let placed = inner.placed;
+      inner
+        .placed_signal
+        .get_or_insert_with(|| crate::core::Signal::new(placed))
+        .clone()
+    };
+    signal.get()
+  }
+
+  /// Where the layout put the overlay this element anchors.
+  pub(crate) fn set_placed(&self, placed: Option<crate::app::ctx::Placement>) {
+    let signal = {
+      let mut inner = self.inner.write().unwrap();
+      if inner.placed == placed {
+        return;
+      }
+      inner.placed = placed;
+      inner.placed_signal.clone()
+    };
+    if let Some(signal) = signal {
+      // What reads it renders again before this frame is painted, so that a panel that flipped is drawn on its side
+      // from its first frame.
+      OBSERVED_BEFORE_PAINT.with(|observed| observed.set(true));
+      signal.set(placed);
+    }
   }
 
   /// Reactive focus state. Reading `focused()` during render subscribes too.

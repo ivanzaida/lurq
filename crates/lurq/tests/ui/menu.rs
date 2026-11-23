@@ -1309,3 +1309,35 @@ fn tab_from_a_submenu_tells_on_dismiss_of_every_menu_it_closes() {
   assert!(!open.get() && !exporting.get());
   assert_eq!(*heard.lock().unwrap(), ["submenu", "menu"], "both were dismissed");
 }
+
+#[test]
+fn a_recipe_sees_the_side_of_its_anchor_the_menu_opened_on() {
+  use lurq::ui::{MenuPart, TooltipSide};
+  let (over, under) = (Color::new(200, 30, 30, 255), Color::new(30, 30, 200, 255));
+  let menu_over = move |placement: Placement| {
+    let anchor = ElementRef::new();
+    let app = lurq::app::App::new();
+    app.theme().patch_recipe::<Menu>(|recipe| {
+      recipe
+        .state(TooltipSide::Top, MenuPart::Panel, move |s| s.background(over))
+        .state(TooltipSide::Bottom, MenuPart::Panel, move |s| s.background(under))
+    });
+    Stage::in_app(app, move |_| {
+      page(
+        anchor.clone(),
+        Menu::controlled(true, anchor.clone(), |_| {})
+          .id("menu")
+          .placement(placement)
+          .item(MenuItem::new("Undo")),
+      )
+    })
+  };
+  let mut below = menu_over(Placement::BottomStart);
+  assert_eq!(below.fill_color("menu"), Some(under), "under its anchor, as asked");
+  // The anchor is 20 from the top: a menu asked to open over it has no room there, and goes under it.
+  let mut flipped = menu_over(Placement::TopStart);
+  let (_, ay, _, ah) = flipped.bounds("anchor");
+  let (_, y, ..) = flipped.bounds("menu");
+  assert!(y >= ay + ah, "it went under its anchor");
+  assert_eq!(flipped.fill_color("menu"), Some(under), "and its recipe sees it there");
+}

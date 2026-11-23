@@ -11,6 +11,26 @@ dropped). When a decision is replaced, the old entry stays and says what replace
 
 ## 2026-11-24
 
+### The side an overlay opened on is a state of its recipe
+
+- **Question.** An enter that moves a panel away from its trigger moves the wrong way after the panel flips: a
+  recipe could not see the side a menu, a popover or a select opened on (issue #236).
+- **Decision (Ivan).** Do it, without breaking the current API.
+- **Decided by Claude in the work, to be confirmed.**
+  - *The side is a state by the names of `TooltipSide`* (`top`, `bottom`, `left`, `right`), not a new
+    `OverlaySide::{Above, Below, Start, End}`: a hover card's, a teaching tip's and a toggletip's side are already
+    states of those names, and a tooltip's is its variant. Physical sides, as `Placement`'s are.
+  - *The layout tells the anchor where it put the overlay*, after it flipped (`Overlay::tells_placement`, crate's
+    own; `ElementRef::placed`, read in a render), so `Popover`, `Menu` and `ContextMenu`, which are builders with no
+    component of their own, read it where they build. A popover and a menu on the same anchor, open at once, would
+    see one side: not a case lurq has.
+  - *Known before the frame is painted*: a placement that changed renders what read it and lays the frame out
+    again, as an element watched before paint does, so a panel that flipped plays its own enter from its first
+    frame. The animation engine lets a node's old run go when it plays other keyframes, where it kept it, unfinished,
+    and with it a layout at every frame.
+  - *A select's list is left out*: the engine draws it, and its recipe gives it no enter.
+- **State.** Built on `feat/overlay-side`.
+
 ### A code block's fold the app holds, its chevron, and a document's code blocks given by the app
 
 - **Question.** 0.71's fold could not start shown, keep its state across a block mounted again, or draw a chevron

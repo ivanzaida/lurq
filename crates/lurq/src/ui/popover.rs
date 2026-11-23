@@ -367,13 +367,19 @@ impl Popover {
   /// Builds the popover in `theme`. Converting a popover into an element does
   /// this in the theme of what is being rendered.
   pub fn build(self, theme: &Theme) -> Element {
-    let case = Case {
+    let mut case = Case {
       variant: None,
       size: None,
       density: None,
       breakpoint: super::current_breakpoint(),
       states: self.states.clone(),
     };
+    if !self.inline {
+      // The side of its anchor it is on, after it flipped where there was no room: what an enter that moves away
+      // from the anchor picks its way by.
+      let placed = self.anchor.placed().unwrap_or(self.placement);
+      case = case.state(super::tip::side_of(placed), true);
+    }
     // A width given here is under what `style` and `rules` say of the panel.
     let mut rules = Recipe::new();
     if let Some(width) = self.width {
@@ -415,6 +421,7 @@ impl Popover {
       _ => (cross, offset),
     };
     let mut popup = Popup::new(self.anchor.clone(), panel)
+      .tells_placement()
       .open(self.open.clone())
       .placement(self.placement)
       .offset(x, y)
