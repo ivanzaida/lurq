@@ -114,11 +114,15 @@ pub struct Textarea {
   rules: Recipe,
   forced: Option<Interaction>,
   on_input: Vec<EditHandler>,
+  on_blur: Vec<BlurHandler>,
   squiggles: Vec<std::ops::Range<usize>>,
   name: Option<Arc<str>>,
   id: Option<Arc<str>>,
   key: Option<Arc<str>>,
 }
+
+/// What hears the focus leave a textarea: what it holds.
+type BlurHandler = Arc<dyn Fn(&str) + Send + Sync>;
 
 impl Textarea {
   /// A textarea that holds what `value` holds, and writes what is typed into it.
@@ -134,6 +138,7 @@ impl Textarea {
       rules: Recipe::new(),
       forced: None,
       on_input: Vec::new(),
+      on_blur: Vec::new(),
       squiggles: Vec::new(),
       name: None,
       id: None,
@@ -230,6 +235,13 @@ impl Textarea {
     self
   }
 
+  /// Called with what the textarea holds when the focus leaves it: by Tab, by a press elsewhere, or by the app. Where
+  /// a form checks a value as the person leaves the field. A second handler is called after the first.
+  pub fn on_blur(mut self, handler: impl Fn(&str) + Send + Sync + 'static) -> Self {
+    self.on_blur.push(Arc::new(handler));
+    self
+  }
+
   /// The name the textarea's value has in the form it is in.
   #[cfg(feature = "form")]
   pub fn name(mut self, name: impl Into<Arc<str>>) -> Self {
@@ -290,6 +302,7 @@ impl Textarea {
       forced: self.forced,
       boxed: self.boxed,
       on_input: self.on_input,
+      on_blur: self.on_blur,
       squiggles: self.squiggles,
       name: self.name,
       id: self.id,
@@ -339,6 +352,7 @@ pub struct TextareaView {
   forced: Option<Interaction>,
   boxed: BoxStates,
   on_input: Vec<EditHandler>,
+  on_blur: Vec<BlurHandler>,
   squiggles: Vec<std::ops::Range<usize>>,
   // Read only where the engine has forms.
   #[cfg_attr(not(feature = "form"), allow(dead_code))]
@@ -403,6 +417,16 @@ impl TextareaView {
     }
     if let Some(key) = &self.key {
       input = input.key(key.clone());
+    }
+    if !self.on_blur.is_empty() {
+      let (value, blur) = (self.value.clone(), self.on_blur.clone());
+      input = input.on_blur(move || {
+        // Read out of the signal first: a handler may set it.
+        let held = value.get_untracked();
+        for handler in &blur {
+          handler(&held);
+        }
+      });
     }
     input
   }

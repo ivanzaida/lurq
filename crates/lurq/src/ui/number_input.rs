@@ -298,6 +298,7 @@ struct Model {
   bound: Bound,
   on_change: Vec<ChangeHandler>,
   on_change_end: Vec<ChangeHandler>,
+  on_blur: Vec<ChangeHandler>,
   min: Option<f64>,
   max: Option<f64>,
   step: f64,
@@ -634,6 +635,7 @@ impl NumberInput {
         bound,
         on_change: Vec::new(),
         on_change_end: Vec::new(),
+        on_blur: Vec::new(),
         min: None,
         max: None,
         step: 1.0,
@@ -766,6 +768,14 @@ impl NumberInput {
   /// steps it took. Each call adds a handler.
   pub fn on_change_end(mut self, handler: impl Fn(Option<f64>) + Send + Sync + 'static) -> Self {
     self.model.on_change_end.push(Arc::new(handler));
+    self
+  }
+
+  /// Called with the value when the focus leaves the input, after what was typed is put right: by Tab, by a press
+  /// elsewhere, or by the app. Called whether or not the value changed, where a form checks it as the person leaves
+  /// the field. Each call adds a handler.
+  pub fn on_blur(mut self, handler: impl Fn(Option<f64>) + Send + Sync + 'static) -> Self {
+    self.model.on_blur.push(Arc::new(handler));
     self
   }
 
@@ -1183,10 +1193,16 @@ impl NumberInputView {
       })
       .on_blur(move || {
         let start = EDIT_START.with(Cell::take);
-        if !read_only {
+        let value = if read_only {
+          blur_model.value()
+        } else {
           let before = start.unwrap_or_else(|| blur_model.value());
           let after = blur_model.commit(&blur_text, false);
           blur_model.ended(before, after);
+          after
+        };
+        for handler in &blur_model.on_blur {
+          handler(value);
         }
       });
     #[cfg(feature = "form")]

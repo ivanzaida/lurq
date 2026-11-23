@@ -660,6 +660,12 @@ impl Component for InputPage {
           "Called with what it holds when Enter is pressed in it.",
         ),
         (
+          "on_blur",
+          "impl Fn(&str)",
+          "",
+          "Called with what it holds when the focus leaves it: where a form checks it as the field is left.",
+        ),
+        (
           "completion",
           "&str",
           "",

@@ -548,3 +548,27 @@ fn a_full_width_textarea_is_as_wide_as_its_room_and_one_in_a_field_fills_it() {
     "as wide as its field, which fills the column"
   );
 }
+
+#[test]
+fn on_blur_hears_what_the_textarea_holds_as_the_focus_leaves_it() {
+  let value = Signal::new(String::new());
+  let left = Arc::new(Mutex::new(Vec::new()));
+  let (bound, told) = (value.clone(), left.clone());
+  let mut stage = Stage::new(move |_| {
+    let told = told.clone();
+    column(
+      Textarea::new(bound.clone())
+        .id("note")
+        .on_blur(move |held| told.lock().unwrap().push(held.to_owned())),
+    )
+    .into()
+  });
+  stage.key("Tab");
+  stage.key("H");
+  stage.key("Enter");
+  stage.key("i");
+  assert!(left.lock().unwrap().is_empty(), "typing is not leaving");
+  stage.tree.get_element_by_id_mut("note").expect("the textarea").blur();
+  stage.pass();
+  assert_eq!(*left.lock().unwrap(), ["H\ni"]);
+}
