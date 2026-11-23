@@ -274,6 +274,31 @@ fn a_theme_gives_a_buttons_icon_another_glyph_and_its_part_another_size() {
 }
 
 #[test]
+fn a_patch_reads_the_theme_it_patches() {
+  let app = lurq::app::App::new();
+  let theme = app.theme().clone();
+  app.theme().patch_recipe::<Button>(|rules| {
+    let ink = theme.palette_color(PaletteColor::Destructive);
+    rules.base(ButtonPart::Label, |s| s.foreground(ink))
+  });
+  app.theme().patch_recipe::<Button>(|rules| {
+    let size = theme.icon_size_value(lurq::app::theme::IconSize::Lg);
+    rules.base(ButtonPart::Label, |s| s.font_size(size))
+  });
+  let stage = Stage::in_app(app, |_| Row::new().child(Button::new("Save")).into());
+  let (ink, size) = stage.text("Save");
+  assert_eq!(
+    ink,
+    light(PaletteColor::Destructive),
+    "the first patch stays under the second"
+  );
+  assert_eq!(
+    size,
+    lurq::app::theme::Theme::new().icon_size_value(lurq::app::theme::IconSize::Lg)
+  );
+}
+
+#[test]
 fn a_button_under_the_pointer_has_its_hover_fill_and_no_render_makes_it() {
   let renders = Arc::new(AtomicUsize::new(0));
   let counted = renders.clone();

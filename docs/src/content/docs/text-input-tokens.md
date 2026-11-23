@@ -61,6 +61,14 @@ is one undo step and follows the same validation as keyboard insertion. Its even
 code `InsertText` and has no physical key target. A masked input refuses controller metadata and edits;
 an active IME composition returns `Composing` and keeps the preedit intact.
 
+`TextInput::on_caret(|caret: &CaretInfo| ..)` is told where the caret is each time it moves or the selection
+changes while the input has the focus: a click, a drag that selects (before it is let go), a key that moves the
+caret or edits, and the controller's own `select`. `caret.line` and `caret.column` count from 1, the line by the
+value's newlines and the column in characters, and `caret.selection` is the controller's `InputSelection`
+(`caret.selected()`, the range selected where there is one). It is told once as the input takes the focus, and
+runs in the frame after the change is laid out, once however many moves came before it: what an editor's
+*Ln 6, Col 15* and the band of its caret's line follow.
+
 `undo()` and `redo()` take the last edit back and make it again, as Ctrl+Z and Ctrl+Y do, through the input's
 `on_input`; each returns `false` where there is none. `can_undo()` and `can_redo()` say whether there is one: what
 an undo button is enabled by.

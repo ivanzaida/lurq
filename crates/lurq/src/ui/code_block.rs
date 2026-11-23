@@ -50,12 +50,19 @@ pub enum CodeBlockPart {
   Header,
   /// The bar's text: the title, or the language.
   Title,
+  /// The bar's other text, after the title: what the app says of the code ("22 lines").
+  Meta,
   /// The button that copies the code.
   Copy,
   /// Its glyph: a copy, or a check once it has copied.
   CopyIcon,
   /// The room the code scrolls in.
   Body,
+  /// The scroll area in the body that the code scrolls in: its size, and its bars
+  /// ([`PartStyle::scrollbar`]), a thin one in a lane of its own where the theme's lies over the code.
+  Scroll,
+  /// The button under a block folded to its first lines, that shows all of them, and fewer again.
+  Fold,
   /// The code, in the color of what is none of the tokens below.
   Code,
   /// The numbers of the lines.
@@ -68,9 +75,12 @@ names!(CodeBlockPart {
   Root => "root",
   Header => "header",
   Title => "title",
+  Meta => "meta",
   Copy => "copy",
   CopyIcon => "copy_icon",
   Body => "body",
+  Scroll => "scroll",
+  Fold => "fold",
   Code => "code",
   LineNumber => "line_number",
   Marked => "marked",
@@ -81,9 +91,12 @@ const OWN_PARTS: &[&str] = &[
   "root",
   "header",
   "title",
+  "meta",
   "copy",
   "copy_icon",
   "body",
+  "scroll",
+  "fold",
   "code",
   "line_number",
   "marked",
@@ -104,6 +117,8 @@ pub enum CodeBlockState {
   CopyFailed,
   /// It is drawn in a frame of its own: a fill, an edge and round corners.
   Framed,
+  /// It shows its first lines alone, with a button under them that shows all of them ([`CodeBlock::fold`]).
+  Folded,
 }
 
 names!(CodeBlockState {
@@ -113,6 +128,7 @@ names!(CodeBlockState {
   Copied => "copied",
   CopyFailed => "copy_failed",
   Framed => "framed",
+  Folded => "folded",
 });
 
 /// What builds the nodes of a code block: a theme's in place of the default one.
@@ -166,6 +182,7 @@ pub struct CodeBlock {
   /// What is kept of its code's lines between renders, where what holds it keeps them.
   kept: Option<Arc<Mutex<crate::code::LineCache>>>,
   title: Option<Arc<str>>,
+  meta: Option<Arc<str>>,
   label: Option<Arc<str>>,
   line_numbers: bool,
   first_line: usize,
@@ -173,6 +190,9 @@ pub struct CodeBlock {
   wrap: bool,
   min_height: Option<Length>,
   max_height: Option<Length>,
+  fold: Option<usize>,
+  show_all_text: Arc<str>,
+  show_less_text: Arc<str>,
   copy_button: bool,
   copy_label: Arc<str>,
   copied_text: Arc<str>,
@@ -204,6 +224,7 @@ impl CodeBlock {
       scheme: None,
       kept: None,
       title: None,
+      meta: None,
       label: None,
       line_numbers: false,
       first_line: 1,
@@ -211,6 +232,9 @@ impl CodeBlock {
       wrap: false,
       min_height: None,
       max_height: None,
+      fold: None,
+      show_all_text: super::current_locale().editing.show_all_code.clone(),
+      show_less_text: super::current_locale().editing.show_less_code.clone(),
       copy_button: true,
       copy_label: super::current_locale().editing.copy_code.clone(),
       copied_text: super::current_locale().editing.copied.clone(),
@@ -302,6 +326,13 @@ impl CodeBlock {
     self
   }
 
+  /// What the bar shows after its title, before the copy button: what the app says of the code, as how many
+  /// lines it has ("22 lines"). On one line; the title gives way first where the bar has no room.
+  pub fn bar_meta(mut self, text: &str) -> Self {
+    self.meta = Some(Arc::from(text));
+    self
+  }
+
   /// Its name to what reads the tree: its title, or its language, unless told.
   pub fn label(mut self, label: &str) -> Self {
     self.label = Some(Arc::from(label));
@@ -342,6 +373,37 @@ impl CodeBlock {
   /// The greatest height of the block, its bar with it: the code scrolls down past it.
   pub fn max_height(mut self, height: impl Into<Length>) -> Self {
     self.max_height = Some(height.into());
+    self
+  }
+
+  /// Shows the first `lines` lines of a longer code alone, and a button under them
+  /// ([`show_all_text`](Self::show_all_text)) that shows all of them in place, and fewer again
+  /// ([`show_less_text`](Self::show_less_text)). The copy button copies the whole code, folded or not. A code of
+  /// no more lines is shown whole, with no button.
+  ///
+  /// ```
+  /// use lurq::ui::CodeBlock;
+  ///
+  /// let script = (1..=40).map(|n| format!("echo {n}")).collect::<Vec<_>>().join("\n");
+  /// let card = CodeBlock::new(&script).language("bash").bar_meta("40 lines").fold(8);
+  /// ```
+  ///
+  /// The block unfolds where it is mounted, as converting it into an element mounts it; the still form
+  /// ([`build`](Self::build)) stays folded.
+  pub fn fold(mut self, lines: usize) -> Self {
+    self.fold = Some(lines.max(1));
+    self
+  }
+
+  /// What the button under a folded block says ("Show all").
+  pub fn show_all_text(mut self, text: &str) -> Self {
+    self.show_all_text = Arc::from(text);
+    self
+  }
+
+  /// What the button under an unfolded block says ("Show less").
+  pub fn show_less_text(mut self, text: &str) -> Self {
+    self.show_less_text = Arc::from(text);
     self
   }
 
@@ -441,7 +503,8 @@ impl CodeBlock {
     self
   }
 
-  /// Its id. Its bar's title is `{id}-title`, its copy button `{id}-copy`, its code `{id}-code`.
+  /// Its id. Its bar's title is `{id}-title`, the bar's other text `{id}-meta`, its copy button `{id}-copy`, its
+  /// code `{id}-code`, the scroll area it scrolls in `{id}-scroll`, and the button that unfolds it `{id}-fold`.
   pub fn id(mut self, id: impl Into<Arc<str>>) -> Self {
     self.id = Some(id.into());
     self
@@ -483,11 +546,20 @@ impl CodeBlock {
     matches!(self.max_height, Some(Length::Px(_)))
   }
 
+  /// Where it folds its code, in bytes of it: the end of the last line it shows folded, where it has more.
+  fn fold_at(&self) -> Option<usize> {
+    let lines = self.fold?;
+    self.code.match_indices('\n').nth(lines - 1).map(|(at, _)| at)
+  }
+
   fn build_with(self, theme: &Theme, host: Option<&CodeBlockHost>) -> Element {
     let copied = host.map(|host| host.copied.clone());
     let has_header = self
       .header
-      .unwrap_or(self.copy_button || self.title.is_some() || self.language.is_some());
+      .unwrap_or(self.copy_button || self.title.is_some() || self.meta.is_some() || self.language.is_some());
+    let fold_at = self.fold_at();
+    let unfolded = host.map(|host| host.unfolded.clone());
+    let folded = fold_at.is_some() && !unfolded.as_ref().is_some_and(Signal::get);
     let is_copied = copied.as_ref().is_some_and(|copied| copied.on.get());
     let copy_failed = copied.as_ref().is_some_and(|copied| copied.failed.get());
     let mut case = Case::new()
@@ -497,7 +569,8 @@ impl CodeBlock {
       .state(CodeBlockState::Wrap, self.wrap)
       .state(CodeBlockState::Copied, is_copied)
       .state(CodeBlockState::CopyFailed, copy_failed)
-      .state(CodeBlockState::Framed, self.framed);
+      .state(CodeBlockState::Framed, self.framed)
+      .state(CodeBlockState::Folded, folded);
     for state in &self.states {
       case = case.state(state.clone(), true);
     }
@@ -509,8 +582,20 @@ impl CodeBlock {
       self.tokenizer.as_ref(),
       kept.as_deref(),
     );
+    // Folded, it shows its first lines alone, in the colors they have in the whole code.
+    let (code, tokens) = match fold_at.filter(|_| folded) {
+      Some(at) => (
+        Arc::from(&self.code[..at]),
+        tokens
+          .iter()
+          .filter(|token| token.range.start < at)
+          .map(|token| CodeToken::new(token.range.start..token.range.end.min(at), token.kind.clone()))
+          .collect(),
+      ),
+      None => (self.code.clone(), tokens),
+    };
     let shown = host.and_then(|host| host.follow.window.get());
-    let window = self.windowed(host.is_some()).then(|| CodeWindow {
+    let window = (!folded && self.windowed(host.is_some())).then(|| CodeWindow {
       lines: shown.map(|(start, end, _)| start..end),
       width: shown.map(|(.., width)| width as f32).filter(|width| *width > 0.0),
       follow: host.map(|host| host.follow.clone()),
@@ -519,13 +604,15 @@ impl CodeBlock {
         .filter(|height| *height > 0.0),
     });
     let view = CodeBlockView {
-      code: self.code,
+      code,
+      whole_code: self.code,
       language: self.language,
       tokenizer: self.tokenizer,
       scheme: self.scheme,
       tokens,
       lines_window: window,
       title: self.title,
+      meta: self.meta,
       label: self.label,
       line_numbers: self.line_numbers,
       first_line: self.first_line,
@@ -533,6 +620,11 @@ impl CodeBlock {
       wrap: self.wrap,
       min_height: self.min_height,
       max_height: self.max_height,
+      fold: fold_at.and(self.fold),
+      folded,
+      show_all_text: self.show_all_text,
+      show_less_text: self.show_less_text,
+      unfolded,
       copy_button: self.copy_button,
       copy_label: self.copy_label,
       copied_text: self.copied_text,
@@ -563,7 +655,7 @@ impl CodeBlock {
 
 impl From<CodeBlock> for Element {
   fn from(block: CodeBlock) -> Self {
-    if block.windowed(true) {
+    if block.windowed(true) || block.fold_at().is_some() {
       let key = block.key.clone();
       let props = CodeBlockProps(Arc::new(block));
       return match key {
@@ -703,7 +795,10 @@ struct Copied {
 
 /// A code block as a renderer sees it: its code, how it is shown, and the style of its parts.
 pub struct CodeBlockView {
+  /// The code it shows: all of it, or its first lines where it is folded.
   pub code: Arc<str>,
+  /// All of its code, folded or not: what its copy button copies.
+  pub whole_code: Arc<str>,
   pub language: Option<Arc<str>>,
   /// The block's own tokenizer, where it has one in place of its language's.
   pub tokenizer: Option<CodeTokenizer>,
@@ -713,6 +808,8 @@ pub struct CodeBlockView {
   pub tokens: Arc<[CodeToken]>,
   lines_window: Option<CodeWindow>,
   pub title: Option<Arc<str>>,
+  /// What the bar shows after its title.
+  pub meta: Option<Arc<str>>,
   pub label: Option<Arc<str>>,
   pub line_numbers: bool,
   /// The number of the first line.
@@ -722,6 +819,14 @@ pub struct CodeBlockView {
   pub wrap: bool,
   pub min_height: Option<Length>,
   pub max_height: Option<Length>,
+  /// How many lines it shows folded, where its code has more.
+  pub fold: Option<usize>,
+  /// Whether it shows its first lines alone now.
+  pub folded: bool,
+  pub show_all_text: Arc<str>,
+  pub show_less_text: Arc<str>,
+  /// Whether it is unfolded, where it is mounted.
+  unfolded: Option<Signal<bool>>,
   pub copy_button: bool,
   pub copy_label: Arc<str>,
   pub copied_text: Arc<str>,
@@ -916,7 +1021,7 @@ impl CodeBlockView {
   /// shown once the clipboard took it, or an alert where it did not.
   fn copy(&self) -> impl Fn(MouseEvent) + Send + Sync + 'static {
     let (code, window, handlers, copied) = (
-      self.copy_text.clone().unwrap_or_else(|| self.code.clone()),
+      self.copy_text.clone().unwrap_or_else(|| self.whole_code.clone()),
       self.window.clone(),
       self.on_copy.clone(),
       self.shown_copied.clone(),
@@ -940,7 +1045,7 @@ impl CodeBlockView {
     }
   }
 
-  /// The bar: the title, or the language, at its start and the copy button at its end.
+  /// The bar: the title, or the language, at its start, and its other text and the copy button at its end.
   pub fn header(&self) -> Option<Element> {
     let heading = self.heading();
     if !self.has_header {
@@ -959,6 +1064,16 @@ impl CodeBlockView {
       title = title.id(format!("{id}-title"));
     }
     bar = bar.child(title);
+    if let Some(meta) = &self.meta {
+      let mut text = Row::new()
+        .flex_shrink(0.0)
+        .child(one_line(&self.part(CodeBlockPart::Meta).unnamed(), meta));
+      if let Some(id) = &self.id {
+        text = text.id(format!("{id}-meta"));
+      }
+      // The room between is empty, so that the text stands by the copy button.
+      bar = bar.child(Row::new().flex(1.0)).child(text);
+    }
     if self.copy_button {
       bar = bar.child(self.copy_control());
     }
@@ -984,6 +1099,29 @@ impl CodeBlockView {
       button = button.id(format!("{id}-copy"));
     }
     button.into()
+  }
+
+  /// The button under a folded block, that shows all its lines, and fewer again: none where it does not fold.
+  pub fn fold_control(&self) -> Option<Element> {
+    self.fold?;
+    let part = self.part(CodeBlockPart::Fold).forced(self.forced);
+    let text = if self.folded {
+      &self.show_all_text
+    } else {
+      &self.show_less_text
+    };
+    let mut button = pressable(&part, false)
+      .describe("a11y_role", "button")
+      .describe("a11y_name", text.clone())
+      .describe("a11y_expanded", if self.folded { "false" } else { "true" })
+      .child(part.text(text).nowrap());
+    if let Some(unfolded) = self.unfolded.clone() {
+      button = button.on_click(move |_: MouseEvent| unfolded.set(!unfolded.get_untracked()));
+    }
+    if let Some(id) = &self.id {
+      button = button.id(format!("{id}-fold"));
+    }
+    Some(button.into())
   }
 
   /// The pitch of a line: the code's size on its line.
@@ -1347,6 +1485,13 @@ impl CodeBlockView {
       .orientation(orientation)
       .fill_width(true)
       .child(content);
+    let scroll = self.part(CodeBlockPart::Scroll).rest();
+    if !scroll.is_empty() {
+      area = area.style(ScrollAreaPart::Root, move |style| style.merged(&scroll));
+    }
+    if let Some(id) = &self.id {
+      area = area.id(format!("{id}-scroll"));
+    }
     // The code that takes the focus itself is the stop of Tab; text that does not is reached by the area's keys.
     if !self.selectable || self.lines_window.is_some() {
       area = area.label(&self.name());
@@ -1392,7 +1537,7 @@ impl CodeBlockView {
     if let Some(follow) = self.lines_window.as_ref().and_then(|window| window.follow.as_ref()) {
       // Its lines are not all laid out: select all, from anywhere in the block, takes the code whole, and a copy of
       // it copies it whole.
-      let (all, code) = (follow.all.clone(), self.code.clone());
+      let (all, code) = (follow.all.clone(), self.whole_code.clone());
       root = root
         .on_select_all({
           let all = all.clone();
@@ -1407,13 +1552,17 @@ impl CodeBlockView {
     root
   }
 
-  /// How the default renderer builds a code block: its bar over its code.
+  /// How the default renderer builds a code block: its bar over its code, and the button that unfolds it under.
   pub fn render(self) -> Element {
     let mut root = self.root();
     if let Some(header) = self.header() {
       root = root.child(header);
     }
-    root.child(self.body()).into()
+    root = root.child(self.body());
+    if let Some(fold) = self.fold_control() {
+      root = root.child(fold);
+    }
+    root.into()
   }
 }
 
@@ -1476,6 +1625,11 @@ impl Themed for CodeBlock {
           .font_size(11.0)
           .foreground(MutedForeground)
       })
+      .base(Meta, |s| {
+        s.typography(TypographyStyle::Mono)
+          .font_size(11.0)
+          .foreground(MutedForeground)
+      })
       .base(Copy, |s| {
         fading(
           s.square(28.0)
@@ -1504,6 +1658,20 @@ impl Themed for CodeBlock {
           .padding_end(16.0)
       })
       .base(Marked, |s| s.background(Highlight))
+      .base(Fold, |s| {
+        fading(
+          s.height(32.0)
+            .padding_x(14.0)
+            .top_line(Border::inside(BorderSize::Sm, Edge))
+            .typography(TypographyStyle::Label)
+            .font_size(12.0)
+            .foreground(MutedForeground)
+            .cursor(crate::node::CursorIcon::Pointer),
+        )
+      })
+      .hovered(Fold, |s| s.background(Highlight).foreground(HighlightForeground))
+      .pressed(Fold, |s| s.veil(PaletteColor::StatePressed))
+      .focus_visible(Fold, |s| s.focus_ring())
   }
 }
 
@@ -1523,6 +1691,8 @@ impl crate::app::component::DevtoolsInspectable for CodeBlockProps {}
 /// What keeps a mounted block's check for a while after it copied, and a long block's lines in view.
 struct CodeBlockHost {
   copied: Copied,
+  /// Whether a folded block shows all its lines.
+  unfolded: Signal<bool>,
   follow: Follow,
   /// What is kept of the code's lines.
   lines: Arc<Mutex<crate::code::LineCache>>,
@@ -1542,6 +1712,7 @@ impl Component for CodeBlockHost {
     });
     Self {
       copied: Copied { on, failed, off },
+      unfolded: ctx.signal(false),
       lines: Arc::default(),
       follow: Follow {
         window: Signal::new(None),

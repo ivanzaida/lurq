@@ -27,6 +27,7 @@ mod text_input {
   mod autofill;
   mod basic_layout;
   mod caret_after_focus_moves;
+  mod caret_told;
   mod clipped_paint;
   mod controller;
   mod controller_focus;

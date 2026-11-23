@@ -492,6 +492,30 @@ impl TextInput {
     self
   }
 
+  /// Told where the caret is each time it moves or the selection changes, while the input has the focus: a click,
+  /// a drag that selects, a key that moves the caret or edits, and the app's own
+  /// [`select`](super::TextInputController::select). Told once as the input takes the focus, where the caret is
+  /// then. It runs as the frame after the change is laid out, once however many moves came before it.
+  ///
+  /// ```
+  /// use lurq::{components::TextInput, core::Signal};
+  ///
+  /// let at = Signal::new(String::new());
+  /// let shown = at.clone();
+  /// let script = TextInput::new(Signal::new("echo hi".to_owned()))
+  ///   .multiline()
+  ///   .on_caret(move |caret| shown.set(format!("Ln {}, Col {}", caret.line, caret.column)));
+  /// ```
+  pub fn on_caret(mut self, f: impl Fn(&super::CaretInfo) + Send + Sync + 'static) -> Self {
+    let f: std::sync::Arc<dyn Fn(&super::CaretInfo) + Send + Sync> = std::sync::Arc::new(f);
+    self.update_node(move |node| {
+      if let crate::node::node_kind::NodeKind::TextInput { state, .. } = node.node_kind() {
+        state.add_caret_handler(f);
+      }
+    });
+    self
+  }
+
   pub fn off_input(mut self, f: impl crate::node::IntoTextInputEventHandler) -> Self {
     self.update_node(|node| crate::node::NodeUpdate::off_input(node, f));
     self

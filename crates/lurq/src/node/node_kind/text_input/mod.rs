@@ -151,7 +151,14 @@ struct TextInputInner {
   typing_pause: Option<std::time::Duration>,
   /// The spans of a styled input and its hooks; empty for a plain one.
   styled: styled::StyledState,
+  /// What is told where the caret is: see [`crate::components::TextInput::on_caret`].
+  caret_handlers: Vec<CaretHandler>,
+  /// The caret and the anchor they were last told.
+  caret_told: Option<(usize, Option<usize>)>,
 }
+
+/// What is told where an input's caret is.
+type CaretHandler = Arc<dyn Fn(&crate::components::CaretInfo) + Send + Sync>;
 
 #[derive(Clone, PartialEq)]
 struct TextInputSnapshot {
@@ -242,6 +249,8 @@ impl TextInputState {
         undo_grouping: UndoGrouping::PLATFORM,
         typing_pause: TYPING_UNDO_PAUSE,
         styled: Default::default(),
+        caret_handlers: Vec::new(),
+        caret_told: None,
       })),
       on_input: Arc::new(Mutex::new(Vec::new())),
       layout_dirty: Arc::new(AtomicBool::new(false)),

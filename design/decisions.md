@@ -11,6 +11,40 @@ dropped). When a decision is replaced, the old entry stays and says what replace
 
 ## 2026-11-23
 
+### A code block's fold, its bar's other text and its scroll part
+
+- **Question.** A chat's code card (Orchester v2) needs a second text in a code block's bar (*22 lines*), its first
+  lines with *Show all* that unfolds it in place, and a scrollbar of one block's own (a lane of 12, a thumb of 4),
+  none of which `CodeBlock` had, so the app replaced its renderer (issue #225).
+- **Decision (Ivan, by the issue).** A bar part for the text, a fold, and a scroll area part on `CodeBlockPart`.
+- **Decided by Claude in the work, to be confirmed.**
+  - *`bar_meta(&str)` and a `Meta` part*, the issue's first name, styled as the title is, standing by the copy
+    button; the title gives way first.
+  - *`fold(lines)` with `show_all_text` and `show_less_text`*, not `fold(lines, show_all_label, show_less_label)`:
+    a component's words are the locale's (`EditingWords::show_all_code`, `show_less_code`), and a word told by
+    itself is a builder of its own, as `copy_label` is. The fold is the block's own state (`Folded`), kept where it
+    is mounted; a block with a fold is mounted when converted into an element, and the still form stays folded.
+    Folded, the first lines keep the colors they have in the whole code, which is tokenized whole.
+  - *`PartStyle::scrollbar(ScrollBarStyle)`*, so that a recipe can say a bar at all: a part's style had no bar, and
+    a scroll area always took the theme's. A `ScrollArea` root that has one draws it whole, its visibility and its
+    placement with it, in place of the area's `scrollbars` and `gutter`. `CodeBlockPart::Scroll` is laid over the
+    area's root in the block's states, and the area has the id `{id}-scroll`.
+- **State.** Built on `fix/theme-reentry-and-code`.
+
+### A recipe's patch runs with the theme let go; tokenizers are asked with lurq's caches let go
+
+- **Question.** `Theme::patch_recipe` ran its closure under the theme's write lock, so reading the theme in it hung
+  (issue #224); a code block's kept lines and a code field's buffer held their locks across the tokenizer, so a
+  tokenizer that came back to them hung (issue #226).
+- **Decision (Ivan, by the issues: either way he named).** Run the closure, and the tokenizer, without the lock.
+- **Decided by Claude in the work, to be confirmed.** The patch is given the rules laid so far, read under the lock,
+  and what it returns is put back under it: a patch of the same component made while it runs, by it or another
+  thread, is replaced. The caches are taken out while the tokenizer runs and put back after: a tokenizer that
+  reaches them meanwhile finds them empty and tokenizes again, and does not wait. `on_caret` (the rest of #226) is
+  told in the frame after a move, for the focused input, and not by each of the input's many paths that move the
+  caret: once per frame however many moves came, and nothing while the input does not have the focus.
+- **State.** Built on `fix/theme-reentry-and-code`.
+
 ### An app's keyframes are the theme's, and a part says what it plays while motion is reduced
 
 - **Question.** A recipe names a part's enter and exit animation (`PartStyle::enter`, `exit`) by its keyframes, but

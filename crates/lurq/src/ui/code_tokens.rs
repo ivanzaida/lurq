@@ -31,7 +31,8 @@ pub(crate) fn code_tokens(code: &str, language: Option<&str>, tokenizer: Option<
 }
 
 /// As [`code_tokens`], from what `kept` holds of the text before where it is given: a text that changes (a block's
-/// code streamed in) is re-tokenized from its first changed line.
+/// code streamed in) is re-tokenized from its first changed line. The tokenizer is asked with `kept` let go: one
+/// that reaches it again finds it empty, and does not wait on itself.
 pub(crate) fn code_tokens_kept(
   code: &str,
   language: Option<&str>,
@@ -49,7 +50,10 @@ pub(crate) fn code_tokens_kept(
   match kept {
     Some(kept) => {
       tokenizer.track();
-      kept.lock().unwrap().tokens(&tokenizer, code)
+      let mut lines = std::mem::take(&mut *kept.lock().unwrap());
+      let tokens = lines.tokens(&tokenizer, code);
+      *kept.lock().unwrap() = lines;
+      tokens
     }
     None => tokenizer.tokens(code),
   }
@@ -124,26 +128,38 @@ impl CodeBuffer {
   }
 
   /// The tokens of `code`, the text the buffer holds now, by `tokenizer`: line by line from what was kept, or all of
-  /// them, the tokenizer told which buffer they are of.
+  /// them, the tokenizer told which buffer they are of. The tokenizer is told and asked with the buffer let go: one
+  /// that reads the buffer's value, or sets it, does not wait on itself.
   pub(crate) fn tokens(&self, tokenizer: &CodeTokenizer, code: &str) -> Arc<[CodeToken]> {
-    let mut inner = self.inner.lock().unwrap();
-    if inner.tokenizer.as_ref() != Some(tokenizer) {
-      if let Some(old) = inner.tokenizer.replace(tokenizer.clone()) {
-        old.dropped(self.id);
+    let (dropped, edit, mut lines) = {
+      let mut inner = self.inner.lock().unwrap();
+      let mut dropped = None;
+      if inner.tokenizer.as_ref() != Some(tokenizer) {
+        dropped = inner.tokenizer.replace(tokenizer.clone());
+        inner.lines = LineCache::default();
       }
-      inner.lines = LineCache::default();
+      let mut edit = None;
+      if inner.text != code {
+        // A change the signal did not tell (a value set before the buffer was made): one edit for it.
+        edit = CodeEdit::between(&inner.text, code);
+        inner.text = code.to_owned();
+      }
+      (dropped, edit, std::mem::take(&mut inner.lines))
+    };
+    if let Some(old) = dropped {
+      old.dropped(self.id);
     }
-    if inner.text != code {
-      // A change the signal did not tell (a value set before the buffer was made): one edit for it.
-      if let Some(edit) = CodeEdit::between(&inner.text, code) {
-        tokenizer.edited(self.id, &edit);
-      }
-      inner.text = code.to_owned();
+    if let Some(edit) = edit {
+      tokenizer.edited(self.id, &edit);
     }
     let id = self.id;
-    inner
-      .lines
-      .tokens_with(tokenizer, code, |tokenizer, code| tokenizer.tokens_in(id, code))
+    let tokens = lines.tokens_with(tokenizer, code, |tokenizer, code| tokenizer.tokens_in(id, code));
+    let mut inner = self.inner.lock().unwrap();
+    // What was kept is of this tokenizer's: another that took the buffer meanwhile starts from nothing.
+    if inner.tokenizer.as_ref() == Some(tokenizer) {
+      inner.lines = lines;
+    }
+    tokens
   }
 }
 
@@ -485,6 +501,42 @@ mod tests {
     // The keyword is bold and in the theme's keyword color, the comment leans: both in the input's own type.
     assert_eq!(of("let"), Some((Some(FontWeight::Bold), None, false)));
     assert_eq!(of("// one"), Some((None, Some(FontStyle::Italic), false)));
+  }
+
+  #[test]
+  fn a_tokenizer_that_sets_the_value_it_tokenizes_does_not_wait_on_itself() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let value = Signal::new("alpha".to_owned());
+    let fixed = value.clone();
+    let once = AtomicBool::new(false);
+    // A tokenizer that, once, puts a word after what it is given: the buffer is told the edit as it tokenizes.
+    let input: Element = TextInput::new(value.clone())
+      .code_tokenizer(move |code: &str| {
+        if !once.swap(true, Ordering::SeqCst) {
+          fixed.set(format!("{code} beta"));
+        }
+        vec![CodeToken::new(0..code.find(' ').unwrap_or(code.len()), token::STRING)]
+      })
+      .into();
+    let drawn = drawn(&input, &value);
+    assert_eq!(value.get_untracked(), "alpha beta");
+    assert_eq!(drawn.first().map(|(text, _)| text.as_str()), Some("alpha"));
+  }
+
+  #[test]
+  fn a_tokenizer_that_reaches_the_cache_it_is_kept_in_does_not_wait_on_itself() {
+    use std::sync::{Arc, Mutex};
+
+    use crate::code::{CodeTokenizer, LineCache};
+    let kept: Arc<Mutex<LineCache>> = Arc::default();
+    let inner = CodeTokenizer::new(|code: &str| vec![CodeToken::new(0..code.len(), token::KEYWORD)]);
+    let reached = kept.clone();
+    // A tokenizer that takes the tokens of another language through the same cache.
+    let outer =
+      CodeTokenizer::new(move |code: &str| super::code_tokens_kept(code, None, Some(&inner), Some(&reached)).to_vec());
+    let tokens = super::code_tokens_kept("let", None, Some(&outer), Some(&kept));
+    assert_eq!(tokens.len(), 1);
+    assert_eq!(tokens[0].kind, token::KEYWORD);
   }
 
   #[test]
