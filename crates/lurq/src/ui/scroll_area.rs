@@ -23,7 +23,8 @@ use crate::{
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ScrollAreaPart {
   /// The room the content scrolls in: its size, its corners, its ring of focus. Its bar is the theme's
-  /// [`ScrollBarStyle`].
+  /// [`ScrollBarStyle`], or the one its style gives it ([`PartStyle::scrollbar`](super::PartStyle::scrollbar)), drawn
+  /// as that says, shown and placed with it.
   Root,
 }
 
@@ -290,16 +291,23 @@ impl ScrollArea {
     for state in &self.states {
       case = case.state(state.clone(), true);
     }
-    // The theme's bar, shown and placed as the area says.
-    let bar = ScrollBarStyle {
-      visible: self.scrollbars.into(),
-      placement: if self.gutter {
-        ScrollBarPlacement::Reserved
-      } else {
-        ScrollBarPlacement::Overlay
-      },
-      ..theme.scrollbar().clone()
-    };
+    let recipe = theme
+      .resolve::<ScrollArea>(&case, Some(&self.rules))
+      .owned_by(self.id.as_ref());
+    // The bar its root's style gives it, as that says; or the theme's, shown and placed as the area says.
+    let bar = recipe
+      .part(ScrollAreaPart::Root)
+      .rest()
+      .scrollbar
+      .unwrap_or_else(|| ScrollBarStyle {
+        visible: self.scrollbars.into(),
+        placement: if self.gutter {
+          ScrollBarPlacement::Reserved
+        } else {
+          ScrollBarPlacement::Overlay
+        },
+        ..theme.scrollbar().clone()
+      });
     let view = ScrollAreaView {
       content: self.content,
       orientation: self.orientation,
@@ -307,9 +315,7 @@ impl ScrollArea {
       fill_width: self.fill_width,
       scroll_state: self.scroll_state,
       label: self.label,
-      recipe: theme
-        .resolve::<ScrollArea>(&case, Some(&self.rules))
-        .owned_by(self.id.as_ref()),
+      recipe,
       forced: self.forced,
       id: self.id,
       key: self.key,

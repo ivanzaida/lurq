@@ -3331,6 +3331,7 @@ impl Tree {
       let blink_now = self.now();
       self.update_text_input_caret_blink(blink_now, caret_mode);
     }
+    self.tell_text_input_caret();
     let layout_wall_dur = layout_wall_start.elapsed();
     let _layout_dur = profile_elapsed!(_layout_start);
     #[cfg(feature = "perf_profile")]
@@ -7834,6 +7835,25 @@ impl Tree {
     // toggle the shell never repainted the caret, so it never blinked.
     let next_toggle = self.text_input_caret_blink_started_at + TEXT_INPUT_CARET_BLINK_INTERVAL * (phase as u32 + 1);
     self.request_redraw_at(next_toggle);
+  }
+
+  /// Tells the focused input's caret handlers where its caret is, where it moved since they were told.
+  fn tell_text_input_caret(&mut self) {
+    let Some(root) = self.root.as_ref() else {
+      return;
+    };
+    let state = self
+      .focused_path
+      .as_deref()
+      .and_then(|path| find_node_by_path(root, path))
+      .or_else(|| self.focused_node.and_then(|id| find_node_by_id(root, id)))
+      .and_then(|node| match node.node_kind() {
+        NodeKind::TextInput { state, .. } => Some(state.clone()),
+        _ => None,
+      });
+    if let Some(state) = state {
+      state.tell_caret();
+    }
   }
 
   fn set_text_input_caret_visible(&mut self, visible: bool) {

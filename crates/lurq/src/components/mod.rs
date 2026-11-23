@@ -123,7 +123,7 @@ pub use text_input::{
   ContentKind, InputGhost, InputSquiggles, KeyboardKind, LineGutter, ReturnKey, TextInput, TextInputOverflow,
   TextInputOverflowAnchor,
 };
-pub use text_input_controller::{InputCaretPoint, InputEditError, InputSelection, TextInputController};
+pub use text_input_controller::{CaretInfo, InputCaretPoint, InputEditError, InputSelection, TextInputController};
 pub use text_input_tokens::{InputToken, InputTokenError, InputTokenIcon, InputTokenStyle, InputTokens};
 #[cfg(feature = "raster")]
 pub use video::Video;

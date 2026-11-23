@@ -32,6 +32,32 @@ impl TextInputState {
       layout_subscribers: Arc::downgrade(&self.layout_subscribers),
     }
   }
+  pub(crate) fn add_caret_handler(&self, handler: CaretHandler) {
+    self.inner.lock().caret_handlers.push(handler);
+  }
+
+  /// Tells the input's caret handlers where the caret is, where it moved or the selection changed since they were
+  /// last told: with the input let go, so that a handler may read it or change it.
+  pub(crate) fn tell_caret(&self) {
+    let (handlers, at) = {
+      let mut inner = self.inner.lock();
+      if inner.caret_handlers.is_empty() {
+        return;
+      }
+      let anchor = inner.selection_anchor.filter(|anchor| *anchor != inner.caret);
+      let at = (inner.caret, anchor);
+      if inner.caret_told == Some(at) {
+        return;
+      }
+      inner.caret_told = Some(at);
+      (inner.caret_handlers.clone(), at)
+    };
+    let caret = crate::components::CaretInfo::of(&self.value.get_untracked(), at.0, at.1);
+    for handler in &handlers {
+      handler(&caret);
+    }
+  }
+
   pub(crate) fn controller_selection(&self) -> (usize, Option<usize>) {
     self.sync_external_value();
     let inner = self.inner.lock();

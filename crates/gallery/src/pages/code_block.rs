@@ -12,8 +12,9 @@ use lurq::{
   },
   components::Column,
   core::Signal,
+  layout::scrollbar::{ScrollBarPlacement, ScrollBarStyle},
   node::{Element, color::Color},
-  ui::{CodeBlock, SegmentedControl},
+  ui::{CodeBlock, CodeBlockPart, SegmentedControl},
 };
 
 use crate::{
@@ -514,6 +515,24 @@ impl Component for CodeBlockPage {
       CodeBlock::new(MAIN_GO).language("go").title("main.go").mount(ctx),
       "go · syntect's, registered at start",
     );
+    let lines = file().lines().count();
+    let card = item(
+      CodeBlock::new(&file())
+        .language("rust")
+        .bar_meta(&format!("{lines} lines"))
+        .fold(8)
+        .style(CodeBlockPart::Scroll, |s| {
+          s.scrollbar(ScrollBarStyle {
+            width: 12.0,
+            thumb_inset: 4.0,
+            placement: ScrollBarPlacement::Reserved,
+            ..ScrollBarStyle::default()
+          })
+        })
+        .max_height(320.0)
+        .mount(ctx),
+      "bar_meta · fold(8) · a scroll part of its own",
+    );
     let rows = [
       (
         "new",
@@ -555,6 +574,12 @@ impl Component for CodeBlockPage {
         "the language",
         "What the bar shows: a file's name. It ends in an ellipsis where it has no room.",
       ),
+      (
+        "bar_meta",
+        "&str",
+        "",
+        "What the bar shows after the title, by the copy button: what the app says of the code (\"22 lines\").",
+      ),
       ("label", "&str", "the title", "What it is called to tooling."),
       (
         "line_numbers",
@@ -585,6 +610,19 @@ impl Component for CodeBlockPage {
         "impl Into<Length>",
         "",
         "The least and the greatest height, its bar with it: past the greatest, the code scrolls down.",
+      ),
+      (
+        "fold",
+        "usize",
+        "",
+        "Shows the first lines of a longer code alone, and a button under them that shows all of them in place, \
+         and fewer again. The copy button copies the whole code.",
+      ),
+      (
+        "show_all_text / show_less_text",
+        "&str",
+        "Show all / Show less",
+        "What the button under a folded block says, and what it says once the block is unfolded.",
       ),
       (
         "copy_button",
@@ -742,6 +780,33 @@ impl Component for CodeBlockPage {
               "app.register_tokenizer(\"go\", Syntect::for_language(\"go\").unwrap());",
               "",
               "CodeBlock::new(main_go).language(\"go\").title(\"main.go\").mount(ctx)",
+            ],
+          ),
+        ),
+        Section::new(
+          "A card in a chat",
+          "A command or a file in an answer: the bar says how many lines it has, the block shows its first eight \
+           and a button that shows all of them, and past its greatest height it scrolls under a thin bar in a lane \
+           of its own, which its scroll part gives it.",
+          self.frame.demo(
+            7,
+            card,
+            ".bar_meta(..).fold(8)",
+            &[
+              "CodeBlock::new(steps_rs)",
+              "    .language(\"rust\")",
+              "    .bar_meta(&format!(\"{lines} lines\"))",
+              "    .fold(8)",
+              "    .style(CodeBlockPart::Scroll, |s| {",
+              "      s.scrollbar(ScrollBarStyle {",
+              "        width: 12.0,",
+              "        thumb_inset: 4.0,",
+              "        placement: ScrollBarPlacement::Reserved,",
+              "        ..ScrollBarStyle::default()",
+              "      })",
+              "    })",
+              "    .max_height(320)",
+              "    .mount(ctx)",
             ],
           ),
         ),

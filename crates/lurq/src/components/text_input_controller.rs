@@ -26,6 +26,40 @@ impl InputSelection {
   }
 }
 
+/// Where an input's caret is, as [`TextInput::on_caret`](super::TextInput::on_caret) tells it: what an editor's
+/// *Ln 6, Col 15* shows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CaretInfo {
+  /// The caret and the other end of the selection, in bytes of the value: no anchor where nothing is selected.
+  pub selection: InputSelection,
+  /// The line the caret is on, from 1: of the value's lines, split at its newlines and not where they wrap.
+  pub line: usize,
+  /// How far into its line the caret is, in characters, from 1.
+  pub column: usize,
+}
+
+impl CaretInfo {
+  /// Where the caret is in `value`, the other end of the selection at `anchor`.
+  pub(crate) fn of(value: &str, caret: usize, anchor: Option<usize>) -> Self {
+    let caret = caret.min(value.len());
+    let before = value.get(..caret).unwrap_or(value);
+    let line_start = before.rfind('\n').map_or(0, |at| at + 1);
+    Self {
+      selection: InputSelection {
+        caret,
+        anchor: anchor.filter(|anchor| *anchor != caret),
+      },
+      line: before.matches('\n').count() + 1,
+      column: before[line_start..].chars().count() + 1,
+    }
+  }
+
+  /// What is selected, in bytes of the value: none where nothing is.
+  pub fn selected(&self) -> Option<Range<usize>> {
+    self.selection.anchor.map(|_| self.selection.range())
+  }
+}
+
 /// Where a caret stands in an input's text: see [`TextInputController::caret_point`].
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct InputCaretPoint {

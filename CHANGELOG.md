@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+Added:
+
+- **A code block for a chat: a second text in its bar, a fold, and a scroll area of its own** ([#225](https://github.com/ivanzaida/lurq/issues/225), decided 2026-11-23, `design/decisions.md`). `CodeBlock::bar_meta(&str)` shows a text after the title, by the copy button ("22 lines"), in the new `Meta` part, as the title is styled. `CodeBlock::fold(usize)` shows the first lines of a longer code alone (state `Folded`) and a button under them, the `Fold` part, that shows all of them in place and fewer again: "Show all" and "Show less", the locale's `EditingWords::show_all_code` and `show_less_code` in its six languages, or `show_all_text` and `show_less_text`. The copy button copies the whole code, folded or not. The `Scroll` part is laid over the scroll area the code scrolls in, in the block's states, and `PartStyle::scrollbar(ScrollBarStyle)` gives a part that scrolls a bar of its own: a block can have a thin thumb in a lane of its own (`width: 12.0, thumb_inset: 4.0, placement: Reserved`) where the theme's lies over the code. A `ScrollArea`'s root takes it too. The area has the id `{id}-scroll`, the text `{id}-meta` and the button `{id}-fold`. `CodeBlockView` has `meta`, `fold`, `folded`, `whole_code` (`code` is what it shows) and `fold_control()`.
+- **`TextInput::on_caret`: where the caret is, as it moves** ([#226](https://github.com/ivanzaida/lurq/issues/226)). Told a `CaretInfo` (the caret's line and column from 1, and its `InputSelection`) each time the caret moves or the selection changes while the input has the focus: a click, a drag that selects, a key, the controller's `select`. It runs in the frame after the change is laid out, once however many moves came before it, so an editor's *Ln 6, Col 15* and the band of its caret's line follow a drag as it goes, where they were read after each key and click.
+
+Fixes:
+
+- **A closure given to `Theme::patch_recipe` may read the theme** ([#224](https://github.com/ivanzaida/lurq/issues/224)). It ran while the theme's lock was held for the write, so a read of the theme in it (`theme.typography_style(..)`, `theme.palette_color(..)`) waited on its own thread for ever. The rules laid so far are read, the closure runs with the theme let go, and what it returns is put back. A patch of the same component made while it runs is replaced by it.
+- **A tokenizer that reaches what lurq keeps of its code does not hang** ([#226](https://github.com/ivanzaida/lurq/issues/226)). A code block's kept lines and a code field's buffer held their locks while they asked the tokenizer and told it the field's edits: a tokenizer that set the field's value, or took tokens through the same cache, waited on itself. They are let go while the tokenizer runs, as the tokenizer's own cache already was.
+
 ## 0.70.0 — 2026-11-23
 
 Added:

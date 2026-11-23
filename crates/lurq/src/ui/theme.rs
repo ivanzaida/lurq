@@ -297,6 +297,20 @@ impl UiDefinition {
     self
   }
 
+  /// The rules laid over a component's recipe so far: none where nothing patched it.
+  pub(crate) fn patched_so_far<C: Themed>(&self) -> Recipe {
+    self
+      .patches
+      .get(&Name::new(C::NAME))
+      .map(|rules| (**rules).clone())
+      .unwrap_or_default()
+  }
+
+  /// Puts `rules` over a component's recipe, in place of what was laid over it so far.
+  pub(crate) fn put_patch<C: Themed>(&mut self, rules: Recipe) {
+    self.patches.insert(Name::new(C::NAME), Arc::new(rules));
+  }
+
   /// Takes back what the definition said of a component's recipe: it is the
   /// design's again, or none in a bare definition.
   pub fn reset_recipe<C: Themed>(&mut self) -> &mut Self {
@@ -482,10 +496,27 @@ impl Theme {
   }
 
   /// Lays rules over a component's recipe: see [`UiDefinition::patch`].
+  ///
+  /// `patch` runs with the theme unlocked, so it may read the theme: a recipe that takes a value from another
+  /// one reads it in the patch. A patch of the same component made while `patch` runs, by it or by another
+  /// thread, is replaced by what `patch` returns.
+  ///
+  /// ```
+  /// use lurq::{
+  ///   app::theme::{Theme, TypographyStyle},
+  ///   ui::{Button, ButtonPart},
+  /// };
+  ///
+  /// let theme = Theme::new();
+  /// // Labels a size up from the theme's captions, whatever the theme makes it.
+  /// theme.patch_recipe::<Button>(|rules| {
+  ///   let caption = theme.typography_style(TypographyStyle::Caption).font_size;
+  ///   rules.base(ButtonPart::Label, |s| s.font_size(caption + 1.0))
+  /// });
+  /// ```
   pub fn patch_recipe<C: Themed>(&self, patch: impl FnOnce(Recipe) -> Recipe) {
-    self.update_ui(|ui| {
-      ui.patch::<C>(patch);
-    });
+    let rules = patch(self.with_ui(UiDefinition::patched_so_far::<C>));
+    self.update_ui(|ui| ui.put_patch::<C>(rules));
   }
 
   /// Takes back what the theme said of a component's recipe: see [`UiDefinition::reset_recipe`].

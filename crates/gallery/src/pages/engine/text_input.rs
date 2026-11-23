@@ -11,7 +11,8 @@ use lurq::{
     theme::{CaretMode, PaletteColor, RadiusSize, Theme, TypographyStyle},
   },
   components::{
-    Column, InputGhost, InputSquiggles, InputToken, InputTokenStyle, InputTokens, Row, TextInput, TextInputController,
+    CaretInfo, Column, InputGhost, InputSquiggles, InputToken, InputTokenStyle, InputTokens, Row, TextInput,
+    TextInputController,
   },
   core::Signal,
   layout::{
@@ -115,6 +116,8 @@ struct Field {
   mask: bool,
   select_on_focus: bool,
   persistent: bool,
+  /// Where its caret is, as `on_caret` tells it.
+  caret: Signal<String>,
 }
 
 fn field_input(theme: &Theme, field: &Field) -> TextInput {
@@ -139,6 +142,13 @@ fn field_input(theme: &Theme, field: &Field) -> TextInput {
   if field.persistent {
     input = input.caret_mode(CaretMode::Persistent);
   }
+  let caret = field.caret.clone();
+  input = input.on_caret(move |at: &CaretInfo| {
+    caret.set(match at.selected() {
+      Some(selected) => format!("Ln {}, Col {} ({} selected)", at.line, at.column, selected.len()),
+      None => format!("Ln {}, Col {}", at.line, at.column),
+    })
+  });
   framed(input).max_width(360.0)
 }
 
@@ -199,6 +209,8 @@ pub struct TextInputPage {
   mask: Signal<bool>,
   select_on_focus: Signal<bool>,
   persistent: Signal<bool>,
+  /// Where the playground's caret is.
+  caret: Signal<String>,
   name: Signal<String>,
   email: Signal<String>,
   hash: Signal<String>,
@@ -228,6 +240,7 @@ impl TextInputPage {
       mask: self.mask.get(),
       select_on_focus: self.select_on_focus.get(),
       persistent: self.persistent.get(),
+      caret: self.caret.clone(),
     }
   }
 
@@ -264,12 +277,14 @@ impl TextInputPage {
       "    .background(PaletteColor::Background)".to_owned(),
       "    .border(Border::inside(1.0, PaletteColor::Input))".to_owned(),
       "    .focused(|style| style.border_inside(2.0, PaletteColor::Ring))".to_owned(),
+      "    .on_caret(|caret| status.set(format!(\"Ln {}, Col {}\", caret.line, caret.column)))".to_owned(),
     ]);
     let value = self.value.get();
     let tree = vec![
       format!("text input   {}", self.playground.measured()),
       format!("  value   {:?}", preview(&value)),
       format!("  {} lines, {} bytes", value.split('\n').count(), value.len()),
+      format!("  caret   {}", self.caret.get()),
     ];
 
     let (set_mode, set_size, set_align) = (self.mode.clone(), self.size.clone(), self.align.clone());
@@ -303,7 +318,7 @@ impl TextInputPage {
         fill: true,
         forceable: false,
         facts: format!("{} bytes", value.len()),
-        event: "on_input",
+        event: "on_input · on_caret",
         code,
         tree,
         controls: vec![
@@ -675,6 +690,7 @@ impl Component for TextInputPage {
       mask: ctx.signal(false),
       select_on_focus: ctx.signal(false),
       persistent: ctx.signal(false),
+      caret: ctx.signal("not focused yet".to_owned()),
       name: ctx.signal("Lol Kek".to_owned()),
       email: ctx.signal(String::new()),
       hash: ctx.signal(String::new()),

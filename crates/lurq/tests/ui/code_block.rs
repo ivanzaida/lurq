@@ -944,3 +944,110 @@ fn a_long_block_selected_whole_from_the_keyboard_copies_all_of_it() {
   stage.pass();
   assert!(fills(&stage, light(PaletteColor::Selection)).is_empty());
 }
+
+/// All the text painted, run after run.
+fn painted(stage: &Stage) -> String {
+  stage
+    .quads()
+    .into_iter()
+    .map(|quad| match quad.content {
+      QuadContent::Text { text, .. } => text.to_string(),
+      QuadContent::RichText { spans, .. } => spans.iter().map(|span| span.text.to_string()).collect(),
+      _ => String::new(),
+    })
+    .collect::<Vec<_>>()
+    .join("\n")
+}
+
+fn twenty_lines() -> String {
+  (1..=20)
+    .map(|line| format!("line {line}"))
+    .collect::<Vec<_>>()
+    .join("\n")
+}
+
+#[test]
+fn the_bar_says_what_the_app_says_of_the_code_by_its_copy_button() {
+  let mut stage = staged(|| CodeBlock::new(MAIN).language("rust").bar_meta("4 lines").id("block"));
+  assert_eq!(
+    stage.text("4 lines"),
+    (light(PaletteColor::MutedForeground), 11.0),
+    "as the title is"
+  );
+  let (meta_x, _, meta_width, _) = stage.bounds("block-meta");
+  let (copy_x, ..) = stage.bounds("block-copy");
+  assert_eq!(meta_x + meta_width + 8.0, copy_x, "the bar's gap before the button");
+  let (title_x, ..) = stage.bounds("block-title");
+  assert_eq!(title_x, 14.0, "the language keeps its place");
+  stage.text("rust");
+}
+
+#[test]
+fn a_folded_block_shows_its_first_lines_and_unfolds_in_place() {
+  // Eight lines, folded to three: unfolded, all of them stand in the stage's 300.
+  let code = twenty_lines().lines().take(8).collect::<Vec<_>>().join(
+    "
+",
+  );
+  let mut stage = staged(move || CodeBlock::new(&code).fold(3).id("block"));
+  let shown = painted(&stage);
+  assert!(shown.contains("line 3") && !shown.contains("line 4"), "{shown}");
+  let (.., folded) = stage.bounds("block");
+  stage.text("Show all");
+  stage.click("block-fold");
+  let shown = painted(&stage);
+  assert!(shown.contains("line 8"), "all of it: {shown}");
+  let (.., unfolded) = stage.bounds("block");
+  assert!((unfolded - folded - 5.0 * 21.0).abs() < 1.0, "{folded} {unfolded}");
+  stage.text("Show less");
+  stage.click("block-fold");
+  assert!(!painted(&stage).contains("line 4"), "and fewer again");
+}
+
+#[test]
+fn a_folded_block_copies_its_whole_code_and_a_short_one_does_not_fold() {
+  let code = twenty_lines();
+  let whole = code.clone();
+  let mut stage = staged(move || CodeBlock::new(&code).fold(8).id("block"));
+  let written = Arc::new(Written::default());
+  stage.tree.set_clipboard_writer(Some(written.clone()));
+  stage.click("block-copy");
+  stage.pass();
+  assert_eq!(*written.0.lock().unwrap(), [whole]);
+  let mut stage = staged(|| CodeBlock::new(MAIN).fold(8).id("block"));
+  assert!(
+    stage.tree.get_element_by_id_mut("block-fold").is_none(),
+    "four lines show whole"
+  );
+}
+
+#[test]
+fn a_block_gives_the_area_its_code_scrolls_in_bars_of_its_own() {
+  use lurq::{
+    layout::scrollbar::{ScrollBarPlacement, ScrollBarStyle, ScrollBarVisibility},
+    ui::CodeBlockPart,
+  };
+  let thumb = Color::new(200, 30, 30, 255);
+  let code = twenty_lines();
+  let stage = staged(move || {
+    CodeBlock::new(&code)
+      .max_height(200.0)
+      .id("block")
+      .style(CodeBlockPart::Scroll, move |s| {
+        s.scrollbar(ScrollBarStyle {
+          width: 12.0,
+          thumb_inset: 4.0,
+          thumb_color: thumb,
+          visible: ScrollBarVisibility::Always,
+          placement: ScrollBarPlacement::Reserved,
+          ..ScrollBarStyle::default()
+        })
+      })
+  });
+  let thumbs = fills(&stage, thumb);
+  assert!(
+    thumbs.iter().any(|quad| quad.width == 4.0),
+    "a thumb of 4 in a lane of 12: {:?}",
+    thumbs.iter().map(|quad| (quad.width, quad.height)).collect::<Vec<_>>()
+  );
+}

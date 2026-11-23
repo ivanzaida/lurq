@@ -12,7 +12,10 @@ use std::{sync::Arc, time::Duration};
 use crate::{
   animation::{Animation, Easing, KeyframesId, Transition},
   app::theme::{ControlSize, Density, IconSize, MotionDuration, MotionEasing, OpacityLevel, Theme, TypographyStyle},
-  layout::text_style::{FontStyle, FontWeight, TextStyle},
+  layout::{
+    scrollbar::ScrollBarStyle,
+    text_style::{FontStyle, FontWeight, TextStyle},
+  },
   node::{
     BackgroundColor, BoxShadow, BoxShadowValue, CursorIcon, Node, NodeUpdate, Outline, SpacingValue, Style, TextColor,
     border::{Border, ThemedBorderRadius},
@@ -339,6 +342,10 @@ pub struct PartStyle {
   /// nothing, and the part is gone at once. Unsaid, it plays its exit.
   pub reduced_exit: Option<Option<PartAnimation>>,
   pub cursor: Option<CursorIcon>,
+  /// The bars of a part that scrolls, in place of the theme's ([`Theme::scrollbar`]): how wide, their thumb, its
+  /// colors, and when and where they show. What scrolls the part reads it: a scroll area's root, a code block's
+  /// room for its code.
+  pub scrollbar: Option<ScrollBarStyle>,
 }
 
 impl PartStyle {
@@ -608,6 +615,25 @@ impl PartStyle {
     self
   }
 
+  /// Gives a part that scrolls its own bars: a thin one in a lane of its own, where the theme's lies over the
+  /// content.
+  ///
+  /// ```
+  /// use lurq::{layout::scrollbar::{ScrollBarPlacement, ScrollBarStyle}, ui::PartStyle};
+  ///
+  /// // A lane of 12 with a thumb of 4 in it.
+  /// let thin = PartStyle::new().scrollbar(ScrollBarStyle {
+  ///   width: 12.0,
+  ///   thumb_inset: 4.0,
+  ///   placement: ScrollBarPlacement::Reserved,
+  ///   ..ScrollBarStyle::default()
+  /// });
+  /// ```
+  pub fn scrollbar(mut self, scrollbar: ScrollBarStyle) -> Self {
+    self.scrollbar = Some(scrollbar);
+    self
+  }
+
   /// Whether the style sets nothing.
   pub fn is_empty(&self) -> bool {
     self.background.is_none()
@@ -642,6 +668,7 @@ impl PartStyle {
       && self.reduced_enter.is_none()
       && self.reduced_exit.is_none()
       && self.cursor.is_none()
+      && self.scrollbar.is_none()
       && self.text.is_empty()
   }
 
@@ -682,7 +709,8 @@ impl PartStyle {
       exit,
       reduced_enter,
       reduced_exit,
-      cursor
+      cursor,
+      scrollbar
     );
     self.text.merge(&over.text);
   }
