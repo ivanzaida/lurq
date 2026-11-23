@@ -111,6 +111,8 @@ struct ThemeInner {
   system_reduced_motion: bool,
   /// See [`Theme::set_smooth_scroll`].
   smooth_scroll: bool,
+  /// The app's keyframes, and whether each plays in phase: see [`Theme::set_keyframes`].
+  keyframes: Arc<Vec<(crate::animation::Keyframes, bool)>>,
   version: u64,
 }
 
@@ -199,6 +201,7 @@ impl Theme {
         reduced_motion: None,
         system_reduced_motion: false,
         smooth_scroll: true,
+        keyframes: Arc::default(),
         version: 0,
       })),
       version_signal: Signal::new(0),
@@ -958,6 +961,48 @@ impl Theme {
     if self.inner.read().unwrap().smooth_scroll != smooth {
       self.mutate_inner(|inner| inner.smooth_scroll = smooth);
     }
+  }
+
+  /// Keyframes the app plays, by their id: what a recipe names for a part to play as it appears or leaves
+  /// ([`PartStyle::enter`](crate::ui::PartStyle::enter), [`exit`](crate::ui::PartStyle::exit)), or an element
+  /// with `.animation(..)`. Every window drawn with this theme has them before it plays its next frame, those
+  /// already open too. Keyframes of an id already set replace them, and of an id lurq uses
+  /// ([`FADE_IN`](crate::ui::FADE_IN), ...) replace lurq's; lurq's ids are `0xFF00` and over. As reduced motion,
+  /// they are the app's, not a part of a [`ThemeDefinition`], and stay when one is applied.
+  ///
+  /// ```
+  /// use lurq::{animation::{Keyframes, KeyframesId}, app::theme::Theme};
+  ///
+  /// const MENU_ENTER: KeyframesId = KeyframesId::new(1);
+  /// let theme = Theme::bare();
+  /// theme.set_keyframes(
+  ///   Keyframes::new(MENU_ENTER)
+  ///     .frame(0.0, |k| { k.opacity(0.0).translate(0.0, 4.0); })
+  ///     .frame(1.0, |k| { k.opacity(1.0).translate(0.0, 0.0); }),
+  /// );
+  /// ```
+  pub fn set_keyframes(&self, keyframes: crate::animation::Keyframes) {
+    self.put_keyframes(keyframes, false);
+  }
+
+  /// Keyframes the app plays, as [`Self::set_keyframes`], whose runs all play in phase on the process's animation
+  /// clock: a spinner of the app's that shows the same pose wherever it is. See
+  /// [`AnimationEngine::register_keyframes_in_phase`](crate::animation::AnimationEngine::register_keyframes_in_phase).
+  pub fn set_keyframes_in_phase(&self, keyframes: crate::animation::Keyframes) {
+    self.put_keyframes(keyframes, true);
+  }
+
+  fn put_keyframes(&self, keyframes: crate::animation::Keyframes, in_phase: bool) {
+    self.mutate_inner(|inner| {
+      let all = Arc::make_mut(&mut inner.keyframes);
+      all.retain(|(held, _)| held.id != keyframes.id);
+      all.push((keyframes, in_phase));
+    });
+  }
+
+  /// The app's keyframes: the same `Arc` until they change.
+  pub(crate) fn keyframes(&self) -> Arc<Vec<(crate::animation::Keyframes, bool)>> {
+    self.inner.read().unwrap().keyframes.clone()
   }
 
   /// The system's setting, from the shell that read it.

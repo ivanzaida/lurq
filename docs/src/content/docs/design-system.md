@@ -164,7 +164,8 @@ let swipes = lurq::ui::touch_form();
 | `typography(role)` | Every field of the part's text at once |
 | `font_family(family)`, `font_size(px)`, `weight(weight)`, `font_style(style)`, `line_height(ratio)`, `letter_spacing(px)` | One field of the text, over the role's |
 | `transition(PartTransition::new(Transition::background_color(), MotionDuration::Fast))` | A transition, with a duration and an easing of the theme's |
-| `enter(PartAnimation::new(FADE_IN, MotionDuration::Base, MotionEasing::Enter))`, `exit(PartAnimation::new(FADE_OUT, ..))` | Keyframes the part plays as it appears and as it leaves, with a duration and an easing of the theme's. A part that leaves is kept while it plays where what holds it keeps leaving parts: an overlay's layer, or a child with an id or a key of an element with `presence()`. `ui::FADE_IN` and `ui::FADE_OUT` are an opacity from nothing to whole and back, which every window has |
+| `enter(PartAnimation::new(FADE_IN, MotionDuration::Base, MotionEasing::Enter))`, `exit(PartAnimation::new(FADE_OUT, ..))` | Keyframes the part plays as it appears and as it leaves, with a duration and an easing of the theme's. A part that leaves is kept while it plays where what holds it keeps leaving parts: an overlay's layer, or a child with an id or a key of an element with `presence()`. `ui::FADE_IN` and `ui::FADE_OUT` are an opacity from nothing to whole and back, which every window has; an app's own are set on its theme (`Theme::set_keyframes`) |
+| `reduced_enter(Some(PartAnimation::new(FADE_IN, ..)))`, `reduced_exit(None)` | What the part plays in place of its enter or its exit while motion is reduced (`Theme::reduced_motion`): another animation, or `None`, for a part there, or gone, at once. A part that does not say plays its enter and exit |
 | `cursor(icon)` | The cursor over the part |
 
 Colors, radii, spacings and shadows are roles of the theme or concrete values, as everywhere in lurq.

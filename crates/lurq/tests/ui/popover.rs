@@ -566,3 +566,129 @@ fn a_trigger_that_is_a_component_opens_it_too_and_still_after_it_renders_again_b
   assert!(!open.get());
   assert!(stage.paints("Pressed 2"));
 }
+
+/// The app's keyframes: the panel rises 4 as it fades in.
+const RISE: lurq::animation::KeyframesId = lurq::animation::KeyframesId::new(7);
+
+/// An app whose popover's panel rises as it opens, by keyframes set on its theme, with what `more` says of the
+/// panel besides and motion reduced or not.
+fn rising(reduced: bool, more: impl FnOnce(lurq::ui::PartStyle) -> lurq::ui::PartStyle + 'static) -> App {
+  use lurq::{animation::Keyframes, ui::PartAnimation};
+  let app = App::new();
+  let theme = app.theme().clone();
+  theme.set_reduced_motion(Some(reduced));
+  theme.set_keyframes(
+    Keyframes::new(RISE)
+      .frame(0.0, |k| {
+        k.opacity(0.0).translate(0.0, 4.0);
+      })
+      .frame(1.0, |k| {
+        k.opacity(1.0).translate(0.0, 0.0);
+      }),
+  );
+  theme.patch_recipe::<Popover>(|recipe| {
+    recipe.base(PopoverPart::Panel, |s| {
+      more(s.enter(PartAnimation::new(RISE, MotionDuration::Base, MotionEasing::Enter)))
+    })
+  });
+  app
+}
+
+/// How much of the open panel is seen: the opacity of the faded layer it is painted in, 1 where none is.
+fn seen(stage: &mut Stage) -> f32 {
+  let snapshot = crate::support::render_pass_with_app(&mut stage.tree, &mut stage.app);
+  snapshot.layers.iter().map(|layer| layer.opacity).fold(1.0, f32::min)
+}
+
+/// Opens the popover of `app`, and says how far below its place its title is at the first frame and how much of
+/// the panel is seen then; the panel is left at rest.
+fn opened(app: App) -> (Stage, Signal<bool>, (f32, f32)) {
+  let open = Signal::new(false);
+  let mut stage = Stage::in_app(app, page((20.0, 20.0), 120.0, &open, dimensions));
+  open.set(true);
+  stage.pass_after(Duration::ZERO);
+  let first = stage.text_quad("Dimensions").expect("the title is painted").y;
+  let faded = seen(&mut stage);
+  stage.pass();
+  let rest = stage.text_quad("Dimensions").expect("the title is painted").y;
+  (stage, open, (first - rest, faded))
+}
+
+fn near(a: f32, b: f32) -> bool {
+  (a - b).abs() < 0.01
+}
+
+#[test]
+fn keyframes_set_on_the_theme_are_what_a_recipe_has_the_panel_play() {
+  let (mut stage, _, (down, faded)) = opened(rising(false, |s| s));
+  assert!(
+    near(down, 4.0) && near(faded, 0.0),
+    "it starts 4 down, unseen: {down} {faded}"
+  );
+  assert!(near(seen(&mut stage), 1.0), "and rests seen");
+}
+
+#[test]
+fn keyframes_set_after_the_window_opened_are_played_too() {
+  use lurq::{animation::Keyframes, ui::PartAnimation};
+  const DROP: lurq::animation::KeyframesId = lurq::animation::KeyframesId::new(8);
+  let app = App::new();
+  let theme = app.theme().clone();
+  let open = Signal::new(false);
+  let mut stage = Stage::in_app(app, page((20.0, 20.0), 120.0, &open, dimensions));
+  theme.set_keyframes(
+    Keyframes::new(DROP)
+      .frame(0.0, |k| {
+        k.translate(0.0, -6.0);
+      })
+      .frame(1.0, |k| {
+        k.translate(0.0, 0.0);
+      }),
+  );
+  theme.patch_recipe::<Popover>(|recipe| {
+    recipe.base(PopoverPart::Panel, |s| {
+      s.enter(PartAnimation::new(DROP, MotionDuration::Base, MotionEasing::Enter))
+    })
+  });
+  open.set(true);
+  stage.pass_after(Duration::ZERO);
+  let first = stage.text_quad("Dimensions").unwrap().y;
+  stage.pass();
+  let rest = stage.text_quad("Dimensions").unwrap().y;
+  assert!(near(first - rest, -6.0), "{first} {rest}");
+}
+
+#[test]
+fn under_reduced_motion_the_panel_plays_what_its_recipe_says_it_plays_then() {
+  use lurq::ui::PartAnimation;
+  // Unsaid, it rises as ever.
+  let (_, _, (down, _)) = opened(rising(true, |s| s));
+  assert!(near(down, 4.0), "{down}");
+
+  // A fade in place of the rise.
+  let (_, _, (down, faded)) = opened(rising(true, |s| {
+    s.reduced_enter(Some(PartAnimation::new(
+      FADE_IN,
+      MotionDuration::Base,
+      MotionEasing::Enter,
+    )))
+  }));
+  assert!(
+    near(down, 0.0) && near(faded, 0.0),
+    "it fades in where it is: {down} {faded}"
+  );
+
+  // Nothing: it is there at once, and gone at once.
+  let (mut stage, open, (down, faded)) = opened(rising(true, |s| s.reduced_enter(None).reduced_exit(None)));
+  assert!(near(down, 0.0) && near(faded, 1.0), "there at once: {down} {faded}");
+  open.set(false);
+  stage.pass_after(Duration::ZERO);
+  assert!(!stage.paints("Dimensions"), "gone at once");
+
+  // With motion not reduced, the same recipe rises and fades out.
+  let (mut stage, open, (down, _)) = opened(rising(false, |s| s.reduced_enter(None).reduced_exit(None)));
+  assert!(near(down, 4.0), "{down}");
+  open.set(false);
+  stage.pass_after(Duration::ZERO);
+  assert!(stage.paints("Dimensions"), "fading out");
+}

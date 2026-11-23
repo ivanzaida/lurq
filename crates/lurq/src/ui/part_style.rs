@@ -332,6 +332,12 @@ pub struct PartStyle {
   /// What the part plays as it leaves, kept until it ends where what holds it keeps leaving parts: an
   /// overlay's layer, or a child of an element with `presence()` that has an id or a key.
   pub exit: Option<PartAnimation>,
+  /// What the part plays as it appears while motion is reduced ([`Theme::reduced_motion`]), in place of
+  /// [`Self::enter`]: `Some(None)` plays nothing, and the part is there at once. Unsaid, it plays its enter.
+  pub reduced_enter: Option<Option<PartAnimation>>,
+  /// What the part plays as it leaves while motion is reduced, in place of [`Self::exit`]: `Some(None)` plays
+  /// nothing, and the part is gone at once. Unsaid, it plays its exit.
+  pub reduced_exit: Option<Option<PartAnimation>>,
   pub cursor: Option<CursorIcon>,
 }
 
@@ -583,6 +589,20 @@ impl PartStyle {
     self
   }
 
+  /// What the part plays as it appears while motion is reduced, in place of its [`enter`](Self::enter): a fade
+  /// where the enter moves, or `None`, for a part that is there at once. A part that does not say plays its enter.
+  pub fn reduced_enter(mut self, animation: Option<PartAnimation>) -> Self {
+    self.reduced_enter = Some(animation);
+    self
+  }
+
+  /// What the part plays as it leaves while motion is reduced, in place of its [`exit`](Self::exit): a fade where
+  /// the exit moves, or `None`, for a part that is gone at once. A part that does not say plays its exit.
+  pub fn reduced_exit(mut self, animation: Option<PartAnimation>) -> Self {
+    self.reduced_exit = Some(animation);
+    self
+  }
+
   pub fn cursor(mut self, cursor: CursorIcon) -> Self {
     self.cursor = Some(cursor);
     self
@@ -619,6 +639,8 @@ impl PartStyle {
       && self.transitions.is_none()
       && self.enter.is_none()
       && self.exit.is_none()
+      && self.reduced_enter.is_none()
+      && self.reduced_exit.is_none()
       && self.cursor.is_none()
       && self.text.is_empty()
   }
@@ -658,6 +680,8 @@ impl PartStyle {
       transitions,
       enter,
       exit,
+      reduced_enter,
+      reduced_exit,
       cursor
     );
     self.text.merge(&over.text);
@@ -750,10 +774,16 @@ impl PartStyle {
     for transition in self.transitions.iter().flatten() {
       NodeUpdate::transition(node, transition.resolve(theme));
     }
-    if let Some(animation) = &self.enter {
+    // Under reduced motion a part plays what it says it plays then, where it says it.
+    let reduced = (self.reduced_enter.is_some() || self.reduced_exit.is_some()) && theme.reduced_motion();
+    let pick = |usual: &Option<PartAnimation>, instead: &Option<Option<PartAnimation>>| match instead {
+      Some(instead) if reduced => instead.clone(),
+      _ => usual.clone(),
+    };
+    if let Some(animation) = pick(&self.enter, &self.reduced_enter) {
       NodeUpdate::animation(node, animation.resolve(theme));
     }
-    if let Some(animation) = &self.exit {
+    if let Some(animation) = pick(&self.exit, &self.reduced_exit) {
       NodeUpdate::exit_animation(node, animation.resolve(theme));
     }
     if let Some(cursor) = self.cursor {

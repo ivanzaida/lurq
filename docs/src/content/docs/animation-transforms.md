@@ -100,6 +100,24 @@ app.theme().set_reduced_motion(Some(true));
   blur, radii and border widths.
 - Keyframe animations are the app's and are not changed. Read `ctx.reduced_motion()`, which renders the component again
   when the setting changes, to hold back one that moves or to show a fade in its place.
+- What a part of a component plays as it appears or leaves is its recipe's (`PartStyle::enter`, `exit`), and the
+  recipe says what it plays in their place while motion is reduced: `reduced_enter(..)` and `reduced_exit(..)` take
+  another animation, a fade where the enter moves, or `None` for a part that is there, or gone, at once. A part that
+  does not say plays its enter and its exit as ever; lurq's overlays fade, which reduced motion keeps.
+
+```rust
+use lurq::ui::{FADE_IN, Menu, MenuPart, PartAnimation};
+use lurq::app::theme::{MotionDuration, MotionEasing};
+
+app.theme().patch_recipe::<Menu>(|recipe| {
+  recipe.base(MenuPart::Panel, |s| {
+    s.enter(PartAnimation::new(MENU_RISE, MotionDuration::Base, MotionEasing::Enter))
+      // A fade where it stands, in place of the rise; `None` would have it there at once.
+      .reduced_enter(Some(PartAnimation::new(FADE_IN, MotionDuration::Base, MotionEasing::Enter)))
+      .reduced_exit(None)
+  })
+});
+```
 - A callback of [`ctx.on_frame`](#your-own-frames) is the app's too and goes on running: what it moves is for the app
   to hold back.
 - A notch of a mouse's wheel scrolls at once, where it is otherwise [animated](../styling-events/#the-mouse-wheel).
@@ -113,7 +131,34 @@ way per duration, and 0 from rest; something a finger lets go of goes on at the 
 
 ## Keyframe Animations
 
-Register keyframes on the tree before nodes reference them:
+An app's keyframes are set on its theme, with the rest of its look, and every window drawn with the theme plays them,
+those already open too:
+
+```rust
+use lurq::animation::{Keyframes, KeyframesId};
+
+const MENU_RISE: KeyframesId = KeyframesId::new(1);
+
+app.theme().set_keyframes(
+  Keyframes::new(MENU_RISE)
+    .frame(0.0, |k| {
+      k.opacity(0.0).translate(0.0, 4.0);
+    })
+    .frame(1.0, |k| {
+      k.opacity(1.0).translate(0.0, 0.0);
+    }),
+);
+```
+
+A recipe then names them for a part to play as it appears or leaves (`PartStyle::enter`, `exit`), as lurq's overlays
+play `ui::FADE_IN` and `ui::FADE_OUT`. `opacity`, `translate` (right and down, in logical pixels) and `scale` (about
+the element's middle) are a frame's most common values; `translate` and `scale` in one frame are one transform of
+both. Keyframes of an id already set replace them; lurq's own ids are `0xFF00` and over, and an app that sets one
+of them (`ui::FADE_IN`) replaces lurq's. `Theme::set_keyframes_in_phase` sets keyframes whose runs play
+[in phase](#frame-pacing). The theme's keyframes are the app's, as reduced motion is: not a part of a
+`ThemeDefinition`, and kept when one is applied.
+
+Keyframes can be registered on one tree too, before nodes reference them:
 
 ```rust
 use lurq::{
@@ -226,7 +271,7 @@ no exit animation in it is gone with the pass that closes it, as before.
   [Children of a container](#children-of-a-container). Anywhere else an element that is removed is gone with the
   render that removes it.
 - Exit animations are keyframe animations, so [reduced motion](#reduced-motion) leaves them to the app: use a fade,
-  or none, where `ctx.reduced_motion()` is set.
+  or none, where `ctx.reduced_motion()` is set. A part of a component says it in its recipe, with `reduced_exit`.
 
 ### Children of a container
 

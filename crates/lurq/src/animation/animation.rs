@@ -287,8 +287,13 @@ pub struct AnimationEngine {
   /// Nodes that came back while they left, and how much of the animation they enter with is to be taken as played:
   /// as much as was left of the exit they were playing (`Self::turn_round`).
   resumed: HashMap<NodeId, f32>,
+  /// The app's keyframes as they were last taken from its theme: see [`Self::take_theme_keyframes`].
+  theme_keyframes: Option<ThemeKeyframes>,
   pub has_active: bool,
 }
+
+/// The keyframes a theme holds for the app, and whether each plays in phase.
+type ThemeKeyframes = std::sync::Arc<Vec<(Keyframes, bool)>>;
 
 impl Default for AnimationEngine {
   fn default() -> Self {
@@ -305,6 +310,7 @@ impl AnimationEngine {
       next_change: None,
       in_phase: HashSet::new(),
       resumed: HashMap::new(),
+      theme_keyframes: None,
       has_active: false,
     };
     // What lurq's own components play: a full turn, for a spinner; a fade in and out, for a panel over the window.
@@ -335,6 +341,28 @@ impl AnimationEngine {
       engine.register_keyframes(keyframes);
     }
     engine
+  }
+
+  /// Registers the keyframes `theme` holds for the app
+  /// ([`Theme::set_keyframes`](crate::app::theme::Theme::set_keyframes)), where they changed since they were last
+  /// taken. Keyframes the theme held and holds no more stay registered.
+  pub(crate) fn take_theme_keyframes(&mut self, theme: &crate::app::theme::Theme) {
+    let held = theme.keyframes();
+    if self
+      .theme_keyframes
+      .as_ref()
+      .is_some_and(|taken| std::sync::Arc::ptr_eq(taken, &held))
+    {
+      return;
+    }
+    for (keyframes, in_phase) in held.iter() {
+      if *in_phase {
+        self.register_keyframes_in_phase(keyframes.clone());
+      } else {
+        self.register_keyframes(keyframes.clone());
+      }
+    }
+    self.theme_keyframes = Some(held);
   }
 
   pub fn register_keyframes(&mut self, keyframes: Keyframes) {

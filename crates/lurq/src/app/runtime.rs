@@ -8183,6 +8183,8 @@ impl Tree {
       .is_some_and(|root| root.has_synthetic_role(SyntheticNodeRole::OverlayHost) && root.children.len() > 1);
     // Transitions read the colors, widths and shadows nodes head to against the theme's roles.
     self.transition_engine.set_theme(app.theme());
+    // The app's keyframes, set on its theme, are played as lurq's own are.
+    self.animation_engine.take_theme_keyframes(app.theme());
     let mut animation_layout_changed = false;
     if had_overlay_host && !had_active_overlays {
       if let Some(root) = self.root.as_mut()
