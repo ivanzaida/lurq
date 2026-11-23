@@ -38,9 +38,20 @@ struct PaintedText {
 
 /// The width the paint wraps a text of `width` at, in device pixels, or
 /// none when it neither wraps nor aligns.
-pub(super) fn painted_max_width(scale: f32, wrap: bool, align: TextAlign, width: f32) -> f32 {
+///
+/// Layout shapes a text in logical pixels and the paint shapes it again at
+/// the font size of the display's scale, so the box is rounded out to a
+/// device pixel: the paint never needs a line more than layout measured.
+/// Where the box is a whole number of device pixels already, rounding out
+/// gives no room, and the paint's sum of advances may come out a few
+/// millionths over it: ten letters of 10.8 are 108.00002 in a box of 108 (a
+/// monospace font of 7.2 a letter at a scale of 1.5), and the last letter
+/// went to a second line. So the width has a hundredth of a device pixel
+/// more, and more than that for a long line, whose sum drifts further.
+pub(crate) fn painted_max_width(scale: f32, wrap: bool, align: TextAlign, width: f32) -> f32 {
   if (wrap || align != TextAlign::Left) && width > 0.0 {
-    (width * scale).ceil()
+    let device = (width * scale).ceil();
+    device + (device * 1e-5).max(0.01)
   } else {
     f32::MAX
   }

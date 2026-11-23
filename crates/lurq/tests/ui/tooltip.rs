@@ -748,3 +748,34 @@ fn a_collision_that_only_clamps_keeps_it_on_its_own_side() {
   assert!(shown.y >= -0.01, "kept in the window: {:?}", at(&shown));
   assert!(shown.y < y + height, "not turned to below the button: {:?}", at(&shown));
 }
+
+#[test]
+fn a_shadow_on_the_box_is_not_cut_at_the_room_around_it() {
+  use lurq::node::box_shadow::BoxShadow;
+  for placement in [Placement::Top, Placement::Bottom, Placement::Left, Placement::Right] {
+    let stage = stage(move || {
+      Tooltip::new(WORDS)
+        .placement(placement)
+        .force_open(Some(true))
+        .style(TooltipPart::Panel, |panel| {
+          panel.shadow(BoxShadow::new(0.0, 6.0, 16.0, Color::from_hex("#00000066")))
+        })
+    });
+    let panel = bubble(&stage, WORDS).expect("the tooltip shows");
+    let shadows: Vec<Quad> = stage
+      .quads()
+      .into_iter()
+      .filter(|quad| matches!(quad.content, QuadContent::BoxShadow(_)))
+      .collect();
+    assert_eq!(shadows.len(), 1, "the box's shadow, {placement:?}");
+    // The shadow falls 6 under the box and fades over 16 on every side of that.
+    let (left, top) = (panel.x - 16.0, panel.y + 6.0 - 16.0);
+    let (right, bottom) = (panel.x + panel.width + 16.0, panel.y + panel.height + 6.0 + 16.0);
+    let clip = shadows[0].clip;
+    assert!(
+      !clip.active
+        || (clip.x <= left && clip.y <= top && clip.x + clip.width >= right && clip.y + clip.height >= bottom),
+      "{placement:?}: the shadow reaches {left},{top} to {right},{bottom} and is cut to {clip:?}"
+    );
+  }
+}

@@ -3600,13 +3600,8 @@ impl Tree {
           let mut scaled_style = style.clone();
           scaled_style.scale_pixels(scale);
           // Layout shapes in logical pixels, while paint reshapes at the DPI-scaled
-          // font size. Round outward so subpixel scaling cannot add a paint-only line.
-          let max_width =
-            if (*wrap || style.text_align != crate::layout::text_style::TextAlign::Left) && quad.width > 0.0 {
-              (quad.width * scale).ceil()
-            } else {
-              f32::MAX
-            };
+          // font size: the width is one that cannot add a paint-only line.
+          let max_width = crate::layout::layout_engine::painted_max_width(scale, *wrap, style.text_align, quad.width);
           let glyph_xf = quad.transform.matrix_2x2();
           let glyph_origin = quad
             .transform_origin
@@ -3794,11 +3789,7 @@ impl Tree {
             .first()
             .map(|span| span.style.text_align)
             .unwrap_or(crate::layout::text_style::TextAlign::Left);
-          let max_width = if (*wrap || align != crate::layout::text_style::TextAlign::Left) && quad.width > 0.0 {
-            (quad.width * scale).ceil()
-          } else {
-            f32::MAX
-          };
+          let max_width = crate::layout::layout_engine::painted_max_width(scale, *wrap, align, quad.width);
           let glyph_xf = quad.transform.matrix_2x2();
           let glyph_origin = quad
             .transform_origin
