@@ -11,6 +11,41 @@ dropped). When a decision is replaced, the old entry stays and says what replace
 
 ## 2026-11-23
 
+### An app's keyframes are the theme's, and a part says what it plays while motion is reduced
+
+- **Question.** A recipe names a part's enter and exit animation (`PartStyle::enter`, `exit`) by its keyframes, but
+  an app could register keyframes only on a running `Tree` (`Tree::register_keyframes`), not where the rest of its
+  look is set: a design's motion (a menu that rises 4 as it fades in, a dialog that grows from 98 %) could not be
+  given to lurq's overlays by `theme::install(&mut app)` (issue #214). And under reduced motion an enter or exit
+  animation played as ever: only transitions were cut, and a recipe could not say otherwise, so an app could not
+  make its overlays appear at once (issue #215).
+- **Decision (Ivan, by the issues).** Keyframes owned by the theme, put into each tree the app creates, and named
+  by recipes. Under reduced motion, a variant the theme names (the issue's second way, "it keeps a fade possible
+  where a design wants one, so it fits more apps").
+- **Decided by Claude in the work, to be confirmed.**
+  - *`Theme::set_keyframes(Keyframes)` and `Theme::set_keyframes_in_phase(Keyframes)`*, as the tree's two are.
+    Every tree drawn with the theme takes them before it plays its animations, in every frame they changed, so
+    keyframes set after a window opened are played too. They are the app's, as reduced motion and smooth scroll
+    are: not a part of `ThemeDefinition`, and kept when one is applied. Keyframes of an id that lurq uses
+    (`ui::FADE_IN`, ...) replace lurq's: an app may change lurq's fade.
+  - *An id is a `KeyframesId` (a `u16`), not a name.* The issue writes `set_keyframes("menu-enter", ..)`, but a
+    recipe already names keyframes by `KeyframesId`, and lurq's own are `0xFF00` and over; an app's are under.
+  - *`KeyframeBuilder::opacity`, `translate` and `scale`*, so that a motion is written as the issue writes it,
+    without `AnimatableProperty` and `Decomposed`. `translate` and `scale` set the transform: a frame with both
+    sets one transform of both.
+  - *`PartStyle::reduced_enter(Option<PartAnimation>)` and `reduced_exit(..)`*, in place of a `ReducedMotion` state
+    on each overlay's recipe: what the part plays in place of its enter or exit while motion is reduced, `None`
+    for nothing, so the part is there, or gone, at once. One field of the part, in every component that has an
+    enter or an exit, where a state would be one per component, and a recipe that sets it in its base has it in
+    every state. Where a part does not say, it plays its animation as before: lurq's overlays fade, and a fade
+    is what reduced motion keeps, as transitions and `Sheet` keep it. They are fields of `PartStyle`, not of
+    `PartAnimation`, whose fields an app writes out (a new field there would break it).
+  - Keyframe animations an app plays itself (`.animation(..)`) are left as they are: the app reads
+    `Theme::reduced_motion`. The toasts' and the action bar's slides, which are not recipes, are not changed.
+- **Why.** A design's motion is a design value, set with the others; and a person who asked for less motion is to
+  get it from lurq's overlays without each app rebuilding them.
+- **State.** Built, on `feat/theme-keyframes`.
+
 ### Mutations and cache writes for `lurq::query`
 
 - **Question.** `lurq::query` caches reads and has nothing for writes: every screen keeps its own pending flag and

@@ -2,6 +2,7 @@ use super::{
   easing::Easing,
   interpolate::{AnimatableProperty, AnimatableValue},
 };
+use crate::node::transform::Decomposed;
 
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -74,5 +75,59 @@ impl KeyframeBuilder {
   pub fn easing(&mut self, e: Easing) -> &mut Self {
     self.easing = Some(e);
     self
+  }
+
+  /// The opacity at this frame, from 0 (none of it seen) to 1.
+  pub fn opacity(&mut self, opacity: f32) -> &mut Self {
+    self.set(AnimatableProperty::Opacity, opacity)
+  }
+
+  /// How far the element is moved at this frame, in logical pixels: right and down. It is the element's transform,
+  /// with the scale of [`Self::scale`] at the same frame.
+  pub fn translate(&mut self, x: f32, y: f32) -> &mut Self {
+    let at = self.transform().with_translate(x, y);
+    self.put_transform(at)
+  }
+
+  /// How large the element is drawn at this frame, about its middle: 1 is its size. It is the element's transform,
+  /// with the move of [`Self::translate`] at the same frame.
+  pub fn scale(&mut self, scale: f32) -> &mut Self {
+    let at = self.transform().with_scale(scale, scale);
+    self.put_transform(at)
+  }
+
+  /// The transform this frame sets so far.
+  fn transform(&self) -> Decomposed {
+    self
+      .values
+      .iter()
+      .rev()
+      .find_map(|(prop, value)| match (prop, value) {
+        (AnimatableProperty::Transform, AnimatableValue::Transform(at)) => Some(*at),
+        _ => None,
+      })
+      .unwrap_or(Decomposed::IDENTITY)
+  }
+
+  fn put_transform(&mut self, at: Decomposed) -> &mut Self {
+    self.values.retain(|(prop, _)| *prop != AnimatableProperty::Transform);
+    self.set(AnimatableProperty::Transform, at)
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn a_frame_that_moves_and_scales_sets_one_transform_of_both() {
+    let keyframes = Keyframes::new(1).frame(0.0, |k| {
+      k.opacity(0.5).translate(0.0, 4.0).scale(0.98);
+    });
+    let values = &keyframes.frames[0].values;
+    assert_eq!(values.len(), 2, "{values:?}");
+    let at = Decomposed::IDENTITY.with_translate(0.0, 4.0).with_scale(0.98, 0.98);
+    assert!(values.contains(&(AnimatableProperty::Opacity, AnimatableValue::Float(0.5))));
+    assert!(values.contains(&(AnimatableProperty::Transform, AnimatableValue::Transform(at))));
   }
 }

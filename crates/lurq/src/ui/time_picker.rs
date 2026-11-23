@@ -47,6 +47,9 @@ pub enum TimePickerPart {
   Column,
   /// An hour, a minute or a half of the day: what is pressed and chosen.
   Item,
+  /// A line between two columns, as high as they are where it has no height of its own. There is none unless a
+  /// recipe gives it a width.
+  Separator,
 }
 
 names!(TimePickerPart {
@@ -56,6 +59,7 @@ names!(TimePickerPart {
   Panel => "panel",
   Column => "column",
   Item => "item",
+  Separator => "separator",
 });
 
 /// The states of a time picker a recipe styles. The picker is in the field's states; an item in `Selected`.
@@ -1012,19 +1016,18 @@ impl TimePickerView {
         self.item(ColumnKind::Minute, *minute, format!("{minute:02}"), selected, allowed)
       })
       .collect();
-    let mut row = Row::new()
-      .align_items(Alignment::Start)
-      .spacing(self.gap(TimePickerPart::Panel))
-      .child(self.column(
+    let mut lanes = vec![
+      self.column(
         ColumnKind::Hour,
         hours,
         held.and_then(|time| self.hours.iter().position(|hour| *hour == hour_of(time))),
-      ))
-      .child(self.column(
+      ),
+      self.column(
         ColumnKind::Minute,
         minutes,
         held.and_then(|time| self.minutes.iter().position(|minute| *minute == time.minute() as u32)),
-      ));
+      ),
+    ];
     if self.cycle == HourCycle::H12 {
       let periods = [DayPeriod::Am, DayPeriod::Pm]
         .into_iter()
@@ -1039,7 +1042,23 @@ impl TimePickerView {
           )
         })
         .collect();
-      row = row.child(self.column(ColumnKind::Period, periods, None));
+      lanes.push(self.column(ColumnKind::Period, periods, None));
+    }
+    // A line between two columns where the recipe draws one: it stretches to their height.
+    let separator = self.part(TimePickerPart::Separator);
+    let separated = separator.rest().width.is_some();
+    let mut row = Row::new()
+      .align_items(if separated {
+        Alignment::Stretch
+      } else {
+        Alignment::Start
+      })
+      .spacing(self.gap(TimePickerPart::Panel));
+    for (index, lane) in lanes.into_iter().enumerate() {
+      if separated && index > 0 {
+        row = row.child(Row::new().part(&separator));
+      }
+      row = row.child(lane);
     }
     row
   }

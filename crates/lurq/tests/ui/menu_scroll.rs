@@ -234,3 +234,31 @@ fn the_section_goes_back_to_its_top_when_what_it_holds_changes() {
   assert_eq!(keys.active(), Some(0));
   assert!(shown_in(&mut stage, "tree-0", "menu-scroll"));
 }
+
+#[test]
+fn the_entries_of_a_section_that_scrolls_are_as_far_apart_as_its_part_says() {
+  for gap in [None, Some(1.0)] {
+    let open = Signal::new(true);
+    let anchor = ElementRef::new();
+    let held = open.clone();
+    let mut stage = Stage::new(move |_| {
+      let mut rules = lurq::ui::Recipe::new();
+      if let Some(gap) = gap {
+        rules = rules.base(lurq::ui::MenuPart::Scroll, |s| s.gap(gap));
+      }
+      page(
+        anchor.clone(),
+        Menu::new(held.clone(), anchor.clone())
+          .id("menu")
+          .rules(&rules)
+          .scrolling(trees(&NAMES, &Log::default()), 128.0),
+      )
+    });
+    let (_, first, _, height) = stage.bounds("tree-0");
+    let (_, second, ..) = stage.bounds("tree-1");
+    assert!(
+      (second - (first + height + gap.unwrap_or(0.0))).abs() < 0.01,
+      "{gap:?}: {first} {height} {second}"
+    );
+  }
+}
