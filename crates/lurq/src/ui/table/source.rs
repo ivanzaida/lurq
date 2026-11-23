@@ -385,6 +385,7 @@ impl<R: Send + Sync + 'static> TableColumn<R> {
       editor: None,
       summary: None,
       wrap: self.wrap,
+      tooltip_when_cut: self.tooltip_when_cut,
       filter,
     }
   }

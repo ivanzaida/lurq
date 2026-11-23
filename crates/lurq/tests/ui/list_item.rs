@@ -672,3 +672,51 @@ fn a_row_that_says_something_below_is_held_with_it_in_the_item_part() {
     "the id of what is pressed is the row's"
   );
 }
+
+/// Whether `content` is painted whole: a text of it and nothing cut from it.
+fn whole(stage: &Stage, content: &str) -> bool {
+  stage
+    .quads()
+    .iter()
+    .any(|quad| matches!(&quad.content, lurq::layout::quad::QuadContent::Text { text, .. } if text == content))
+}
+
+#[test]
+fn a_cut_title_is_said_whole_in_a_tooltip_while_it_is_cut() {
+  const TITLE: &str = "Rename the notes of every project that was moved last week";
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .padding(8.0)
+      .spacing(8.0)
+      .child(
+        Column::new()
+          .width(160.0)
+          .child(ListItem::new(TITLE).id("cut").title_tooltip_when_cut(true)),
+      )
+      .child(
+        Column::new()
+          .width(360.0)
+          .child(ListItem::new("Short").id("whole").title_tooltip_when_cut(true)),
+      )
+      .child(
+        Column::new()
+          .width(160.0)
+          .child(ListItem::new(&TITLE.replace("notes", "files")).id("off")),
+      )
+      .into()
+  });
+  assert!(!whole(&stage, TITLE), "cut at rest");
+  stage.own_timers();
+  stage.hover("whole-title");
+  stage.tick_timers(std::time::Duration::from_secs(2));
+  stage.pass();
+  assert_eq!(texts(&stage, "Short").len(), 1, "no tooltip over a title that fits");
+  stage.hover("off-title");
+  stage.tick_timers(std::time::Duration::from_secs(2));
+  stage.pass();
+  assert!(!whole(&stage, &TITLE.replace("notes", "files")), "none unless told");
+  stage.hover("cut-title");
+  stage.tick_timers(std::time::Duration::from_secs(4));
+  stage.pass();
+  assert!(whole(&stage, TITLE), "its tooltip says it whole");
+}

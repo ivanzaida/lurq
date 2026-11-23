@@ -582,6 +582,12 @@ impl Component for ListPage {
          something below is held with it in the part item (x-item); the row's id stays on the row.",
       ),
       (
+        "title_tooltip_when_cut",
+        "bool",
+        "false",
+        "The whole title in a tooltip after the theme's delay, while the row's width cuts it with an ellipsis.",
+      ),
+      (
         "title_pending / description_pending",
         "bool",
         "false",

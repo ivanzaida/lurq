@@ -440,6 +440,7 @@ pub struct TableColumn<R> {
   editor: Option<CellEditor<R>>,
   summary: Option<Summary<R>>,
   wrap: bool,
+  tooltip_when_cut: bool,
   filter: Option<FilterBy<R>>,
 }
 
@@ -461,6 +462,7 @@ impl<R> Clone for TableColumn<R> {
       editor: self.editor.clone(),
       summary: self.summary.clone(),
       wrap: self.wrap,
+      tooltip_when_cut: self.tooltip_when_cut,
       filter: self.filter.clone(),
     }
   }
@@ -486,8 +488,17 @@ impl<R: 'static> TableColumn<R> {
       editor: None,
       summary: None,
       wrap: false,
+      tooltip_when_cut: false,
       filter: None,
     }
+  }
+
+  /// Whether its header draws its title: it does unless told. Hidden, the header is empty and the column is still
+  /// called by its title to what reads the tree, as an [`actions`](Self::actions) column is: a narrow column of a
+  /// state's glyph with no room for a word.
+  pub fn title_hidden(mut self, hidden: bool) -> Self {
+    self.title_hidden = hidden;
+    self
   }
 
   /// A column of what a row's end holds that is pressed: buttons, a menu. Its header says nothing (it is
@@ -564,6 +575,14 @@ impl<R: 'static> TableColumn<R> {
   /// as a row.
   pub fn wrap(mut self, wrap: bool) -> Self {
     self.wrap = wrap;
+    self
+  }
+
+  /// Whether a text cell that is cut with an ellipsis says its whole text in a tooltip, as
+  /// [`Tooltip::when_cut`](super::Tooltip::when_cut) says: shown after the theme's delay, and only while the last
+  /// layout cut it. Of a column of [`text`](Self::text) that does not [`wrap`](Self::wrap). Off unless told.
+  pub fn tooltip_when_cut(mut self, tooltip: bool) -> Self {
+    self.tooltip_when_cut = tooltip;
     self
   }
 
@@ -2672,12 +2691,22 @@ impl<R: Send + Sync + 'static, K: Clone + Eq + Hash + Send + Sync + 'static> Tab
                 .into(),
               // A text on one line gives way to the room its column has, and ends in an ellipsis: what reads the
               // tree still has all of it.
-              (Content::Text(text), _) => marked(rank, column_index, part.text(&text(row)), &text(row))
-                .nowrap()
-                .text_overflow(crate::node::node_kind::TextOverflow::Elipsis)
-                .flex_full(0.0, 1.0, None)
-                .min_width(Dimension::Px(0.0))
-                .into(),
+              (Content::Text(text), _) => {
+                let said = text(row);
+                let cell = marked(rank, column_index, part.text(&said), &said)
+                  .nowrap()
+                  .text_overflow(crate::node::node_kind::TextOverflow::Elipsis)
+                  .flex_full(0.0, 1.0, None)
+                  .min_width(Dimension::Px(0.0));
+                if column.tooltip_when_cut {
+                  let cut = crate::core::ElementRef::new();
+                  super::Tooltip::new(&said)
+                    .when_cut(&cut)
+                    .declared(cell.ref_element(cut.clone()))
+                } else {
+                  cell.into()
+                }
+              }
               (Content::Element(cell), _) => cell(row),
               // A column edited with a box that builds no cell of its own shows the box.
               (Content::Nothing, Some(EditorKind::Checkbox(checked))) => Row::new()
