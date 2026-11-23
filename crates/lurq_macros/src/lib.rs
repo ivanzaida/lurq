@@ -5,12 +5,22 @@ use syn::{
   parse_quote,
 };
 
+mod mutation;
 mod query;
 
 /// Defines a typed, cached query for lurq's optional `query` feature.
 #[proc_macro_attribute]
 pub fn query(args: TokenStream, input: TokenStream) -> TokenStream {
   query::expand(args.into(), input.into())
+    .unwrap_or_else(syn::Error::into_compile_error)
+    .into()
+}
+
+/// Defines a typed write for lurq's optional `query` feature: what `ctx.mutation` runs, with its pending state,
+/// its error, and the queries a success invalidates (`invalidates = [get_task::all()]`).
+#[proc_macro_attribute]
+pub fn mutation(args: TokenStream, input: TokenStream) -> TokenStream {
+  mutation::expand(args.into(), input.into())
     .unwrap_or_else(syn::Error::into_compile_error)
     .into()
 }

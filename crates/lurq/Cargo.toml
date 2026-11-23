@@ -179,7 +179,7 @@ inventory = { version = "0.3", optional = true }
 serde_json = { version = "1", optional = true, features = ["float_roundtrip"] }
 tokio = { version = "1.52.3", optional = true, features = ["rt", "rt-multi-thread", "sync"] }
 tracing.workspace = true
-lurq_macros = { version = "0.1.3", path = "../lurq_macros" }
+lurq_macros = { version = "0.1.4", path = "../lurq_macros" }
 
 # MCP server (feature `mcp`); all optional so the default build stays lean.
 rmcp = { version = "3.9", features = ["server", "transport-streamable-http-server"], optional = true }

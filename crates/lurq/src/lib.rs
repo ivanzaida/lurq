@@ -60,7 +60,7 @@ macro_rules! register_inspectable {
 #[cfg(feature = "persistent_storage")]
 pub use lurq_macros::PersistentValue;
 #[cfg(feature = "query")]
-pub use lurq_macros::query;
+pub use lurq_macros::{mutation, query};
 
 pub mod animation;
 pub mod app;

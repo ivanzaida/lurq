@@ -37,63 +37,14 @@ pub fn expand(args: TokenStream, input: TokenStream) -> syn::Result<TokenStream>
   }
 
   let function: ItemFn = syn::parse2(input)?;
+  let Parsed {
+    names,
+    patterns,
+    types,
+    data,
+    error,
+  } = parse_function(&function, "query")?;
   let signature = &function.sig;
-  if signature.asyncness.is_none()
-    || signature.constness.is_some()
-    || signature.unsafety.is_some()
-    || signature.abi.is_some()
-    || signature.variadic.is_some()
-    || !signature.generics.params.is_empty()
-    || signature.generics.where_clause.is_some()
-  {
-    return Err(syn::Error::new_spanned(
-      signature,
-      "query requires a safe, non-generic async free function",
-    ));
-  }
-  let mut names = Vec::new();
-  let mut patterns = Vec::new();
-  let mut types = Vec::new();
-  for argument in &signature.inputs {
-    let FnArg::Typed(argument) = argument else {
-      return Err(syn::Error::new_spanned(
-        argument,
-        "query methods are not supported; use a free function",
-      ));
-    };
-    let Pat::Ident(pattern) = &*argument.pat else {
-      return Err(syn::Error::new_spanned(
-        &argument.pat,
-        "query arguments must have simple names",
-      ));
-    };
-    if pattern.by_ref.is_some() || pattern.subpat.is_some() {
-      return Err(syn::Error::new_spanned(
-        pattern,
-        "query arguments must be owned values with simple names",
-      ));
-    }
-    names.push(&pattern.ident);
-    patterns.push(pattern);
-    types.push(&argument.ty);
-  }
-  let ReturnType::Type(_, output) = &signature.output else {
-    return Err(syn::Error::new_spanned(signature, "query must return Result<T, E>"));
-  };
-  let Type::Path(output) = &**output else {
-    return Err(syn::Error::new_spanned(output, "query must return Result<T, E>"));
-  };
-  let segment = output.path.segments.last().unwrap();
-  let syn::PathArguments::AngleBracketed(arguments) = &segment.arguments else {
-    return Err(syn::Error::new_spanned(output, "query must return Result<T, E>"));
-  };
-  let arguments: Vec<_> = arguments.args.iter().collect();
-  let [GenericArgument::Type(data), GenericArgument::Type(error)] = arguments.as_slice() else {
-    return Err(syn::Error::new_spanned(output, "query must return Result<T, E>"));
-  };
-  if segment.ident != "Result" {
-    return Err(syn::Error::new_spanned(output, "query must return Result<T, E>"));
-  }
   let name = &signature.ident;
   let definition = format_ident!("__LurqQuery_{}", name);
   let visibility = &function.vis;
@@ -138,6 +89,83 @@ pub fn expand(args: TokenStream, input: TokenStream) -> syn::Result<TokenStream>
         ::lurq::query::QueryFamily::<super::#definition>::new()
       }
     }
+  })
+}
+
+/// The arguments and the result of a query's or a mutation's function.
+pub(crate) struct Parsed<'a> {
+  pub names: Vec<&'a syn::Ident>,
+  pub patterns: Vec<&'a syn::PatIdent>,
+  pub types: Vec<&'a Type>,
+  pub data: &'a Type,
+  pub error: &'a Type,
+}
+
+/// Checks that `function` is one a query or a mutation (`what`) can be made of, and takes it apart.
+pub(crate) fn parse_function<'a>(function: &'a ItemFn, what: &str) -> syn::Result<Parsed<'a>> {
+  let signature = &function.sig;
+  if signature.asyncness.is_none()
+    || signature.constness.is_some()
+    || signature.unsafety.is_some()
+    || signature.abi.is_some()
+    || signature.variadic.is_some()
+    || !signature.generics.params.is_empty()
+    || signature.generics.where_clause.is_some()
+  {
+    return Err(syn::Error::new_spanned(
+      signature,
+      format!("{what} requires a safe, non-generic async free function"),
+    ));
+  }
+  let mut names = Vec::new();
+  let mut patterns = Vec::new();
+  let mut types = Vec::new();
+  for argument in &signature.inputs {
+    let FnArg::Typed(argument) = argument else {
+      return Err(syn::Error::new_spanned(
+        argument,
+        format!("{what} methods are not supported; use a free function"),
+      ));
+    };
+    let Pat::Ident(pattern) = &*argument.pat else {
+      return Err(syn::Error::new_spanned(
+        &argument.pat,
+        format!("{what} arguments must have simple names"),
+      ));
+    };
+    if pattern.by_ref.is_some() || pattern.subpat.is_some() {
+      return Err(syn::Error::new_spanned(
+        pattern,
+        format!("{what} arguments must be owned values with simple names"),
+      ));
+    }
+    names.push(&pattern.ident);
+    patterns.push(pattern);
+    types.push(&*argument.ty);
+  }
+  let ReturnType::Type(_, output) = &signature.output else {
+    return Err(syn::Error::new_spanned(signature, format!("{what} must return Result<T, E>")));
+  };
+  let Type::Path(output) = &**output else {
+    return Err(syn::Error::new_spanned(output, format!("{what} must return Result<T, E>")));
+  };
+  let segment = output.path.segments.last().unwrap();
+  let syn::PathArguments::AngleBracketed(arguments) = &segment.arguments else {
+    return Err(syn::Error::new_spanned(output, format!("{what} must return Result<T, E>")));
+  };
+  let arguments: Vec<_> = arguments.args.iter().collect();
+  let [GenericArgument::Type(data), GenericArgument::Type(error)] = arguments.as_slice() else {
+    return Err(syn::Error::new_spanned(output, format!("{what} must return Result<T, E>")));
+  };
+  if segment.ident != "Result" {
+    return Err(syn::Error::new_spanned(output, format!("{what} must return Result<T, E>")));
+  }
+  Ok(Parsed {
+    names,
+    patterns,
+    types,
+    data,
+    error,
   })
 }
 

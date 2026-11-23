@@ -1,6 +1,6 @@
 ---
 title: Queries
-description: Shared async data through named query functions, reactive handles, and typed invalidation.
+description: Shared async data through named query functions, reactive handles, typed invalidation, mutations and cache writes.
 ---
 
 # Queries
@@ -123,26 +123,129 @@ An observed entry refreshes in the background. An inactive entry becomes stale a
 
 Invalidation overrides freshness and makes an older in-flight result obsolete. Repeated invalidations before the next tick coalesce into one replacement request. `refresh()` joins an already running current request. These methods enqueue work and return immediately; the runtime applies commands and publishes results during `Tree::tick_futures()`.
 
-For writes, use the existing action API and invalidate the affected reads after success:
+## Mutations
+
+A mutation is a named async write. It gives a component what every write needs: a pending flag for the control, an error to show in place, and the cache told what the write changed.
 
 ```rust
-let queries = ctx.query_client();
-
-let save = ctx.future_action(move |changes: UserChanges| {
-  let queries = queries.clone();
-  async move {
-    let saved = api::update_user(changes).await?;
-    queries.invalidate(get_user(saved.id));
-    queries.invalidate(list_users::all());
-    Ok::<_, ApiError>(saved)
-  }
-});
-
-// In an event handler:
-save.run(changes);
+#[lurq::mutation(invalidates = [get_task::all(), list_tasks::all()])]
+async fn rename_task(id: TaskId, title: String) -> Result<Task, ApiError> {
+  api::rename_task(id, title).await
+}
 ```
 
-This keeps `future_action`'s existing behavior: another `.run()` restarts the local task. A dedicated mutation API and optimistic updates are separate future work.
+As with a query, the macro turns the function into a descriptor constructor: calling `rename_task(id, title)` starts nothing. `invalidates` lists the queries a successful run invalidates, exact or by family; a failed run invalidates nothing.
+
+Hold the mutation during render, and run it from a handler with the tuple of its arguments:
+
+```rust
+let rename = ctx.mutation(rename_task);
+
+Button::new("Rename")
+  .loading(rename.pending())
+  .on_click({
+    let rename = rename.clone();
+    move |_| {
+      rename.run((task_id, title.get()));
+    }
+  });
+
+if let Some(error) = rename.error() {
+  // Show it in place.
+}
+```
+
+| Method | Meaning |
+| --- | --- |
+| `run(args)` | Ask for a run. Returns at once; `false` only when the run was rejected (see below). |
+| `pending()` | A run is waiting or on its way. |
+| `error()` | What the last failed run failed with. The next run clears it, and so does a success. |
+| `data()` | What the last successful run returned. |
+| `reset()` | Forget the last result and error. Runs on their way go on. |
+
+`pending()`, `error()` and `data()` are reactive reads. The handle is `MutationHandle<Args, Data, Error>`, here `MutationHandle<(TaskId, String), Task, ApiError>`, so it can be a prop or a field. Its state belongs to the `ctx.mutation` call and survives re-renders.
+
+A run belongs to the client, not to the component. A run still on its way when its component unmounts finishes, and its effects on the cache apply. A write is never deduplicated and never cancelled: the service may have accepted it already.
+
+### Effects in code
+
+Where the effect needs the arguments or the result, say it on the handle. `on_success` is called with the client, the run's arguments and its result, before the definition's `invalidates` apply:
+
+```rust
+let rename = ctx.mutation(rename_task).on_success(|client, (id, _), task| {
+  client.set_data(get_task(*id), task.clone()); // write the fresh value
+  client.invalidate(list_tasks::all());
+});
+```
+
+A clone of the handle carries the effects it had when it was cloned, so clone it for a handler after they are set. Effects are called when the run finishes, on the thread of a window that has the client, so what they capture must be `Send + Sync`.
+
+### Runs asked for while one is pending
+
+By default the runs of one handle take turns, in the order they were asked for: no write is lost and none overtakes an earlier one. `concurrency` changes that:
+
+```rust
+use lurq::query::MutationConcurrency;
+
+let save = ctx.mutation(save_draft).concurrency(MutationConcurrency::Reject);
+```
+
+| Concurrency | A run asked for while another is pending |
+| --- | --- |
+| `Queue` (default) | waits its turn |
+| `Parallel` | starts at once, beside the others |
+| `Reject` | is not run, and `run` returns `false` |
+
+Handles of different `ctx.mutation` calls are independent of one another.
+
+### Without a component
+
+`QueryClient::mutate` runs a mutation with nothing to watch it, from a handler of server events or a background task. Its definition's `invalidates` apply.
+
+```rust
+queries.mutate(mark_read(notification_id));
+```
+
+## Write the cache
+
+The client reads and writes cached values directly:
+
+```rust
+queries.get_data(get_task(id));                       // Option<Arc<Task>>, no request
+queries.set_data(get_task(id), task);                 // every observer shows it at once
+queries.update_data(get_task(id), |task| Task { done: true, ..task.clone() });
+```
+
+- `set_data` makes the value the entry's, fresh from now as if fetched. A query nothing has cached yet gets an entry, kept for the retention time.
+- `update_data` writes what the closure makes of the cached value. With nothing cached it does nothing, and the closure is not called.
+- `get_data` starts no request and is not a reactive read. Components read through `ctx.query`.
+
+A fetch of that query that was on its way when a value is written is dropped: its result is older than the write. Invalidate the query to have the server's value fetched over the written one.
+
+### Optimistic updates
+
+`optimistic` is called as a run starts, before its request is sent. It writes the cache as the write will leave it, and returns what to go back to. `on_error` is handed that value if the run fails:
+
+```rust
+let rename = ctx
+  .mutation(rename_task)
+  .optimistic(|client, (id, title)| {
+    let before = client.get_data(get_task(*id));
+    client.update_data(get_task(*id), |task| Task { title: title.clone(), ..task.clone() });
+    before // the rollback value
+  })
+  .on_error(|client, (id, _), _error, before| {
+    if let Some(before) = before {
+      client.set_data(get_task(*id), (*before).clone());
+    }
+  });
+```
+
+Set `optimistic` before `on_error`, which takes its snapshot; the other order panics during render. Without `optimistic`, the fourth argument of `on_error` is `()`.
+
+A queued run makes its optimistic write when its turn comes, over what the runs before it left.
+
+`ctx.future_action` remains for async work that is not a write to shared data: another `.run()` restarts its local task, and it ends with its component.
 
 ## Freshness and retention
 
@@ -180,5 +283,7 @@ The winit shell drives query commands, completions, and retention deadlines auto
 With a Tokio handle configured through `App::with_tokio_handle`, queries run on a registered runtime. A shared client chooses the first available attached Tokio runtime when starting a request; an existing task stays on the runtime where it started. Closing its starting tree does not cancel that task while other trees remain attached. If the runtime itself shuts down, observed requests restart on another available attached runtime. If all registered runtimes have shut down, requests wait for a live runtime without busy polling.
 
 Enable both `query` and `tokio` for services that require Tokio. Clients without a configured Tokio runtime poll futures cooperatively; blocking I/O in a query body would block that polling thread. Cache changes wake all attached trees, and each tree publishes its observer notifications on its own UI tick.
+
+Mutations are driven the same way, on a Tokio runtime where one is attached. If that runtime shuts down under a running mutation, the run is not sent again, since whether the write was made is not known: it ends with neither a result nor an error. While no tree is attached to the client, a mutation waits to be finished by the next one that attaches.
 
 `queries.inspect()` returns `QueryInfo` records containing definition name, observer count, freshness, fetch activity, and whether data or an error is present. Inspection does not expose arguments or payload contents. A dedicated DevTools query panel is not included yet.

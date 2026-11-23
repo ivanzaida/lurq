@@ -9,6 +9,39 @@ them says so. Decisions about phones and tablets are in [mobile-decisions.md](mo
 Each entry: **the question**, **the decision**, **why**, and its **state** (decided, in work on a branch, built,
 dropped). When a decision is replaced, the old entry stays and says what replaced it.
 
+## 2026-11-23
+
+### Mutations and cache writes for `lurq::query`
+
+- **Question.** `lurq::query` caches reads and has nothing for writes: every screen keeps its own pending flag and
+  error, invalidates by hand and rolls its own optimistic update (issue #207, Ivan: "work on this now"). The issue
+  gives the API (`#[lurq::mutation]`, `ctx.mutation`, `on_success`, `optimistic`, `on_error`, `set_data`,
+  `update_data`, `get_data`) and leaves three things open.
+- **Decision (Ivan, by the issue).** The API as the issue writes it.
+- **Decided by Claude in the work, to be confirmed.**
+  - *A run asked for while one of the same handle is pending waits its turn* (`MutationConcurrency::Queue`, the
+    default), with `Parallel` and `Reject` to choose. The issue says "queued or rejected (an option)". Queued by
+    default because it is the one that loses no write and lets none overtake an earlier one: a handle shared by
+    the rows of a list must not drop the second row's write, as a rejecting default would.
+  - *A fetch on its way when a value is written is dropped*, and the written value is fresh. The issue allows
+    this or marking the query stale and fetching again. Dropped, because an optimistic write followed at once by
+    a fetch would show the server's old value under a pending write; what wants the server's value invalidates
+    (a mutation's `invalidates`, or `on_success`).
+  - *A run belongs to the client*, not to the component: it is polled by the client's tick, so it finishes and
+    has its effects with its component gone, as the issue asks. It is never cancelled or sent twice; one whose
+    Tokio runtime shut down under it ends with neither a result nor an error.
+  - *The handle is `MutationHandle<Args, Data, Error, Snapshot = ()>`*, named by plain types, not by the macro's
+    hidden definition: it can be a prop. Effects live in the handle value, so `optimistic` must come before
+    `on_error` in the chain (the other order panics in render), and a clone runs with the effects it was cloned
+    with.
+  - *Cache writes are synchronous*, under the client's driver lock, which became reentrant so that an effect
+    called by the tick can write. `get_data` after `set_data` reads what was written.
+  - *`QueryClient::mutate(rename_task(id, title))`* runs a mutation with no component, which is what the
+    descriptor the macro's function returns is for.
+  - `lurq_macros` is 0.1.4, with the new attribute.
+- **Why.** A write needs the same three things on every screen; kept by hand they drift between screens.
+- **State.** Built, on `feat/query-mutations`. Out of scope, as the issue says: persisting the cache, prefetch.
+
 ## 2026-11-22
 
 ### What 0.63 deprecated is removed
