@@ -602,7 +602,10 @@ mod tests {
   #[test]
   #[ignore = "removes the card's device from the whole test program: run alone, with --ignored"]
   fn a_device_that_is_removed_is_lost_and_its_errors_end_nothing() {
-    let instance = wgpu::Instance::new(super::super::instance_descriptor(wgpu::Backends::DX12));
+    let instance = wgpu::Instance::new(super::super::instance_descriptor(
+      wgpu::Backends::DX12,
+      wgpu::InstanceFlags::from_build_config(),
+    ));
     let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
       eprintln!("skipped: no card with Direct3D 12 here");
       return;

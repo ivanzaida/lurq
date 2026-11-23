@@ -11,6 +11,7 @@ mod covered;
 #[cfg(all(test, feature = "raster", any(target_os = "macos", target_os = "ios")))]
 mod cv_pixel_buffer_tests;
 mod device_loss;
+mod device_request;
 mod extension;
 #[cfg(feature = "perf_profile")]
 mod gpu_timing;
@@ -43,6 +44,7 @@ use core_foundation_sys::base::{CFAllocatorRef, CFRelease, OSStatus, kCFAllocato
 use core_foundation_sys::dictionary::CFDictionaryRef;
 #[cfg(all(feature = "raster", any(target_os = "macos", target_os = "ios")))]
 use core_video_sys::pixel_buffer::CVPixelBufferRef;
+pub use device_request::WgpuDeviceRequest;
 use extension::WgpuFrameExtensionEntry;
 pub use extension::{SharedWgpuContext, WgpuAppError, WgpuFrameExtension, WgpuFrameInfo, WgpuViewportRect};
 #[cfg(all(feature = "raster", any(target_os = "macos", target_os = "ios")))]
@@ -53,8 +55,8 @@ use vertex::ImageInstance;
 use vertex::{Globals, GlyphInstance, QuadInstance, QuadVertex};
 use wgpu::util::DeviceExt;
 pub use wgpu::{
-  Backend as WgpuBackend, Backends as WgpuBackends, Features as WgpuFeatures, Limits as WgpuLimits,
-  PresentMode as WgpuPresentMode,
+  Backend as WgpuBackend, Backends as WgpuBackends, Features as WgpuFeatures, InstanceFlags as WgpuInstanceFlags,
+  Limits as WgpuLimits, MemoryHints as WgpuMemoryHints, PresentMode as WgpuPresentMode,
 };
 
 #[cfg(feature = "perf_profile")]
@@ -489,7 +491,9 @@ pub struct WgpuRenderEngine {
   #[cfg(feature = "canvas")]
   canvas_asset_budget: crate::canvas::CanvasAssetBudget,
   instance: Option<wgpu::Instance>,
-  backends: wgpu::Backends,
+  /// How the device is asked for: among which backends, with which flags, features, limits and hints, and on
+  /// which card.
+  request: WgpuDeviceRequest,
   /// A device made ahead of the engine, which draws with it instead of asking for one; see [`WgpuDevice`]. Or
   /// the device of the app's other windows, which this shares.
   prepared: Option<WgpuDevice>,
@@ -520,8 +524,6 @@ pub struct WgpuRenderEngine {
   adapter: Option<wgpu::Adapter>,
   device: Option<wgpu::Device>,
   queue: Option<wgpu::Queue>,
-  optional_device_features: wgpu::Features,
-  optional_device_limits: wgpu::Limits,
   requested_present_mode: wgpu::PresentMode,
   quad_pipeline: Option<wgpu::RenderPipeline>,
   glyph_pipeline: Option<wgpu::RenderPipeline>,
@@ -631,32 +633,51 @@ fn default_backends() -> WgpuBackends {
   }
 }
 
-fn instance_descriptor(backends: WgpuBackends) -> wgpu::InstanceDescriptor {
+fn instance_descriptor(backends: WgpuBackends, flags: wgpu::InstanceFlags) -> wgpu::InstanceDescriptor {
   let mut descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
   descriptor.backends = backends;
+  descriptor.flags = flags;
   // lurq waits for the frame latency object itself; see `wait_for_frame_latency`.
   descriptor.backend_options.dx12.latency_waitable_object = wgpu::Dx12UseFrameLatencyWaitableObject::DontWait;
   descriptor
 }
 
-/// The instances of wgpu the program has, by the backends each was made among.
+/// The instances of wgpu the program has, by the backends each was made among and the flags it was made with.
 #[cfg(not(target_arch = "wasm32"))]
-static INSTANCES: std::sync::Mutex<Vec<(WgpuBackends, wgpu::Instance)>> = std::sync::Mutex::new(Vec::new());
+static INSTANCES: std::sync::Mutex<Vec<(WgpuBackends, wgpu::InstanceFlags, wgpu::Instance)>> =
+  std::sync::Mutex::new(Vec::new());
+
+/// The flags an instance is made with: those asked for, and over them what the environment says for this run
+/// (`WGPU_DEBUG`, `WGPU_VALIDATION` and wgpu's others), each of which turns one flag on or off.
+fn instance_flags(asked: wgpu::InstanceFlags) -> wgpu::InstanceFlags {
+  asked.with_env()
+}
+
+/// The instance among `backends` with the flags of the build, as an engine that was told nothing asks for.
+#[cfg(all(test, not(target_arch = "wasm32")))]
+fn new_instance(backends: WgpuBackends) -> wgpu::Instance {
+  new_instance_with(backends, wgpu::InstanceFlags::from_build_config())
+}
 
 /// The instance of wgpu among `backends`: one for the program, which every engine and every device made
 /// ahead shares.
 ///
 /// Each engine had its own, and so each window. Under Vulkan a program with two of them alive ended with an
 /// access violation when one was let go of, on the card this was run on, each time it was tried; one
-/// instance with a device for each window does not. Under Direct3D 12 either way holds.
+/// instance with a device for each window does not. Under Direct3D 12 either way holds. Engines that ask for
+/// other flags have another instance: an app says the same flags to each of its engines.
 #[cfg(not(target_arch = "wasm32"))]
-fn new_instance(backends: WgpuBackends) -> wgpu::Instance {
+fn new_instance_with(backends: WgpuBackends, flags: wgpu::InstanceFlags) -> wgpu::Instance {
+  let flags = instance_flags(flags);
   let mut instances = INSTANCES.lock().unwrap();
-  if let Some((_, instance)) = instances.iter().find(|(among, _)| *among == backends) {
+  if let Some((.., instance)) = instances
+    .iter()
+    .find(|(among, with, _)| *among == backends && *with == flags)
+  {
     return instance.clone();
   }
-  let instance = wgpu::Instance::new(instance_descriptor(backends));
-  instances.push((backends, instance.clone()));
+  let instance = wgpu::Instance::new(instance_descriptor(backends, flags));
+  instances.push((backends, flags, instance.clone()));
   instance
 }
 
@@ -668,30 +689,47 @@ fn forget_instances_after_a_loss() {
   INSTANCES
     .lock()
     .unwrap()
-    .retain(|(among, _)| among.contains(WgpuBackends::VULKAN));
+    .retain(|(among, ..)| among.contains(WgpuBackends::VULKAN));
 }
 
 #[cfg(target_arch = "wasm32")]
-fn new_instance(backends: WgpuBackends) -> wgpu::Instance {
-  wgpu::Instance::new(instance_descriptor(backends))
+fn new_instance_with(backends: WgpuBackends, flags: wgpu::InstanceFlags) -> wgpu::Instance {
+  wgpu::Instance::new(instance_descriptor(backends, instance_flags(flags)))
 }
 
 /// The instance of a page. Whether a browser has WebGPU is known only once it was asked for an adapter, and an
 /// instance is of one kind from the start: with the `webgl` feature the browser is asked first, and the instance
 /// is WebGL's when it has no WebGPU.
 #[cfg(target_arch = "wasm32")]
-async fn new_page_instance(backends: WgpuBackends) -> wgpu::Instance {
+async fn new_page_instance(backends: WgpuBackends, flags: wgpu::InstanceFlags) -> wgpu::Instance {
   #[cfg(feature = "webgl")]
-  return wgpu::util::new_instance_with_webgpu_detection(instance_descriptor(backends)).await;
+  return wgpu::util::new_instance_with_webgpu_detection(instance_descriptor(backends, instance_flags(flags))).await;
   #[cfg(not(feature = "webgl"))]
-  new_instance(backends)
+  new_instance_with(backends, flags)
 }
 
-/// The device an engine asks `adapter` for: the optional features and limits as far as the adapter has them.
+/// The device asked of `adapter` with lurq's own hints, as an engine that was told nothing asks for it.
+#[cfg(test)]
 fn device_descriptor(
   adapter: &wgpu::Adapter,
   optional_features: wgpu::Features,
   optional_limits: &wgpu::Limits,
+) -> wgpu::DeviceDescriptor<'static> {
+  device_descriptor_with(
+    adapter,
+    optional_features,
+    optional_limits,
+    &WgpuDeviceRequest::new().memory_hints,
+  )
+}
+
+/// The device an engine asks `adapter` for: the optional features and limits as far as the adapter has them,
+/// and how its memory is asked of the card.
+fn device_descriptor_with(
+  adapter: &wgpu::Adapter,
+  optional_features: wgpu::Features,
+  optional_limits: &wgpu::Limits,
+  memory_hints: &wgpu::MemoryHints,
 ) -> wgpu::DeviceDescriptor<'static> {
   // A frame of a video that stays on the card is an NV12 texture, where the card has them.
   #[cfg(all(windows, feature = "raster"))]
@@ -713,6 +751,7 @@ fn device_descriptor(
     label: Some("lurq"),
     required_features,
     required_limits: optional_limits.clone().or_worse_values_from(&adapter.limits()),
+    memory_hints: memory_hints.clone(),
     ..Default::default()
   }
 }
@@ -761,11 +800,8 @@ pub struct WgpuDevice {
   /// Whether the card the device was lost on makes a device again, as an engine on another card found: the
   /// device of the other card is let go of for one of that card.
   back: std::sync::Arc<std::sync::atomic::AtomicBool>,
-  /// Among which the device was asked for, and is asked for again, with these features where the card has them
-  /// and these limits.
-  backends: WgpuBackends,
-  features: wgpu::Features,
-  limits: wgpu::Limits,
+  /// How the device was asked for, and is asked for again.
+  request: WgpuDeviceRequest,
   backend: WgpuBackend,
   /// The surface of the page's canvas, which the adapter was asked for, until the engine that draws to the
   /// canvas takes it.
@@ -825,20 +861,24 @@ impl WgpuDevice {
   /// [`Self::request`] among `backends` only. In a browser, `WgpuBackends::GL` asks for WebGL2 also where there
   /// is WebGPU, and `WgpuBackends::BROWSER_WEBGPU` for WebGPU alone.
   pub async fn request_with(backends: WgpuBackends) -> Result<Self, WgpuDeviceError> {
-    let (features, limits) = (wgpu::Features::empty(), wgpu::Limits::default());
+    Self::request_as(WgpuDeviceRequest::new().backends(backends)).await
+  }
+
+  /// Asks for a device as `request` says: its backends, the flags of its instance, its optional features and
+  /// limits, how its memory is asked for and the card it is on. An engine given the device
+  /// ([`WgpuRenderEngine::with_device`]) draws as the device was asked for, whatever the engine was told.
+  pub async fn request_as(request: WgpuDeviceRequest) -> Result<Self, WgpuDeviceError> {
     #[cfg(not(target_arch = "wasm32"))]
-    let made = Self::ask(backends, features, &limits).await?;
+    let made = Self::ask(&request).await?;
     #[cfg(target_arch = "wasm32")]
-    let (made, surface) = Self::ask(backends).await?;
+    let (made, surface) = Self::ask(&request).await?;
     Ok(Self {
       backend: made.adapter.get_info().backend,
       // In a browser nothing of wgpu's goes to another thread, and this is shared as on any system.
       #[allow(clippy::arc_with_non_send_sync)]
       made: std::sync::Arc::new(parking_lot::Mutex::new(Some(made))),
       back: std::sync::Arc::default(),
-      backends,
-      features,
-      limits,
+      request,
       #[cfg(target_arch = "wasm32")]
       surface: std::rc::Rc::new(std::cell::RefCell::new(Some(surface))),
     })
@@ -846,27 +886,21 @@ impl WgpuDevice {
 
   /// The device an engine made for itself, to be shared with the engines of the app's other windows.
   #[cfg(not(target_arch = "wasm32"))]
-  fn of_engine(made: MadeDevice, backends: WgpuBackends, features: wgpu::Features, limits: wgpu::Limits) -> Self {
+  fn of_engine(made: MadeDevice, request: WgpuDeviceRequest) -> Self {
     Self {
       backend: made.adapter.get_info().backend,
       made: std::sync::Arc::new(parking_lot::Mutex::new(Some(made))),
       back: std::sync::Arc::default(),
-      backends,
-      features,
-      limits,
+      request,
     }
   }
 
-  /// Asks for an adapter among `backends` and its device, as an engine does for its first frame.
+  /// Asks for an adapter and its device as `request` says, as an engine does for its first frame.
   #[cfg(not(target_arch = "wasm32"))]
-  async fn ask(
-    backends: WgpuBackends,
-    features: wgpu::Features,
-    limits: &wgpu::Limits,
-  ) -> Result<MadeDevice, WgpuDeviceError> {
-    let instance = new_instance(backends);
+  async fn ask(request: &WgpuDeviceRequest) -> Result<MadeDevice, WgpuDeviceError> {
+    let instance = request.instance();
     // After a loss, the card the device was lost on is asked first, and waited for a little.
-    let describe = |adapter: &wgpu::Adapter| device_descriptor(adapter, features, limits);
+    let describe = |adapter: &wgpu::Adapter| request.describe(adapter);
     let (adapter, device, queue, displaced, while_held) =
       match device_loss::the_card_again(&instance, None, describe).await {
         device_loss::Again::Card(adapter, device, queue, held) => (adapter, device, queue, false, held),
@@ -877,7 +911,7 @@ impl WgpuDevice {
         }
         device_loss::Again::Elsewhere(adapter, device, queue) => (adapter, device, queue, true, false),
         device_loss::Again::Unasked => {
-          let (adapter, device, queue) = Self::ask_of(&instance, None, features, limits).await?;
+          let (adapter, device, queue) = Self::ask_of(&instance, None, request).await?;
           (adapter, device, queue, false, false)
         }
       };
@@ -900,11 +934,11 @@ impl WgpuDevice {
 
   /// Asks for an adapter among `backends` for the page's canvas, and its device.
   #[cfg(target_arch = "wasm32")]
-  async fn ask(backends: WgpuBackends) -> Result<(MadeDevice, wgpu::Surface<'static>), WgpuDeviceError> {
+  async fn ask(request: &WgpuDeviceRequest) -> Result<(MadeDevice, wgpu::Surface<'static>), WgpuDeviceError> {
     // WebGL gives a device for a canvas, so the page's canvas is there before the device is.
     #[cfg(target_arch = "wasm32")]
     let (instance, surface) = {
-      let instance = new_page_instance(backends).await;
+      let instance = new_page_instance(request.backends, request.instance_flags).await;
       let canvas = crate::app::web_canvas::page_canvas()
         .ok_or_else(|| WgpuDeviceError("the page has no document to put a canvas in".to_owned()))?;
       // The handles are given as a window's are: wgpu's own implementation takes no canvas without a display
@@ -921,13 +955,7 @@ impl WgpuDevice {
       .map_err(|error| WgpuDeviceError(format!("the page's canvas cannot be drawn to: {error}")))?;
       (instance, surface)
     };
-    let (adapter, device, queue) = Self::ask_of(
-      &instance,
-      Some(&surface),
-      wgpu::Features::empty(),
-      &wgpu::Limits::default(),
-    )
-    .await?;
+    let (adapter, device, queue) = Self::ask_of(&instance, Some(&surface), request).await?;
     let lost = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let untold = app_errors::Untold::default();
     // A device lost here is not made again; what the app does wrong on it ends nothing.
@@ -951,19 +979,14 @@ impl WgpuDevice {
   async fn ask_of(
     instance: &wgpu::Instance,
     surface: Option<&wgpu::Surface<'static>>,
-    features: wgpu::Features,
-    limits: &wgpu::Limits,
+    request: &WgpuDeviceRequest,
   ) -> Result<(wgpu::Adapter, wgpu::Device, wgpu::Queue), WgpuDeviceError> {
-    let adapter = instance
-      .request_adapter(&wgpu::RequestAdapterOptions {
-        power_preference: wgpu::PowerPreference::default(),
-        compatible_surface: surface,
-        force_fallback_adapter: false,
-      })
+    let adapter = request
+      .adapter(instance, surface)
       .await
       .map_err(|error| WgpuDeviceError(format!("no suitable GPU adapter found: {error}")))?;
     let (device, queue) = adapter
-      .request_device(&device_descriptor(&adapter, features, limits))
+      .request_device(&request.describe(&adapter))
       .await
       .map_err(|error| WgpuDeviceError(format!("failed to create device: {error}")))?;
     Ok((adapter, device, queue))
@@ -985,7 +1008,7 @@ impl WgpuDevice {
         *made = None;
       }
       if made.is_none() {
-        *made = pollster::block_on(Self::ask(self.backends, self.features, &self.limits)).ok();
+        *made = pollster::block_on(Self::ask(&self.request)).ok();
       }
     }
     made.clone()
@@ -1001,9 +1024,7 @@ impl WgpuDevice {
 /// as long as one of them draws with it.
 #[cfg(not(target_arch = "wasm32"))]
 struct SharedDevice {
-  backends: WgpuBackends,
-  features: wgpu::Features,
-  limits: wgpu::Limits,
+  request: WgpuDeviceRequest,
   backend: WgpuBackend,
   made: std::sync::Weak<parking_lot::Mutex<Option<MadeDevice>>>,
   back: std::sync::Weak<std::sync::atomic::AtomicBool>,
@@ -1017,20 +1038,15 @@ thread_local! {
 
 #[cfg(not(target_arch = "wasm32"))]
 impl WgpuDevice {
-  /// The device another engine on this thread draws with, asked for among `backends` with `features` and
-  /// `limits`, while one does.
-  fn shared(backends: WgpuBackends, features: wgpu::Features, limits: &wgpu::Limits) -> Option<Self> {
+  /// The device another engine on this thread draws with, asked for as `request` says, while one does.
+  fn shared(request: &WgpuDeviceRequest) -> Option<Self> {
     SHARED_DEVICES.with_borrow_mut(|shared| {
       shared.retain(|device| device.made.strong_count() > 0);
-      let device = shared
-        .iter()
-        .find(|device| device.backends == backends && device.features == features && device.limits == *limits)?;
+      let device = shared.iter().find(|device| device.request.same(request))?;
       Some(Self {
         made: device.made.upgrade()?,
         back: device.back.upgrade()?,
-        backends,
-        features,
-        limits: limits.clone(),
+        request: request.clone(),
         backend: device.backend,
       })
     })
@@ -1040,9 +1056,7 @@ impl WgpuDevice {
   fn share(&self) {
     SHARED_DEVICES.with_borrow_mut(|shared| {
       shared.push(SharedDevice {
-        backends: self.backends,
-        features: self.features,
-        limits: self.limits.clone(),
+        request: self.request.clone(),
         backend: self.backend,
         made: std::sync::Arc::downgrade(&self.made),
         back: std::sync::Arc::downgrade(&self.back),
@@ -1103,7 +1117,7 @@ impl WgpuRenderEngine {
       #[cfg(feature = "canvas")]
       canvas_asset_budget: Default::default(),
       instance: None,
-      backends: default_backends(),
+      request: WgpuDeviceRequest::new(),
       prepared: None,
       own_device: false,
       scale_factor: 1.0,
@@ -1121,8 +1135,6 @@ impl WgpuRenderEngine {
       adapter: None,
       device: None,
       queue: None,
-      optional_device_features: wgpu::Features::empty(),
-      optional_device_limits: wgpu::Limits::default(),
       requested_present_mode: wgpu::PresentMode::Fifo,
       quad_pipeline: None,
       glyph_pipeline: None,
@@ -1238,14 +1250,57 @@ impl WgpuRenderEngine {
   /// Panics if this engine has already initialized a GPU instance.
   pub fn with_backends(mut self, backends: WgpuBackends) -> Self {
     assert!(self.instance.is_none(), "select WGPU backends before rendering");
-    self.backends = backends;
+    self.request.backends = backends;
+    self
+  }
+
+  /// The flags of wgpu's instance: its validation, the debug layer of the backend, and the others. Without this
+  /// they are the build's (`WgpuInstanceFlags::from_build_config()`): a build with debug assertions validates
+  /// and has the debug layer, which on Direct3D 12 costs memory and time, and another has neither. An app that
+  /// measures a debug build gives `WgpuInstanceFlags::empty()`, and one that looks for a fault of drawing in a
+  /// release build `WgpuInstanceFlags::debugging()`.
+  ///
+  /// wgpu's environment variables are applied over what is given here, for one run: `WGPU_VALIDATION=0`,
+  /// `WGPU_DEBUG=1` and the others turn a flag off or on.
+  ///
+  /// Give every engine of an app the same flags: the engines share one instance and one device where they ask
+  /// alike. Panics if this engine has already initialized a GPU instance.
+  pub fn with_instance_flags(mut self, flags: WgpuInstanceFlags) -> Self {
+    assert!(self.instance.is_none(), "give the WGPU instance flags before rendering");
+    self.request.instance_flags = flags;
+    self
+  }
+
+  /// How the device asks the card for memory. lurq's default is `WgpuMemoryHints::MemoryUsage`: small blocks,
+  /// taken as they are needed, for a UI keeps a few MiB on the card. wgpu's own default,
+  /// `WgpuMemoryHints::Performance`, takes large blocks ahead, which on Direct3D 12 was about 180 MB of a
+  /// window's memory that nothing used; an app that keeps much on the card and wants them gives it here.
+  /// Panics if this engine has already initialized a GPU instance.
+  pub fn with_memory_hints(mut self, hints: WgpuMemoryHints) -> Self {
+    assert!(self.instance.is_none(), "give the WGPU memory hints before rendering");
+    self.request.memory_hints = hints;
+    self
+  }
+
+  /// The graphics card this draws on, on a machine with more than one: by the power it takes, or by its
+  /// identifier ([`GraphicsCard`](crate::app::GraphicsCard)). Without this the system chooses.
+  ///
+  /// A window that shows a decoder's frames is put on the decoder's card with
+  /// `GraphicsCard::Luid(..)`, and the frames are drawn where they are. Where no card of the identifier draws
+  /// to the window, the system's choice is taken. After a device is lost, what takes its place is made on the
+  /// card it was lost on, as before.
+  /// Panics if this engine has already initialized a GPU instance.
+  pub fn with_graphics_card(mut self, card: crate::app::GraphicsCard) -> Self {
+    assert!(self.instance.is_none(), "choose the graphics card before rendering");
+    self.request.card = card;
     self
   }
 
   /// Draws with a device made ahead ([`WgpuDevice::request`]) instead of
   /// asking for one at the first frame: what a browser needs, where the
-  /// engine cannot wait for the device. The backends, optional features and
-  /// limits are then the device's, not this engine's.
+  /// engine cannot wait for the device. The backends, instance flags, optional
+  /// features and limits, memory hints and graphics card are then the device's
+  /// ([`WgpuDevice::request_as`]), not this engine's.
   /// Panics if this engine has already initialized a GPU instance.
   pub fn with_device(mut self, device: WgpuDevice) -> Self {
     assert!(self.instance.is_none(), "give the WGPU device before rendering");
@@ -1278,12 +1333,12 @@ impl WgpuRenderEngine {
   }
 
   pub fn with_optional_device_features(mut self, features: WgpuFeatures) -> Self {
-    self.optional_device_features |= features;
+    self.request.features |= features;
     self
   }
 
   pub fn with_optional_device_limits(mut self, limits: WgpuLimits) -> Self {
-    self.optional_device_limits = limits;
+    self.request.limits = limits;
     self
   }
 
@@ -1569,8 +1624,8 @@ impl WgpuRenderEngine {
     let Some(instance) = self.instance.clone() else {
       return;
     };
-    let (features, limits) = (self.optional_device_features, self.optional_device_limits.clone());
-    let describe = move |adapter: &wgpu::Adapter| device_descriptor(adapter, features, &limits);
+    let request = self.request.clone();
+    let describe = move |adapter: &wgpu::Adapter| request.describe(adapter);
     if pollster::block_on(device_loss::the_card_gives(&instance, describe)) {
       self.card_is_back = true;
       // A device this was given is let go of for one of that card, for all that share it.
@@ -1594,8 +1649,8 @@ impl WgpuRenderEngine {
   fn request_device(&mut self, surface: &wgpu::Surface<'static>) -> Option<(wgpu::Adapter, wgpu::Device, wgpu::Queue)> {
     // After a loss, the card the device was lost on is asked first, and waited for a little: asked for any
     // card, the window would go to another one while something of the app holds the lost device still.
-    let (features, limits) = (self.optional_device_features, self.optional_device_limits.clone());
-    let describe = move |adapter: &wgpu::Adapter| device_descriptor(adapter, features, &limits);
+    let request = self.request.clone();
+    let describe = move |adapter: &wgpu::Adapter| request.describe(adapter);
     let instance = self.instance.clone().unwrap();
     match pollster::block_on(device_loss::the_card_again(&instance, Some(surface), describe)) {
       device_loss::Again::Card(adapter, device, queue, held) => {
@@ -1609,26 +1664,12 @@ impl WgpuRenderEngine {
       }
       device_loss::Again::Unasked => {}
     }
-    let adapter = pollster::block_on(
-      self
-        .instance
-        .as_ref()
-        .unwrap()
-        .request_adapter(&wgpu::RequestAdapterOptions {
-          power_preference: wgpu::PowerPreference::default(),
-          compatible_surface: Some(surface),
-          force_fallback_adapter: false,
-        }),
-    );
+    let adapter = pollster::block_on(self.request.adapter(&instance, Some(surface)));
     if adapter.is_err() && device_loss::happened() {
       return None;
     }
     let adapter = adapter.expect("no suitable GPU adapter found");
-    let made = pollster::block_on(adapter.request_device(&device_descriptor(
-      &adapter,
-      self.optional_device_features,
-      &self.optional_device_limits,
-    )));
+    let made = pollster::block_on(adapter.request_device(&self.request.describe(&adapter)));
     if made.is_err() && device_loss::happened() {
       return None;
     }
@@ -1662,11 +1703,7 @@ impl WgpuRenderEngine {
     // The device of the app's other windows, where one draws with a device asked for as this one would be.
     #[cfg(not(target_arch = "wasm32"))]
     let shared = self.prepared.is_none() && !self.own_device && self.device.is_none() && {
-      self.prepared = WgpuDevice::shared(
-        self.backends,
-        self.optional_device_features,
-        &self.optional_device_limits,
-      );
+      self.prepared = WgpuDevice::shared(&self.request);
       self.prepared.is_some()
     };
     // A device this was given, as it is now: another one where the first was lost.
@@ -1683,7 +1720,7 @@ impl WgpuRenderEngine {
     if self.instance.is_none() {
       self.instance = Some(match &given {
         Some(made) => made.instance.clone(),
-        None => new_instance(self.backends),
+        None => self.request.instance(),
       });
     }
     let surface = self.create_surface(window, display);
@@ -1739,9 +1776,7 @@ impl WgpuRenderEngine {
               while_held: self.made_while_held,
               untold: self.untold.clone(),
             },
-            self.backends,
-            self.optional_device_features,
-            self.optional_device_limits.clone(),
+            self.request.clone(),
           );
           device.share();
           self.prepared = Some(device);
@@ -5112,10 +5147,10 @@ mod tests {
     let engine = super::WgpuRenderEngine::new();
     assert!(engine.instance.is_none());
     #[cfg(windows)]
-    assert_eq!(engine.backends, super::WgpuBackends::DX12);
+    assert_eq!(engine.request.backends, super::WgpuBackends::DX12);
     let engine = engine.with_backends(super::WgpuBackends::VULKAN);
     assert!(engine.instance.is_none());
-    assert_eq!(engine.backends, super::WgpuBackends::VULKAN);
+    assert_eq!(engine.request.backends, super::WgpuBackends::VULKAN);
   }
 
   #[test]

@@ -390,6 +390,10 @@ name = "counting_allocator"
 required-features = ["counting_allocator"]
 
 [[example]]
+name = "graphics_card_probe"
+required-features = ["wgpu", "dx12"]
+
+[[example]]
 name = "dx12_capture_check"
 required-features = ["screenshot", "dx12"]
 
