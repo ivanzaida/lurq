@@ -5,11 +5,11 @@ description: Feature flags, the gallery, and the smallest useful lurq app.
 
 # Getting Started
 
-This guide targets **lurq 0.69.0**. Add the crate; its default features are what a desktop app needs, the window and the renderer used by the example below among them:
+This guide targets **lurq 0.70.0**. Add the crate; its default features are what a desktop app needs, the window and the renderer used by the example below among them:
 
 ```toml
 [dependencies]
-lurq = "0.69.0"
+lurq = "0.70.0"
 ```
 
 Use a current stable Rust toolchain; the workspace uses edition 2024. In a source checkout, the library lives in `crates/lurq`, the gallery in `crates/gallery`, and macros in `crates/lurq_macros`.
@@ -63,7 +63,7 @@ It needs the `wasm32-unknown-unknown` target and wasm-bindgen's CLI. [Web](../we
 `lurq`'s default features are the desktop set: a window, its GPU renderer, the system's clipboard and file dialog, pictures, drawing, forms, routes and queries. An app adds what it uses beyond them:
 
 ```toml
-lurq = { version = "0.69.0", features = ["markdown", "http"] }
+lurq = { version = "0.70.0", features = ["markdown", "http"] }
 ```
 
 | Feature | Default | Enables |
@@ -97,13 +97,13 @@ Translations (`I18n`, `ctx.t`) are in every build; see [Internationalization](..
 An app that leaves out part of the desktop set turns the default off and names what it keeps. The smallest app with a window:
 
 ```toml
-lurq = { version = "0.69.0", default-features = false, features = ["winit", "wgpu"] }
+lurq = { version = "0.70.0", default-features = false, features = ["winit", "wgpu"] }
 ```
 
 A browser app names its list too: the default is for a desktop. With WebGL2 for a browser without WebGPU:
 
 ```toml
-lurq = { version = "0.69.0", default-features = false, features = ["webgl", "winit", "clipboard", "image", "canvas", "form", "router", "query"] }
+lurq = { version = "0.70.0", default-features = false, features = ["webgl", "winit", "clipboard", "image", "canvas", "form", "router", "query"] }
 ```
 
 When `devtools` is enabled, component props and signal values must implement `DevtoolsInspectable`. Derive it on structs and enums you want to inspect:
