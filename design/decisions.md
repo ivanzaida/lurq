@@ -9,6 +9,28 @@ them says so. Decisions about phones and tablets are in [mobile-decisions.md](mo
 Each entry: **the question**, **the decision**, **why**, and its **state** (decided, in work on a branch, built,
 dropped). When a decision is replaced, the old entry stays and says what replaced it.
 
+## 2026-11-24
+
+### A code block's fold the app holds, its chevron, and a document's code blocks given by the app
+
+- **Question.** 0.71's fold could not start shown, keep its state across a block mounted again, or draw a chevron
+  (issue #234); a document's fenced blocks could not have a fold, a bar's count or a scroll part (issue #233); and a
+  scrollbar's thumb at rest could not follow the palette (issue #235).
+- **Decision (Ivan).** Do the three, and do not break the current API.
+- **Decided by Claude in the work, to be confirmed.**
+  - *`fold_open(bool)` and `folded(Signal<bool>)` with `on_fold(Fn(bool))`*, both the issue names: a block that starts
+    open keeps what the person made it after that where it is mounted; the signal is the app's, `true` folded, in
+    place of the block's own state. `CodeBlockView::fold_press()` gives a renderer the press, the state being private.
+  - *`fold_icon(bool)`, off unless told*, a chevron in a `FoldIcon` part, so that a block that does not ask looks as
+    it did. Its text stays `show_all_text`, which an app gives its count (*Show all 22 lines*).
+  - *`MarkdownProps::code_blocks(Fn(CodeBlock, &MarkdownCode) -> CodeBlock)`*, the issue's first way: the closure
+    gets the block lurq built (its key, its language, not selectable by itself) and returns it changed, so a recipe
+    state, a fold and a scroll part are all a `CodeBlock`'s own. A block that folds is mounted on its own, as a
+    block of more than 400 lines is, since only a mounted block unfolds.
+  - *`ScrollBarStyle::thumb_role: Option<PaletteColor>`*, a field more, in place of making `thumb_color` a
+    `BackgroundColor`, which would break every style that sets it.
+- **State.** Built on `feat/code-card-polish`.
+
 ## 2026-11-23
 
 ### A cut text says itself whole in a tooltip where the app asks for it

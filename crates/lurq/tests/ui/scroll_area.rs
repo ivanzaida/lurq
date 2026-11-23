@@ -272,3 +272,29 @@ impl SizeForTest for ScrollArea {
     self.width(200.0).height(100.0)
   }
 }
+
+#[test]
+fn a_thumb_of_a_palettes_role_is_that_role_in_each_appearance() {
+  use lurq::layout::scrollbar::ScrollBarStyle;
+  let bar = ScrollBarStyle::default().with_thumb_role(Some(PaletteColor::Border));
+  for palette in [ThemePalette::light(), ThemePalette::dark()] {
+    let border = palette.get(PaletteColor::Border);
+    assert_eq!(bar.thumb_in(&palette), border);
+    assert_eq!(
+      bar.thumb_when(&palette, true, false),
+      border,
+      "under the pointer it keeps it, told no other"
+    );
+  }
+  assert_ne!(
+    ThemePalette::light().get(PaletteColor::Border),
+    ThemePalette::dark().get(PaletteColor::Border),
+    "one role, two colors"
+  );
+  let still = ScrollBarStyle::default();
+  assert_eq!(
+    still.thumb_in(&ThemePalette::dark()),
+    ThemePalette::dark().get(PaletteColor::Ring),
+    "the theme's Ring unless told"
+  );
+}

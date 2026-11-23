@@ -571,3 +571,45 @@ fn a_footnotes_number_is_raised_above_the_line() {
     Some(0.0)
   );
 }
+
+/// All the text drawn, run after run.
+fn drawn(tree: &Tree) -> String {
+  quads(tree)
+    .into_iter()
+    .map(|quad| match quad.content {
+      QuadContent::Text { text, .. } => text.to_string(),
+      QuadContent::RichText { spans, .. } => spans.iter().map(|span| span.text.to_string()).collect(),
+      _ => String::new(),
+    })
+    .collect::<Vec<_>>()
+    .join("\n")
+}
+
+#[test]
+fn an_app_gives_a_documents_code_blocks_what_a_code_block_has() {
+  let source = "Run it:\n\n```text\none\ntwo\nthree\nfour\nfive\n```\n";
+  let (mut app, mut tree) = mount(
+    MarkdownProps::new(source)
+      .width(400.0)
+      .code_blocks(|block, code| block.bar_meta(&format!("{} lines", code.lines())).fold(2)),
+  );
+  assert!(
+    has_element_with_text(&mut tree, "5 lines"),
+    "the bar says how many lines"
+  );
+  let shown = drawn(&tree);
+  assert!(
+    shown.contains("two") && !shown.contains("three"),
+    "folded after two: {shown}"
+  );
+  let at = bounds_of(&mut tree, "Show all");
+  pointer_click(
+    &mut tree,
+    at.x + at.width / 2.0,
+    at.y + at.height / 2.0,
+    MouseButton::Left,
+  );
+  pass(&mut app, &mut tree);
+  pass(&mut app, &mut tree);
+  assert!(drawn(&tree).contains("five"), "a person unfolds it");
+}

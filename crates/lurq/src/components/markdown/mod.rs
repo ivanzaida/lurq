@@ -41,6 +41,25 @@ mod tooltip;
 use document_text::DocumentText;
 pub use links::{MarkdownLink, MarkdownLinkPresentation, MarkdownRun};
 pub use list_view::MarkdownList;
+
+/// What gives a document's fenced code blocks what a [`CodeBlock`] has: see [`MarkdownProps::code_blocks`].
+pub type MarkdownCodeBlocks = Arc<dyn Fn(CodeBlock, &MarkdownCode<'_>) -> CodeBlock + Send + Sync>;
+
+/// A code block of a document, as [`MarkdownProps::code_blocks`] is told it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MarkdownCode<'a> {
+  /// Its code, without the newline at its end.
+  pub code: &'a str,
+  /// The language its fence names (```` ```rust ````), where it names one.
+  pub language: Option<&'a str>,
+}
+
+impl MarkdownCode<'_> {
+  /// How many lines its code has: what a bar that says *22 lines* says.
+  pub fn lines(&self) -> usize {
+    self.code.split('\n').count()
+  }
+}
 use list_view::MarkdownListView;
 use paragraph::{
   FlowItem, LinkSession, MarkdownJump, MarkdownLinkActivator, MarkdownLinkCallback, MarkdownLinkPresenter, Paragraph,
@@ -65,6 +84,7 @@ pub struct MarkdownProps {
   list_view: Option<MarkdownListView>,
   highlights: Arc<[TextHighlight]>,
   on_task_change: Option<TaskCallback>,
+  code_block: Option<MarkdownCodeBlocks>,
 }
 
 impl PartialEq for MarkdownProps {
@@ -80,6 +100,7 @@ impl PartialEq for MarkdownProps {
       && same_callback(&self.link_presentation, &other.link_presentation)
       && same_callback(&self.list_view, &other.list_view)
       && same_callback(&self.on_task_change, &other.on_task_change)
+      && same_callback(&self.code_block, &other.code_block)
       && self.highlights == other.highlights
   }
 }
@@ -99,7 +120,32 @@ impl MarkdownProps {
       list_view: None,
       highlights: Arc::from([]),
       on_task_change: None,
+      code_block: None,
     }
+  }
+
+  /// Gives each of the document's code blocks what a [`CodeBlock`] has, as the block lurq builds is given to
+  /// `blocks` with its code and its language, and what it returns is drawn: a fold after 8 lines and a bar that
+  /// says how many lines it has, a state of the theme's recipe, a scroll part of its own.
+  ///
+  /// ```
+  /// use lurq::components::MarkdownProps;
+  ///
+  /// let brief = MarkdownProps::new("```rust\nfn main() {}\n```").code_blocks(|block, code| {
+  ///   block.bar_meta(&format!("{} lines", code.lines())).fold(8)
+  /// });
+  /// ```
+  ///
+  /// A block that folds is mounted on its own, as a long one is, so that a person unfolds it: it is selectable by
+  /// itself where the document's words are, and the document's highlights do not run through it. Made once and
+  /// kept, `blocks` builds nothing again on a render that changes nothing; a new one each render builds every
+  /// block again.
+  pub fn code_blocks(
+    mut self,
+    blocks: impl Fn(CodeBlock, &MarkdownCode<'_>) -> CodeBlock + Send + Sync + 'static,
+  ) -> Self {
+    self.code_block = Some(Arc::new(blocks));
+    self
   }
 
   /// Called when a person checks or unchecks a task (`- [ ]`, `- [x]`),
@@ -194,6 +240,7 @@ impl MarkdownProps {
       turn_details: None,
       mount: None,
       selectable: self.selectable,
+      code_block: self.code_block.as_ref(),
     };
     let style = document_style(&self.style, ui);
     let mut element: Element = render_document(&document, &style, &theme, &render_ctx).into();
@@ -380,6 +427,8 @@ struct MarkdownRenderContext<'a> {
   mount: Option<&'a dyn mounted_code::MountCode>,
   /// The document's words are selectable: what a code block mounted on its own makes of its own.
   selectable: bool,
+  /// What gives its code blocks what a code block has.
+  code_block: Option<&'a MarkdownCodeBlocks>,
 }
 
 impl Markdown {
@@ -461,6 +510,7 @@ impl Component for Markdown {
         turn_details: Some(self.details.clone()),
         mount: Some(&mount),
         selectable: props.selectable,
+        code_block: props.code_block.as_ref(),
       };
       render_document(&document, &base_style, &theme, &render_ctx)
     };
@@ -911,6 +961,7 @@ fn render_code_block(kind: &MarkdownCodeBlockKind, text: &str, render_ctx: &Mark
       fit: render_ctx.width == BlockWidth::Fit,
       selectable: render_ctx.selectable,
       highlights: render_ctx.text.append_words(code).into(),
+      blocks: render_ctx.code_block.cloned(),
     };
     return mount.mount_code(&code_block_key(ordinal, kind), props);
   }
@@ -923,6 +974,13 @@ fn render_code_block(kind: &MarkdownCodeBlockKind, text: &str, render_ctx: &Mark
   } = kind
   {
     block = block.language(language);
+  }
+  if let Some(blocks) = render_ctx.code_block {
+    let language = match kind {
+      MarkdownCodeBlockKind::Fenced { language } => language.as_deref(),
+      _ => None,
+    };
+    block = blocks(block, &MarkdownCode { code, language });
   }
   let mut element = block.build(&render_ctx.ui);
   if let Some(node) = code_text(&mut element.node, code) {

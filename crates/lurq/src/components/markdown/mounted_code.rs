@@ -13,7 +13,7 @@ use crate::{
   ui::CodeBlock,
 };
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone)]
 pub(super) struct MountedCodeProps {
   pub(super) code: Arc<str>,
   pub(super) language: Option<Arc<str>>,
@@ -23,6 +23,19 @@ pub(super) struct MountedCodeProps {
   pub(super) selectable: bool,
   /// The document's highlights over the code, in bytes of the code.
   pub(super) highlights: Arc<[TextHighlight]>,
+  /// What gives the block what a code block has: the document's.
+  pub(super) blocks: Option<super::MarkdownCodeBlocks>,
+}
+
+impl PartialEq for MountedCodeProps {
+  fn eq(&self, other: &Self) -> bool {
+    self.code == other.code
+      && self.language == other.language
+      && self.fit == other.fit
+      && self.selectable == other.selectable
+      && self.highlights == other.highlights
+      && super::same_callback(&self.blocks, &other.blocks)
+  }
 }
 
 impl crate::app::component::DevtoolsInspectable for MountedCodeProps {}
@@ -60,9 +73,20 @@ impl Component for MountedCode {
     if let Some(language) = &props.language {
       block = block.language(language);
     }
+    if let Some(blocks) = &props.blocks {
+      block = blocks(
+        block,
+        &super::MarkdownCode {
+          code: &props.code,
+          language: props.language.as_deref(),
+        },
+      );
+    }
     // A long block lays out the lines in the window alone, as a block of its own: its lines are not one text the
     // document's highlights and selection run through, so it is selectable by itself, and as wide as the document.
-    if props.code.bytes().filter(|byte| *byte == b'\n').count() >= crate::ui::CODE_BLOCK_WINDOWED_LINES {
+    // So is a block that folds, which keeps whether a person unfolded it.
+    if block.folds() || props.code.bytes().filter(|byte| *byte == b'\n').count() >= crate::ui::CODE_BLOCK_WINDOWED_LINES
+    {
       return block.selectable(props.selectable).mount(ctx);
     }
     let mut element = block.build(ctx.theme());
