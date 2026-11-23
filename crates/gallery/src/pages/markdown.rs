@@ -412,6 +412,12 @@ impl Component for MarkdownPage {
         "A link was followed; a footnote's reference goes to its footnote on its own.",
       ),
       (
+        "code_blocks",
+        "impl Fn(CodeBlock, &MarkdownCode) -> CodeBlock",
+        "",
+        "Gives each fenced code block what a CodeBlock has: `|block, code| block.bar_meta(..).fold(8)`.",
+      ),
+      (
         "highlights",
         "impl Into<Arc<[TextHighlight]>>",
         "",

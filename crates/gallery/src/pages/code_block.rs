@@ -8,7 +8,7 @@ use lurq::{
   app::{
     component::Component,
     ctx::Ctx,
-    theme::{CodeScheme, CodeStyle},
+    theme::{CodeScheme, CodeStyle, PaletteColor},
   },
   components::Column,
   core::Signal,
@@ -521,10 +521,13 @@ impl Component for CodeBlockPage {
         .language("rust")
         .bar_meta(&format!("{lines} lines"))
         .fold(8)
+        .show_all_text(&format!("Show all {lines} lines"))
+        .fold_icon(true)
         .style(CodeBlockPart::Scroll, |s| {
           s.scrollbar(ScrollBarStyle {
             width: 12.0,
             thumb_inset: 4.0,
+            thumb_role: Some(PaletteColor::Border),
             placement: ScrollBarPlacement::Reserved,
             ..ScrollBarStyle::default()
           })
@@ -623,6 +626,19 @@ impl Component for CodeBlockPage {
         "&str",
         "Show all / Show less",
         "What the button under a folded block says, and what it says once the block is unfolded.",
+      ),
+      (
+        "fold_open / folded / on_fold",
+        "bool / Signal<bool> / Fn(bool)",
+        "folded",
+        "Starts the block with all its lines shown; the app's own signal of whether it is folded, set by a press \
+         and by the app; told each press.",
+      ),
+      (
+        "fold_icon",
+        "bool",
+        "false",
+        "A chevron after the fold button's text: down while folded, up once unfolded.",
       ),
       (
         "copy_button",
@@ -797,10 +813,13 @@ impl Component for CodeBlockPage {
               "    .language(\"rust\")",
               "    .bar_meta(&format!(\"{lines} lines\"))",
               "    .fold(8)",
+              "    .show_all_text(&format!(\"Show all {lines} lines\"))",
+              "    .fold_icon(true)",
               "    .style(CodeBlockPart::Scroll, |s| {",
               "      s.scrollbar(ScrollBarStyle {",
               "        width: 12.0,",
               "        thumb_inset: 4.0,",
+              "        thumb_role: Some(PaletteColor::Border),",
               "        placement: ScrollBarPlacement::Reserved,",
               "        ..ScrollBarStyle::default()",
               "      })",
