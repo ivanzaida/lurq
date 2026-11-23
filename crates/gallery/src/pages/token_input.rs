@@ -561,6 +561,12 @@ impl Component for TokenInputPage {
         "Called before every edit, a token taken away by its cross too; it may refuse it.",
       ),
       (
+        "on_blur",
+        "impl Fn(&str)",
+        "",
+        "Called when the focus leaves it with what is typed: the text, or of a list the draft.",
+      ),
+      (
         "controller",
         "TextInputController",
         "",

@@ -858,3 +858,67 @@ fn left_and_right_take_the_caret_past_a_token_and_its_mark_in_one_step() {
   assert_eq!(items.get(), strings(&["rust", "wgpu"]));
   assert_eq!(draft.get(), "ve");
 }
+
+/// Takes the focus from the token input `id`, as the app does.
+fn leave(stage: &mut Stage, id: &str) {
+  stage.tree.get_element_by_id_mut(id).expect("the token input").blur();
+  stage.pass();
+}
+
+#[test]
+fn on_blur_hears_the_text_of_a_token_input_as_the_focus_leaves_it() {
+  let value = Signal::new("Hello ".to_owned());
+  let (left, controller) = (Arc::new(Mutex::new(Vec::new())), TextInputController::new());
+  let (bound, told, input) = (value.clone(), left.clone(), controller.clone());
+  let mut stage = Stage::new(move |_| {
+    let told = told.clone();
+    Column::new()
+      .padding(8.0)
+      .child(
+        TokenInput::new(bound.clone())
+          .controller(input.clone())
+          .on_blur(move |text| told.lock().unwrap().push(text.to_owned()))
+          .id("prompt"),
+      )
+      .into()
+  });
+  stage.key("Tab");
+  let end = value.get().len();
+  controller.select(end, end).unwrap();
+  type_text(&mut stage, &controller, "{{name}}");
+  assert!(left.lock().unwrap().is_empty(), "typing is not leaving");
+  leave(&mut stage, "prompt");
+  assert_eq!(*left.lock().unwrap(), ["Hello {{name}}"]);
+}
+
+#[test]
+fn on_blur_hears_the_draft_of_a_list_after_commit_on_blur_made_an_item_of_it() {
+  for commit in [false, true] {
+    let items = Signal::new(strings(&["ivan@lurq.dev"]));
+    let (left, controller) = (Arc::new(Mutex::new(Vec::new())), TextInputController::new());
+    let (held, told, input) = (items.clone(), left.clone(), controller.clone());
+    let mut stage = Stage::new(move |_| {
+      let told = told.clone();
+      Column::new()
+        .padding(8.0)
+        .child(
+          TokenInput::list(held.clone())
+            .commit_on_blur(commit)
+            .controller(input.clone())
+            .on_blur(move |draft| told.lock().unwrap().push(draft.to_owned()))
+            .id("to"),
+        )
+        .into()
+    });
+    stage.key("Tab");
+    type_text(&mut stage, &controller, "not an address");
+    leave(&mut stage, "to");
+    if commit {
+      assert_eq!(*left.lock().unwrap(), [""], "the draft is an item now");
+      assert_eq!(items.get(), strings(&["ivan@lurq.dev", "not an address"]));
+    } else {
+      assert_eq!(*left.lock().unwrap(), ["not an address"], "the draft stays typed");
+      assert_eq!(items.get(), strings(&["ivan@lurq.dev"]));
+    }
+  }
+}

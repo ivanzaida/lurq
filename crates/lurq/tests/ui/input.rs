@@ -792,3 +792,38 @@ fn beside_the_label_a_control_lower_than_an_input_is_level_with_it() {
   let (label_middle, middle) = (label.y + label.height / 2.0, y + height / 2.0);
   assert!((label_middle - middle).abs() < 1.0, "level: {label_middle} {middle}");
 }
+
+#[test]
+fn on_blur_hears_what_the_input_holds_as_the_focus_leaves_it_and_may_set_it() {
+  let url = Signal::new(String::new());
+  let left = Arc::new(Mutex::new(Vec::new()));
+  let (bound, told) = (url.clone(), left.clone());
+  let mut stage = Stage::new(move |_| {
+    let (told, trimmed) = (told.clone(), bound.clone());
+    Column::new()
+      .padding(8.0)
+      .spacing(12.0)
+      .child(
+        Input::new(bound.clone())
+          .id("url")
+          .on_blur(move |value| told.lock().unwrap().push(value.to_owned()))
+          .on_blur(move |value| trimmed.set(value.trim().to_owned())),
+      )
+      .child(Input::new(Signal::new(String::new())).id("next"))
+      .into()
+  });
+  stage.key("Tab");
+  type_in(&mut stage, " htp:/lurq ");
+  assert!(left.lock().unwrap().is_empty(), "typing is not leaving");
+
+  // Tab leaves it: the first handler hears what it held, and the second sets the signal.
+  stage.key("Tab");
+  assert_eq!(focused(&stage).as_deref(), Some("next"));
+  assert_eq!(*left.lock().unwrap(), [" htp:/lurq "]);
+  assert_eq!(url.get(), "htp:/lurq");
+
+  // A press elsewhere leaves it too, as it holds now.
+  stage.click("url");
+  stage.click("next");
+  assert_eq!(*left.lock().unwrap(), [" htp:/lurq ", "htp:/lurq"]);
+}

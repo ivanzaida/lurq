@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+Added:
+
+- **`on_blur` on `Input`, `Textarea`, `NumberInput` and `TokenInput`: a value checked as the person leaves the field** ([#211](https://github.com/ivanzaida/lurq/issues/211)). Called when the focus leaves the control, by Tab, by a press elsewhere or by the app, with what it holds: an input's and a textarea's text; a number input's value after what was typed is put right, whether or not it changed (`on_change_end` hears only a change); a token input's text, or of a list the draft, after `commit_on_blur` made an item of it. A form can show *Not a valid URL* once the field is left, not at each key and not only on Enter. A handler may set the value it is given.
+
 ## 0.68.0 — 2026-11-23
 
 Changed:

@@ -260,6 +260,16 @@ impl Input {
     self
   }
 
+  /// Called with what the input holds when the focus leaves it: by Tab, by a press elsewhere, or by the app. Where a
+  /// form checks a value as the person leaves the field, not at each key and not only on Enter. A second handler is
+  /// called after the first.
+  pub fn on_blur(mut self, handler: impl Fn(&str) + Send + Sync + 'static) -> Self {
+    let value = self.value.clone();
+    // Read out of the signal first: a handler may set it (a value trimmed as it is left).
+    self.on_leave.push(Arc::new(move || handler(&value.get_untracked())));
+    self
+  }
+
   /// The name the input's value has in the form it is in.
   #[cfg(feature = "form")]
   pub fn name(mut self, name: impl Into<Arc<str>>) -> Self {

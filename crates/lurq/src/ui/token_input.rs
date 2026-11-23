@@ -306,6 +306,7 @@ pub struct TokenInput {
   rules: Recipe,
   forced: Option<Interaction>,
   on_input: Vec<EditHandler>,
+  on_blur: Vec<DraftHandler>,
   controller: Option<TextInputController>,
   name: Option<Arc<str>>,
   id: Option<Arc<str>>,
@@ -327,6 +328,7 @@ impl TokenInput {
       rules: Recipe::new(),
       forced: None,
       on_input: Vec::new(),
+      on_blur: Vec::new(),
       controller: None,
       name: None,
       id: None,
@@ -512,6 +514,15 @@ impl TokenInput {
     self
   }
 
+  /// Called when the focus leaves the input, by Tab, by a press elsewhere or by the app, with what is typed in it:
+  /// the text it holds, or of a list the draft, after [`TokenInput::commit_on_blur`] made an item of it. Where a form
+  /// checks what was typed as the person leaves the field; the list is the app's signal. A second handler is called
+  /// after the first.
+  pub fn on_blur(mut self, handler: impl Fn(&str) + Send + Sync + 'static) -> Self {
+    self.on_blur.push(Arc::new(handler));
+    self
+  }
+
   /// The controller the app keeps for this input, which reads its selection and puts text at it: a token
   /// chosen from a picker of the app's.
   pub fn controller(mut self, controller: TextInputController) -> Self {
@@ -619,6 +630,7 @@ impl TokenInput {
       forced: self.forced,
       boxed: self.boxed,
       on_input: self.on_input,
+      on_blur: self.on_blur,
       controller: self.controller,
       name: self.name,
       id: self.id,
@@ -696,6 +708,7 @@ pub struct TokenInputView {
   forced: Option<Interaction>,
   boxed: BoxStates,
   on_input: Vec<EditHandler>,
+  on_blur: Vec<DraftHandler>,
   controller: Option<TextInputController>,
   // Read only where the engine has forms.
   #[cfg_attr(not(feature = "form"), allow(dead_code))]
@@ -917,6 +930,17 @@ impl TokenInputView {
       }
     } else if let Some(controller) = &self.controller {
       control = control.controller(controller.clone());
+    }
+    // After the list's own handler, which may have made an item of the draft.
+    if !self.on_blur.is_empty() {
+      let (value, listed, blur) = (self.value.clone(), self.list.is_some(), self.on_blur.clone());
+      control = control.on_blur(move || {
+        let held = value.get_untracked();
+        let typed = if listed { token_list::parse(&held).1 } else { held };
+        for handler in &blur {
+          handler(&typed);
+        }
+      });
     }
     if let Some(placeholder) = &self.placeholder {
       control = control.placeholder(placeholder);

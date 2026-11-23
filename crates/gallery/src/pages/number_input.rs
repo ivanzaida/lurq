@@ -597,6 +597,12 @@ impl Component for NumberInputPage {
          a button. Each call adds.",
       ),
       (
+        "on_blur",
+        "Fn(Option<f64>)",
+        "",
+        "Called with the value, put right, each time the focus leaves it, changed or not. Each call adds.",
+      ),
+      (
         "increase_label, decrease_label",
         "&str",
         "\"Increase\", \"Decrease\"",

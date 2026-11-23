@@ -390,6 +390,12 @@ impl Component for TextareaPage {
         "Called before each edit with what it will hold (event.new_value); a handler may refuse it.",
       ),
       (
+        "on_blur",
+        "impl Fn(&str)",
+        "",
+        "Called with what it holds when the focus leaves it: where a form checks it as the field is left.",
+      ),
+      (
         "squiggles",
         "impl IntoIterator<Item = Range<usize>>",
         "",

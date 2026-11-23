@@ -970,3 +970,41 @@ fn the_range_and_the_step_take_whole_numbers_and_the_buttons_their_words() {
     assert_eq!(said(&mut stage, "n-decrease").as_deref(), Some("Fewer"));
   }
 }
+
+#[test]
+fn on_blur_hears_the_value_put_right_each_time_the_focus_leaves_changed_or_not() {
+  let value = Signal::new(Some(4.0));
+  let left = Arc::new(Mutex::new(Vec::new()));
+  let (bound, told) = (value.clone(), left.clone());
+  let mut stage = Stage::new(move |_| {
+    let told = told.clone();
+    Column::new()
+      .padding(8.0)
+      .child(
+        NumberInput::optional(bound.clone())
+          .min(0)
+          .max(100)
+          .on_blur(move |value| told.lock().unwrap().push(value))
+          .id("n"),
+      )
+      .into()
+  });
+  let left_now = || std::mem::take(&mut *left.lock().unwrap());
+  stage.key("Tab");
+  type_over(&mut stage, 1, "250");
+  assert!(left_now().is_empty(), "typing is not leaving");
+  leave(&mut stage);
+  assert_eq!(left_now(), [Some(100.0)], "what was typed, put in the range");
+
+  // Left with nothing changed, it is heard all the same.
+  stage.key("Tab");
+  leave(&mut stage);
+  assert_eq!(left_now(), [Some(100.0)]);
+
+  // Emptied and left: no number.
+  stage.key("Tab");
+  type_over(&mut stage, 3, "");
+  leave(&mut stage);
+  assert_eq!(left_now(), [None]);
+  assert_eq!(value.get(), None);
+}
