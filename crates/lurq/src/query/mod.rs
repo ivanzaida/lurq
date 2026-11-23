@@ -3,6 +3,11 @@
 //! Define a query with [`macro@crate::query`], provide a [`QueryClient`] once,
 //! and observe its descriptor with [`crate::app::ctx::Ctx::query`].
 //! Arguments are the cache key. Constructing a descriptor never starts work.
+//!
+//! Define a write with [`macro@crate::mutation`] and run it through
+//! [`crate::app::ctx::Ctx::mutation`]: its handle says whether it is pending
+//! and what went wrong, and a success invalidates or writes the cache
+//! ([`QueryClient::set_data`]).
 
 use std::{
   any::{Any, TypeId},
@@ -19,8 +24,12 @@ use std::{
   time::Duration,
 };
 
-use parking_lot::Mutex;
+use parking_lot::{Mutex, ReentrantMutex};
 use sealed::Selector as _;
+
+mod mutation;
+pub(crate) use mutation::MutationSlot;
+pub use mutation::{MutationCall, MutationConcurrency, MutationDefinition, MutationFn, MutationHandle};
 
 use crate::{app::window::WindowWaker, core::Signal, time::Instant};
 
@@ -235,9 +244,13 @@ struct ClientInner {
   entries: Mutex<EntryMap>,
   commands: Mutex<VecDeque<Command>>,
   bindings: Mutex<Vec<Binding>>,
-  // Serialize polling, observation, eviction and detachment across tree threads.
-  // User futures may enqueue commands while polled, so enqueue never takes this lock.
-  driver: Mutex<()>,
+  // Writes that run until they finish, whatever becomes of the component that started them.
+  mutations: Mutex<Vec<Arc<dyn mutation::ErasedMutation>>>,
+  // Serialize polling, observation, eviction, cache writes and detachment across tree threads.
+  // User futures may enqueue commands while polled, so enqueue never takes this lock. It is
+  // reentrant: what a tick calls (a mutation's effects, a polled future) writes the cache
+  // on the thread that holds it.
+  driver: ReentrantMutex<()>,
   #[cfg(feature = "tokio")]
   stopped_runtimes: Mutex<std::collections::HashSet<tokio::runtime::Id>>,
 }
@@ -280,7 +293,8 @@ impl QueryClient {
         entries: Mutex::new(HashMap::new()),
         commands: Mutex::new(VecDeque::new()),
         bindings: Mutex::new(Vec::new()),
-        driver: Mutex::new(()),
+        mutations: Mutex::new(Vec::new()),
+        driver: ReentrantMutex::new(()),
         #[cfg(feature = "tokio")]
         stopped_runtimes: Mutex::new(std::collections::HashSet::new()),
       }),
@@ -305,49 +319,121 @@ impl QueryClient {
   fn entries(&self) -> Vec<Arc<dyn ErasedEntry>> {
     self.inner.entries.lock().values().flatten().cloned().collect()
   }
-  pub(crate) fn observe<D: QueryDefinition>(
-    &self,
-    query: Query<D>,
-    now: Instant,
-  ) -> (QueryHandle<D::Data, D::Error>, Observer) {
-    let driver = self.inner.driver.lock();
+  /// The cached value of `query`, if it has one: what a fetch or [`set_data`](Self::set_data) last put there.
+  /// It starts no request and is not a reactive read; a component reads through `ctx.query`.
+  pub fn get_data<D: QueryDefinition>(&self, query: Query<D>) -> Option<Arc<D::Data>> {
+    let _driver = self.inner.driver.lock();
+    let entry = self.entry::<D>(&query.args, Instant::now(), false)?;
+    let typed = entry.as_any().downcast_ref::<Entry<D>>()?;
+    typed.shared.value.lock().data.clone()
+  }
+
+  /// Writes `data` as the value of `query`: every observer shows it at once, and it is fresh from now, as if
+  /// fetched. A query nothing has cached yet gets its entry, kept for the retention time.
+  ///
+  /// A fetch of this query that was on its way is dropped: its result is older than what was written. Invalidate
+  /// the query to have the server's value fetched over the written one.
+  pub fn set_data<D: QueryDefinition>(&self, query: Query<D>, data: D::Data) {
+    {
+      let _driver = self.inner.driver.lock();
+      let now = Instant::now();
+      let entry = self.entry::<D>(&query.args, now, true).expect("created");
+      let typed = entry
+        .as_any()
+        .downcast_ref::<Entry<D>>()
+        .expect("query definition identity");
+      typed.write(Arc::new(data), now);
+    }
+    self.inner.wake_all();
+  }
+
+  /// Writes what `update` makes of the cached value of `query`, as [`set_data`](Self::set_data) does. A query with
+  /// no cached value is left alone, and `update` is not called.
+  pub fn update_data<D: QueryDefinition>(&self, query: Query<D>, update: impl FnOnce(&D::Data) -> D::Data) {
+    {
+      let _driver = self.inner.driver.lock();
+      let now = Instant::now();
+      let Some(entry) = self.entry::<D>(&query.args, now, false) else {
+        return;
+      };
+      let typed = entry
+        .as_any()
+        .downcast_ref::<Entry<D>>()
+        .expect("query definition identity");
+      let Some(current) = typed.shared.value.lock().data.clone() else {
+        return;
+      };
+      typed.write(Arc::new(update(&current)), now);
+    }
+    self.inner.wake_all();
+  }
+
+  /// Runs a mutation with nothing to watch it: from a handler of events, or where no component is. Its
+  /// definition's `invalidates` apply on success. A component runs one through `ctx.mutation`.
+  pub fn mutate<D: MutationDefinition>(&self, call: MutationCall<D>) {
+    mutation::run_detached(self, call);
+  }
+
+  /// The entry of `args`, made if `create` and it is missing. Called under the driver's lock.
+  fn entry<D: QueryDefinition>(&self, args: &D::Args, now: Instant, create: bool) -> Option<Arc<dyn ErasedEntry>> {
     let mut hasher = DefaultHasher::new();
-    query.args.hash(&mut hasher);
+    args.hash(&mut hasher);
     let key = (TypeId::of::<D>(), hasher.finish());
-    let entry = {
-      let mut entries = self.inner.entries.lock();
-      let bucket = entries.entry(key).or_default();
-      // No tree is required to keep ticking while a caller retains a client.
-      // Enforce elapsed retention before reusing a previously detached cache.
-      bucket.retain(|entry| {
-        if entry.expired(now) {
-          entry.evict();
-          false
-        } else {
-          true
-        }
-      });
-      if let Some(entry) = bucket
-        .iter()
-        .find(|entry| entry.args().downcast_ref::<D::Args>() == Some(&query.args))
-      {
-        entry.clone()
+    let mut entries = self.inner.entries.lock();
+    if !create && !entries.contains_key(&key) {
+      return None;
+    }
+    let bucket = entries.entry(key).or_default();
+    // No tree is required to keep ticking while a caller retains a client.
+    // Enforce elapsed retention before reusing a previously detached cache.
+    bucket.retain(|entry| {
+      if entry.expired(now) {
+        entry.evict();
+        false
       } else {
+        true
+      }
+    });
+    let found = bucket
+      .iter()
+      .find(|entry| entry.args().downcast_ref::<D::Args>() == Some(args))
+      .cloned();
+    let entry = match found {
+      Some(entry) => Some(entry),
+      None if create => {
         let overrides = D::options();
         let options = QueryClientOptions {
           stale_time: overrides.stale_time.unwrap_or(self.inner.options.stale_time),
           gc_time: overrides.gc_time.unwrap_or(self.inner.options.gc_time),
         };
         let entry: Arc<dyn ErasedEntry> = Arc::new(Entry::<D> {
-          args: query.args,
+          args: args.clone(),
           options,
           shared: Arc::new(Shared::new()),
-          inner: Mutex::new(EntryInner::default()),
+          inner: Mutex::new(EntryInner {
+            // Until something observes it, it is kept as an entry its last observer left.
+            inactive_since: Some(now),
+            ..EntryInner::default()
+          }),
         });
         bucket.push(entry.clone());
-        entry
+        Some(entry)
       }
+      None => None,
     };
+    if bucket.is_empty() {
+      entries.remove(&key);
+    }
+    entry
+  }
+
+  pub(crate) fn observe<D: QueryDefinition>(
+    &self,
+    query: Query<D>,
+    now: Instant,
+  ) -> (QueryHandle<D::Data, D::Error>, Observer) {
+    let driver = self.inner.driver.lock();
+    let entry = self.entry::<D>(&query.args, now, true).expect("created");
     let typed = entry
       .as_any()
       .downcast_ref::<Entry<D>>()
@@ -408,6 +494,10 @@ impl QueryClient {
         changed |= entry.tick(now, &self.inner, cx);
       }
     }
+    let mutations = self.inner.mutations.lock().clone();
+    for mutation in mutations {
+      changed |= mutation.tick(self);
+    }
     drop(driver);
     if changed {
       self.inner.wake_all();
@@ -416,7 +506,14 @@ impl QueryClient {
   }
   fn ready(&self) -> bool {
     let can_start = self.inner.can_start();
-    !self.inner.commands.lock().is_empty() || self.entries().iter().any(|entry| entry.ready(can_start))
+    !self.inner.commands.lock().is_empty()
+      || self.entries().iter().any(|entry| entry.ready(can_start))
+      || self
+        .inner
+        .mutations
+        .lock()
+        .iter()
+        .any(|mutation| mutation.ready(can_start))
   }
   fn deadline(&self) -> Option<Instant> {
     self.entries().iter().filter_map(|entry| entry.deadline()).min()
@@ -529,6 +626,29 @@ impl<T, E> EntryInner<T, E> {
 }
 
 impl<D: QueryDefinition> Entry<D> {
+  /// Puts `data` in the entry as a fetch that finished at `now` would, in place of any fetch on its way.
+  fn write(&self, data: Arc<D::Data>, now: Instant) {
+    let obsolete = {
+      let mut inner = self.inner.lock();
+      if inner.evicted {
+        return;
+      }
+      // A fetch started before the write must not publish over it.
+      inner.generation = inner.generation.wrapping_add(1);
+      inner.scheduled = false;
+      inner.invalidated = false;
+      inner.updated_at = Some(now);
+      inner.task.take()
+    };
+    drop(obsolete);
+    *self.shared.value.lock() = Value {
+      data: Some(data),
+      error: None,
+      fetching: false,
+    };
+    self.shared.notify();
+  }
+
   fn mark_fetching(&self, fetching: bool) {
     {
       let mut value = self.shared.value.lock();
@@ -668,26 +788,7 @@ impl<D: QueryDefinition> ErasedEntry for Entry<D> {
       (start, inner.generation, inner.task.take())
     };
     let task = if start {
-      let wake = Arc::new(TaskWake {
-        ready: AtomicBool::new(true),
-        client: Arc::downgrade(client),
-      });
-      #[cfg(feature = "tokio")]
-      let runtime = client.runtime();
-      let future = D::run(self.args.clone());
-      #[cfg(feature = "tokio")]
-      let execution = if let Some(runtime) = runtime {
-        Execution::Tokio(runtime.spawn(future), runtime.id())
-      } else {
-        Execution::Cooperative(future)
-      };
-      #[cfg(not(feature = "tokio"))]
-      let execution = Execution::Cooperative(future);
-      Some(Task {
-        generation,
-        execution,
-        wake,
-      })
+      Some(client.start(generation, D::run(self.args.clone())))
     } else {
       existing
     };
@@ -889,6 +990,7 @@ impl QueryRegistry {
       Arc::strong_count(&client.inner) > 1
         || !client.inner.entries.lock().is_empty()
         || !client.inner.commands.lock().is_empty()
+        || !client.inner.mutations.lock().is_empty()
     });
     changed | self.inner.owner.pending.swap(false, Ordering::AcqRel)
   }
@@ -925,6 +1027,31 @@ impl Drop for RegistryInner {
   }
 }
 impl ClientInner {
+  /// Starts `future` on an attached Tokio runtime, or to be polled by the tick where there is none.
+  fn start<T: Send + 'static, E: Send + 'static>(
+    self: &Arc<Self>,
+    generation: u64,
+    future: QueryFuture<T, E>,
+  ) -> Task<T, E> {
+    let wake = Arc::new(TaskWake {
+      ready: AtomicBool::new(true),
+      client: Arc::downgrade(self),
+    });
+    #[cfg(feature = "tokio")]
+    let execution = if let Some(runtime) = self.runtime() {
+      Execution::Tokio(runtime.spawn(future), runtime.id())
+    } else {
+      Execution::Cooperative(future)
+    };
+    #[cfg(not(feature = "tokio"))]
+    let execution = Execution::Cooperative(future);
+    Task {
+      generation,
+      execution,
+      wake,
+    }
+  }
+
   #[cfg(feature = "tokio")]
   fn runtime(&self) -> Option<tokio::runtime::Handle> {
     let bindings = self.bindings.lock();

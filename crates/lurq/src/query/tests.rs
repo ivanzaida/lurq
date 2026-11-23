@@ -627,3 +627,337 @@ fn stopped_tokio_runtime_falls_back_and_waits_without_spinning_if_none_survive()
   assert_eq!(*handle.data().unwrap(), 1);
   assert_eq!(probe.calls.lock().len(), 4);
 }
+
+// Cache writes and mutations.
+
+#[crate::mutation(invalidates = [read::all()])]
+async fn write(key: Key, value: u64) -> Result<u64, String> {
+  key.0.calls.lock().push(1000 + value);
+  let gate = key.0.gates.lock().pop_front();
+  match gate {
+    Some(gate) => Wait(gate).await.map(|_| value),
+    None => Ok(value),
+  }
+}
+
+#[crate::mutation]
+async fn write_alone(key: Key, value: u64) -> Result<u64, String> {
+  key.0.calls.lock().push(1000 + value);
+  let gate = key.0.gates.lock().pop_front();
+  match gate {
+    Some(gate) => Wait(gate).await.map(|_| value),
+    None => Ok(value),
+  }
+}
+
+type WriteHandle<S = ()> = MutationHandle<(Key, u64), u64, String, S>;
+
+/// A mutation as `ctx.mutation` holds it, with nothing rendering.
+fn held<M, F: MutationFn<M>>(
+  client: &QueryClient,
+  _mutation: F,
+) -> (
+  MutationSlot,
+  MutationHandle<
+    <F::Definition as MutationDefinition>::Args,
+    <F::Definition as MutationDefinition>::Data,
+    <F::Definition as MutationDefinition>::Error,
+  >,
+) {
+  let slot = MutationSlot::new::<F::Definition>(client);
+  let handle = slot.handle::<F::Definition>(client).unwrap();
+  (slot, handle)
+}
+
+/// The writes the probe was asked for, in order.
+fn writes(probe: &Probe) -> Vec<u64> {
+  probe
+    .calls
+    .lock()
+    .iter()
+    .filter(|call| **call >= 1000)
+    .map(|call| call - 1000)
+    .collect()
+}
+
+fn reads(probe: &Probe) -> usize {
+  probe.calls.lock().iter().filter(|call| **call < 1000).count()
+}
+
+#[test]
+fn the_cache_is_read_and_written_without_a_request() {
+  let client = QueryClient::new();
+  let probe = Arc::new(Probe::default());
+  let now = Instant::now();
+  let key = |id| read(Key(probe.clone(), id));
+  // Nothing cached: nothing to read or to update, and neither makes an entry.
+  assert!(client.get_data(key(1)).is_none());
+  client.update_data(key(1), |value| value + 1);
+  assert!(client.get_data(key(1)).is_none());
+  assert!(client.inspect().is_empty());
+
+  // A written value is the entry's, fresh: observing it fetches nothing.
+  client.set_data(key(1), 7);
+  assert_eq!(*client.get_data(key(1)).unwrap(), 7);
+  let (handle, observer) = client.observe(key(1), now);
+  tick(&client, now);
+  assert_eq!(*handle.data().unwrap(), 7);
+  assert!(!handle.fetching());
+  assert_eq!(reads(&probe), 0);
+  assert!(!client.inspect()[0].stale);
+
+  // An update is made of what is cached, and every observer sees it.
+  client.update_data(key(1), |value| value * 2);
+  assert!(observer.publish());
+  assert_eq!(*handle.data().unwrap(), 14);
+  assert_eq!(*client.get_data(key(1)).unwrap(), 14);
+
+  // Invalidating a written value fetches the server's over it.
+  client.invalidate(key(1));
+  tick(&client, now);
+  assert_eq!(*handle.data().unwrap(), 1);
+  assert_eq!(reads(&probe), 1);
+}
+
+#[test]
+fn a_fetch_on_its_way_does_not_overwrite_a_written_value() {
+  let client = QueryClient::new();
+  let probe = Arc::new(Probe::default());
+  let slow = probe.gate();
+  let now = Instant::now();
+  let (handle, _observer) = client.observe(read(Key(probe.clone(), 1)), now);
+  tick(&client, now);
+  assert!(handle.loading());
+  client.set_data(read(Key(probe.clone(), 1)), 50);
+  assert_eq!(*handle.data().unwrap(), 50);
+  assert!(!handle.fetching());
+  slow.resolve(Ok(10));
+  tick(&client, now);
+  tick(&client, now);
+  assert_eq!(*handle.data().unwrap(), 50, "the older result is dropped");
+  assert!(!client.inspect()[0].stale);
+  assert_eq!(reads(&probe), 1, "and nothing is fetched in its place");
+}
+
+#[test]
+fn a_written_value_nothing_observes_is_kept_for_the_retention_time() {
+  let client = QueryClient::with_options(QueryClientOptions {
+    gc_time: Duration::from_secs(10),
+    ..QueryClientOptions::default()
+  });
+  let probe = Arc::new(Probe::default());
+  client.set_data(read(Key(probe.clone(), 1)), 7);
+  let now = Instant::now();
+  tick(&client, now + Duration::from_secs(5));
+  assert_eq!(client.inspect().len(), 1);
+  tick(&client, now + Duration::from_secs(11));
+  assert!(client.inspect().is_empty());
+  assert!(client.get_data(read(Key(probe, 1))).is_none());
+}
+
+#[test]
+fn a_mutation_is_pending_until_it_finishes_and_a_success_invalidates_what_it_names() {
+  let client = QueryClient::new();
+  let probe = Arc::new(Probe::default());
+  let now = Instant::now();
+  let (cached, _observer) = client.observe(read(Key(probe.clone(), 1)), now);
+  tick(&client, now);
+  assert_eq!(reads(&probe), 1);
+
+  let (slot, handle): (_, WriteHandle) = held(&client, write);
+  assert!(!handle.pending());
+  assert!(writes(&probe).is_empty(), "holding a mutation runs nothing");
+
+  let sent = probe.gate();
+  assert!(handle.run((Key(probe.clone(), 1), 5)));
+  slot.publish();
+  assert!(handle.pending(), "pending from the moment it is asked for");
+  tick(&client, now);
+  assert_eq!(writes(&probe), [5]);
+  assert!(handle.data().is_none());
+  assert_eq!(reads(&probe), 1, "nothing is invalidated before it succeeds");
+
+  sent.resolve(Ok(0));
+  tick(&client, now);
+  slot.publish();
+  assert!(!handle.pending());
+  assert_eq!(*handle.data().unwrap(), 5);
+  assert!(handle.error().is_none());
+  // The definition's `invalidates` fetched what was observed again.
+  tick(&client, now);
+  assert_eq!(reads(&probe), 2);
+  assert_eq!(*cached.data().unwrap(), 1);
+
+  handle.reset();
+  slot.publish();
+  assert!(handle.data().is_none());
+}
+
+#[test]
+fn a_failure_is_the_handles_error_until_the_next_run_and_invalidates_nothing() {
+  let client = QueryClient::new();
+  let probe = Arc::new(Probe::default());
+  let now = Instant::now();
+  let (_cached, _observer) = client.observe(read(Key(probe.clone(), 1)), now);
+  tick(&client, now);
+  let (slot, handle): (_, WriteHandle) = held(&client, write);
+
+  let refused = probe.gate();
+  handle.run((Key(probe.clone(), 1), 5));
+  tick(&client, now);
+  refused.resolve(Err("refused".into()));
+  tick(&client, now);
+  tick(&client, now);
+  slot.publish();
+  assert!(!handle.pending());
+  assert_eq!(&*handle.error().unwrap(), "refused");
+  assert!(handle.data().is_none());
+  assert_eq!(reads(&probe), 1);
+
+  // The next run clears the error as it is asked for, and its success is the handle's data.
+  let accepted = probe.gate();
+  handle.run((Key(probe.clone(), 1), 6));
+  slot.publish();
+  assert!(handle.error().is_none());
+  assert!(handle.pending());
+  tick(&client, now);
+  accepted.resolve(Ok(0));
+  tick(&client, now);
+  slot.publish();
+  assert_eq!(*handle.data().unwrap(), 6);
+}
+
+#[test]
+fn an_optimistic_write_shows_at_once_and_is_taken_back_when_the_run_fails() {
+  let client = QueryClient::new();
+  let probe = Arc::new(Probe::default());
+  let now = Instant::now();
+  let (cached, _observer) = client.observe(read(Key(probe.clone(), 1)), now);
+  tick(&client, now);
+  assert_eq!(*cached.data().unwrap(), 1);
+
+  let (slot, handle) = held(&client, write_alone);
+  let handle: WriteHandle<Option<Arc<u64>>> = handle
+    .optimistic(|client, (key, value)| {
+      let before = client.get_data(read(key.clone()));
+      client.update_data(read(key.clone()), |_| *value);
+      before
+    })
+    .on_success(|client, (key, _), saved| client.set_data(read(key.clone()), *saved + 100))
+    .on_error(|client, (key, _), error, before| {
+      assert_eq!(error, "refused");
+      if let Some(before) = before {
+        client.set_data(read(key.clone()), *before);
+      }
+    });
+
+  let refused = probe.gate();
+  handle.run((Key(probe.clone(), 1), 9));
+  tick(&client, now);
+  assert_eq!(*cached.data().unwrap(), 9, "written as the run starts");
+  refused.resolve(Err("refused".into()));
+  tick(&client, now);
+  slot.publish();
+  assert_eq!(*cached.data().unwrap(), 1, "and taken back");
+  assert_eq!(&*handle.error().unwrap(), "refused");
+
+  // A success writes what the service answered.
+  handle.run((Key(probe.clone(), 1), 9));
+  tick(&client, now);
+  assert_eq!(*cached.data().unwrap(), 109);
+  assert_eq!(reads(&probe), 1, "no request for any of it");
+}
+
+#[test]
+#[should_panic(expected = "optimistic must be set before on_error")]
+fn an_optimistic_write_is_set_before_what_takes_its_snapshot() {
+  let client = QueryClient::new();
+  let (_slot, handle): (_, WriteHandle) = held(&client, write_alone);
+  let _ = handle.on_error(|_, _, _, ()| {}).optimistic(|_, _| 1_u8);
+}
+
+#[test]
+fn the_runs_of_a_handle_take_turns_unless_told_otherwise() {
+  let client = QueryClient::new();
+  let probe = Arc::new(Probe::default());
+  let now = Instant::now();
+  let key = || Key(probe.clone(), 1);
+
+  // Queued: the second is sent when the first has finished.
+  let (slot, handle): (_, WriteHandle) = held(&client, write_alone);
+  let (first, second) = (probe.gate(), probe.gate());
+  assert!(handle.run((key(), 1)));
+  assert!(handle.run((key(), 2)));
+  tick(&client, now);
+  tick(&client, now);
+  assert_eq!(writes(&probe), [1]);
+  first.resolve(Ok(0));
+  tick(&client, now);
+  tick(&client, now);
+  assert_eq!(writes(&probe), [1, 2]);
+  slot.publish();
+  assert!(handle.pending(), "pending while any of them is");
+  assert_eq!(*handle.data().unwrap(), 1);
+  second.resolve(Ok(0));
+  tick(&client, now);
+  slot.publish();
+  assert!(!handle.pending());
+  assert_eq!(*handle.data().unwrap(), 2);
+
+  // Parallel: both are sent at once.
+  let parallel = handle.clone().concurrency(MutationConcurrency::Parallel);
+  let (first, second) = (probe.gate(), probe.gate());
+  parallel.run((key(), 3));
+  parallel.run((key(), 4));
+  tick(&client, now);
+  assert_eq!(writes(&probe), [1, 2, 3, 4]);
+  second.resolve(Ok(0));
+  first.resolve(Ok(0));
+  tick(&client, now);
+  slot.publish();
+  assert!(!parallel.pending());
+
+  // Rejecting: a run asked for while one is pending is not sent.
+  let rejecting = handle.clone().concurrency(MutationConcurrency::Reject);
+  let only = probe.gate();
+  assert!(rejecting.run((key(), 5)));
+  assert!(!rejecting.run((key(), 6)));
+  tick(&client, now);
+  only.resolve(Ok(0));
+  tick(&client, now);
+  assert_eq!(writes(&probe), [1, 2, 3, 4, 5]);
+  assert!(rejecting.run((key(), 7)), "and is taken again once it has finished");
+  tick(&client, now);
+  assert_eq!(writes(&probe), [1, 2, 3, 4, 5, 7]);
+  assert!(
+    client.inner.mutations.lock().is_empty(),
+    "the client keeps nothing that is done"
+  );
+}
+
+#[test]
+fn a_run_finishes_and_has_its_effects_when_what_held_it_is_gone() {
+  let client = QueryClient::new();
+  let probe = Arc::new(Probe::default());
+  let now = Instant::now();
+  let (slot, handle): (_, WriteHandle) = held(&client, write_alone);
+  let handle = handle.on_success(|client, (key, _), saved| client.set_data(read(key.clone()), *saved));
+  let sent = probe.gate();
+  handle.run((Key(probe.clone(), 1), 8));
+  tick(&client, now);
+  drop((slot, handle));
+  sent.resolve(Ok(0));
+  tick(&client, now);
+  assert_eq!(*client.get_data(read(Key(probe.clone(), 1))).unwrap(), 8);
+
+  // A mutation with nothing to watch it runs and invalidates as its definition says.
+  let (cached, _observer) = client.observe(read(Key(probe.clone(), 2)), now);
+  tick(&client, now);
+  assert_eq!(reads(&probe), 1);
+  client.mutate(write(Key(probe.clone(), 2), 3));
+  tick(&client, now);
+  tick(&client, now);
+  assert_eq!(writes(&probe), [8, 3]);
+  assert_eq!(reads(&probe), 2);
+  assert_eq!(*cached.data().unwrap(), 2);
+}

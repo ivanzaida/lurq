@@ -1286,6 +1286,10 @@ pub struct Ctx {
   query_slots: Vec<crate::query::Observer>,
   #[cfg(feature = "query")]
   query_cursor: usize,
+  #[cfg(feature = "query")]
+  mutation_slots: Vec<crate::query::MutationSlot>,
+  #[cfg(feature = "query")]
+  mutation_cursor: usize,
   element_refs: Vec<ElementRefMut>,
   click_outside_registry: Arc<Mutex<Vec<ClickOutsideEntry>>>,
   click_outside_cursor: usize,
@@ -1885,6 +1889,10 @@ impl Ctx {
       query_slots: Vec::new(),
       #[cfg(feature = "query")]
       query_cursor: 0,
+      #[cfg(feature = "query")]
+      mutation_slots: Vec::new(),
+      #[cfg(feature = "query")]
+      mutation_cursor: 0,
       element_refs: Vec::new(),
       click_outside_registry: Arc::new(Mutex::new(Vec::new())),
       click_outside_cursor: 0,
@@ -2405,6 +2413,42 @@ impl Ctx {
       self.query_slots[cursor] = observer;
     } else {
       self.query_slots.push(observer);
+    }
+    handle
+  }
+
+  /// A mutation of this component, during render: `ctx.mutation(rename_task)` for a function
+  /// `#[lurq::mutation]` generated. The handle runs it (`run`), says whether a run is pending and what the last
+  /// one failed with, and takes what a run does to the cache (`on_success`, `optimistic`, `on_error`).
+  ///
+  /// Repeated renders give the same mutation: its state survives them. A run still on its way when the component
+  /// unmounts finishes, and its effects apply.
+  #[cfg(feature = "query")]
+  pub fn mutation<Marker, F: crate::query::MutationFn<Marker>>(
+    &mut self,
+    _mutation: F,
+  ) -> crate::query::MutationHandle<
+    <F::Definition as crate::query::MutationDefinition>::Args,
+    <F::Definition as crate::query::MutationDefinition>::Data,
+    <F::Definition as crate::query::MutationDefinition>::Error,
+  > {
+    assert!(self.rendering, "ctx.mutation must be called during render");
+    let client = self.query_client();
+    let cursor = self.mutation_cursor;
+    self.mutation_cursor += 1;
+    if let Some(handle) = self
+      .mutation_slots
+      .get(cursor)
+      .and_then(|slot| slot.handle::<F::Definition>(&client))
+    {
+      return handle;
+    }
+    let slot = crate::query::MutationSlot::new::<F::Definition>(&client);
+    let handle = slot.handle::<F::Definition>(&client).expect("the slot just made");
+    if cursor < self.mutation_slots.len() {
+      self.mutation_slots[cursor] = slot;
+    } else {
+      self.mutation_slots.push(slot);
     }
     handle
   }
@@ -3716,6 +3760,7 @@ impl Ctx {
     #[cfg(feature = "query")]
     {
       self.query_cursor = 0;
+      self.mutation_cursor = 0;
     }
     tracking::start_tracking();
     self.rendering = true;
@@ -3798,7 +3843,11 @@ impl Ctx {
     self.drop_unreached_future_slots();
     self.frames.end_render();
     #[cfg(feature = "query")]
-    self.query_slots.truncate(self.query_cursor);
+    {
+      self.query_slots.truncate(self.query_cursor);
+      // A mutation's slot holds its state alone: a run on its way goes on in the client.
+      self.mutation_slots.truncate(self.mutation_cursor);
+    }
     if self.rendering && self.theme.is_some() {
       crate::ui::theme::leave_theme();
     }
@@ -3927,6 +3976,9 @@ impl Ctx {
     let mut changed = false;
     for observer in &self.query_slots {
       changed |= observer.publish();
+    }
+    for mutation in &self.mutation_slots {
+      changed |= mutation.publish();
     }
     for slot in &self.children {
       changed |= slot.ctx.publish_query_updates();
