@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+Changed:
+
+- **The `wgpu` renderer asks the card for memory in small blocks** ([#131](https://github.com/ivanzaida/lurq/issues/131), decided 2026-11-23, `design/decisions.md`). An engine's device is asked for with `WgpuMemoryHints::MemoryUsage`, where it took wgpu's default, `Performance`: large blocks taken ahead, which on Direct3D 12 were measured at about 180 MB of a window's GPU memory and of its private bytes, of which a UI used under 10 MiB. `WgpuRenderEngine::with_memory_hints(WgpuMemoryHints::Performance)` asks as before, for an app that keeps much on the card. The time of a frame under the new default was not measured.
+
+Added:
+
+- **`WgpuRenderEngine::with_instance_flags`, and wgpu's environment variables** ([#132](https://github.com/ivanzaida/lurq/issues/132)). The flags of wgpu's instance (`WgpuInstanceFlags`: validation, the backend's debug layer and the others) were the build's and nothing changed them: a debug build always ran with validation and Direct3D 12's debug layer, and a release build never could. They are the build's by default still; `with_instance_flags(WgpuInstanceFlags::empty())` runs a debug build without them and `WgpuInstanceFlags::debugging()` a release build with them. `WGPU_VALIDATION`, `WGPU_DEBUG` and wgpu's other variables are applied over what the engine was told, for one run.
+- **`with_graphics_card`: the card a window is drawn on** ([#134](https://github.com/ivanzaida/lurq/issues/134)). `app::GraphicsCard` is `Any` (the system's choice, as before), `LowPower`, `HighPerformance`, or `Luid(low, high)`: a card of Windows by its identifier, as `images::card_frames_adapter()` gives it and as a decoder knows its own, so a window is put on the card that decodes and its `images::CardFrames` are drawn where they are. `WgpuRenderEngine::with_graphics_card` and `Dx12RenderEngine::with_graphics_card` take it. Where no card of the identifier draws to the window, the system's choice is taken and a warning logged; under `wgpu` the card is found by its maker and model, so two cards of one model are not told apart.
+- **`WgpuDeviceRequest` and `WgpuDevice::request_as`**: a device made ahead of its engine is asked for with all an engine's builders say (backends, instance flags, optional features and limits, memory hints, graphics card). Engines share a device, and the program an instance of wgpu, where they ask for all of these alike.
+
 ## 0.67.0 — 2026-11-22
 
 Breaking:

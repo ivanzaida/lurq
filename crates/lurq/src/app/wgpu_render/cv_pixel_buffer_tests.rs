@@ -12,7 +12,10 @@ use crate::{
 
 /// A device on Metal, as the renderer has; `None` where there is none.
 fn device() -> Option<(wgpu::Device, wgpu::Queue)> {
-  let instance = wgpu::Instance::new(super::instance_descriptor(wgpu::Backends::METAL));
+  let instance = wgpu::Instance::new(super::instance_descriptor(
+    wgpu::Backends::METAL,
+    wgpu::InstanceFlags::from_build_config(),
+  ));
   let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())).ok()?;
   pollster::block_on(adapter.request_device(&super::device_descriptor(
     &adapter,

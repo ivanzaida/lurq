@@ -58,7 +58,10 @@ fn clip() -> std::path::PathBuf {
 
 /// A device on Direct3D 12 with NV12 textures, as the engine asks for one; `None` where the card has none.
 fn device() -> Option<(wgpu::Device, wgpu::Queue)> {
-  let instance = wgpu::Instance::new(super::instance_descriptor(wgpu::Backends::DX12));
+  let instance = wgpu::Instance::new(super::instance_descriptor(
+    wgpu::Backends::DX12,
+    wgpu::InstanceFlags::from_build_config(),
+  ));
   let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())).ok()?;
   let found = pollster::block_on(adapter.request_device(&super::device_descriptor(
     &adapter,
@@ -687,7 +690,10 @@ fn a_decoder_of_the_apps_own_shows_frames_when_they_are_written_and_gets_its_tex
 /// A device on the system's card of software, which every Windows has beside its real ones; `None` where wgpu
 /// makes none on it.
 fn software_device() -> Option<(wgpu::Device, wgpu::Queue)> {
-  let instance = wgpu::Instance::new(super::instance_descriptor(wgpu::Backends::DX12));
+  let instance = wgpu::Instance::new(super::instance_descriptor(
+    wgpu::Backends::DX12,
+    wgpu::InstanceFlags::from_build_config(),
+  ));
   let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
     force_fallback_adapter: true,
     ..Default::default()

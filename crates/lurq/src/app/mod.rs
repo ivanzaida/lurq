@@ -109,6 +109,8 @@ pub use window::{
 
 mod device;
 pub use device::Device;
+mod graphics_card;
+pub use graphics_card::GraphicsCard;
 pub mod menu;
 pub mod open_url;
 pub use menu::{Accelerator, ApplicationMenu, Menu, MenuAction, MenuBar, MenuBarSupport, MenuController, MenuItem};
