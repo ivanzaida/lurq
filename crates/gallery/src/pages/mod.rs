@@ -829,7 +829,7 @@ pub const PAGES: &[Page] = &[
     path: "/accordion",
     name: "Accordion",
     icon: Some("rows-3"),
-    about: "accordion collapsible disclosure expand collapse section faq question answer panel chevron details open items controlled disabled style rules",
+    about: "accordion collapsible disclosure expand collapse section faq question answer panel chevron details open items controlled disabled style rules reveal show hide rows header turn",
     group: Group::Navigation,
     mount: |ctx| ctx.mount::<accordion::AccordionPage>(()),
   },

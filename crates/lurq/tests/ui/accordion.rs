@@ -742,3 +742,59 @@ fn the_chevron_of_an_item_turns_as_it_opens() {
   stage.pass();
   assert!((turn(&stage) + 1.0).abs() < 0.01, "up once open");
 }
+
+#[test]
+fn a_reveal_opens_and_closes_what_it_holds_with_its_height() {
+  use lurq::{components::Text, ui::Reveal};
+  let shown = Signal::new(false);
+  let held = shown.clone();
+  let mut stage = Stage::new(move |_| {
+    Column::new()
+      .padding(8.0)
+      .child(Reveal::new(held.get(), Text::new("Rows a choice shows")).key("rows"))
+      .child(Text::new("Under it"))
+      .into()
+  });
+  let closed = top(&stage, "Under it");
+  assert!(!stage.paints("Rows a choice shows"), "closed, it holds nothing");
+  shown.set(true);
+  stage.pass_after(Duration::ZERO);
+  stage.pass_after(Duration::from_millis(40));
+  let on_the_way = top(&stage, "Under it");
+  stage.pass();
+  let opened = top(&stage, "Under it");
+  assert!(
+    on_the_way > closed + 0.5 && on_the_way < opened - 0.5,
+    "what is under it moves down as it opens: {closed} < {on_the_way} < {opened}"
+  );
+  assert!(stage.paints("Rows a choice shows"));
+  // Closing, what it held stays painted while it closes over it, and is gone once it has.
+  shown.set(false);
+  stage.pass_after(Duration::ZERO);
+  stage.pass_after(Duration::from_millis(40));
+  assert!(stage.paints("Rows a choice shows"), "kept while it closes");
+  stage.pass();
+  assert!(!stage.paints("Rows a choice shows"));
+  assert!((top(&stage, "Under it") - closed).abs() < 0.5);
+}
+
+#[test]
+fn a_collapsible_has_the_apps_element_for_its_header_and_is_called_by_its_label() {
+  use lurq::components::Text;
+  let open = Signal::new(false);
+  let held = open.clone();
+  let mut stage = Stage::new(move |_| {
+    Column::new()
+      .padding(8.0)
+      .child(
+        Collapsible::new("Done", Text::new("Three tasks"))
+          .header(Row::new().spacing(6.0).child(Text::new("Done")).child(Text::new("3")))
+          .bind(held.clone())
+          .id("done"),
+      )
+      .into()
+  });
+  assert!(stage.paints("3"), "the app's header");
+  press(&mut stage, "3");
+  assert!(open.get_untracked(), "the whole header is pressed");
+}

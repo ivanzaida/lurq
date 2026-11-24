@@ -8,7 +8,10 @@ use lurq::{
   components::{Column, Row},
   core::Signal,
   node::Element,
-  ui::{Accordion, AccordionItem, AccordionPart, Collapsible, CollapsiblePart, Interaction, Length},
+  ui::{
+    Accordion, AccordionItem, AccordionPart, Button, ButtonVariant, Collapsible, CollapsiblePart, Interaction, Length,
+    Reveal, icons,
+  },
 };
 
 use crate::{
@@ -72,6 +75,8 @@ pub struct AccordionPage {
   one: Signal<Option<usize>>,
   many: Signal<Vec<usize>>,
   crates_open: Signal<bool>,
+  /// Whether the rows of the reveal are shown.
+  revealed: Signal<bool>,
 }
 
 impl AccordionPage {
@@ -228,6 +233,7 @@ impl Component for AccordionPage {
       one: ctx.signal(Some(0)),
       many: ctx.signal(vec![0, 2]),
       crates_open: ctx.signal(true),
+      revealed: ctx.signal(false),
     }
   }
 
@@ -240,7 +246,33 @@ impl Component for AccordionPage {
       .style(AccordionPart::Root, |s| s.width(WIDE).max_width(Length::Fill));
     let collapsible = Collapsible::new("3 crates in this workspace", crates())
       .bind(self.crates_open.clone())
-      .style(CollapsiblePart::Root, |s| s.width(280.0).max_width(Length::Fill));
+      .style(CollapsiblePart::Root, |s| s.width(280.0).max_width(Length::Fill))
+      // A header of the app's: the title and a count, a chevron that turns as it opens.
+      .header(Row::new().spacing(6.0).child(mono("3 crates in this workspace", 13.0)).child(mono("· 3", 13.0)))
+      .icon(icons::CHEVRON_RIGHT)
+      .rules(&lurq::ui::Recipe::new().state(lurq::ui::CollapsibleState::Open, CollapsiblePart::Chevron, |s| {
+        s.rotate(90.0)
+      }));
+    let revealed = self.revealed.clone();
+    let reveal = Column::new()
+      .spacing(8.0)
+      .child(
+        Button::new(if revealed.get() {
+          "Hide the rows"
+        } else {
+          "Show the rows"
+        })
+        .variant(ButtonVariant::Outline)
+        .on_click({
+          let revealed = revealed.clone();
+          move |_| revealed.update(|shown| *shown = !*shown)
+        }),
+      )
+      .child(
+        Reveal::new(revealed.get(), crates())
+          .key("rows")
+          .style(lurq::ui::RevealPart::Root, |s| s.width(280.0).max_width(Length::Fill)),
+      );
     let collapsible_states = Row::new()
       .spacing(28.0)
       .wrap()
@@ -398,6 +430,19 @@ impl Component for AccordionPage {
               "// open: Signal<bool>, which a press of the header turns",
               "Collapsible::new(\"3 crates in this workspace\", crates)",
               "    .bind(open)",
+            ],
+          ),
+        ),
+        Section::new(
+          "Reveal",
+          "Any element of the app's that opens and closes in place, with no header of its own: rows a choice shows, an            item that comes into a list. Its height runs from nothing to its content's in the base time and what it            holds fades in; closing, the other way, and what it held stays until its fade is over.",
+          self.frame.demo(
+            5,
+            reveal,
+            "Reveal::new(shown, rows)",
+            &[
+              "// shown: Signal<bool>",
+              "Reveal::new(shown.get(), rows).key(\"rows\")",
             ],
           ),
         ),

@@ -1854,10 +1854,12 @@ Collapsible::text("Why is this here?", "Because the build needs it.")
 | `bind(Signal<bool>)` | Open while the signal is true, which a press of the header turns; the handlers of `on_open_change` are told after it is set |
 | `on_open_change(Fn(bool))` | Called on a press of the header with what the collapsible is to be: open if it was closed. Not for what the app sets. A second one is called after the first |
 | `icon(..)`, `open_icon(..)` | The icon of the chevron by its name in the theme's set, `chevrons-vertical` unless told otherwise, and the one while it is open, the same unless told otherwise. `icon(None)` takes the chevron away |
+| `header(element)` | An element of the app's in the header in place of the label's text: a title with a count and marks of its own. The label is still what the header is called to what reads the tree, and the whole header is pressed |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the header |
 
 - The whole header is pressed; Tab reaches it, and Space and Enter press it. What it holds opens and closes as an
-  accordion's item does.
+  accordion's item does. A chevron that turns as it opens, in place of one icon for another: `icon(icons::CHEVRON_RIGHT)`
+  and `.rules(&Recipe::new().state(CollapsibleState::Open, CollapsiblePart::Chevron, |s| s.rotate(90.0)))`.
 - Parts: `CollapsiblePart::Root`, `Trigger`, `Label`, `Chevron`, `Panel`, `Body`. States: `CollapsibleState::Open`,
   `Disabled`.
 - In the design the label is in the label's type (13, medium), `Foreground`; at the end of the header the
@@ -1867,6 +1869,27 @@ Collapsible::text("Why is this here?", "Because the build needs it.")
 - A renderer that draws another collapsible (`CollapsibleRenderer`) starts from `view.trigger()`, the behavior with the
   header's style, and `view.panel()`, what opens and closes with what it holds; `view.label()` and `view.chevron()`
   (none where it has no icon) are the default ones.
+
+## Reveal
+
+What opens and closes in place, for any element of the app's, with no header of its own: rows a choice shows, an item
+that comes into a live list, an answer that folds to a line.
+
+```rust
+use lurq::ui::Reveal;
+
+// shown: Signal<bool>
+Reveal::new(shown.get(), rows).key("rows");
+```
+
+- Its height runs from nothing to its content's in the theme's base time as it opens, and what it holds fades in;
+  closing, the other way, and what it held stays, painted and inert, until its fade is over. Where motion is reduced its
+  height is there at once. It is an accordion's panel, alone: the same recipe (`opening`).
+- Its height is a transition of its node, which stays from one render to the next where it stays in one place of the
+  tree, or has a key.
+- Parts: `RevealPart::Root` (what opens, closes and clips) and `Body` (what it holds). State: `RevealState::Open`.
+  `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` as a [button](#button) has them; a theme's
+  `RevealRenderer` draws one of its own from `RevealView`.
 
 ## Breadcrumb
 
