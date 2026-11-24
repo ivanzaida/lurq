@@ -166,20 +166,24 @@ impl LayoutEngine {
         continue;
       }
       let (x, y, xf, center) = transformed_quad_frame(start.0 + part.x, start.1 + part.y, transform);
-      let edge = part.token.and_then(|(_, border)| border).map(|(width, color)| {
-        let side = Some(ResolvedBorder {
-          width,
-          color,
-          placement: BorderPlacement::Inside,
-          dash: [0.0, 0.0],
+      let edge = part
+        .token
+        .and_then(|(_, border)| border)
+        .or(part.edge)
+        .map(|(width, color)| {
+          let side = Some(ResolvedBorder {
+            width,
+            color,
+            placement: BorderPlacement::Inside,
+            dash: [0.0, 0.0],
+          });
+          ResolvedBorders {
+            top: side,
+            right: side,
+            bottom: side,
+            left: side,
+          }
         });
-        ResolvedBorders {
-          top: side,
-          right: side,
-          bottom: side,
-          left: side,
-        }
-      });
       quads.push(Quad {
         x,
         y,

@@ -400,6 +400,32 @@ impl TextInput {
   /// such an input there pastes with its formatting). This process keeps the plain text beside it: while the
   /// clipboard still holds what was written, an input of the app without this option pastes the plain text.
   #[cfg(feature = "markdown")]
+  /// The look of the marks of a styled input ([`Self::spans`]), in place of the theme's
+  /// ([`Theme::set_text_marks`](crate::app::theme::Theme::set_text_marks)): an editor whose inline code is
+  /// drawn as its recipe says.
+  pub fn text_marks(mut self, marks: crate::app::theme::ThemeTextMarks) -> Self {
+    self.update_node(move |node| {
+      if let crate::node::node_kind::NodeKind::TextInput { state, .. } = node.node_kind() {
+        state.set_text_marks(Some(marks.clone()));
+      }
+    });
+    self
+  }
+
+  /// Whether a press on the box of an item of a checklist ([`ParagraphKind::Checklist`](super::ParagraphKind))
+  /// checks it or unchecks it, as one undo step, and leaves the caret where it was. Off unless told: an input
+  /// that takes no edit leaves it off.
+  #[cfg(feature = "markdown")]
+  pub fn checks_on_press(mut self, on: bool) -> Self {
+    self.update_node(|node| {
+      if let crate::node::node_kind::NodeKind::TextInput { state, .. } = node.node_kind() {
+        state.set_checks_on_press(on);
+      }
+    });
+    self
+  }
+
+  #[cfg(feature = "markdown")]
   pub fn rich_clipboard(mut self, on: bool) -> Self {
     self.update_node(|node| {
       if let crate::node::node_kind::NodeKind::TextInput { state, .. } = node.node_kind() {

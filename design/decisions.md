@@ -11,6 +11,47 @@ dropped). When a decision is replaced, the old entry stays and says what replace
 
 ## 2026-11-24
 
+### A rich text editor spaced as Markdown is
+
+- **Question.** One gap for every paragraph of a rich text editor, a number in the body's type, inline code with no
+  room round it and a quote with none above and under it: a document read with `Markdown` jumped when it was edited
+  (issue #230).
+- **Decision (Ivan).** Do it, without breaking the current API.
+- **Decided by Claude in the work, to be confirmed.**
+  - *Nothing changes unless a recipe says so.* The parts of the default recipe give none of it, so an editor is as it
+    was; an app whose recipe gives the room `Markdown`'s theme gives has both alike. Whether the default recipe
+    should take `Markdown`'s values is Ivan's to say.
+  - *The room is said by the parts of the kinds, not by new ones*: a kind's gap is the room between two of it (a
+    list's items), its vertical padding the room above and under its run, added to the content's gap, as a
+    `Markdown` block's padding is to the document's spacing, and inside a quote's bar and a code block's fill. No room
+    between two kinds of their own (a heading and the text under it closer than 10): what the padding does not give.
+  - *A number's type is `OrderedMark`'s text*, family, size and weight where it says them, stood on the item's
+    baseline. A bullet is a dot: it has no type.
+  - *Inline code is a new part, `InlineCode`, laid over the theme's mark of code* for the one editor
+    (`TextInput::text_marks`), not `ui::InlineCode`'s recipe, which `Markdown` reads: the editor's code would change
+    look in every app that did not ask. Its padding moves the words beside it (`TextMarkStyle::padding`), as a
+    document's code box does.
+- **State.** Built on `feat/rich-text-blocks`.
+
+### Checklists and dividers
+
+- **Question.** `RichTextEditor` and `RichText` had no checklist and no divider: `- [x]` was read as a bullet that
+  starts with `[x]`, and `---` was dropped (issue #231).
+- **Decision (Ivan).** Do it, without breaking the current API.
+- **Decided by Claude in the work, to be confirmed.**
+  - *`ParagraphKind::Checklist { checked }` and `ParagraphKind::Divider`*, new variants of the enum, which the issue
+    asks for; a `match` over every kind needs arms for them, the only break, and called so in the changelog.
+  - *The box is checked by a press on it and by Ctrl+Enter* in the item, each one step of the undo that leaves the
+    caret where it was; a press does it only where the input says so (`checks_on_press`, which the editor sets while
+    it takes changes). Enter after a checked item starts one that is not.
+  - *A divider is a paragraph that holds no text*: text typed in it makes it body text, Backspace makes it a
+    paragraph, and `insert_divider` puts one in with a paragraph after it, the caret in it, as one step.
+  - *The tools are not on the bar by default*: an editor's bar is as it was. An app's `/` menu runs
+    `set_paragraphs`, `toggle_checks` and `insert_divider`.
+  - *Markdown*: a task list's item is read as a checklist's (not an ordered list's), and written `- [ ]`, `- [x]`;
+    a thematic break is a divider, written `---`.
+- **State.** Built on `feat/rich-text-blocks`.
+
 ### A selection painted without the focus, and its rectangles
 
 - **Question.** A selection vanished when the focus went to a toolbar over it, and nothing gave the bounds of the

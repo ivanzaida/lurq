@@ -99,6 +99,22 @@ impl TextInputController {
     Ok(self.state()?.set_paragraph_kind(kind))
   }
 
+  /// Checks the items of a checklist the selection touches (the one the caret is in with nothing selected), or
+  /// unchecks them where they all are checked, as one undo step. `false` where it touches none.
+  pub fn toggle_checks(&self) -> Result<bool, InputEditError> {
+    Ok(self.state()?.toggle_selected_checks())
+  }
+
+  /// Puts a divider ([`ParagraphKind::Divider`]) after the paragraph the caret is in, or makes that paragraph
+  /// one where it is empty body text, with a paragraph of body text after it that the caret is put in, as one
+  /// undo step.
+  pub fn insert_divider(&self) -> Result<bool, InputEditError> {
+    let state = self.state()?;
+    state.sync_external_value();
+    let keyboard = KeyboardEvent::new("\n", "InsertText", false, false, false, false, NodeId::UNASSIGNED);
+    Ok(state.insert_divider(&keyboard))
+  }
+
   /// Replaces the selection, or inserts at the caret, text that brings its
   /// own spans (offsets from its start), as one undo step: what an app's
   /// paste handler calls with the Markdown it parsed. A plain input takes

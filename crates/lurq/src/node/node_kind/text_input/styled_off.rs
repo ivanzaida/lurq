@@ -122,4 +122,13 @@ impl TextInputState {
   pub(crate) fn click_link_at_point(&self, _x: f32, _y: f32) -> bool {
     false
   }
+
+  /// No input has checklists without the `markdown` feature.
+  pub(crate) fn press_check_at_point(&self, _x: f32, _y: f32) -> bool {
+    false
+  }
+
+  pub(crate) fn check_at_point(&self, _x: f32, _y: f32) -> bool {
+    false
+  }
 }

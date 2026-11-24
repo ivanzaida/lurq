@@ -157,7 +157,12 @@ pub(crate) struct ParagraphFormat {
   pub(crate) indent: f32,
   /// The room between it and the paragraph before.
   pub(crate) gap_before: f32,
+  /// The room above it where it starts a run of its kind, and under it where it ends one, inside its fill and
+  /// its bar.
+  pub(crate) padding: (f32, f32),
   pub(crate) marker: ParagraphMark,
+  /// The type of the marker's text, in place of the paragraph's: its baseline is the first row's.
+  pub(crate) marker_text: Option<TextStyle>,
   /// A fill behind the paragraph, across the input: its color and the radius of its corners.
   pub(crate) fill: Option<(Color, f32)>,
   /// Whether the paragraph before is of the same kind: a bar and a fill then go on from it as one.
@@ -185,6 +190,20 @@ pub(crate) enum ParagraphMark {
   /// A bar `width` wide from the start of the input, as high as the paragraph.
   Bar {
     width: f32,
+    color: Color,
+  },
+  /// A box `size` square, centred on the first row, ending `gap` before the text, with an edge; checked, filled,
+  /// with an icon in it: the glyph's type and character.
+  Check {
+    size: f32,
+    gap: f32,
+    radius: f32,
+    edge: (f32, Color),
+    checked: Option<(Color, Option<(TextStyle, char)>)>,
+  },
+  /// A line `thickness` high across the input, in the middle of the first row.
+  Rule {
+    thickness: f32,
     color: Color,
   },
 }
@@ -216,6 +235,11 @@ pub(crate) struct InputFragment {
   pub(crate) radius: f32,
   /// The token's fill the rectangle is, with its edge; `None` for a line under or through text.
   pub(crate) token: Option<(usize, Option<(f32, Color)>)>,
+  /// An edge inside a rectangle that is no token's: the box of an item of a checklist.
+  pub(crate) edge: Option<(f32, Color)>,
+  /// Whether the rectangle is the box of an item of a checklist, which a press checks.
+  #[cfg_attr(not(feature = "markdown"), allow(dead_code))]
+  pub(crate) check: bool,
   row: usize,
 }
 
@@ -258,6 +282,21 @@ struct InputRow {
 }
 
 impl DecoratedInputLayout {
+  /// The byte the paragraph starts at whose box of a checklist's item is at `(x, y)`, in the coordinates of the
+  /// carets, with a little room round it for a finger.
+  #[cfg(feature = "markdown")]
+  pub(crate) fn check_at(&self, x: f32, y: f32) -> Option<usize> {
+    const ROOM: f32 = 3.0;
+    let part = self.fragments.iter().find(|part| {
+      part.check
+        && x >= part.x - ROOM
+        && x < part.x + part.width + ROOM
+        && y >= part.y - ROOM
+        && y < part.y + part.height + ROOM
+    })?;
+    self.rows.get(part.row).map(|row| row.range.start)
+  }
+
   fn empty(config: InputConfig, revision: u64) -> Self {
     Self {
       config,

@@ -139,3 +139,18 @@ fn a_text_reads_as_markdown_where_a_line_of_it_has_a_block_mark_or_markdown_read
     assert!(!RichText::reads_as_markdown(source), "{source:?}");
   }
 }
+
+#[test]
+fn rich_text_reads_a_task_list_as_a_checklist_and_a_thematic_break_as_a_divider() {
+  let document = read("- [x] Shipped\n- [ ] Tested\n\n---\n\nAfter");
+  assert_eq!(document.text, "Shipped\nTested\n\nAfter");
+  assert_eq!(
+    document.paragraphs,
+    vec![Checklist { checked: true }, Checklist { checked: false }, Divider, Body]
+  );
+  assert_eq!(document.to_markdown(), "- [x] Shipped\n- [ ] Tested\n\n---\n\nAfter");
+  // An item that is no task is still a bullet, in the same list as a task.
+  let mixed = read("- [ ] task\n- plain");
+  assert_eq!(mixed.paragraphs, vec![Checklist { checked: false }, Bullet]);
+  assert_eq!(mixed.text, "task\nplain");
+}

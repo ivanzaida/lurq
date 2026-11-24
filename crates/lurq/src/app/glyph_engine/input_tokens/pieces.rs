@@ -115,6 +115,22 @@ impl GlyphEngine {
         .map_or(0.0, |format| format.gap_before.max(0.0));
       output.size.height += gap;
       let (top, first_row) = (output.size.height, output.rows_len());
+      // The room a run keeps above its first paragraph and under its last, inside its fill and its bar.
+      let (padding_top, padding_bottom) = format.as_ref().map_or((0.0, 0.0), |format| {
+        let ends = output
+          .config
+          .paragraphs
+          .get(index + 1)
+          .is_none_or(|next| !next.continues);
+        (
+          if format.continues {
+            0.0
+          } else {
+            format.padding.0.max(0.0)
+          },
+          if ends { format.padding.1.max(0.0) } else { 0.0 },
+        )
+      });
       if let Some(format) = &format {
         if !format.continues {
           (run_fill, run_bar) = (None, None);
@@ -128,6 +144,8 @@ impl GlyphEngine {
           color,
           radius,
           token: None,
+          edge: None,
+          check: false,
           row: first_row,
         };
         match format.fill {
@@ -148,12 +166,16 @@ impl GlyphEngine {
           _ => run_bar = None,
         }
       }
+      output.size.height += padding_top;
       output.append_piece(&piece, range.start, indent);
+      output.size.height += padding_bottom;
       for grown in [run_fill, run_bar].into_iter().flatten() {
         output.fragments[grown].height = output.size.height - output.fragments[grown].y;
       }
       if let Some(format) = &format {
-        self.append_marker(output, format, first_row);
+        if let Some(rule) = self.append_marker(output, format, first_row) {
+          fills.push(rule);
+        }
       }
       let ending = ending.as_str().len();
       if ending > 0 {
@@ -172,28 +194,42 @@ impl GlyphEngine {
   }
 
   /// Draws what stands before the text of a paragraph whose first row is the row `first_row`: a dot as a fill, a
-  /// number as glyphs. They are placed from the start of the paragraph's text, which the alignment then moves
-  /// with the row.
-  fn append_marker(&mut self, output: &mut DecoratedInputLayout, format: &ParagraphFormat, first_row: usize) {
-    let Some((row_y, row_height)) = output.row_box(first_row) else {
-      return;
+  /// number as glyphs, a box as a fill with an edge and its icon as a glyph. They are placed from the start of the
+  /// paragraph's text, which the alignment then moves with the row. A divider's line is a fill too, which is made
+  /// as wide as the input once that is known: its index is given back.
+  fn append_marker(
+    &mut self,
+    output: &mut DecoratedInputLayout,
+    format: &ParagraphFormat,
+    first_row: usize,
+  ) -> Option<usize> {
+    let (row_y, row_height) = output.row_box(first_row)?;
+    let rect = |x: f32, y: f32, width: f32, height: f32, color, radius| super::InputFragment {
+      x,
+      y,
+      width,
+      height,
+      color,
+      radius,
+      token: None,
+      edge: None,
+      check: false,
+      row: first_row,
     };
     match &format.marker {
       ParagraphMark::None | ParagraphMark::Bar { .. } => {}
       ParagraphMark::Dot { size, gap, color } => {
-        output.fragments.push(super::InputFragment {
-          x: -(gap + size),
-          y: row_y + (row_height - size) * 0.5,
-          width: *size,
-          height: *size,
-          color: *color,
-          radius: size * 0.5,
-          token: None,
-          row: first_row,
-        });
+        output.fragments.push(rect(
+          -(gap + size),
+          row_y + (row_height - size) * 0.5,
+          *size,
+          *size,
+          *color,
+          size * 0.5,
+        ));
       }
       ParagraphMark::Text { text, gap, color } => {
-        let mut base = format.base.clone();
+        let mut base = format.marker_text.clone().unwrap_or_else(|| format.base.clone());
         base.color = *color;
         let piece = self.paragraph_piece(InputConfig {
           source: text.clone(),
@@ -206,19 +242,94 @@ impl GlyphEngine {
           exact_rows: true,
         });
         let start = -(gap + piece.size.width);
+        // A marker in a type of its own stands on the baseline of the paragraph's first row.
+        let shift = match format.marker_text {
+          Some(_) => {
+            let own = piece.glyphs.first().map(|glyph| glyph.baseline);
+            let row = output
+              .glyphs
+              .iter()
+              .rev()
+              .take_while(|glyph| glyph.row >= first_row)
+              .find(|glyph| glyph.row == first_row)
+              .map(|glyph| glyph.baseline - row_y);
+            match (own, row) {
+              (Some(own), Some(row)) => row - own,
+              _ => 0.0,
+            }
+          }
+          None => 0.0,
+        };
         output.glyphs.extend(piece.glyphs.iter().map(|glyph| {
           let mut layout = glyph.glyph.clone();
           layout.x += start;
           super::InputGlyph {
             glyph: layout,
-            baseline: glyph.baseline + row_y,
+            baseline: glyph.baseline + row_y + shift,
             row: first_row,
             color: glyph.color,
             shadow: glyph.shadow,
           }
         }));
       }
+      ParagraphMark::Check {
+        size,
+        gap,
+        radius,
+        edge,
+        checked,
+      } => {
+        let (x, y) = (-(gap + size), row_y + (row_height - size) * 0.5);
+        let fill = checked
+          .as_ref()
+          .map_or(crate::node::color::Color::new(0, 0, 0, 0), |(fill, _)| *fill);
+        output.fragments.push(super::InputFragment {
+          edge: (edge.0 > 0.0).then_some(*edge),
+          check: true,
+          ..rect(x, y, *size, *size, fill, *radius)
+        });
+        if let Some((_, Some((style, glyph)))) = checked {
+          let piece = self.paragraph_piece(InputConfig {
+            source: glyph.to_string().into(),
+            base: style.clone(),
+            styles: Vec::new(),
+            width: f32::MAX,
+            min_width: 0.0,
+            wrap: false,
+            paragraphs: Vec::new(),
+            exact_rows: true,
+          });
+          let (left, top) = (
+            x + (size - piece.size.width) * 0.5,
+            y + (size - piece.size.height) * 0.5,
+          );
+          output.glyphs.extend(piece.glyphs.iter().map(|glyph| {
+            let mut layout = glyph.glyph.clone();
+            layout.x += left;
+            super::InputGlyph {
+              glyph: layout,
+              baseline: glyph.baseline + top,
+              row: first_row,
+              color: glyph.color,
+              shadow: glyph.shadow,
+            }
+          }));
+        }
+      }
+      ParagraphMark::Rule { thickness, color } => {
+        let indent = format.indent.max(0.0);
+        output.fragments.push(rect(
+          -indent,
+          row_y + (row_height - thickness) * 0.5,
+          0.0,
+          *thickness,
+          *color,
+          0.0,
+        ));
+        return Some(output.fragments.len() - 1);
+      }
     }
+    None
   }
 
   fn paragraph_piece(&mut self, config: InputConfig) -> Arc<DecoratedInputLayout> {

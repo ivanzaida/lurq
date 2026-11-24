@@ -1,5 +1,5 @@
 //! What each hard paragraph of a styled input is: body text, a heading, an
-//! item of a list, a quote, a line of a code block. The kinds live in a signal
+//! item of a list or of a checklist, a quote, a line of a code block, a divider. The kinds live in a signal
 //! beside the spans ([`crate::components::TextInput::paragraphs`]), one for
 //! every paragraph of the text; the input keeps them in step with its edits
 //! and in its undo history, and draws each kind as a [`ParagraphStyles`] says.
@@ -8,7 +8,10 @@ use std::ops::Range;
 use cosmic_text::{LineEnding, LineIter};
 
 use crate::{
-  app::component::{DevtoolsFormatter, DevtoolsInspectable},
+  app::{
+    component::{DevtoolsFormatter, DevtoolsInspectable},
+    theme::IconGlyph,
+  },
   layout::text_style::{FontWeight, TextStyle},
   node::TextColor,
 };
@@ -30,6 +33,12 @@ pub enum ParagraphKind {
   Quote,
   /// A line of a block of code.
   Code,
+  /// An item of a checklist, with a box before it the person checks: written `- [ ]` in Markdown, and `- [x]`
+  /// checked.
+  Checklist { checked: bool },
+  /// A line across the text between what is before and after it, a thematic break: `---` in Markdown. Its
+  /// paragraph holds no text: an edit that puts text in it makes it body text.
+  Divider,
 }
 
 impl ParagraphKind {
@@ -37,6 +46,25 @@ impl ParagraphKind {
   pub(crate) fn canonical(self) -> Self {
     match self {
       Self::Heading(level) => Self::Heading(level.clamp(1, 6)),
+      kind => kind,
+    }
+  }
+
+  /// Whether a paragraph of this kind goes on from one of `other` as one run: a list, a quote, a block of code.
+  /// The items of a checklist are one run, checked or not.
+  pub fn continues(self, other: Self) -> bool {
+    match (self.canonical(), other.canonical()) {
+      (Self::Checklist { .. }, Self::Checklist { .. }) => true,
+      (kind, other) => kind == other,
+    }
+  }
+
+  /// The kind of a paragraph an edit splits off one of this kind: an item of a checklist is not checked, and
+  /// what follows a divider is body text.
+  pub(crate) fn split_off(self) -> Self {
+    match self {
+      Self::Checklist { .. } => Self::Checklist { checked: false },
+      Self::Divider => Self::Body,
       kind => kind,
     }
   }
@@ -60,6 +88,21 @@ pub enum ParagraphMarker {
   /// A bar `width` wide down the start of the paragraph, as high as all its rows: one bar down a run of
   /// paragraphs of the kind.
   Bar { width: f32, color: TextColor },
+  /// The box of an item of a checklist, `size` square, centred on the first row's text, `gap` before the text:
+  /// its corners of `radius`, an edge `edge_width` wide in `edge`. Checked, it is filled with `fill` and shows
+  /// `icon` in `tick`.
+  Check {
+    size: f32,
+    gap: f32,
+    radius: f32,
+    edge_width: f32,
+    edge: TextColor,
+    fill: TextColor,
+    tick: TextColor,
+    icon: Option<IconGlyph>,
+  },
+  /// A line `thickness` high across the input, in the middle of the paragraph's row: a divider's.
+  Rule { thickness: f32, color: TextColor },
 }
 
 /// How the paragraphs of one kind are drawn: their type where it is not the
@@ -84,6 +127,19 @@ pub struct ParagraphStyle {
   /// Whether paragraphs of the kind that follow one another stand with no room between them, as the lines of a
   /// block of code do.
   pub joined: bool,
+  /// The room between two paragraphs of the kind that follow one another, in place of the styles' gap: the
+  /// items of a list, closer than the blocks around them. `None` is the gap.
+  pub item_gap: Option<f32>,
+  /// The room above a run of paragraphs of the kind, inside its fill and its bar, besides the gap before it.
+  pub padding_top: f32,
+  /// The room under a run of paragraphs of the kind, inside its fill and its bar, besides the gap after it.
+  pub padding_bottom: f32,
+  /// The family of the type of the marker's text (a numbered item's number), in place of the paragraph's.
+  pub marker_font_family: Option<std::sync::Arc<str>>,
+  /// The size of the marker's text in logical pixels, in place of the paragraph's.
+  pub marker_font_size: Option<f32>,
+  /// The weight of the marker's text, in place of the paragraph's.
+  pub marker_weight: Option<FontWeight>,
 }
 
 impl ParagraphStyle {
@@ -147,6 +203,57 @@ impl ParagraphStyle {
     self
   }
 
+  /// The room between two paragraphs of the kind that follow one another, in place of the styles' gap.
+  pub fn item_gap(mut self, gap: f32) -> Self {
+    self.item_gap = Some(gap);
+    self
+  }
+
+  /// The room above and under a run of paragraphs of the kind, inside its fill and its bar.
+  pub fn padding_y(mut self, top: f32, bottom: f32) -> Self {
+    self.padding_top = top;
+    self.padding_bottom = bottom;
+    self
+  }
+
+  /// The family of the type the marker's text is drawn in: a numbered item's number in a mono face.
+  pub fn marker_font_family(mut self, family: impl Into<std::sync::Arc<str>>) -> Self {
+    self.marker_font_family = Some(family.into());
+    self
+  }
+
+  /// The size of the marker's text in logical pixels.
+  pub fn marker_font_size(mut self, size: f32) -> Self {
+    self.marker_font_size = Some(size);
+    self
+  }
+
+  /// The weight of the marker's text.
+  pub fn marker_weight(mut self, weight: FontWeight) -> Self {
+    self.marker_weight = Some(weight);
+    self
+  }
+
+  /// The type of the marker's text over the paragraph's `text`: `None` where the style says nothing of it, and
+  /// the marker is in the paragraph's type.
+  pub(crate) fn marker_text(&self, text: &TextStyle) -> Option<TextStyle> {
+    let size = self.marker_font_size.filter(|size| size.is_finite() && *size > 0.0);
+    if self.marker_font_family.is_none() && size.is_none() && self.marker_weight.is_none() {
+      return None;
+    }
+    let mut marker = text.clone();
+    if let Some(family) = &self.marker_font_family {
+      marker.font_family = family.clone();
+    }
+    if let Some(size) = size {
+      marker.font_size = size;
+    }
+    if let Some(weight) = self.marker_weight {
+      marker.weight = weight;
+    }
+    Some(marker)
+  }
+
   /// The paragraph's type over the input's own.
   pub(crate) fn text(&self, base: &TextStyle) -> TextStyle {
     let mut text = base.clone();
@@ -182,6 +289,11 @@ pub struct ParagraphStyles {
   pub ordered: ParagraphStyle,
   pub quote: ParagraphStyle,
   pub code: ParagraphStyle,
+  /// Items of a checklist.
+  pub checklist: ParagraphStyle,
+  /// Items of a checklist that are checked, in place of `checklist`: `None` draws them as the others.
+  pub checked: Option<ParagraphStyle>,
+  pub divider: ParagraphStyle,
 }
 
 impl ParagraphStyles {
@@ -204,6 +316,9 @@ impl ParagraphStyles {
       ParagraphKind::Ordered => self.ordered = style,
       ParagraphKind::Quote => self.quote = style,
       ParagraphKind::Code => self.code = style,
+      ParagraphKind::Checklist { checked: false } => self.checklist = style,
+      ParagraphKind::Checklist { checked: true } => self.checked = Some(style),
+      ParagraphKind::Divider => self.divider = style,
     }
     self
   }
@@ -217,6 +332,9 @@ impl ParagraphStyles {
       ParagraphKind::Ordered => &self.ordered,
       ParagraphKind::Quote => &self.quote,
       ParagraphKind::Code => &self.code,
+      ParagraphKind::Checklist { checked: false } => &self.checklist,
+      ParagraphKind::Checklist { checked: true } => self.checked.as_ref().unwrap_or(&self.checklist),
+      ParagraphKind::Divider => &self.divider,
     }
   }
 }
@@ -253,7 +371,9 @@ pub(crate) fn normalize_kinds(mut kinds: Vec<ParagraphKind>, count: usize) -> Ve
 /// The kinds after an edit that replaced the bytes `replaced` of the text
 /// whose paragraphs were `before` with text that left the paragraphs `after`,
 /// `inserted` bytes long: a paragraph the edit split gives its kind to both
-/// halves, and paragraphs it joined take the kind of the first.
+/// halves, and paragraphs it joined take the kind of the first. What is split
+/// off an item of a checklist is not checked, and what is split off a divider
+/// is body text ([`ParagraphKind::split_off`]).
 pub(crate) fn splice_kinds(
   kinds: &[ParagraphKind],
   before: &[Range<usize>],
@@ -267,7 +387,7 @@ pub(crate) fn splice_kinds(
   let added = paragraph_of(after, replaced.start + inserted) - paragraph_of(after, replaced.start);
   let mut out = Vec::with_capacity(after.len());
   out.extend_from_slice(&kinds[..=first]);
-  out.extend(std::iter::repeat_n(kinds[first], added));
+  out.extend(std::iter::repeat_n(kinds[first].split_off(), added));
   out.extend_from_slice(&kinds[(last + 1).min(kinds.len())..]);
   normalize_kinds(out, after.len())
 }

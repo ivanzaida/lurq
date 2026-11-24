@@ -58,6 +58,10 @@ pub(super) struct StyledState {
   /// its marks and kinds.
   rich_clipboard: bool,
   on_link_click: Vec<LinkHandler>,
+  /// The look of the marks of this input, in place of the theme's.
+  text_marks: Option<Arc<crate::app::theme::ThemeTextMarks>>,
+  /// Whether a press on the box of an item of a checklist checks it or unchecks it.
+  checks_on_press: bool,
 }
 
 impl StyledState {
@@ -554,7 +558,14 @@ impl TextInputState {
       return;
     };
     let after = spans_ops::paragraph_ranges(&self.shared_value());
-    self.write_paragraphs(spans_ops::splice_kinds(kinds, before, &after, range.clone(), inserted));
+    let mut kinds = spans_ops::splice_kinds(kinds, before, &after, range.clone(), inserted);
+    // A divider holds no text: one an edit put text in is body text.
+    for (kind, paragraph) in kinds.iter_mut().zip(&after) {
+      if *kind == ParagraphKind::Divider && !paragraph.is_empty() {
+        *kind = ParagraphKind::Body;
+      }
+    }
+    self.write_paragraphs(kinds);
   }
 
   pub(crate) fn add_styled_change_handler(&self, handler: impl Fn(&StyledChange) + Send + Sync + 'static) {
@@ -936,6 +947,127 @@ impl TextInputState {
       return None;
     }
     Some(self.replace_selection_rich(&rich, keyboard))
+  }
+
+  pub(crate) fn set_text_marks(&self, marks: Option<crate::app::theme::ThemeTextMarks>) {
+    self.inner.lock().styled.text_marks = marks.map(Arc::new);
+  }
+
+  /// The look of the marks of this input where it has one of its own.
+  pub(crate) fn text_marks(&self) -> Option<Arc<crate::app::theme::ThemeTextMarks>> {
+    self.inner.lock().styled.text_marks.clone()
+  }
+
+  pub(crate) fn set_checks_on_press(&self, on: bool) {
+    self.inner.lock().styled.checks_on_press = on;
+  }
+
+  /// Where the paragraph starts whose box of a checklist's item is under a point of the content box, where the
+  /// input lets a press check it.
+  fn check_under(&self, x: f32, y: f32) -> Option<usize> {
+    if !self.inner.lock().styled.checks_on_press {
+      return None;
+    }
+    let layout = self.token_layout()?;
+    let (x, y) = {
+      let inner = self.inner.lock();
+      (x + inner.scroll_x, y + inner.scroll_y())
+    };
+    layout.check_at(x, y)
+  }
+
+  /// Whether a press at a point of the content box is on the box of a checklist's item that it checks.
+  pub(crate) fn check_at_point(&self, x: f32, y: f32) -> bool {
+    self.check_under(x, y).is_some()
+  }
+
+  /// Checks or unchecks the item of a checklist whose box is under a point of the content box, as one undo step,
+  /// where the input lets a press do it. `false` where no box is there.
+  pub(crate) fn press_check_at_point(&self, x: f32, y: f32) -> bool {
+    let Some(start) = self.check_under(x, y) else {
+      return false;
+    };
+    let ranges = spans_ops::paragraph_ranges(&self.shared_value());
+    let index = spans_ops::paragraph_of(&ranges, start);
+    self.toggle_checks(index..index + 1)
+  }
+
+  /// Checks the items of a checklist the selection touches, or unchecks them where they all are checked, as one
+  /// undo step. `false` where it touches none.
+  pub(crate) fn toggle_selected_checks(&self) -> bool {
+    let (range, _) = self.selected_paragraph_range();
+    self.toggle_checks(range)
+  }
+
+  /// Checks the items of a checklist among the paragraphs `range`, or unchecks them where they all are checked.
+  fn toggle_checks(&self, range: Range<usize>) -> bool {
+    let Some(kinds) = self.current_paragraphs() else {
+      return false;
+    };
+    let range = range.start.min(kinds.len())..range.end.min(kinds.len());
+    let items: Vec<usize> = range
+      .clone()
+      .filter(|index| matches!(kinds[*index], ParagraphKind::Checklist { .. }))
+      .collect();
+    if items.is_empty() {
+      return false;
+    }
+    let checked = !items
+      .iter()
+      .all(|index| kinds[*index] == ParagraphKind::Checklist { checked: true });
+    let mut changed = kinds.to_vec();
+    for index in items {
+      changed[index] = ParagraphKind::Checklist { checked };
+    }
+    self.push_undo_snapshot();
+    self.write_paragraphs(changed);
+    if let Some(spans) = self.current_spans() {
+      self.commit_spans(spans.to_vec(), StyledEdit::Paragraphs { range });
+    }
+    self.mark_layout_dirty();
+    true
+  }
+
+  /// Puts a divider after the paragraph the caret is in, or makes that paragraph one where it is empty body text,
+  /// with a paragraph of body text after it that the caret is put in, as one undo step. `false` in an input
+  /// without kinds of paragraphs.
+  pub(crate) fn insert_divider(&self, keyboard: &KeyboardEvent) -> bool {
+    let Some((index, kind, range)) = self.caret_paragraph() else {
+      return false;
+    };
+    let empty = range.is_empty() && kind == ParagraphKind::Body;
+    let (at, text, divider) = if empty {
+      (range.start, "\n", index)
+    } else {
+      (range.end, "\n\n", index + 1)
+    };
+    let len = self.shared_value().len();
+    if !self.controller_select(at.min(len), at.min(len)) {
+      return false;
+    }
+    if !self.replace_selection_text(text, keyboard) {
+      return false;
+    }
+    // The edit is the undo step: the kinds it leaves are made what they are to be without another.
+    let Some(kinds) = self.current_paragraphs() else {
+      return true;
+    };
+    let mut changed = kinds.to_vec();
+    if divider + 1 < changed.len() {
+      changed[divider] = ParagraphKind::Divider;
+      changed[divider + 1] = ParagraphKind::Body;
+    }
+    self.write_paragraphs(changed);
+    if let Some(spans) = self.current_spans() {
+      self.commit_spans(
+        spans.to_vec(),
+        StyledEdit::Paragraphs {
+          range: divider..divider + 2,
+        },
+      );
+    }
+    self.mark_layout_dirty();
+    true
   }
 
   /// Reports the link under a point of the content box to the input's link
