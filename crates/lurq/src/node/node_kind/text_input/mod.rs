@@ -149,6 +149,8 @@ struct TextInputInner {
   squiggles: Option<crate::components::InputSquiggles>,
   /// What is drawn after the end of the text while the caret is there: see [`crate::components::InputGhost`].
   ghost: Option<crate::components::InputGhost>,
+  /// What its empty paragraphs say: see [`crate::components::InputBlockPlaceholder`].
+  block_placeholder: Option<crate::components::InputBlockPlaceholder>,
   /// An input method composition in progress, shown at the caret.
   composition: Option<Composition>,
   undo_stack: Vec<TextInputSnapshot>,
@@ -256,6 +258,7 @@ impl TextInputState {
         kept_selection: None,
         squiggles: None,
         ghost: None,
+        block_placeholder: None,
         composition: None,
         undo_stack: Vec::new(),
         redo_stack: Vec::new(),

@@ -3694,6 +3694,7 @@ RichTextEditor::new(notes.clone())
 | `controlled(value, on_change)` | A document the app holds: each change is told to `on_change`, and a change the app does not take is taken back |
 | `on_change(handler)` | Called with the `&RichText` after each change a person makes: typing, a tool, a key, undo. The signal is set first. Not when the app sets it |
 | `placeholder(&str)` | What the box shows while it holds nothing |
+| `block_placeholder(&str)`, `block_placeholder_in_every_empty_block(bool)` | What an empty block says, *Type / for blocks*: in the block the caret is in while the editor has the focus and nothing is selected, or told, in every empty block. In the block's type and the placeholder's color, drawn over the text: the block keeps its height and the caret its place. The `placeholder` takes its place while the whole document is empty |
 | `rows(min, max)` | The rows of body text the box shows at least, and at most before its text scrolls inside it: 6 and 16 unless told (`RICH_TEXT_MIN_ROWS`, `RICH_TEXT_MAX_ROWS`) |
 | `keep_selection(bool)` | Its selection stays painted, at half the selection's opacity, while another element has the focus: a toolbar of the app's over the selected words takes the focus and the words stay marked. `controller.input().selection_bounds()` says where they are. Off unless told |
 | `tools(tools)` | The `RichTextTool`s of the bar, in order: `Style`, `Bold`, `Italic`, `Underline`, `Strikethrough`, `Bullet`, `Ordered`, `Quote`, `Code`, `Link`, `Image`, `Undo`, `Redo`. A line stands between two groups and the history is at the bar's end. All but `Image` unless told (`RichTextTool::DEFAULT`) |
@@ -4855,6 +4856,7 @@ SidebarTrigger::new(collapsed.clone()).open(open.clone());
 | `header(element)`, `footer(element)` | What stays at its top and its bottom while its items scroll: a `SidebarHeading`, a search. The footer has a line over it. It has one of each: a second call takes the place of the first, where a card's or a dialog's `footer` adds to a row of buttons |
 | `header_collapsed(element)`, `footer_collapsed(element)` | What the rail shows in their place: the mark alone, an avatar. Nothing unless told |
 | `group(SidebarGroup)`, `groups(..)`, `item(SidebarItem)`, `items(..)` | Groups of items; `item` and `items` add to a group of no label |
+| `content(element)` | An element of the app's in the body, in a group of no label: a `TreeView` of pages. It scrolls with the items, and the rail does not show it; an `item` after it starts a group of its own |
 | `collapsed(bool)` | The rail of the items' icons, 52 wide: the value of the signal `SidebarTrigger` turns, `collapsed.get()`. Its width moves between the two over the theme's slow duration |
 | `open(Signal<bool>)` | On a narrow window, whether it is open over the page. `SidebarTrigger` sets it; choosing an item, Escape and a press on the veil clear it |
 | `narrow(bool)` | Whether it lies over the page whatever the window's width: it does below the `md` breakpoint unless told |
@@ -4869,6 +4871,7 @@ SidebarTrigger::new(collapsed.clone()).open(open.clone());
 | `action(element)` | An action at the end of its label: a small ghost button. The arrow keys of the items pass it by |
 | `collapsible(bool)`, `default_open(bool)` | Its label opens and closes it; `default_open` is how it starts, and the sidebar keeps it from then on |
 | `item(SidebarItem)`, `items(..)`, `key` | Its items; `key` tells two groups of one label apart |
+| `content(element)` | An element of the app's under its items, as wide as the group: a `TreeView` of pages. It scrolls with the body and opens and closes with the group. The items' arrow keys pass it by, so a tree in it is a stop of Tab of its own, with a tree's keys. The rail does not show it |
 
 | `SidebarItem` | |
 | --- | --- |
@@ -6156,6 +6159,7 @@ TreeView::new(selected, items)
 | `open_ids(ids, toggle)` | The same held by the app: `toggle(&value, open)` is told of each row a press or a key asks to open or close |
 | `guides(bool)` | A line down each level, under the chevron of the row it is in |
 | `label(&str)` | What the tree is called, to what reads the tree. It draws nothing |
+| `label_tooltip_when_cut(bool)` | A label longer than its row, which ends in an ellipsis, is said whole in a tooltip after the theme's delay, only while it is cut. Off unless told |
 | `on_change(handler)` | Told the row a click or Space selects (`&T`), or, of a tree of any number, the whole new selection (`&[T]`) after a click, Space, Shift with a key or Ctrl+A changed it; not for what was selected already, nor when the app sets it. The tree is `TreeView<T, OneSelected>` or `TreeView<T, ManySelected>`, so a handler of another type does not compile |
 | `on_activate(handler)` | Told of the row a double click or Enter activates, or in the touch form (`ui::touch_form()`) a tap, never held back for a second: open the file. A row that opens opens or closes as well |
 | `on_open_change(handler)` | Told of each row a press or a key opens or closes, `(&value, open)`: where a lazy row's children are brought |

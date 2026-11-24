@@ -52,6 +52,48 @@ dropped). When a decision is replaced, the old entry stays and says what replace
     (`SkeletonMotion::period`), one for the pulse and the sweep.
 - **State.** Built on `feat/motion`.
 
+### A tree's cut label said whole, and any element in a sidebar's body
+
+- **Question.** A tree's row cut a long label with no ellipsis and no tooltip, where a list item's and a table's cut
+  text had both (issue #222); and a sidebar's body took only groups of items, so a tree of pages could only stand in
+  the header, which does not scroll (issue #250, Orchester v2's Pages).
+- **Decision (Ivan).** Do it.
+- **Decided by Claude in the work, to be confirmed.**
+  - *A cut label always ends in an ellipsis; its tooltip is asked for*, `TreeView::label_tooltip_when_cut(bool)`, as
+    `ListItem::title_tooltip_when_cut` is: off unless told. The ellipsis is not asked for, as a list item's title's
+    is not: a hard cut in the middle of a letter was a fault, not a look. One flag for the whole tree, not one per
+    item, and `TreeRow::label_tooltip_when_cut` for a renderer of its own.
+  - *`SidebarGroup::content(element)`, and `Sidebar::content(element)` for one in a group of no label*, not a slot
+    of the sidebar's beside its groups: in a group the element has a label over it, opens and closes with a group
+    that does, and keeps its place among the groups and the items before and after it, all scrolling as one body.
+    `Sidebar::item` after it starts a group of its own rather than putting the item over it.
+  - *The items' arrow keys pass it by, and a tree in it is a stop of Tab of its own after the items.* Taken into the
+    items' keys, Down went on from the last item into a tree's rows, but Up at its first row stayed in it: a tree
+    keeps its keys at its ends. Out of them, the items and the tree each have their own arrows, and Tab goes from one
+    to the other.
+  - *The rail does not show it*: the rail is the items' icons, and an element of the app's has none.
+- **State.** Built on `feat/issues-250-251`.
+
+### A placeholder in an empty block
+
+- **Question.** A rich text editor's placeholder showed only while the whole document was empty; a block editor
+  draws *Type / for blocks* in the empty block the caret is in, a new paragraph after Enter or an empty line between
+  two others (issue #251, Orchester v2's page editor).
+- **Decision (Ivan).** Do it.
+- **Decided by Claude in the work, to be confirmed.**
+  - *A mark drawn over the text, as the document's placeholder of a styled input and a suggestion (`InputGhost`)
+    are*, not text in the value: the block keeps its height, the caret its place, and nothing of it is selected,
+    copied or told to the app. It stands where the caret of the empty paragraph stands, on that paragraph's row, in
+    its type (a heading's in the heading's) and in the placeholder's role.
+  - *In the input, not the editor*: `TextInput::block_placeholder(InputBlockPlaceholder)`, for any styled input of
+    several lines; `RichTextEditor::block_placeholder(&str)` and `block_placeholder_in_every_empty_block(bool)` give
+    it to the editor's box. `RichTextEditorView::block_placeholder` for a renderer of its own.
+  - *In the block the caret is in by default, while the input has the focus and nothing is selected*;
+    `every_empty_block(true)` draws it in every empty block, with the focus or without it.
+  - *The document's own placeholder wins while the document is empty*, where there is one: it is what an empty
+    document says. With none, the empty document is an empty block the caret is in.
+- **State.** Built on `feat/issues-250-251`.
+
 ### A block of code's language, kept and named while it is edited
 
 - **Question.** A rich text editor showed a block of code as plain mono lines, where `Markdown` reading the same

@@ -2020,3 +2020,127 @@ fn a_block_of_code_in_a_language_has_a_bar_that_names_it_and_the_fence_makes_one
   assert_eq!(editor.kinds(), vec![ParagraphKind::code(Some("py"))]);
   assert_eq!(editor.document().to_markdown(), "```py\nx = 1\n```");
 }
+
+const HINT: &str = "Type / for blocks";
+
+/// The quads that say the block placeholder.
+fn hints(editor: &Editor) -> Vec<lurq::layout::quad::Quad> {
+  editor
+    .stage
+    .quads()
+    .into_iter()
+    .filter(|quad| matches!(&quad.content, QuadContent::Text { text, .. } if text == HINT))
+    .collect()
+}
+
+#[test]
+fn the_empty_block_the_caret_is_in_says_the_block_placeholder_where_its_text_would_stand() {
+  let document = RichText::new("First\n\nThird", vec![], vec![Body, Body, Body]);
+  let mut editor = Editor::with(640.0, document, |editor| editor.block_placeholder(HINT));
+  assert!(hints(&editor).is_empty(), "none without the focus");
+  let height = editor.stage.bounds(CONTENT).3;
+  editor.focus();
+  editor.select(6, 6);
+  let hint = hints(&editor).pop().expect("the hint in the empty block");
+  // Where the caret stands in the block: the box's padding is 18 in and 16 down.
+  let input = editor.editor.input();
+  let (x, y, ..) = editor.stage.bounds(CONTENT);
+  let (first, at, third) = (
+    input.caret_point(0).unwrap(),
+    input.caret_point(6).unwrap(),
+    input.caret_point(7).unwrap(),
+  );
+  assert!(
+    first.y < at.y && at.y < third.y,
+    "the empty block is the second: {} {} {}",
+    first.y,
+    at.y,
+    third.y
+  );
+  // The caret's point is the band of the font's text, centered on the row the hint stands on.
+  let middle = |top: f32, height: f32| top + height / 2.0;
+  assert!(
+    close(hint.x, x + 18.0 + at.x) && close(middle(hint.y, hint.height), y + 16.0 + middle(at.y, at.height)),
+    "on the caret's line, where the block's text would start: {:?} and {at:?}",
+    (hint.x - x - 18.0, hint.y - y - 16.0, hint.height)
+  );
+  assert_eq!(editor.stage.text(HINT), (light(PaletteColor::MutedForeground), 14.0));
+  assert_eq!(editor.stage.bounds(CONTENT).3, height, "the box keeps its height");
+  assert_eq!(editor.document().text, "First\n\nThird", "it is not in the text");
+
+  // Not in a block that holds text, nor while something is selected.
+  editor.select(2, 2);
+  assert!(hints(&editor).is_empty(), "the caret in a block with text");
+  editor.select(4, 8);
+  assert!(hints(&editor).is_empty(), "a selection across the empty block");
+
+  // What is typed takes its place, and it comes back when the block is empty again.
+  editor.select(6, 6);
+  editor.type_text("S");
+  assert!(hints(&editor).is_empty());
+  assert_eq!(editor.document().text, "First\nS\nThird");
+  editor.stage.key("Backspace");
+  assert_eq!(hints(&editor).len(), 1);
+  // Leaving the editor takes it away.
+  editor.stage.tree.get_element_by_id_mut("elsewhere").unwrap().focus();
+  editor.stage.pass();
+  assert!(hints(&editor).is_empty(), "gone with the focus");
+}
+
+#[test]
+fn a_new_block_after_enter_says_it_in_its_own_type() {
+  let mut editor = Editor::with(640.0, RichText::from_markdown("## Notes"), |editor| {
+    editor.block_placeholder(HINT)
+  });
+  editor.focus();
+  assert!(hints(&editor).is_empty(), "the caret after the heading's text");
+  editor.stage.key("Enter");
+  let hint = hints(&editor).pop().expect("the hint in the new block");
+  // The heading's row is 26 high, and 10 stand between two blocks: a body's row of 18 under it.
+  let (_, y, ..) = editor.stage.bounds(CONTENT);
+  assert!(
+    close(hint.y, y + 16.0 + 26.0 + 10.0) && close(hint.height, 18.0),
+    "on the new block's row, under the heading: {:?}",
+    (hint.y - y - 16.0, hint.height)
+  );
+  let kind = editor.kinds()[1];
+  let size = editor.stage.text(HINT).1;
+  assert!(
+    matches!(kind, Body) && size < 22.0,
+    "a body's type after a heading: {kind:?}, {size}"
+  );
+
+  // An empty heading says it in the heading's type.
+  let document = RichText::new("Intro\n", vec![], vec![Body, Heading(2)]);
+  let mut editor = Editor::with(640.0, document, |editor| editor.block_placeholder(HINT));
+  editor.focus();
+  editor.select(6, 6);
+  assert_eq!(editor.stage.text(HINT).1, 22.0);
+}
+
+#[test]
+fn every_empty_block_says_it_where_told_and_an_empty_document_says_its_own_placeholder() {
+  let document = RichText::new("A\n\nB\n\nC", vec![], vec![Body; 5]);
+  let editor = Editor::with(640.0, document, |editor| {
+    editor
+      .block_placeholder(HINT)
+      .block_placeholder_in_every_empty_block(true)
+  });
+  assert_eq!(hints(&editor).len(), 2, "both empty blocks, without the focus");
+
+  // An empty document: its own placeholder, focused or not.
+  let mut editor = Editor::with(640.0, RichText::new("", vec![], vec![Body]), |editor| {
+    editor.placeholder("Write the release notes").block_placeholder(HINT)
+  });
+  editor.focus();
+  assert!(editor.stage.paints("Write the release notes"));
+  assert!(hints(&editor).is_empty(), "the document's placeholder in place of it");
+
+  // With none of its own, the empty document is an empty block the caret is in.
+  let mut editor = Editor::with(640.0, RichText::new("", vec![], vec![Body]), |editor| {
+    editor.block_placeholder(HINT)
+  });
+  assert!(hints(&editor).is_empty());
+  editor.focus();
+  assert_eq!(hints(&editor).len(), 1);
+}
