@@ -86,6 +86,15 @@ const LEAST: [(&str, usize); 4] = [("2", 2), ("4", 4), ("6", 6), ("10", 10)];
 const MOST: [(&str, usize); 4] = [("6", 6), ("10", 10), ("16", 16), ("24", 24)];
 
 /// What is on a stage, one under another, as wide as the stage.
+/// A paragraph, an empty block, and another paragraph.
+fn with_an_empty_block() -> RichText {
+  RichText::new(
+    "A first paragraph.\n\nA third, after an empty one.",
+    vec![],
+    vec![ParagraphKind::Body; 3],
+  )
+}
+
 fn stack() -> Column {
   Column::new().width(FILL).spacing(16.0).align_items(Alignment::Start)
 }
@@ -110,6 +119,10 @@ pub struct RichTextEditorPage {
   controller: RichTextController,
   /// The documents of the states: one empty, one the three other editors share.
   empty: Signal<RichText>,
+  /// A document with an empty block, where the caret's says the block placeholder.
+  blocks: Signal<RichText>,
+  /// The same, where every empty block says it.
+  every: Signal<RichText>,
   terms: Signal<RichText>,
   /// The document with pictures, what works its editor from outside, and the playground's.
   pictured: Signal<RichText>,
@@ -307,6 +320,8 @@ impl Component for RichTextEditorPage {
       driven: ctx.signal(RichText::plain("Select a word and press a button under the editor.")),
       controller: RichTextController::new(),
       empty: ctx.signal(RichText::default()),
+      blocks: ctx.signal(with_an_empty_block()),
+      every: ctx.signal(with_an_empty_block()),
       terms: ctx.signal(RichText::from_markdown(
         "### Terms\n\nBy using lurq you agree to *build something*.",
       )),
@@ -461,6 +476,31 @@ impl Component for RichTextEditorPage {
           .mount(ctx),
       )
       .child(quiet("disabled", 12.0));
+
+    // An empty block says what a person can do in it: the one the caret is in, or each of them.
+    let blocks = stack()
+      .child(
+        RichTextEditor::new(self.blocks.clone())
+          .block_placeholder("Type / for blocks")
+          .toolbar(false)
+          .rows(4, 8)
+          .key("blocks")
+          .mount(ctx),
+      )
+      .child(quiet(
+        "the block the caret is in: put it on the empty line, or press Enter",
+        12.0,
+      ))
+      .child(
+        RichTextEditor::new(self.every.clone())
+          .block_placeholder("Type / for blocks")
+          .block_placeholder_in_every_empty_block(true)
+          .toolbar(false)
+          .rows(4, 8)
+          .key("every")
+          .mount(ctx),
+      )
+      .child(quiet("every empty block, with the focus or without it", 12.0));
 
     // Worked from outside: the app's buttons run the commands a tool runs.
     let command = |label: &str, icon: &'static str, run: fn(&RichTextController)| {
@@ -779,6 +819,28 @@ impl Component for RichTextEditorPage {
               "RichTextEditor::new(terms.clone()).read_only(true).mount(ctx)",
               "RichTextEditor::new(terms.clone()).invalid(true).mount(ctx)",
               "RichTextEditor::new(terms.clone()).disabled(true).mount(ctx)",
+            ],
+          ),
+        ),
+        Section::new(
+          "Empty blocks",
+          "A block placeholder is what an empty block says, as a block editor draws it: in the block the caret is \
+           in, in that block's type and in the placeholder's color, while the editor has the focus and nothing is \
+           selected. It is drawn over the text: the block keeps its height and the caret its place. Told, every \
+           empty block says it. An empty document says its own placeholder in its place.",
+          self.frame.demo(
+            6,
+            blocks,
+            ".block_placeholder(\"Type / for blocks\")",
+            &[
+              "RichTextEditor::new(page.clone())",
+              "    .block_placeholder(\"Type / for blocks\")",
+              "    .mount(ctx)",
+              "",
+              "RichTextEditor::new(page.clone())",
+              "    .block_placeholder(\"Type / for blocks\")",
+              "    .block_placeholder_in_every_empty_block(true)",
+              "    .mount(ctx)",
             ],
           ),
         ),

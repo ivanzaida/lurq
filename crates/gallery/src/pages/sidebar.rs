@@ -11,7 +11,7 @@ use lurq::{
   node::{Element, dimension::Dimension},
   ui::{
     Avatar, Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Sidebar, SidebarGroup, SidebarHeading,
-    SidebarHeadingVariant, SidebarItem, SidebarTrigger, icons,
+    SidebarHeadingVariant, SidebarItem, SidebarTrigger, TreeItem, TreeView, icons,
   },
 };
 
@@ -195,6 +195,26 @@ pub struct SidebarPage {
   beside: (Signal<bool>, Signal<bool>, Signal<usize>),
   rail: (Signal<bool>, Signal<bool>, Signal<usize>),
   over: (Signal<bool>, Signal<bool>, Signal<usize>),
+  /// The sidebar with a tree of pages: its window, the page selected in the tree and the pages open.
+  pages: (Signal<bool>, Signal<bool>, Signal<usize>),
+  page: Signal<Option<&'static str>>,
+  pages_open: Signal<Vec<&'static str>>,
+}
+
+/// A workspace's pages, some with titles longer than the sidebar is wide.
+fn pages() -> Vec<TreeItem<&'static str>> {
+  vec![
+    TreeItem::folder("handbook", "Handbook").items([
+      TreeItem::file("queue", "2026-10 one queue for every project and its runs"),
+      TreeItem::file("motion", "Motion: what slides, what fades, and how long"),
+      TreeItem::file("words", "Words"),
+    ]),
+    TreeItem::folder("notes", "Meeting notes").items([
+      TreeItem::file("monday", "Monday"),
+      TreeItem::file("review", "The review of the board's second pass, with Ivan"),
+    ]),
+    TreeItem::file("roadmap", "Roadmap"),
+  ]
 }
 
 impl SidebarPage {
@@ -366,7 +386,7 @@ impl Component for SidebarPage {
 
   fn create(ctx: &mut Ctx) -> Self {
     let mut section = |collapsed: bool| (ctx.signal(collapsed), ctx.signal(false), ctx.signal(1_usize));
-    let (beside, rail, over) = (section(false), section(true), section(false));
+    let (beside, rail, over, pages) = (section(false), section(true), section(false), section(false));
     Self {
       frame: Frame::new(ctx),
       playground: Playground::new(ctx, 0),
@@ -381,6 +401,9 @@ impl Component for SidebarPage {
       beside,
       rail,
       over,
+      pages,
+      page: ctx.signal(Some("queue")),
+      pages_open: ctx.signal(vec!["handbook"]),
     }
   }
 
@@ -394,6 +417,19 @@ impl Component for SidebarPage {
     let beside = section(ctx, "beside", &self.beside, false);
     let rail = section(ctx, "rail", &self.rail, false);
     let over = section(ctx, "over", &self.over, true);
+    // A tree of pages in a group of its own, under the board's places: it scrolls with them.
+    let tree = {
+      let props = Self::section(&self.pages, false);
+      let sidebar = board(&props, |_| {}).group(
+        SidebarGroup::new("Pages").collapsible(true).content(
+          TreeView::new(self.page.clone(), pages())
+            .label("Pages")
+            .open(self.pages_open.clone())
+            .label_tooltip_when_cut(true),
+        ),
+      );
+      staged("pages", room, &props, window(sidebar.mount(ctx), &props, 460.0))
+    };
     let rows = [
       (
         "header",
@@ -423,7 +459,15 @@ impl Component for SidebarPage {
         "group",
         "SidebarGroup",
         "",
-        "A group under a label in capitals, with a count, an action at its end, and collapsible.",
+        "A group under a label in capitals, with a count, an action at its end, and collapsible. Its content(..) \
+         is an element under its items, a tree of pages, which scrolls with them.",
+      ),
+      (
+        "content",
+        "impl Into<Element>",
+        "",
+        "An element of the app's in a group of no label: a tree of pages. It scrolls with the items, and the rail \
+         does not show it.",
       ),
       (
         "item",
@@ -535,6 +579,28 @@ impl Component for SidebarPage {
               "    .groups(groups)",
               "    .open(open.clone())",
               "    .narrow(true)",
+              "    .mount(ctx)",
+            ],
+          ),
+        ),
+        Section::new(
+          "A tree of pages",
+          "What a group holds under its items can be any element of the app's: here a tree of pages, which \
+           scrolls with the items, opens and closes with its group, and says a cut title whole on hover. The items' \
+           arrow keys pass it by: the tree is a stop of Tab of its own, with a tree's keys. The rail does not show \
+           it.",
+          self.frame.demo(
+            3,
+            tree,
+            ".content(tree)",
+            &[
+              "Sidebar::new()",
+              "    .groups(groups)",
+              "    .group(",
+              "        SidebarGroup::new(\"Pages\")",
+              "            .collapsible(true)",
+              "            .content(TreeView::new(page, pages).open(open).label_tooltip_when_cut(true)),",
+              "    )",
               "    .mount(ctx)",
             ],
           ),

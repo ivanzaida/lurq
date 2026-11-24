@@ -446,6 +446,22 @@ impl Component for TreeViewPage {
       .label("Files")
       .open(self.hover_open.clone())
       .style(TreeViewPart::Root, |s| s.width(260.0));
+    // Pages whose titles are longer than the tree is wide: each is cut with an ellipsis, and said whole on hover.
+    let long = TreeView::controlled(
+      None,
+      [
+        TreeItem::folder("2026-10", "2026-10").items([
+          TreeItem::file("queue", "2026-10 one queue for every project and its runs"),
+          TreeItem::file("handbook", "2026-10 the handbook of the board, with its pages"),
+        ]),
+        TreeItem::file("short", "Short"),
+      ],
+      |_| {},
+    )
+    .label("Pages")
+    .open_ids(["2026-10"], |_, _| {})
+    .label_tooltip_when_cut(true)
+    .style(TreeViewPart::Root, |s| s.width(220.0));
     let guides = TreeView::controlled(None, plain.project(), |_| {})
       .label("Files")
       .open(self.guide_open.clone())
@@ -522,6 +538,12 @@ impl Component for TreeViewPage {
         "&str",
         "",
         "What the tree is called, to what reads the window's tree.",
+      ),
+      (
+        "label_tooltip_when_cut",
+        "bool",
+        "false",
+        "A label cut with an ellipsis is said whole in a tooltip, only while it is cut.",
       ),
       (
         "on_change",
@@ -659,6 +681,21 @@ impl Component for TreeViewPage {
               ".open(open)",
               ".style(TreeViewPart::Root, |s| s.width(320.0).height(360.0))",
               ".mount(ctx)",
+            ],
+          ),
+        ),
+        Section::new(
+          "Long labels",
+          "A label longer than its row is cut with an ellipsis. Told `label_tooltip_when_cut(true)`, the tree says \
+           it whole in a tooltip after the theme's delay, only while it is cut: a label that fits has none.",
+          self.frame.demo(
+            7,
+            long,
+            ".label_tooltip_when_cut(true)",
+            &[
+              "TreeView::new(selected, pages)",
+              "    .label_tooltip_when_cut(true)",
+              "    .style(TreeViewPart::Root, |s| s.width(220.0))",
             ],
           ),
         ),

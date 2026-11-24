@@ -449,7 +449,7 @@ impl TextInputState {
   /// they are at: the one the caret is in while the input has the focus and nothing is selected, or every empty
   /// one where told. None while the input's own placeholder is drawn, while it is masked or an input method
   /// composes, and in an input of one line.
-  pub(crate) fn shown_block_placeholder(&self) -> Option<(std::sync::Arc<str>, Vec<(usize, usize)>)> {
+  pub(crate) fn shown_block_placeholder(&self) -> Option<ShownBlockPlaceholder> {
     if self.is_showing_placeholder() {
       return None;
     }
@@ -512,3 +512,7 @@ impl TextInputState {
     self.inner.lock().focused
   }
 }
+
+/// What the empty paragraphs say, and those it is drawn in: each by its place among the paragraphs and the byte it
+/// starts at.
+pub(crate) type ShownBlockPlaceholder = (std::sync::Arc<str>, Vec<(usize, usize)>);
