@@ -90,6 +90,18 @@ pub enum AnimatableValue {
     dash: f32,
     gap: f32,
   },
+  /// A border's color with the shape it is drawn in: the width of each side (top, right, bottom, left; none where
+  /// the side has no line), where it stands and its dashes. A border that goes keeps its shape while its color
+  /// fades to nothing.
+  Edge {
+    color: Color,
+    widths: [Option<f32>; 4],
+    placement: crate::node::border::BorderPlacement,
+    dash: Option<crate::node::border::BorderDash>,
+  },
+  /// No fill, or no border: what a fill or a border that comes or goes fades from, or to, as its own color with
+  /// nothing of it, as a shadow and an outline do.
+  Clear,
 }
 
 /// The box shadows of a node as one animated value: at most
@@ -218,6 +230,55 @@ impl AnimatableValue {
   pub fn lerp(&self, to: &AnimatableValue, t: f32) -> AnimatableValue {
     match (self, to) {
       (AnimatableValue::Color(a), AnimatableValue::Color(b)) => AnimatableValue::Color(lerp_color(*a, *b, t)),
+      // A fill that comes or goes: its own color, from or to nothing of it.
+      (AnimatableValue::Color(a), AnimatableValue::Clear) => AnimatableValue::Color(lerp_color(*a, clear(*a), t)),
+      (AnimatableValue::Clear, AnimatableValue::Color(b)) => AnimatableValue::Color(lerp_color(clear(*b), *b, t)),
+      (AnimatableValue::Edge { color: a, .. }, AnimatableValue::Edge { color: b, .. }) => {
+        let AnimatableValue::Edge {
+          widths,
+          placement,
+          dash,
+          ..
+        } = *to
+        else {
+          unreachable!()
+        };
+        AnimatableValue::Edge {
+          color: lerp_color(*a, *b, t),
+          widths,
+          placement,
+          dash,
+        }
+      }
+      // A border that comes or goes, in its own shape.
+      (
+        AnimatableValue::Edge {
+          color,
+          widths,
+          placement,
+          dash,
+        },
+        AnimatableValue::Clear,
+      ) => AnimatableValue::Edge {
+        color: lerp_color(*color, clear(*color), t),
+        widths: *widths,
+        placement: *placement,
+        dash: *dash,
+      },
+      (
+        AnimatableValue::Clear,
+        AnimatableValue::Edge {
+          color,
+          widths,
+          placement,
+          dash,
+        },
+      ) => AnimatableValue::Edge {
+        color: lerp_color(clear(*color), *color, t),
+        widths: *widths,
+        placement: *placement,
+        dash: *dash,
+      },
       (AnimatableValue::Float(a), AnimatableValue::Float(b)) => AnimatableValue::Float(a + (b - a) * t),
       (AnimatableValue::Transform(a), AnimatableValue::Transform(b)) => AnimatableValue::Transform(a.lerp(b, t)),
       (AnimatableValue::Outline(a), AnimatableValue::Outline(b)) => AnimatableValue::Outline(lerp_outline(*a, *b, t)),
@@ -293,6 +354,11 @@ impl From<Decomposed> for AnimatableValue {
   }
 }
 
+/// `color` with nothing of it: what a fill or a border that comes or goes fades from, or to.
+fn clear(color: Color) -> Color {
+  Color::new(color.r(), color.g(), color.b(), 0)
+}
+
 fn lerp_color(a: Color, b: Color, t: f32) -> Color {
   let ar = a.r() as f32;
   let ag = a.g() as f32;
@@ -352,17 +418,42 @@ pub(crate) fn read_target(
     | AnimatableProperty::Outline
     | AnimatableProperty::BoxShadow
     | AnimatableProperty::Glass => None,
-    AnimatableProperty::BackgroundColor => style
-      .color
-      .or_else(|| <Option<_> as Clone>::clone(&node.color))
-      .and_then(|color| color.resolve(&theme.palette))
-      .map(AnimatableValue::Color),
-    AnimatableProperty::BorderColor => style
-      .border
-      .or_else(|| node.border.as_deref().cloned())
-      .and_then(|b| b.color())
-      .and_then(|color| color.resolve(&theme.palette))
-      .map(AnimatableValue::Color),
+    // No fill is a value too, which one that comes fades from and one that goes fades to.
+    AnimatableProperty::BackgroundColor => {
+      Some(match style.color.or_else(|| <Option<_> as Clone>::clone(&node.color)) {
+        None => AnimatableValue::Clear,
+        Some(color) => AnimatableValue::Color(color.resolve(&theme.palette)?),
+      })
+    }
+    // A border with the shape it is drawn in, or none, which one that comes fades from and one that goes to.
+    AnimatableProperty::BorderColor => {
+      let Some(borders) = style.border.or_else(|| node.border.as_deref().cloned()) else {
+        return Some(AnimatableValue::Clear);
+      };
+      let Some(color) = borders.color().and_then(|color| color.resolve(&theme.palette)) else {
+        return Some(AnimatableValue::Clear);
+      };
+      let width = |side: &Option<crate::node::border::Border>| {
+        side.as_ref().map(|border| border.width.resolve(&theme.border_sizes))
+      };
+      let first = borders
+        .top
+        .as_ref()
+        .or(borders.right.as_ref())
+        .or(borders.bottom.as_ref())
+        .or(borders.left.as_ref());
+      Some(AnimatableValue::Edge {
+        color,
+        widths: [
+          width(&borders.top),
+          width(&borders.right),
+          width(&borders.bottom),
+          width(&borders.left),
+        ],
+        placement: first.map(|border| border.placement).unwrap_or_default(),
+        dash: first.and_then(|border| border.dash),
+      })
+    }
     // The dashes of the first side that has a border: a border dashed on every side is dashed alike.
     AnimatableProperty::BorderDash => style
       .border
@@ -439,6 +530,11 @@ pub(crate) fn write_property(node: &mut crate::node::Node, prop: AnimatablePrope
     prop,
     AnimatableProperty::OffsetX | AnimatableProperty::OffsetY | AnimatableProperty::Width | AnimatableProperty::Height
   );
+  // No fill or no border, where a run ends, is what the node has of its own: nothing is written over it.
+  if *value == AnimatableValue::Clear {
+    node.animation_overrides.retain(|(overridden, _)| *overridden != prop);
+    return affects_layout;
+  }
   // Every property goes to the overrides, which each tick clears, and never into the node's own fields: those
   // hold what the render set, which `read_target` must keep seeing.
   if let Some(pos) = node.animation_overrides.iter().position(|(p, _)| *p == prop) {

@@ -178,6 +178,11 @@ pub struct TransitionEngine {
   /// The theme each node's values were last read in (`Theme::identity`): a node built in another theme since (a
   /// stage switched to the other appearance) heads to that theme's values at once, as a change of theme.
   node_themes: HashMap<NodeId, usize>,
+  /// The pass each node was first ticked in: what it has in the frame it comes in (a fill its settled layout gives
+  /// it, after a first pass gave it none) is there at once, as its first value is.
+  born: HashMap<NodeId, u64>,
+  /// The passes begun: see [`Self::begin_pass`].
+  pass: u64,
   /// The theme the node being ticked is read in: a theme an element of the tree carries, or none (0) for the
   /// window's, whose changes `theme_changed` follows by their values.
   theme_identity: usize,
@@ -219,6 +224,8 @@ impl TransitionEngine {
       active: HashMap::new(),
       prev_values: HashMap::new(),
       node_themes: HashMap::new(),
+      born: HashMap::new(),
+      pass: 0,
       theme_identity: 0,
       seen: HashSet::new(),
       next_change: None,
@@ -266,6 +273,7 @@ impl TransitionEngine {
     self.active.clear();
     self.prev_values.clear();
     self.node_themes.clear();
+    self.born.clear();
     self.seen.clear();
     self.next_change = None;
     self.has_active = false;
@@ -275,6 +283,12 @@ impl TransitionEngine {
   /// visited. Mirrors `AnimationEngine::begin_frame` — a frame ticks the base
   /// tree and each overlay subtree separately, so stale runs are only
   /// detectable after all walks in [`Self::finish_frame`].
+  /// Starts a pass of the window, whose layouts (several, where what it lays out settles) are one frame: a node
+  /// that comes in during it has what it has in them at once.
+  pub(crate) fn begin_pass(&mut self) {
+    self.pass += 1;
+  }
+
   pub(crate) fn begin_frame(&mut self) {
     self.seen.clear();
     self.next_change = None;
@@ -291,6 +305,7 @@ impl TransitionEngine {
     self.active.retain(|(node_id, _), _| seen.contains(node_id));
     self.prev_values.retain(|(node_id, _), _| seen.contains(node_id));
     self.node_themes.retain(|node_id, _| seen.contains(node_id));
+    self.born.retain(|node_id, _| seen.contains(node_id));
     self.has_active = !self.active.is_empty();
   }
 
@@ -461,6 +476,8 @@ impl TransitionEngine {
       .node_themes
       .insert(node_id, self.theme_identity)
       .is_some_and(|before| before != self.theme_identity);
+    // In the frame the node comes in, what it has is there at once: the passes of that frame settle it.
+    let newborn = *self.born.entry(node_id).or_insert(self.pass) == self.pass;
     for (prop, duration, delay, easing) in &properties {
       let key = (node_id, *prop);
       let Some(current) = read_target(node, *prop, &self.theme) else {
@@ -478,7 +495,10 @@ impl TransitionEngine {
       // A value that is another one because the theme is, a color of the other appearance, is there at
       // once, with the rest of the window: only what an element does itself is a transition. A window
       // that turned dark with its buttons still fading from light showed them as light blocks on it.
-      if (self.theme_changed || moved) && self.prev_values.get(&key).is_some_and(|prev| *prev != current) {
+      // A fill or a border a node comes in with, in the passes of the frame it comes in, is there at once: those
+      // passes settle it, and nothing was drawn of it before.
+      let comes_in = newborn && self.prev_values.get(&key) == Some(&AnimatableValue::Clear);
+      if (self.theme_changed || moved || comes_in) && self.prev_values.get(&key).is_some_and(|prev| *prev != current) {
         self.active.remove(&key);
         self.prev_values.insert(key, current);
         continue;

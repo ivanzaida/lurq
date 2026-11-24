@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+Changed:
+
+- **A fill or a border that comes or goes fades, in its own color, from or to nothing of it** ([#248](https://github.com/ivanzaida/lurq/issues/248), decided 2026-11-24, `design/decisions.md`). No fill and no border are values a transition runs from and to, as no shadow and no outline were: a hover fill on a part with none at rest (a ghost button, a menu item, a row) fades in and out over the part's `background_color` transition, and a line only a state gives (a link's underline) over its `border_color` one, keeping its shape while it fades out. A run on its way when the value goes turns back to nothing from where it was. What a node comes in with, in the passes of its first frame, is there at once. An app's "cleared" rest fills, the hover color at nothing, are no longer needed.
+
 ## 0.73.0 — 2026-11-24
 
 Breaking:
