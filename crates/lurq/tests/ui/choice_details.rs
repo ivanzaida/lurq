@@ -100,7 +100,7 @@ fn a_radio_of_a_group_has_its_own_id_count_and_ref() {
     assert!(has(&ids, id), "{id} in {ids:?}");
   }
   assert!(stage.paints("3"));
-  let (x, _, _, _) = stage.bounds("plan-team");
+  let (x, ..) = stage.bounds("plan-team");
   assert!((anchor.rect().0 - x).abs() < 0.5, "the ref is the mark's");
   stage.click("plan-team");
   assert_eq!(plan.get(), "team");
@@ -168,4 +168,58 @@ fn a_tab_disabled_for_a_reason_says_it_in_its_tooltip_and_cannot_be_selected() {
       .and_then(|element| element.description("a11y_description"));
     assert_eq!(said.as_deref(), Some("Comes with the next release"));
   }
+}
+
+#[test]
+fn the_thumb_of_a_mounted_segmented_control_slides_to_the_segment_chosen_next() {
+  use lurq::{app::theme::ThemePalette, layout::quad::QuadContent};
+  let period = Signal::new("day");
+  let held = period.clone();
+  let mut stage = Stage::first_frame(600.0, 200.0, move |ctx| {
+    Column::new()
+      .child(
+        SegmentedControl::new(
+          held.clone(),
+          [
+            Choice::new("day", "Day").id("day"),
+            Choice::new("week", "Week").id("week"),
+            Choice::new("month", "Month").id("month"),
+          ],
+        )
+        .mount(ctx),
+      )
+      .into()
+  });
+  let surface = ThemePalette::light().get(PaletteColor::Background);
+  // The fills of the background's color: the thumb's alone, the chosen segment drawing its ink.
+  let thumbs = |stage: &Stage| -> Vec<(f32, f32)> {
+    stage
+      .quads()
+      .into_iter()
+      .filter(|quad| matches!(&quad.content, QuadContent::Rect { color, .. } if *color == surface))
+      .map(|quad| (quad.x, quad.width))
+      .collect()
+  };
+  let (x, _, width, _) = stage.bounds("day");
+  assert_eq!(
+    thumbs(&stage),
+    [(x, width)],
+    "under the chosen one from the first frame"
+  );
+
+  let (px, py) = stage.center("month");
+  stage.tree.mouse_move(px, py);
+  stage.tree.mouse_down(px, py, lurq::app::events::MouseButton::Left);
+  stage.tree.mouse_up(px, py, lurq::app::events::MouseButton::Left);
+  stage.frame();
+  stage.frame();
+  assert_eq!(period.get_untracked(), "month");
+  let (to, _, to_width, _) = stage.bounds("month");
+  let on_its_way = thumbs(&stage);
+  assert!(
+    on_its_way.len() == 1 && on_its_way[0].0 > x && on_its_way[0].0 < to,
+    "on its way: {on_its_way:?}, to {to}"
+  );
+  stage.pass();
+  assert_eq!(thumbs(&stage), [(to, to_width)], "under the one chosen");
 }

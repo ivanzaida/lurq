@@ -9,8 +9,10 @@ use super::{
 };
 use crate::{
   animation::{KeyframesId, Transition},
-  app::events::{KeyboardEvent, MouseButton, MouseEvent},
-  app::theme::{IconSize, MotionDuration},
+  app::{
+    events::{KeyboardEvent, MouseButton, MouseEvent},
+    theme::{IconSize, MotionDuration},
+  },
   components::{self, Row, TextOverflow},
   core::{ElementRef, Signal, SignalValue},
   layout::{Alignment, layout_kind::Justify},
@@ -361,6 +363,15 @@ pub(crate) struct Chosen<T, V: ?Sized = T> {
   /// What a press of a value does, given the group's handlers: sets the signal where it is bound, and tells them
   /// the new value where it changed.
   press: Arc<dyn Fn(&T, &[ChangeHandler<V>]) + Send + Sync>,
+}
+
+impl<T: Clone, V: ?Sized> Clone for Chosen<T, V> {
+  fn clone(&self) -> Self {
+    Self {
+      chosen: self.chosen.clone(),
+      press: self.press.clone(),
+    }
+  }
 }
 
 impl<T: Clone + PartialEq + Send + Sync + 'static> Chosen<T, T> {

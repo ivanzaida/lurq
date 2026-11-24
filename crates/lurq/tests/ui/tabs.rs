@@ -1047,3 +1047,60 @@ fn tabs_that_do_not_reselect_tell_nothing_of_a_press_of_the_selected_tab() {
   stage.click("one");
   assert!(told.lock().unwrap().is_empty());
 }
+
+#[test]
+fn the_line_of_mounted_tabs_slides_to_the_tab_chosen_next() {
+  let chosen = Signal::new("all");
+  let held = chosen.clone();
+  let mut stage = Stage::first_frame(600.0, 300.0, move |ctx| {
+    Column::new()
+      .width(600.0)
+      .child(
+        Tabs::new(
+          held.clone(),
+          [
+            Tab::new("all", "All").id("all"),
+            Tab::new("profiles", "Profiles").id("profiles"),
+            Tab::new("memory", "Memory").id("memory"),
+          ],
+        )
+        .variant(TabsVariant::Line)
+        .mount(ctx),
+      )
+      .into()
+  });
+  // The indicator: a fill of 2 in the foreground.
+  let mark = |stage: &Stage| {
+    stage
+      .quads()
+      .into_iter()
+      .find(|quad| {
+        matches!(&quad.content, QuadContent::Rect { color, .. } if *color == light(PaletteColor::Foreground))
+          && (quad.height - 2.0).abs() < 0.01
+      })
+      .map(|mark| (mark.x, mark.width))
+  };
+  // Under the selected tab from the first frame.
+  let (x, _, width, _) = stage.bounds("all");
+  assert_eq!(mark(&stage), Some((x, width)), "where the tab is, in the first frame");
+  stage.frame();
+  assert_eq!(mark(&stage), Some((x, width)), "and still");
+
+  // A press of the third tab: the line leaves the first and slides to it in the base time.
+  let (px, py) = stage.center("memory");
+  stage.tree.mouse_move(px, py);
+  stage.tree.mouse_down(px, py, lurq::app::events::MouseButton::Left);
+  stage.tree.mouse_up(px, py, lurq::app::events::MouseButton::Left);
+  stage.frame();
+  stage.frame();
+  stage.frame();
+  assert_eq!(chosen.get_untracked(), "memory");
+  let (to, _, to_width, _) = stage.bounds("memory");
+  let (on_its_way, _) = mark(&stage).expect("the line");
+  assert!(
+    on_its_way > x && on_its_way < to,
+    "on its way from the first tab: {on_its_way}, to {to}"
+  );
+  stage.pass();
+  assert_eq!(mark(&stage), Some((to, to_width)), "under the tab chosen");
+}

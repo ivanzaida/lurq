@@ -6,17 +6,23 @@ use super::{
   button::ButtonSize,
   names,
   part_style::Length,
-  recipe::{Case, Interaction, Name, Recipe, ResolvedRecipe},
+  recipe::{Case, Interaction, Name, Recipe, ResolvedRecipe, Selector},
   shared::{ChangeHandler, Choice, Chosen, fading, glyph, pressable, tab_stop},
+  slide::Slide,
   theme::{Themed, current_theme},
 };
 use crate::{
-  app::theme::{
-    ControlSize, Density, IconSize, OpacityLevel, PaletteColor, RadiusSize, ShadowStyle, Theme, TypographyStyle,
+  app::{
+    component::Component,
+    ctx::Ctx,
+    theme::{
+      ControlSize, Density, IconSize, OpacityLevel, PaletteColor, RadiusSize, ShadowStyle, Theme, TypographyStyle,
+    },
   },
-  components::Row,
+  components::{Row, Stack},
   core::{ElementRef, Signal, SignalValue},
-  node::{Element, FocusGroup, border::Border as Line},
+  layout::StackAlignment,
+  node::{Element, FocusGroup, border::Border as Line, dimension::Dimension},
 };
 
 /// The parts of a segmented control a recipe styles.
@@ -32,6 +38,12 @@ pub enum SegmentedControlPart {
   Icon,
   /// The number after the label of a segment that has one: how many things the choice holds.
   Count,
+  /// The fill under the chosen segment that is one node for the control: a mounted control places it where the
+  /// chosen segment was laid out, so that a recipe's transitions of its offset and its width (`offset_x`, `width`)
+  /// make it slide to the segment chosen next; with motion reduced it is there at once, and it stands where it is
+  /// from the first frame. While it is there (state `Thumb`), the chosen segment draws its ink alone. A control built
+  /// with nothing kept has none, and its chosen segment draws its own fill.
+  Thumb,
 }
 
 names!(SegmentedControlPart {
@@ -40,6 +52,7 @@ names!(SegmentedControlPart {
   Label => "label",
   Icon => "icon",
   Count => "count",
+  Thumb => "thumb",
 });
 
 /// The states of a segmented control a recipe styles.
@@ -53,6 +66,8 @@ pub enum SegmentedControlState {
   FullWidth,
   /// What is chosen is wrong: the track has a line in the destructive color.
   Invalid,
+  /// The thumb is under the chosen segment, which draws its ink alone: a mounted control whose thumb was placed.
+  Thumb,
 }
 
 names!(SegmentedControlState {
@@ -60,6 +75,7 @@ names!(SegmentedControlState {
   Disabled => "disabled",
   FullWidth => "full_width",
   Invalid => "invalid",
+  Thumb => "thumb",
 });
 
 /// The sizes of a segmented control: a button's.
@@ -100,11 +116,12 @@ struct Segment {
 ///
 /// Exactly one segment is chosen. Each is a button: Tab reaches it, and a
 /// click, Enter or Space chooses it. A choice may have an id of its own, after which its label and its count are
-/// named, a count after its label, a state of the theme's and a ref to its segment ([`Choice`]). Its sizes are a button's
-/// ([`SegmentedControlSize`]). [`on_change`](Self::on_change) is told the
+/// named, a count after its label, a state of the theme's and a ref to its segment ([`Choice`]). Its sizes are a
+/// button's ([`SegmentedControlSize`]). [`on_change`](Self::on_change) is told the
 /// value a person chooses, a `&T` the compiler checks; a press of the chosen
 /// segment tells nothing. `T` is `()` where nothing names it: the theme's
 /// recipe is `SegmentedControl`'s, whatever its values.
+#[derive(Clone)]
 pub struct SegmentedControl<T = ()> {
   choices: Vec<Choice<T>>,
   chosen: Chosen<T>,
@@ -251,15 +268,51 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SegmentedControl<T> {
     self
   }
 
+  /// Puts the control in the tree of `ctx`'s component, in the theme of what is being rendered: it keeps where its
+  /// segments were laid out, and its thumb slides from the chosen one to the one chosen next.
+  pub fn mount(self, ctx: &mut Ctx) -> Element {
+    let key = self.key.clone();
+    // Keyed, it keeps its host where what is before it comes and goes.
+    let props = SegmentedProps { control: self };
+    match key {
+      Some(key) => ctx.mount_keyed::<SegmentedHost<T>>(&key, props).key(key),
+      None => ctx.mount::<SegmentedHost<T>>(props),
+    }
+  }
+
   /// Builds the control in `theme`. Converting a control into an element
   /// does this in the theme of what is being rendered.
   pub fn build(self, theme: &Theme) -> Element {
+    self.build_with(theme, None)
+  }
+
+  fn build_with(self, theme: &Theme, slide: Option<&Slide>) -> Element {
+    // Where the chosen segment was laid out, which the thumb stands under, where the control is mounted and its
+    // recipe gives the thumb a fill.
+    let thumbed = slide.filter(|_| {
+      theme
+        .resolve::<SegmentedControl>(&Case::new().size(self.size), Some(&self.rules))
+        .part(SegmentedControlPart::Thumb)
+        .rest()
+        .background
+        .is_some()
+    });
+    let refs = thumbed.map(|slide| slide.refs(self.choices.len()));
+    let chosen_at = self.choices.iter().position(|choice| self.chosen.has(&choice.value));
+    let place = match (thumbed, &refs, chosen_at) {
+      (Some(slide), Some(refs), Some(at)) => {
+        let item = self.choices[at].element.clone().unwrap_or_else(|| refs[at].clone());
+        Slide::place(&item, &slide.holder)
+      }
+      _ => None,
+    };
     let mut case = Case::new()
       .size(self.size)
       .breakpoint(super::current_breakpoint())
       .state(SegmentedControlState::Disabled, self.disabled)
       .state(SegmentedControlState::FullWidth, self.full_width)
-      .state(SegmentedControlState::Invalid, self.invalid);
+      .state(SegmentedControlState::Invalid, self.invalid)
+      .state(SegmentedControlState::Thumb, place.is_some());
     for state in &self.states {
       case = case.state(state.clone(), true);
     }
@@ -275,10 +328,24 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SegmentedControl<T> {
     let chosen = resolve(true, &[]).owned_like(&plain);
     // One choice: Tab stops in it once, at the chosen segment, and an arrow key moves the focus and the
     // choice with it.
+    let root_part = plain.part(SegmentedControlPart::Root);
     let mut root = Row::new()
-      .part(&plain.part(SegmentedControlPart::Root))
+      .part(&root_part)
       .focus_group(FocusGroup::horizontal().activate(true).one_stop(true))
       .describe("a11y_role", "group");
+    // A mounted control with a thumb holds its segments in a row of their own, over which the thumb is placed.
+    let mut held = thumbed.map(|slide| {
+      let mut row = Row::new()
+        .height(Dimension::Pct(100.0))
+        .ref_element(slide.holder.clone());
+      if let Some(gap) = root_part.rest().gap {
+        row = row.spacing(gap);
+      }
+      if self.full_width {
+        row = row.width(Dimension::Pct(100.0));
+      }
+      row
+    });
     if let Some(label) = &self.label {
       root = root.describe("a11y_name", label.clone());
     }
@@ -332,6 +399,8 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SegmentedControl<T> {
       }
       if let Some(element) = segment.element {
         pressed = pressed.ref_element(element);
+      } else if let Some(at) = refs.as_ref().and_then(|refs| refs.get(index)) {
+        pressed = pressed.ref_element(at.clone());
       }
       if self.full_width {
         pressed = pressed.flex(1.0);
@@ -349,7 +418,39 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SegmentedControl<T> {
         let style = part(SegmentedControlPart::Count);
         pressed = pressed.child(style.text(count).nowrap().part(&style));
       }
-      root = root.child(pressed);
+      held = match held {
+        Some(row) => Some(row.child(pressed)),
+        None => {
+          root = root.child(pressed);
+          None
+        }
+      };
+    }
+    if let (Some(row), Some(slide)) = (held, thumbed) {
+      let mut stack = Stack::new()
+        .stack_align(StackAlignment::TopStart)
+        .overflow_visible()
+        .height(Dimension::Pct(100.0));
+      if self.full_width {
+        stack = stack.width(Dimension::Pct(100.0));
+      }
+      // Under the segments: the thumb, at the row's corner moved by its offset to where the chosen one is.
+      if let Some([x, y, width, height]) = place {
+        stack = stack.child(
+          Row::new()
+            .part(&plain.part(SegmentedControlPart::Thumb))
+            .width(width)
+            .height(height)
+            .absolute(0.0, 0.0, Dimension::Px(width), Dimension::Px(height))
+            .offset(x, y)
+            .key("thumb"),
+        );
+      }
+      if let (Some(at), Some(refs)) = (chosen_at, &refs) {
+        let item = refs[at].clone();
+        slide.follow(&item, &slide.holder, place);
+      }
+      root = root.child(stack.child(row));
     }
     if let Some(id) = self.id {
       root = root.id(id);
@@ -358,6 +459,44 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SegmentedControl<T> {
       root = root.key(key);
     }
     root.into()
+  }
+}
+
+#[derive(Clone)]
+struct SegmentedProps<T> {
+  control: SegmentedControl<T>,
+}
+
+/// The control is made anew by every render of what holds it, so props are never the same as before.
+impl<T> PartialEq for SegmentedProps<T> {
+  fn eq(&self, _: &Self) -> bool {
+    false
+  }
+}
+
+impl<T> crate::app::component::DevtoolsInspectable for SegmentedProps<T> {}
+
+/// What a mounted control keeps: where its segments were laid out, which its thumb is placed by.
+struct SegmentedHost<T> {
+  slide: Slide,
+  _value: std::marker::PhantomData<fn() -> T>,
+}
+
+impl<T: Clone + PartialEq + Send + Sync + 'static> Component for SegmentedHost<T> {
+  type Props = SegmentedProps<T>;
+
+  fn create(ctx: &mut Ctx) -> Self {
+    Self {
+      slide: Slide::new(ctx.signal(0)),
+      _value: std::marker::PhantomData,
+    }
+  }
+
+  fn render(&self, ctx: &mut Ctx) -> impl Into<Element> {
+    let SegmentedProps { control } = ctx.props::<SegmentedProps<T>>().clone();
+    // Read so that the control renders again where the chosen segment was laid out elsewhere.
+    let _ = self.slide.moved.get();
+    control.build_with(&current_theme(), Some(&self.slide))
   }
 }
 
@@ -396,7 +535,9 @@ impl<T: Send + Sync + 'static> Themed for SegmentedControl<T> {
   /// apart; the chosen one is a surface with a small shadow.
   fn recipe() -> Recipe {
     use PaletteColor::*;
-    use SegmentedControlPart::{Count, Icon, Label, Root, Segment};
+    use SegmentedControlPart::{Count, Icon, Label, Root, Segment, Thumb};
+
+    use crate::{animation::Transition, app::theme::MotionDuration, ui::PartTransition};
     Recipe::new()
       .base(Root, |s| {
         s.height(ControlSize::Md)
@@ -436,6 +577,22 @@ impl<T: Send + Sync + 'static> Themed for SegmentedControl<T> {
       .state(SegmentedControlState::Selected, Segment, |s| {
         s.background(Background).foreground(Foreground).shadow(ShadowStyle::Sm)
       })
+      // A mounted control's thumb: the chosen segment's fill as one node, which slides to the next in the fast time.
+      .base(Thumb, |s| {
+        s.background(Background)
+          .shadow(ShadowStyle::Sm)
+          .radius(RadiusSize::Sm)
+          .transition(PartTransition::new(Transition::offset_x(), MotionDuration::Fast))
+          .transition(PartTransition::new(Transition::width(), MotionDuration::Fast))
+      })
+      // Over it the chosen segment draws its ink alone.
+      .when(
+        Selector::new()
+          .state(SegmentedControlState::Selected)
+          .state(SegmentedControlState::Thumb),
+        Segment,
+        |s| s.background(crate::node::color::Color::new(0, 0, 0, 0)).shadow(crate::node::BoxShadowValue::none()),
+      )
       .state(SegmentedControlState::Disabled, Root, |s| {
         s.opacity(OpacityLevel::Disabled)
       })

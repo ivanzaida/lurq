@@ -15,6 +15,7 @@ use super::{
   part_style::Length,
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe, Selector},
   shared::{Orientation, fading, glyph, one_line, opens_aside, pressable, tab_stop},
+  slide::Slide,
   theme::{Themed, current_theme},
   tooltip::Tooltip,
 };
@@ -106,6 +107,13 @@ pub enum TabsPart {
   MoreLabel,
   /// The chevron of the More button.
   MoreIcon,
+  /// The mark of the selected tab that is one node for the list: the line of the `Line` form, under the selected
+  /// tab along the top and at its start down the side. Mounted tabs place it where the selected tab was laid out,
+  /// so that a recipe's transitions of its offset and its size make it slide to the tab chosen next (`offset_x`
+  /// and `width` along the top, `offset_y` and `height` down the side); with motion reduced it is there at once,
+  /// and it stands where it is from the first frame. Its height along the top (its width down the side) and its
+  /// fill are the mark's. Tabs built with nothing kept draw it as a line of the selected tab's own.
+  Indicator,
 }
 
 names!(TabsPart {
@@ -129,6 +137,7 @@ names!(TabsPart {
   More => "more",
   MoreLabel => "more_label",
   MoreIcon => "more_icon",
+  Indicator => "indicator",
 });
 
 /// The states of tabs a recipe styles, besides what the pointer and the keyboard do to them.
@@ -996,7 +1005,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Tabs<T> {
   /// Converting tabs into an element does this in the theme of what is being
   /// rendered.
   pub fn build(self, theme: &Theme) -> Element {
-    self.prepare().build(theme, Kept::new(Signal::new(false)), None)
+    self.prepare().build(theme, Kept::new(Signal::new(false)), None, None)
   }
 }
 
@@ -1074,7 +1083,7 @@ impl Prepared {
 
   /// The tabs in `theme`, their overflowing form with what `kept` keeps. Mounted tabs give what they measure,
   /// `fits`, and are that form while their list has no room.
-  fn build(self, theme: &Theme, kept: Kept, fits: Option<&Fits>) -> Element {
+  fn build(self, theme: &Theme, kept: Kept, fits: Option<&Fits>, slide: Option<Slide>) -> Element {
     let vertical = self.orientation.is_vertical();
     // A list that runs down, or one the app asked to overflow, has one form whatever its room is.
     let fits = fits.filter(|_| !vertical && !self.overflow);
@@ -1107,9 +1116,11 @@ impl Prepared {
         Some(&self.rules),
       )
     };
-    let tab_refs: Vec<ElementRef> = match overflow {
-      Some(_) => self.tabs.iter().map(|_| ElementRef::new()).collect(),
-      None => Vec::new(),
+    // Mounted tabs keep a ref of each tab, which their indicator and their overflowing form read.
+    let tab_refs: Vec<ElementRef> = match (&slide, &overflow) {
+      (Some(slide), _) => slide.refs(self.tabs.len()),
+      (None, Some(_)) => self.tabs.iter().map(|_| ElementRef::new()).collect(),
+      (None, None) => Vec::new(),
     };
     if let (Some(fits), Some(kept)) = (fits, &overflow)
       && let Some(selected) = self.tabs.iter().position(|tab| tab.selected)
@@ -1170,6 +1181,7 @@ impl Prepared {
       gives: alone && fits.is_none(),
       reserve: self.reserve,
       overflow,
+      slide,
       words: self.words,
       forced: self.forced,
       id: self.id,
@@ -1202,6 +1214,7 @@ impl crate::app::component::DevtoolsInspectable for TabsProps {}
 struct TabsHost {
   kept: Kept,
   fits: Fits,
+  slide: Slide,
 }
 
 impl Component for TabsHost {
@@ -1211,6 +1224,7 @@ impl Component for TabsHost {
     Self {
       kept: Kept::new(ctx.signal(false)),
       fits: Fits::new(ctx.signal(0)),
+      slide: Slide::new(ctx.signal(0)),
     }
   }
 
@@ -1218,7 +1232,14 @@ impl Component for TabsHost {
     let TabsProps { tabs } = ctx.props::<TabsProps>().clone();
     // Reading it renders the tabs again where what they measured asks for another form.
     let _ = self.fits.turn.get();
-    tabs.build(&current_theme(), self.kept.clone(), Some(&self.fits))
+    // And where the selected tab was laid out, which the indicator stands at.
+    let _ = self.slide.moved.get();
+    tabs.build(
+      &current_theme(),
+      self.kept.clone(),
+      Some(&self.fits),
+      Some(self.slide.clone()),
+    )
   }
 }
 
@@ -1244,6 +1265,8 @@ pub struct TabsView {
   /// none.
   own_recipes: Vec<Option<[ResolvedRecipe; 2]>>,
   overflow: Option<Kept>,
+  /// Of mounted tabs: where the selected tab was laid out, which the indicator stands at.
+  slide: Option<Slide>,
   words: Words,
   /// Of the overflowing form, where the list and each tab were last laid out: what scrolls a tab chosen from
   /// the menu into view.
@@ -1392,16 +1415,103 @@ impl TabsView {
     if let Some(key) = &entry.key {
       tab = tab.key(key.clone());
     }
-    if let Some(at) = self.tab_refs.get(index) {
-      tab = tab.ref_element(at.clone());
-    } else if let Some(last) = self
-      .last
-      .as_ref()
-      .filter(|_| Some(index) == self.tabs.iter().rposition(|tab| !tab.at_end))
-    {
-      tab = tab.ref_element(last.clone());
+    if let Some(at) = self.own_ref(index) {
+      tab = tab.ref_element(at);
+    }
+    // Where the indicator is not placed by the list, the selected tab draws its line itself.
+    if entry.selected && self.placed().is_none() {
+      tab = self.own_line(tab);
     }
     tab
+  }
+
+  /// The ref the tab at `index` carries for what the tabs measure: the last tab's at the start, which says how
+  /// wide the list is, or its own, which mounted tabs keep.
+  fn own_ref(&self, index: usize) -> Option<ElementRef> {
+    let last = self
+      .last
+      .clone()
+      .filter(|_| !self.overflows() && Some(index) == self.tabs.iter().rposition(|tab| !tab.at_end));
+    last.or_else(|| self.tab_refs.get(index).cloned())
+  }
+
+  /// The ref the list carries: the overflowing form's, or the one the indicator is placed in.
+  fn list_ref_of(&self) -> Option<ElementRef> {
+    if self.overflows() {
+      Some(self.list_ref.clone())
+    } else {
+      self.slide.as_ref().map(|slide| slide.holder.clone())
+    }
+  }
+
+  /// Whether the tabs have an indicator: its part has a fill.
+  fn has_indicator(&self) -> bool {
+    self.part(TabsPart::Indicator).rest().background.is_some()
+  }
+
+  /// Where the list places the indicator: under the selected tab along the top, at its start down the side, in the
+  /// list's coordinates. `None` where nothing kept says where the tab is, or before it was laid out.
+  fn placed(&self) -> Option<[f32; 4]> {
+    self.slide.as_ref()?;
+    let selected = self.tabs.iter().position(|tab| tab.selected)?;
+    Slide::place(&self.own_ref(selected)?, &self.list_ref_of()?)
+  }
+
+  /// The indicator's thickness: its height along the top, its width down the side, 2 unless its part says.
+  fn indicator_thickness(&self) -> f32 {
+    let part = self.part(TabsPart::Indicator).rest();
+    let length = if self.vertical() { part.width } else { part.height };
+    match length.and_then(|length| length.resolve(self.theme())) {
+      Some(Dimension::Px(px)) => px,
+      _ => 2.0,
+    }
+  }
+
+  /// The selected tab with the indicator's line as its own, under it or at its start: where the list does not
+  /// place the indicator.
+  fn own_line(&self, tab: components::Button) -> components::Button {
+    if !self.has_indicator() {
+      return tab;
+    }
+    let part = self.part(TabsPart::Indicator).rest();
+    let Some(fill) = part.background.clone() else {
+      return tab;
+    };
+    let line = Border::inside(self.indicator_thickness(), fill);
+    if self.vertical() {
+      tab.border_left(line)
+    } else {
+      tab.border_bottom(line)
+    }
+  }
+
+  /// The indicator the list places where the selected tab was laid out, and has the list hear where that is.
+  fn indicator(&self) -> Option<Element> {
+    let slide = self.slide.as_ref()?;
+    if !self.has_indicator() {
+      return None;
+    }
+    let selected = self.tabs.iter().position(|tab| tab.selected)?;
+    let place = self.placed();
+    slide.follow(&self.own_ref(selected)?, &self.list_ref_of()?, place);
+    let [x, y, width, height] = place?;
+    let thickness = self.indicator_thickness();
+    let mark = Row::new().part(&self.part(TabsPart::Indicator));
+    // At the list's corner, moved by its offset to where the tab is: what a transition of the offset slides.
+    let mark = if self.vertical() {
+      mark
+        .width(thickness)
+        .height(height)
+        .absolute(0.0, 0.0, Dimension::Px(thickness), Dimension::Px(height))
+        .offset(x, y)
+    } else {
+      mark
+        .width(width)
+        .height(thickness)
+        .absolute(0.0, 0.0, Dimension::Px(width), Dimension::Px(thickness))
+        .offset(x, y + height - thickness)
+    };
+    Some(mark.key("indicator").into())
   }
 
   /// The label of the tab at `index` in the style of `label`, in the room it takes in the selected tab's style: a copy
@@ -1426,8 +1536,8 @@ impl TabsView {
   }
 
   /// The bone in the place of the count of the tab at `index` while its count is read: a skeleton of the size the
-  /// recipe gives [`TabsPart::CountSkeleton`] (its corners the skeleton's own), in the part [`TabsPart::Count`], so that a count that comes in its
-  /// place moves nothing after it.
+  /// recipe gives [`TabsPart::CountSkeleton`] (its corners the skeleton's own), in the part [`TabsPart::Count`], so
+  /// that a count that comes in its place moves nothing after it.
   pub fn count_bone(&self, index: usize) -> Element {
     let recipe = self.tab_recipe(index);
     let size = recipe.part(TabsPart::CountSkeleton).rest();
@@ -1541,8 +1651,8 @@ impl TabsView {
     .one_stop(true);
     let mut children: Vec<Element> = Vec::new();
     // Along the top, the tabs at the end stand after the room that grows; down the side, after the others.
-    let (start, end): (Vec<usize>, Vec<usize>) = (0..self.tabs.len())
-      .partition(|index| self.vertical() || !self.tabs[*index].at_end);
+    let (start, end): (Vec<usize>, Vec<usize>) =
+      (0..self.tabs.len()).partition(|index| self.vertical() || !self.tabs[*index].at_end);
     for (at, index) in start.into_iter().enumerate() {
       if at > 0 && self.tabs[index].separated {
         children.push(self.separator());
@@ -1566,10 +1676,13 @@ impl TabsView {
         .describe("a11y_role", "tablist")
         .describe("a11y_name", name)
         .describe("a11y_orientation", orientation);
+      if let Some(at) = self.list_ref_of() {
+        list = list.ref_element(at);
+      }
       for child in children {
         list = list.child(child);
       }
-      list.into()
+      self.with_indicator(list.into())
     } else {
       let mut list = Row::new()
         .part(&part)
@@ -1581,14 +1694,30 @@ impl TabsView {
       // A ring outside a tab is drawn past the list, and the line under the selected tab over the list's own.
       // In a list that scrolls the room it scrolls in cuts both off, and its tabs have their rings inside.
       list = list.overflow_visible();
-      if self.overflows() {
-        list = list.ref_element(self.list_ref.clone());
+      if let Some(at) = self.list_ref_of() {
+        list = list.ref_element(at);
       }
       for child in children {
         list = list.child(child);
       }
-      list.into()
+      self.with_indicator(list.into())
     }
+  }
+
+  /// The list with the indicator over it, where the list places it: in a stack with the list, at the stack's corner
+  /// moved by its offset to where the selected tab is. A list with no indicator to place is as it is.
+  fn with_indicator(&self, list: Element) -> Element {
+    if self.slide.is_none() || !self.has_indicator() {
+      return list;
+    }
+    let mut stack = Stack::new()
+      .stack_align(crate::layout::StackAlignment::TopStart)
+      .overflow_visible()
+      .child(list);
+    if let Some(mark) = self.indicator() {
+      stack = stack.child(mark);
+    }
+    stack.into()
   }
 
   /// The panel of the selected tab, built now, if it has one: a stop of Tab
@@ -1826,10 +1955,10 @@ impl<T: Send + Sync + 'static> Themed for Tabs<T> {
   ///   middle radius, its label 13/500 in the muted foreground and its count 12 beside it, 6 apart. The selected one is
   ///   the background's color with the small shadow, its label in the foreground.
   /// - Line: a row 44 high over a line of 1 in the border's color, its tabs 28 apart; a label is 14 in the muted
-  ///   foreground, its count 13 at 0.7, 8 apart. The selected one is underlined with 2 in the foreground, its label 500
-  ///   in the foreground and its count whole. A separator is 1 by 16 in the border's color. Down the side
-  ///   (Tabs/Vertical) the list is at least 180 wide with its line at the start, a tab 32 high, padded 12, its label
-  ///   13, the selected one marked at the start.
+  ///   foreground, its count 13 at 0.7, 8 apart. The selected one is underlined with 2 in the foreground (the
+  ///   indicator, which slides to the tab chosen next in the base time), its label 500 in the foreground and its count
+  ///   whole. A separator is 1 by 16 in the border's color. Down the side (Tabs/Vertical) the list is at least 180 wide
+  ///   with its line at the start, a tab 32 high, padded 12, its label 13, the selected one marked at the start.
   /// - A badge, in every form: a pill of the primary fill after the label and the count, padded 6 and 1, its number
   ///   11/500 in the primary's foreground; on a selected pill tab the other way round. The board has none: it is
   ///   lurq's.
@@ -1840,11 +1969,13 @@ impl<T: Send + Sync + 'static> Themed for Tabs<T> {
   fn recipe() -> Recipe {
     use PaletteColor::{Background, Foreground, Muted, MutedForeground, Primary, PrimaryForeground, Ring};
     use TabsPart::{
-      Badge, Bar, Count, CountSkeleton, Dot, End, Icon, Label, List, More, MoreIcon, MoreLabel, Note, Panel, Root,
-      ScrollButton, ScrollIcon, Separator, Tab, TrailingIcon,
+      Badge, Bar, Count, CountSkeleton, Dot, End, Icon, Indicator, Label, List, More, MoreIcon, MoreLabel, Note, Panel,
+      Root, ScrollButton, ScrollIcon, Separator, Tab, TrailingIcon,
     };
     use TabsState::{Disabled, Horizontal, Inert, Overflow, Selected, Vertical};
     use TabsVariant::{Default, Line, Pill};
+
+    use crate::{animation::Transition, app::theme::MotionDuration, ui::PartTransition};
     let when = |variant: TabsVariant, states: &[TabsState]| {
       states.iter().fold(Selector::new().variant(variant), |selector, state| {
         selector.state(*state)
@@ -1946,8 +2077,12 @@ impl<T: Send + Sync + 'static> Themed for Tabs<T> {
       .when(when(Line, &[Horizontal]), Tab, |s| s.height(44.0))
       .row_density(when(Line, &[Horizontal]), List, 44.0)
       .row_density(when(Line, &[Horizontal]), Tab, 44.0)
-      .when(when(Line, &[Horizontal, Selected]), Tab, |s| {
-        s.underline(line(BorderSize::Md, Foreground))
+      // The indicator: a line of 2 under the selected tab, which slides to the next one in the base time.
+      .when(when(Line, &[Horizontal]), Indicator, |s| {
+        s.height(2.0)
+          .background(Foreground)
+          .transition(PartTransition::new(Transition::offset_x(), MotionDuration::Base))
+          .transition(PartTransition::new(Transition::width(), MotionDuration::Base))
       })
       .when(when(Line, &[Vertical]), List, |s| {
         s.min_width(180.0).start_line(line(BorderSize::Sm, PaletteColor::Border))
@@ -1955,7 +2090,12 @@ impl<T: Send + Sync + 'static> Themed for Tabs<T> {
       .when(when(Line, &[Vertical]), Tab, |s| s.height(32.0).padding_x(12.0))
       .row_density(when(Line, &[Vertical]), Tab, 32.0)
       .when(when(Line, &[Vertical]), Label, |s| s.font_size(13.0))
-      .when(when(Line, &[Vertical, Selected]), Tab, |s| s.start_line(line(BorderSize::Md, Foreground)))
+      .when(when(Line, &[Vertical]), Indicator, |s| {
+        s.width(2.0)
+          .background(Foreground)
+          .transition(PartTransition::new(Transition::offset_y(), MotionDuration::Base))
+          .transition(PartTransition::new(Transition::height(), MotionDuration::Base))
+      })
       .when(when(Line, &[Overflow]), Bar, |s| {
         s.height(40.0).underline(line(BorderSize::Sm, PaletteColor::Border))
       })

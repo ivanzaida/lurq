@@ -499,10 +499,9 @@ impl TransitionEngine {
       // A value that is another one because the theme is, a color of the other appearance, is there at
       // once, with the rest of the window: only what an element does itself is a transition. A window
       // that turned dark with its buttons still fading from light showed them as light blocks on it.
-      // A fill or a border a node comes in with, in the passes of the frame it comes in, is there at once: those
-      // passes settle it, and nothing was drawn of it before.
-      let comes_in = newborn && self.prev_values.get(&key) == Some(&AnimatableValue::Clear);
-      if (self.theme_changed || moved || comes_in) && self.prev_values.get(&key).is_some_and(|prev| *prev != current) {
+      // What a node comes in with, in the passes of the frame it comes in, is there at once: those passes settle
+      // it (a form that turns, a fill its settled layout gives it), and nothing was drawn of it before.
+      if (self.theme_changed || moved || newborn) && self.prev_values.get(&key).is_some_and(|prev| *prev != current) {
         self.active.remove(&key);
         self.prev_values.insert(key, current);
         continue;

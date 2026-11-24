@@ -161,6 +161,7 @@ mod sidebar;
 #[cfg(feature = "canvas")]
 mod signature_pad;
 mod skeleton;
+mod slide;
 mod slider;
 mod sortable_list;
 #[cfg(feature = "canvas")]
