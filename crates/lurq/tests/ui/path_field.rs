@@ -630,3 +630,28 @@ fn a_field_of_a_file_to_open_asks_for_one_file() {
   assert_eq!(came.value, notes.to_string_lossy());
   assert_eq!(came.picked.len(), 1);
 }
+
+#[test]
+fn the_button_is_of_the_variant_the_field_is_told_at_rest_and_under_the_pointer() {
+  use lurq::ui::{Button, ButtonVariant};
+  let mut stage = Stage::new(|_| {
+    Column::new()
+      .size(500.0, 300.0)
+      .padding(8.0)
+      .child(
+        PathField::new(Signal::new(String::new()))
+          .button_variant(ButtonVariant::Secondary)
+          .id("path"),
+      )
+      .child(Button::new("Browse…").variant(ButtonVariant::Secondary).id("plain"))
+      .into()
+  });
+  let rest = stage.fill_color("plain");
+  assert_eq!(rest, Some(light(PaletteColor::Secondary)));
+  assert_eq!(stage.fill_color("path-browse"), rest, "at rest");
+  stage.hover("plain");
+  let hovered = stage.fill_color("plain");
+  assert_ne!(hovered, rest);
+  stage.hover("path-browse");
+  assert_eq!(stage.fill_color("path-browse"), hovered, "under the pointer");
+}

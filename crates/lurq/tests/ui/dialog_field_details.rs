@@ -202,3 +202,83 @@ fn a_field_with_its_control_at_the_end_has_its_words_on_the_left() {
     "the control in the middle of the row's height"
   );
 }
+
+#[test]
+fn a_dialog_puts_its_mark_on_the_title_row_and_the_description_under_both_where_told() {
+  let shown = |with_title: bool| {
+    let mut stage = stage(move |_| {
+      Column::new()
+        .size(400.0, 300.0)
+        .child(
+          Dialog::new(Signal::new(true))
+            .title("Run git init?")
+            .description("The folder is not a repository yet, and the project needs one.")
+            .icon(icons::FOLDER)
+            .close_button(true)
+            .mark_with_title(with_title)
+            .inline(true)
+            .id("d"),
+        )
+        .into()
+    });
+    let (mark_x, mark_y, _, mark_height) = stage.bounds("d-mark");
+    let title = stage.text_quad("Run git init?").expect("the title");
+    let description = stage
+      .text_quad("The folder is not a repository yet, and the project needs one.")
+      .or_else(|| stage.text_quad("The folder is not a repository yet, and the project"))
+      .expect("the description");
+    (mark_x, mark_y, mark_height, title, description)
+  };
+  // Beside both, unless told.
+  let (mark_x, _, _, title, description) = shown(false);
+  assert!(description.x > mark_x + 32.0, "the description after the mark");
+  assert!((description.x - title.x).abs() < 0.5);
+  // On the title's row: the title level with the mark's middle, the description under them from the mark's start.
+  let (mark_x, mark_y, mark_height, title, description) = shown(true);
+  let middle = mark_y + mark_height / 2.0;
+  assert!(
+    (title.y + title.height / 2.0 - middle).abs() < 2.0,
+    "level with the mark: {} and {middle}",
+    title.y + title.height / 2.0
+  );
+  assert!(
+    (description.x - mark_x).abs() < 0.5,
+    "from the mark's start: {}",
+    description.x
+  );
+  assert!(description.y >= mark_y + mark_height, "under the mark");
+}
+
+#[test]
+fn a_field_puts_an_action_on_its_descriptions_line_after_its_words() {
+  use lurq::ui::Link;
+  let (pressed, press) = counter();
+  let mut stage = stage(move |_| {
+    let press = press.clone();
+    Column::new()
+      .size(400.0, 300.0)
+      .padding(8.0)
+      .child(
+        Field::new("Key", Input::new(Signal::new("KON".to_owned())))
+          .warning(true)
+          .description("Taken by Kontur ·")
+          .description_action(Link::new("Use KON2").on_click(move |_| press()).id("use"))
+          .id("key"),
+      )
+      .into()
+  });
+  let words = stage.text_quad("Taken by Kontur ·").expect("the words");
+  let (link_x, link_y, _, link_height) = stage.bounds("use");
+  assert!(
+    (link_x - (words.x + words.width) - 6.0).abs() < 0.5,
+    "6 after the words: {} and {}",
+    link_x,
+    words.x + words.width
+  );
+  assert!(
+    (link_y + link_height / 2.0 - (words.y + words.height / 2.0)).abs() < 2.0,
+    "on their line"
+  );
+  stage.click("use");
+  assert_eq!(count(&pressed), 1, "and it is pressed");
+}

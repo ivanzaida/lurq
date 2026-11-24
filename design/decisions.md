@@ -11,6 +11,26 @@ dropped). When a decision is replaced, the old entry stays and says what replace
 
 ## 2026-11-24
 
+### A dialog's mark on its title's row, a path field's button variant, and an action in a field's description
+
+- **Question.** A dialog's mark stood beside its title and its description together; a path field's button was
+  always `Outline`, a recipe restyling its rest and not its hover or press; a field's description line held text
+  alone (issue #244).
+- **Decision (Ivan).** Do it, without breaking the current API.
+- **Decided by Claude in the work, to be confirmed.**
+  - *`Dialog::mark_with_title(bool)`*, with a state `MarkWithTitle` for a recipe: the mark, the title and the close
+    button are one row in the middle of the mark's height, the header's gap between them, and the description is
+    under that row, as wide as the header, the text's gap apart. Not a part of its own: the parts it lays out are
+    the ones a dialog has.
+  - *`PathField::button_variant(ButtonVariant)`*, not a part with the button's whole recipe: a variant is what gives
+    a button its looks in every state, and the `Button` part is still laid over it.
+  - *`Field::description_action(element)`*, an element on the description's line, after its words, the
+    `Description` part's gap apart (6, the gap of its error icon), not `hint_action(label, on_press)`: the app gives
+    the `Link` (or a button) it wants, with its own handler. The words keep their length, so the action stands right
+    after them; they shrink, and wrap, where the line has no room. It stands after an error too, which takes the
+    description's place: the hint of a key that is taken is its error.
+- **State.** Built on `feat/open-issues`.
+
 ### An add button of window tabs that cannot be pressed, and a menu moved along its anchor
 
 - **Question.** The add button of `WindowTabs` was there and working or not there: one shown while adding a tab is not

@@ -273,6 +273,7 @@ pub struct Field {
   error_icon: Option<Name>,
   control_end: bool,
   below: Vec<Element>,
+  description_actions: Vec<Element>,
   states: Vec<Name>,
   rules: Recipe,
   id: Option<Arc<str>>,
@@ -289,6 +290,7 @@ impl Field {
       error_icon: None,
       control_end: false,
       below: Vec::new(),
+      description_actions: Vec::new(),
       fluid_control: control.has_fluid_form(),
       label: Arc::from(label),
       control: Box::new(move |field: &InField, ctx: Option<&mut Ctx>| match ctx {
@@ -339,6 +341,23 @@ impl Field {
   /// What the control is for, under it: a hint, a count of characters, a caveat.
   pub fn description(mut self, description: &str) -> Self {
     self.description = Some(Arc::from(description));
+    self
+  }
+
+  /// An element of the app's on the description's line, after its words and those given before, the
+  /// `Description` part's gap (6) apart: an action the hint offers. It stands after the error too,
+  /// which is said in the description's place. A field with no description and no error draws none.
+  ///
+  /// ```
+  /// use lurq::{core::Signal, ui::{Field, Input, Link}};
+  ///
+  /// let key = Field::new("Key", Input::new(Signal::new("KON".to_owned())))
+  ///   .warning(true)
+  ///   .description("Taken by Kontur ·")
+  ///   .description_action(Link::new("Use KON2").on_click(|_| {}));
+  /// ```
+  pub fn description_action(mut self, element: impl Into<Element>) -> Self {
+    self.description_actions.push(element.into());
     self
   }
 
@@ -554,6 +573,7 @@ impl Field {
       error_icon: self.error_icon.filter(|_| invalid),
       control_end: self.control_end && !fluid,
       below: self.below,
+      description_actions: self.description_actions,
       recipe: theme
         .resolve::<Field>(&case, Some(&self.rules))
         .owned_by(self.id.as_ref()),
@@ -601,6 +621,8 @@ pub struct FieldView {
   pub control_end: bool,
   /// What the app put under the description.
   pub below: Vec<Element>,
+  /// What the app put on the description's line, after its words.
+  pub description_actions: Vec<Element>,
   /// The style of each part of this field.
   pub recipe: ResolvedRecipe,
   id: Option<Arc<str>>,
@@ -653,6 +675,22 @@ impl FieldView {
   pub fn description(&self) -> Option<Row> {
     let description = self.description.as_ref()?;
     let part = self.part(FieldPart::Description);
+    if !self.description_actions.is_empty() {
+      // The words as long as they are, and the app's elements after them on their line.
+      let mut row = Row::new().align_items(Alignment::Center).part(&part);
+      if let Some(name) = self.error_icon {
+        row = row.child(
+          Row::new()
+            .flex_shrink(0.0)
+            .child(glyph(&self.part(FieldPart::Icon), name, false)),
+        );
+      }
+      return Some(
+        row
+          .child(part.text(description).flex_shrink(1.0).min_width(Dimension::Px(0.0)))
+          .with_children(self.description_actions.iter().cloned()),
+      );
+    }
     let Some(name) = self.error_icon else {
       return Some(
         Row::new()
