@@ -1965,6 +1965,8 @@ impl Tree {
       || !self.leaving_children.is_empty()
       // A wheel's scroll on its way is an animation of the offset.
       || self.wheel_scrolling()
+      // The look of a token under the pointer on its way.
+      || crate::node::node_kind::text_input::token_fade::active()
   }
 
   /// When the running animations and transitions next draw something else, as of the last pass: the end of a
@@ -1992,7 +1994,9 @@ impl Tree {
     // A frame callback wants the next frame at once, as a span that changes continuously does.
     let frame_callback = self
       .has_frame_callbacks()
-      .then(|| self.frames_ran_at.unwrap_or_else(|| self.now()));
+      .then(|| self.frames_ran_at.unwrap_or_else(|| self.now()))
+      // A token's look on its way changes continuously: its next frame is due at once.
+      .or_else(|| crate::node::node_kind::text_input::token_fade::active().then(|| self.now()));
     transition
       .into_iter()
       .chain(animation)
@@ -8163,6 +8167,8 @@ impl Tree {
   }
 
   fn update_layout(&mut self, app: &mut App) -> bool {
+    // The looks of tokens on their way are laid out for this frame's moment.
+    crate::node::node_kind::text_input::token_fade::begin_frame(self.now());
     let component_dirty_before_rebuild = self.root_ctx.as_ref().is_some_and(Ctx::any_dirty);
     self.transition_engine.begin_frame();
     self.animation_engine.begin_frame();

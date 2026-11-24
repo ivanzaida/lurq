@@ -198,13 +198,59 @@ impl TextInputState {
           .is_some_and(|tokens| tokens.tokens[token.index].style.hovered.is_some())
       })
       .map(|token| token.index);
+    // How long the look under the pointer takes to come and go, where a token's style says so.
+    let length = self.tokens().map_or(std::time::Duration::ZERO, |tokens| {
+      tokens
+        .tokens
+        .iter()
+        .filter_map(|token| token.style.fade)
+        .max()
+        .unwrap_or_default()
+    });
     let mut inner = self.inner.lock();
     inner.token_icon_hovered = on_icon;
     if inner.hovered_token != hovered {
+      let from = inner.hovered_token;
       inner.hovered_token = hovered;
+      let fades = !length.is_zero();
+      inner.token_fade = fades.then_some(super::token_fade::TokenFade { from, start: None });
+      inner.token_fade_length = length;
       drop(inner);
+      if fades {
+        super::token_fade::follow(self);
+      }
       self.mark_layout_dirty_keeping_scroll();
     }
+  }
+
+  /// The change of the look under the pointer on its way, as the frame drawn at `now` lays it out, and how long it
+  /// takes: the first layout of it is where it starts.
+  pub(crate) fn token_fade_at(
+    &self,
+    now: crate::time::Instant,
+  ) -> (Option<super::token_fade::TokenFade>, std::time::Duration) {
+    let mut inner = self.inner.lock();
+    if let Some(fade) = &mut inner.token_fade
+      && fade.start.is_none()
+    {
+      fade.start = Some(now);
+    }
+    (inner.token_fade, inner.token_fade_length)
+  }
+
+  /// Whether the change of the look under the pointer is still on its way at `now`; once it is over it is let go.
+  pub(super) fn token_fade_going(&self, now: crate::time::Instant) -> bool {
+    let mut inner = self.inner.lock();
+    let length = inner.token_fade_length;
+    let going = inner.token_fade.is_some_and(|fade| {
+      fade
+        .start
+        .is_none_or(|start| now.saturating_duration_since(start) < length)
+    });
+    if !going {
+      inner.token_fade = None;
+    }
+    going
   }
 
   /// What is one thing to the caret, as bytes of the value: the objects of a styled input, the atomic tokens of

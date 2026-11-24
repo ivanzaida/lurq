@@ -17,6 +17,7 @@ pub(crate) use controller_access::WeakTextInputState;
 #[path = "../../../../tests/input/text_input/source.rs"]
 mod source_tests;
 mod token_affinity;
+pub(crate) mod token_fade;
 mod tokens;
 #[cfg(test)]
 mod undo_tests;
@@ -89,6 +90,9 @@ struct TextInputInner {
   token_affinity: Option<TokenAffinity>,
   /// The token the pointer is on, where its style has a look for it.
   hovered_token: Option<usize>,
+  /// The look under the pointer leaving a token and coming onto another, on its way, and how long it takes.
+  token_fade: Option<token_fade::TokenFade>,
+  token_fade_length: std::time::Duration,
   /// Whether the pointer is on the icon of a token that a click takes away.
   token_icon_hovered: bool,
   /// An element the layout puts where a byte of the value stands: what a list hangs from.
@@ -213,6 +217,8 @@ impl TextInputState {
         token_layout: None,
         token_affinity: None,
         hovered_token: None,
+        token_fade: None,
+        token_fade_length: std::time::Duration::ZERO,
         token_icon_hovered: false,
         byte_anchor: None,
         placeholder: None,

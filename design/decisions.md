@@ -43,7 +43,8 @@ dropped). When a decision is replaced, the old entry stays and says what replace
     with its parent and an exit, all a recipe can restyle.
   - *A select's trigger and options take their parts' transitions*: the engine reads the trigger's colors as a node's
     and draws the running ones; an option is a node already. A token input's tokens are drawn in the input with no
-    node of their own and still change at once: that needs a timeline of the input's own, left for later.
+    node of their own: the input keeps which token its look leaves and when, the layout mixes the two looks' colors
+    by how far the change is (`InputTokenStyle::fade`), and the window draws frames while one is on its way.
   - *The theme's skeleton animation* (`set_skeleton_animation`) beside its motion; the sweep's period is the motion's
     (`SkeletonMotion::period`), one for the pulse and the sweep.
 - **State.** Built on `feat/motion`.
