@@ -254,6 +254,10 @@ fn option_row(
     hovered: true,
     ..option
   });
+  // Its fill changes under the pointer and the keys as the recipe's transitions say.
+  for transition in &style.option_transitions {
+    row.push_transition(transition.clone());
+  }
   row.hovered_style(hover_style(&hovered))
 }
 

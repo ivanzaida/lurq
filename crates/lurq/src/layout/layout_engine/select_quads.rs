@@ -40,10 +40,15 @@ impl LayoutEngine {
     let focus_visible = node.style_state.is_focus_visible() || state.input_focused();
     let trigger = style.resolved_trigger(hovered, focus_visible, state.is_open());
 
-    let background = {
+    // A fill or an edge on its way, as the trigger's transitions run them.
+    let animated = |prop| match node.animation_override(prop) {
+      Some(crate::animation::AnimatableValue::Color(color)) => Some(color),
+      _ => None,
+    };
+    let background = animated(crate::animation::AnimatableProperty::BackgroundColor).or_else(|| {
       let palette = self.palette.borrow();
       trigger.background.as_ref().and_then(|color| color.resolve(&palette))
-    };
+    });
     let radius = trigger
       .border_radius
       .map(|radius| radius.resolve(&self.radii.borrow()))
@@ -52,7 +57,13 @@ impl LayoutEngine {
       .border
       .as_ref()
       .and_then(|border| border.resolve_with_sizes(&self.palette.borrow(), &self.border_sizes.borrow()))
-      .or_else(|| node.get_resolved_border(&self.palette.borrow(), &self.border_sizes.borrow()));
+      .or_else(|| node.get_resolved_border(&self.palette.borrow(), &self.border_sizes.borrow()))
+      .map(|mut border| {
+        if let Some(color) = animated(crate::animation::AnimatableProperty::BorderColor) {
+          border.set_color(color);
+        }
+        border
+      });
     let frame = (abs_x, abs_y, result.size.width, result.size.height);
     let shadow = trigger.box_shadow.as_ref();
     let has_inset = shadow.is_some_and(|value| value.shadows(&self.shadows.borrow()).iter().any(|s| s.inset));

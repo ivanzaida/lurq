@@ -3386,6 +3386,10 @@ impl Node {
 
   pub fn select_style(mut self, style: crate::node::SelectStyle) -> Self {
     let trigger = style.resolved_trigger(false, false, false);
+    // The trigger the engine draws changes its fill and its edge with these, as a node's style does.
+    for transition in &style.trigger_transitions {
+      self.push_transition(transition.clone());
+    }
     if let Some(padding) = trigger.padding {
       self = self.padding_custom(padding);
     }
@@ -4685,7 +4689,7 @@ impl Node {
     self
   }
 
-  fn push_transition(&mut self, spec: Transition) {
+  pub(crate) fn push_transition(&mut self, spec: Transition) {
     self.transitions.push(spec);
     self.layout_cache.invalidate();
   }

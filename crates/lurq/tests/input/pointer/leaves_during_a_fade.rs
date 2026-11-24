@@ -1,7 +1,7 @@
 //! The pointer leaves a row whose fill is still on its way: pressed and released, the row fades from its pressed
-//! fill back to its hovered one, and the pointer goes before that ends. A row has no fill at rest, so from then on
-//! it is drawn with none, in the next frame and in every one after it, wherever the pointer went: beside the
-//! rows, onto another row, or out of the window.
+//! fill back to its hovered one, and the pointer goes before that ends. A row has no fill at rest, so its fill fades
+//! out from where it was, and once that is over it is drawn with none, wherever the pointer went: beside the rows,
+//! onto another row, or out of the window.
 
 use std::time::{Duration, Instant};
 
@@ -130,9 +130,17 @@ fn a_row_the_pointer_left_for_the_gap_has_no_fill() {
   stage.tree.mouse_move(100.0, ROW + GAP / 2.0);
   stage.frame();
 
-  assert_eq!(stage.fills(), [None, None, None], "in the frame the pointer left");
+  stage.frame();
+  assert!(
+    stage.fills()[1].is_none_or(|fill| fill.a() < 255),
+    "fading out from where it was"
+  );
   stage.settle();
-  assert_eq!(stage.fills(), [None, None, None], "and once nothing is left to draw");
+  assert_eq!(
+    stage.fills(),
+    [None, None, None],
+    "and none once nothing is left to draw"
+  );
 }
 
 #[test]
@@ -155,9 +163,17 @@ fn a_row_the_pointer_left_the_window_from_has_no_fill() {
   stage.tree.mouse_leave_window();
   stage.frame();
 
-  assert_eq!(stage.fills(), [None, None, None], "in the frame the pointer left");
+  stage.frame();
+  assert!(
+    stage.fills()[1].is_none_or(|fill| fill.a() < 255),
+    "fading out from where it was"
+  );
   stage.settle();
-  assert_eq!(stage.fills(), [None, None, None], "and once nothing is left to draw");
+  assert_eq!(
+    stage.fills(),
+    [None, None, None],
+    "and none once nothing is left to draw"
+  );
 
   // It comes back in beside the rows: nothing is under it.
   stage.tree.mouse_move(250.0, 200.0);
@@ -186,20 +202,16 @@ fn rows_the_pointer_crossed_fast_have_no_fill() {
     let (x, y) = Stage::row(index);
     stage.tree.mouse_move(x, y);
     stage.frame();
-    assert_eq!(
-      stage.fills()[index],
-      Some(Color::from_hex(HOVER)),
-      "the hovered fill at once, not a fade from the pressed one"
+    stage.frame();
+    let hover = Color::from_hex(HOVER);
+    assert!(
+      stage.fills()[index].is_some_and(|fill| (fill.r(), fill.g(), fill.b()) == (hover.r(), hover.g(), hover.b())),
+      "the hovered fill fading in, not a fade from the pressed one: {:?}",
+      stage.fills()[index]
     );
   }
   stage.tree.mouse_move(100.0, 250.0);
   stage.frame();
-
-  assert_eq!(
-    stage.fills(),
-    [None, None, None],
-    "in the frame the pointer left the last of them"
-  );
   stage.settle();
   assert_eq!(stage.fills(), [None, None, None], "and once nothing is left to draw");
 }

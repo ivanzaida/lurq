@@ -412,6 +412,26 @@ pub(crate) fn read_target(
     }
     _ => {}
   }
+  // A select's trigger is drawn by the engine from its own style: its fill and its edge are those of the trigger as
+  // it is now, under the pointer, focused, open.
+  if let crate::node::node_kind::NodeKind::Select { state } = node.node_kind()
+    && matches!(prop, AnimatableProperty::BackgroundColor | AnimatableProperty::BorderColor)
+  {
+    let focused = node.style_state.is_focus_visible() || state.input_focused();
+    let trigger = state
+      .style()
+      .resolved_trigger(node.style_state.is_hovered(), focused, state.is_open());
+    return Some(match prop {
+      AnimatableProperty::BackgroundColor => match trigger.background.as_ref() {
+        None => AnimatableValue::Clear,
+        Some(color) => AnimatableValue::Color(color.resolve(&theme.palette)?),
+      },
+      _ => match trigger.border.as_ref().and_then(|borders| borders.color()) {
+        None => AnimatableValue::Clear,
+        Some(color) => AnimatableValue::Color(color.resolve(&theme.palette)?),
+      },
+    });
+  }
   let style = node.target_style();
   match prop {
     AnimatableProperty::Foreground

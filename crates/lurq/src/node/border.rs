@@ -332,6 +332,16 @@ impl ResolvedBorders {
   pub(crate) fn any(&self) -> bool {
     self.top.is_some() || self.right.is_some() || self.bottom.is_some() || self.left.is_some()
   }
+
+  /// Gives every side `color`: an edge on its way to another, as a transition runs it.
+  pub(crate) fn set_color(&mut self, color: crate::node::color::Color) {
+    for side in [&mut self.top, &mut self.right, &mut self.bottom, &mut self.left]
+      .into_iter()
+      .flatten()
+    {
+      side.color = color;
+    }
+  }
 }
 
 #[cfg(test)]

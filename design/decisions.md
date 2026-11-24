@@ -11,6 +11,43 @@ dropped). When a decision is replaced, the old entry stays and says what replace
 
 ## 2026-11-24
 
+### Motion a recipe could not make
+
+- **Question.** Tabs' line and a segmented control's fill could not slide, a fill or an edge that comes or goes
+  appeared and vanished at once, reduced motion still ran fades, a select's states changed at once, a chevron could
+  not turn, nothing public opened rows in place, a short text could not change by a fade, and a theme could not
+  choose its skeletons' shimmer (issue #248, and its comment).
+- **Decision (Ivan).** Do them, without breaking the current API.
+- **Decided by Claude in the work, to be confirmed.**
+  - *No fill and no border are values a transition runs from and to*, as no shadow and no outline were: a fill fades
+    in from its own color with nothing of it and out to it, a border keeps its shape (`AnimatableValue::Edge`) while
+    it fades out. This changes how every hover fill on a part with none at rest looks: it fades over the part's
+    `background_color` transition where it appeared at once. Apps' "cleared" rest fills are no longer needed.
+  - *What a node comes in with, in the passes of the frame it comes in, is there at once*, whatever the property: a
+    form that turns within the first frame (tabs that overflow, a fill its settled layout gives) is not seen moving.
+    A node built under the pointer is hovered at once in its first frame.
+  - *The indicator and the thumb are one node placed by the measured box of the chosen item*, at the corner of what
+    holds the items moved by its offset, which the recipe's transitions slide (`TabsPart::Indicator`,
+    `SegmentedControlPart::Thumb`). Only mounted controls measure: built with nothing kept they draw as before. A
+    segmented control is mounted with `mount(ctx)`, new; its chosen segment draws its ink alone over the thumb
+    (state `Thumb`). They stand in a `Stack` with what they mark, as only a stack places a node absolutely.
+  - *`Theme::set_reduce_fades(true)`*, a theme setting, not a reduced form for each transition: the app decides it
+    once for every part, as reduced motion is.
+  - *`PartStyle::enter_with_parent(false)`*: a part that comes in with what holds it, in one frame, is there at once,
+    told by the pass each node was first reached in; not an option on keys or a flag of the app's.
+  - *`PartStyle::rotate(degrees)`* about the part's middle, which `Transition::transform()` runs. An accordion's
+    chevron turns where it swapped its icon; a collapsible's turns where a recipe turns it.
+  - *`Reveal` is an accordion's panel alone* (the same recipe, `opening`): height and fade together, not one after
+    the other, as the collapsible already does. `Collapsible::header(element)` keeps the label as its name.
+  - *`FadingText`* is built from a stack with presence, its words keyed by what they say, an enter that does not play
+    with its parent and an exit, all a recipe can restyle.
+  - *A select's trigger and options take their parts' transitions*: the engine reads the trigger's colors as a node's
+    and draws the running ones; an option is a node already. A token input's tokens are drawn in the input with no
+    node of their own and still change at once: that needs a timeline of the input's own, left for later.
+  - *The theme's skeleton animation* (`set_skeleton_animation`) beside its motion; the sweep's period is the motion's
+    (`SkeletonMotion::period`), one for the pulse and the sweep.
+- **State.** Built on `feat/motion`.
+
 ### A block of code's language, kept and named while it is edited
 
 - **Question.** A rich text editor showed a block of code as plain mono lines, where `Markdown` reading the same

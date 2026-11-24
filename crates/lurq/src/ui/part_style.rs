@@ -236,7 +236,7 @@ impl PartTransition {
     self
   }
 
-  fn resolve(&self, theme: &Theme) -> Transition {
+  pub(crate) fn resolve(&self, theme: &Theme) -> Transition {
     let duration = match self.duration {
       TransitionDuration::Role(role) => theme.durations().try_get(role).unwrap_or_default(),
       TransitionDuration::Set(duration) => duration,
