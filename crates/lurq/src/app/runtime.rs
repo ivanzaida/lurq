@@ -3295,6 +3295,7 @@ impl Tree {
     crate::core::element_ref::take_observed_before_paint();
     // The layouts of this pass are one frame to the transitions: what a node comes in with in them is there at once.
     self.transition_engine.begin_pass();
+    self.animation_engine.begin_pass();
     let mut layout_updated = {
       crate::app::profile_support::frame_section!("update_layout");
       self.update_layout(app)
@@ -7773,6 +7774,7 @@ impl Tree {
       return;
     };
     self.transition_engine.begin_pass();
+    self.animation_engine.begin_pass();
     let mut laid_out = self.update_layout(&mut app);
     if self.resolve_pending_scroll_into_view() {
       laid_out |= self.update_layout(&mut app);

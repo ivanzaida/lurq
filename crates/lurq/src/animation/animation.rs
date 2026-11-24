@@ -42,6 +42,9 @@ pub struct Animation {
   pub direction: AnimationDirection,
   pub fill_mode: AnimationFillMode,
   pub iteration_count: AnimationIterationCount,
+  /// Whether it plays where its node comes in with what holds it (a page's first paint), and not only where the
+  /// node comes into what was there before (one panel in place of another): see [`Self::plays_with_parent`].
+  pub plays_with_parent: bool,
 }
 
 impl Animation {
@@ -54,7 +57,16 @@ impl Animation {
       direction: AnimationDirection::Normal,
       fill_mode: AnimationFillMode::None,
       iteration_count: AnimationIterationCount::Count(1.0),
+      plays_with_parent: true,
     }
+  }
+
+  /// Whether the animation plays where its node comes in with what holds it, in the same frame (a page that is
+  /// painted for the first time, and the panel in it): `false` has the node there at its end at once, and plays
+  /// only where it comes into what was there (a panel in place of another). It does unless told.
+  pub fn plays_with_parent(mut self, plays: bool) -> Self {
+    self.plays_with_parent = plays;
+    self
   }
 
   pub fn duration(mut self, d: Duration) -> Self {
@@ -292,6 +304,12 @@ pub struct AnimationEngine {
   /// The app's keyframes as they were last taken from its theme: see [`Self::take_theme_keyframes`].
   theme_keyframes: Option<ThemeKeyframes>,
   pub has_active: bool,
+  /// The pass each node the walks reach was first reached in, and the passes begun: a node that comes in with what
+  /// holds it, in one pass, does not play an animation that is not to play with its parent.
+  born: HashMap<NodeId, u64>,
+  pass: u64,
+  /// The nodes this frame's walks reached.
+  reached: HashSet<NodeId>,
 }
 
 /// The keyframes a theme holds for the app, and whether each plays in phase.
@@ -315,6 +333,9 @@ impl AnimationEngine {
       resumed: HashMap::new(),
       theme_keyframes: None,
       has_active: false,
+      born: HashMap::new(),
+      pass: 0,
+      reached: HashSet::new(),
     };
     // What lurq's own components play: a full turn, for a spinner; a fade in and out, for a panel over the window.
     engine.register_keyframes_in_phase(spin());
@@ -444,7 +465,13 @@ impl AnimationEngine {
   pub(crate) fn begin_frame(&mut self) {
     self.seen.clear();
     self.seen_runs.clear();
+    self.reached.clear();
     self.next_change = None;
+  }
+
+  /// Starts a pass of the window, whose layouts are one frame: see [`Animation::plays_with_parent`].
+  pub(crate) fn begin_pass(&mut self) {
+    self.pass += 1;
   }
 
   /// Ends a frame after every tick walk ran: drops runs whose node was not
@@ -458,6 +485,8 @@ impl AnimationEngine {
     self.active.retain(|key, _| runs.contains(key));
     // A node that came back with no animation to enter with has nothing to go on from.
     self.resumed.retain(|node_id, _| seen.contains(node_id));
+    let reached = &self.reached;
+    self.born.retain(|node_id, _| reached.contains(node_id));
     self.has_active = self.active.values().any(|run| !run.finished);
   }
 
@@ -468,18 +497,19 @@ impl AnimationEngine {
 
   pub(crate) fn tick(&mut self, root: &mut crate::node::Node, now: Instant) -> bool {
     self.has_active = false;
-    let needs_layout = self.tick_recursive(root, now);
+    let needs_layout = self.tick_recursive(root, now, false);
     self.has_active = self.active.values().any(|run| !run.finished);
     needs_layout
   }
 
   pub(crate) fn tick_preserving_active_state(&mut self, root: &mut crate::node::Node, now: Instant) -> bool {
-    let needs_layout = self.tick_recursive(root, now);
+    let needs_layout = self.tick_recursive(root, now, false);
     self.has_active = self.active.values().any(|run| !run.finished);
     needs_layout
   }
 
-  fn tick_recursive(&mut self, node: &mut crate::node::Node, now: Instant) -> bool {
+  /// Ticks `node` and what is under it; `parent_new` says whether what holds it came in this pass.
+  fn tick_recursive(&mut self, node: &mut crate::node::Node, now: Instant, parent_new: bool) -> bool {
     // Only where an animation plays: a subtree of transitions alone has nothing for this engine.
     if !node.prepare_layout_tracking().animations {
       return false;
@@ -488,17 +518,21 @@ impl AnimationEngine {
     crate::core::layout_dirty::visit();
     let mut needs_layout = false;
     let node_id = node.node_id();
+    let new = node_id.is_assigned() && {
+      self.reached.insert(node_id);
+      *self.born.entry(node_id).or_insert(self.pass) == self.pass
+    };
     if node_id.is_assigned()
       && let Some(spec) = node.playing_animation()
     {
       self.seen.insert(node_id);
       self.seen_runs.insert((node_id, spec.keyframes));
       let spec = Animation::clone(spec);
-      needs_layout = self.process_node(node, &spec, now);
+      needs_layout = self.process_node(node, &spec, now, parent_new);
     }
 
     for child in &mut node.children {
-      if self.tick_recursive(child, now) {
+      if self.tick_recursive(child, now, new) {
         needs_layout = true;
       }
     }
@@ -510,7 +544,7 @@ impl AnimationEngine {
     needs_layout
   }
 
-  fn process_node(&mut self, node: &mut crate::node::Node, spec: &Animation, now: Instant) -> bool {
+  fn process_node(&mut self, node: &mut crate::node::Node, spec: &Animation, now: Instant, parent_new: bool) -> bool {
     let node_id = node.node_id();
     let key = (node_id, spec.keyframes);
     let iteration_count = match spec.iteration_count {
@@ -535,6 +569,8 @@ impl AnimationEngine {
       iteration_count,
       start_time: match done {
         Some(done) => now.checked_sub(spec.duration.mul_f32(done) + spec.delay).unwrap_or(now),
+        // A node that comes in with what holds it is at the end of an animation not to play then.
+        None if parent_new && !spec.plays_with_parent => now.checked_sub(spec.duration + spec.delay).unwrap_or(now),
         None => start_time(in_phase, spec.direction, spec.duration, now),
       },
       finished: false,

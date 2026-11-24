@@ -420,3 +420,85 @@ fn a_theme_has_every_skeleton_shimmer_unless_one_says_otherwise() {
     "the themed one shimmers, the one told to pulse does not"
   );
 }
+
+#[test]
+fn an_enter_not_to_play_with_its_parent_plays_only_where_its_part_comes_into_what_was_there() {
+  use lurq::{
+    app::theme::{MotionDuration, MotionEasing},
+    core::Signal,
+    ui::{FADE_IN, PartAnimation, PartStyle, Recipe},
+  };
+  let shown = Signal::new(0u8);
+  let held = shown.clone();
+  let mut stage = Stage::first_frame(400.0, 300.0, move |_| {
+    // A panel keyed by what is shown, which fades in as it comes, and not with the page.
+    let panel = Recipe::new().base("panel", |s: PartStyle| {
+      s.enter(PartAnimation::new(FADE_IN, MotionDuration::Slow, MotionEasing::Enter))
+        .enter_with_parent(false)
+    });
+    let theme = lurq::ui::current_theme();
+    let part = theme
+      .resolve::<Skeleton>(&lurq::ui::Case::new(), Some(&panel))
+      .part("panel");
+    let which = held.get();
+    Column::new()
+      .size(400.0, 300.0)
+      .child(
+        Row::new()
+          .size(200.0, 100.0)
+          .background(light(PaletteColor::Primary))
+          .part(&part)
+          .key(format!("panel-{which}"))
+          .id("panel"),
+      )
+      .into()
+  });
+  let opacity = |stage: &Stage| {
+    stage
+      .quads()
+      .into_iter()
+      .find(|quad| matches!(&quad.content, QuadContent::Rect { color, .. } if *color == light(PaletteColor::Primary)))
+      .map(|quad| quad.opacity)
+      .expect("the panel")
+  };
+  assert_eq!(opacity(&stage), 1.0, "whole on the page's first paint");
+  shown.set(1);
+  stage.pass_after(std::time::Duration::ZERO);
+  stage.pass_after(std::time::Duration::from_millis(50));
+  let fading = opacity(&stage);
+  assert!(fading < 0.99, "the panel that came in its place fades in: {fading}");
+}
+
+#[test]
+fn an_enter_plays_with_its_parent_unless_told() {
+  use lurq::{
+    app::theme::{MotionDuration, MotionEasing},
+    ui::{FADE_IN, PartAnimation, PartStyle, Recipe},
+  };
+  let stage = Stage::first_frame(400.0, 300.0, move |_| {
+    let panel = Recipe::new().base("panel", |s: PartStyle| {
+      s.enter(PartAnimation::new(FADE_IN, MotionDuration::Slow, MotionEasing::Enter))
+    });
+    let part = lurq::ui::current_theme()
+      .resolve::<Skeleton>(&lurq::ui::Case::new(), Some(&panel))
+      .part("panel");
+    Column::new()
+      .size(400.0, 300.0)
+      .child(
+        Row::new()
+          .size(200.0, 100.0)
+          .background(light(PaletteColor::Primary))
+          .part(&part),
+      )
+      .into()
+  });
+  let opacity = stage
+    .quads()
+    .into_iter()
+    .find(|quad| matches!(&quad.content, QuadContent::Rect { color, .. } if *color == light(PaletteColor::Primary)))
+    .map(|quad| quad.opacity);
+  assert!(
+    opacity.is_none_or(|opacity| opacity < 0.99),
+    "it fades in with the page: {opacity:?}"
+  );
+}
