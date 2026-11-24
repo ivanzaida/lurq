@@ -31,7 +31,18 @@ use crate::{
 /// The names of the files the tabs hold, by their id.
 /// The folder of each of [`FILES`], which a row of the list of every tab says after the file's name.
 const FOLDERS: [&str; 12] = [
-  "ui", "ui", "canvas", "layout", "router", "text", "animation", "form", "charts", "ui", "media", "app",
+  "ui",
+  "ui",
+  "canvas",
+  "layout",
+  "router",
+  "text",
+  "animation",
+  "form",
+  "charts",
+  "ui",
+  "media",
+  "app",
 ];
 
 const FILES: [&str; 12] = [
@@ -610,6 +621,12 @@ impl Component for WindowTabsPage {
           .child(item(
             WindowTabs::controlled(0, [file(0), file(3).close_button(false)], |_| {}).on_add(|| {}),
             "no close button · the add button",
+          ))
+          .child(item(
+            WindowTabs::controlled(0, [file(0)], |_| {})
+              .on_add(|| {})
+              .add_unavailable("A project is opening"),
+            "add_unavailable: faded, its reason in a tooltip",
           )),
       );
 
@@ -789,6 +806,13 @@ impl Component for WindowTabsPage {
         "impl Fn()",
         "",
         "Told a press of the add button, which is shown once this is given.",
+      ),
+      (
+        "add_unavailable",
+        "&str",
+        "",
+        "The add button cannot be pressed now, for a reason: it is shown faded, a press does nothing, and its \
+         tooltip says the reason. An empty reason makes it available again.",
       ),
       (
         "on_reorder",

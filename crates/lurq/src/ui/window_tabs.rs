@@ -17,6 +17,7 @@ use super::{
   select::{px, spacing},
   shared::{FADE_IN, FADE_OUT, fading, glyph, one_line, pressable, tab_stop},
   theme::{Themed, current_theme},
+  tooltip::Tooltip,
 };
 use crate::{
   app::{
@@ -32,9 +33,9 @@ use crate::{
   core::{ElementRef, Signal, SignalValue},
   layout::{
     Alignment,
-    text_style::FontWeight,
     layout_kind::{Justify, ScrollState},
     scrollbar::ScrollBarStyle,
+    text_style::FontWeight,
   },
   node::{CursorIcon, Element, FocusGroup, color::Color, dimension::Dimension, outline::Outline},
 };
@@ -560,6 +561,7 @@ pub struct WindowTabs<T = ()> {
   on_change: Vec<Handler<T>>,
   on_close: Vec<Handler<T>>,
   on_add: Vec<Heard>,
+  add_reason: Option<Arc<str>>,
   on_reorder: Vec<Moved>,
   on_detach: Vec<Handler<T>>,
   shortcuts: bool,
@@ -632,6 +634,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> WindowTabs<T> {
       on_change: Vec::new(),
       on_close: Vec::new(),
       on_add: Vec::new(),
+      add_reason: None,
       on_reorder: Vec::new(),
       on_detach: Vec::new(),
       shortcuts: true,
@@ -699,6 +702,20 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> WindowTabs<T> {
   /// selects it where it should be. A second handler is called after the first.
   pub fn on_add(mut self, handler: impl Fn() + Send + Sync + 'static) -> Self {
     self.on_add.push(Arc::new(handler));
+    self
+  }
+
+  /// The add button cannot be pressed now, for `reason`: it is shown, with or without [`on_add`](Self::on_add),
+  /// in the `Disabled` state of its part (faded), a press of it does nothing, and its tooltip says the reason, which
+  /// tooling reads as what describes it. An empty reason makes it available again.
+  ///
+  /// ```
+  /// use lurq::ui::WindowTabs;
+  ///
+  /// let tabs = WindowTabs::new().on_add(|| {}).add_unavailable("A project is opening");
+  /// ```
+  pub fn add_unavailable(mut self, reason: &str) -> Self {
+    self.add_reason = (!reason.is_empty()).then(|| Arc::from(reason));
     self
   }
 
@@ -974,6 +991,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> WindowTabs<T> {
     Prepared {
       tabs,
       add,
+      add_reason: self.add_reason,
       reorder,
       shortcuts: self.shortcuts,
       disabled: self.disabled,
@@ -1204,6 +1222,7 @@ impl Kept {
 struct Prepared {
   tabs: Vec<WindowTabEntry>,
   add: Option<Heard>,
+  add_reason: Option<Arc<str>>,
   reorder: Moved,
   shortcuts: bool,
   disabled: bool,
@@ -1264,6 +1283,7 @@ impl Prepared {
       recipes: std::array::from_fn(|_| OnceCell::new()),
       owner,
       add: self.add,
+      add_reason: self.add_reason,
       reorder: self.reorder,
       words: self.words,
       drag: kept.drawn(),
@@ -1427,6 +1447,8 @@ pub struct WindowTabsView {
   /// What the recipes name their parts after, and count them with.
   owner: ResolvedRecipe,
   add: Option<Heard>,
+  /// Why the add button cannot be pressed now, where it cannot: it is shown faded, with this in its tooltip.
+  pub add_reason: Option<Arc<str>>,
   reorder: Moved,
   words: Words,
   /// The drag drawn now, where the tabs are mounted.
@@ -1511,7 +1533,8 @@ impl WindowTabsView {
     &self.theme
   }
 
-  /// Whether the add button is shown: the app is told when it is pressed.
+  /// Whether the app is told of a press of the add button. It is shown where this is so, or where it cannot be
+  /// pressed for a reason ([`add_reason`](Self::add_reason)).
   pub fn has_add(&self) -> bool {
     self.add.is_some()
   }
@@ -1924,23 +1947,45 @@ impl WindowTabsView {
   }
 
   /// The add button, where the app is told of a press of it: a stop of Tab after the tabs, called "New tab" or
-  /// the strip's `add_label` to what reads the tree. A press of it goes no further than it.
+  /// the strip's `add_label` to what reads the tree. A press of it goes no further than it. Where it cannot be
+  /// pressed for a reason, it is disabled, in the `Disabled` state of its parts, and describes itself by the
+  /// reason; [`add_control`](Self::add_control) puts the reason's tooltip on it.
   pub fn add(&self) -> Option<components::Button> {
-    let add = self.add.clone()?;
-    let mut button = tab_stop(pressable(&self.part(WindowTabsPart::Add), self.disabled), self.tab_stop)
+    let unavailable = self.add_reason.is_some();
+    if self.add.is_none() && !unavailable {
+      return None;
+    }
+    let disabled = self.disabled || unavailable;
+    let part = |part: WindowTabsPart| match unavailable {
+      true => self.recipe(false, false, false, true, false).part(part),
+      false => self.part(part),
+    };
+    let mut button = tab_stop(pressable(&part(WindowTabsPart::Add), disabled), self.tab_stop)
       .describe("a11y_name", self.words.add.clone())
       .align_items(Alignment::Center)
       .on_mouse_down(|event: MouseEvent| event.stop_propagation())
-      .on_click(move |_| add())
-      .child(glyph(
-        &self.part(WindowTabsPart::AddIcon),
-        Name::new(icons::PLUS),
-        false,
-      ));
+      .child(glyph(&part(WindowTabsPart::AddIcon), Name::new(icons::PLUS), false));
+    if let Some(reason) = &self.add_reason {
+      button = button.describe("a11y_description", reason.clone());
+    } else if let Some(add) = self.add.clone() {
+      button = button.on_click(move |_| add());
+    }
     if let Some(id) = &self.id {
       button = button.id(format!("{id}-add"));
     }
     Some(button)
+  }
+
+  /// The add button as the strip lays it out: [`add`](Self::add), under the tooltip of its reason where it cannot
+  /// be pressed.
+  pub fn add_control(&self) -> Option<Element> {
+    let button = self.add()?;
+    Some(match &self.add_reason {
+      Some(reason) => Tooltip::new(reason)
+        .placement(crate::app::ctx::Placement::Bottom)
+        .declared(button),
+      None => button.into(),
+    })
   }
 
   /// What stands in the list in order: the tabs, and while a tab is dragged the others with the room it would be
@@ -2208,7 +2253,7 @@ impl WindowTabsView {
       .max_width(Dimension::Pct(100.0))
       .ref_element(self.kept.root.clone())
       .child(list);
-    if let Some(add) = self.add() {
+    if let Some(add) = self.add_control() {
       // The separator and the add button are one thing after the list, the root's gap between them too.
       let mut end = Row::new()
         .align_items(Alignment::Center)
@@ -2216,7 +2261,11 @@ impl WindowTabsView {
         .spacing(self.root_gap());
       if self.separator_before_add() {
         let shown = self.last_plain();
-        end = end.child(Row::new().opacity(if shown { 1.0 } else { 0.0 }).child(self.separator()));
+        end = end.child(
+          Row::new()
+            .opacity(if shown { 1.0 } else { 0.0 })
+            .child(self.separator()),
+        );
       }
       root = root.child(end.child(add));
     }
@@ -2281,15 +2330,15 @@ impl<T: Send + Sync + 'static> Themed for WindowTabs<T> {
   ///   label and the app's marks are 6 from the label, the marks 4 apart. The More button of the list mode is 28 high,
   ///   padded 8 across, its count 12 and a chevron of 12, 4 apart, in the muted foreground, the foreground and the
   ///   secondary hover under the pointer, and pressed while its menu is open.
-  /// - The list of every tab is a panel 320 wide in the popover's colors, edged by 1 in the border's color, with
-  ///   the large radius and shadow, padded 6, its search field 4 above its rows, which are 2 apart. A row is 28
-  ///   high, round by the small radius, padded 8 at its start and 4 at its end, its parts 8 apart: an icon of 14 and
-  ///   the label 12 in the muted foreground, a mark of 12 for a tab not in the strip, a check of 14 on the selected
-  ///   tab, and a close button of 20 whose x of 12 shows while the row is under the pointer or focused. The selected
-  ///   tab's row has the fill of what is picked out and its label 500 in the foreground; another is muted under the
-  ///   pointer and focused, with the ring inside it then. Where nothing matches, 12 in the muted foreground, padded
-  ///   12 and 8. Under the search field (`searchable`) the rows abut. A row's quiet text after its label is 12 in the
-  ///   muted foreground; the app's elements in it are 4 apart.
+  /// - The list of every tab is a panel 320 wide in the popover's colors, edged by 1 in the border's color, with the
+  ///   large radius and shadow, padded 6, its search field 4 above its rows, which are 2 apart. A row is 28 high, round
+  ///   by the small radius, padded 8 at its start and 4 at its end, its parts 8 apart: an icon of 14 and the label 12
+  ///   in the muted foreground, a mark of 12 for a tab not in the strip, a check of 14 on the selected tab, and a close
+  ///   button of 20 whose x of 12 shows while the row is under the pointer or focused. The selected tab's row has the
+  ///   fill of what is picked out and its label 500 in the foreground; another is muted under the pointer and focused,
+  ///   with the ring inside it then. Where nothing matches, 12 in the muted foreground, padded 12 and 8. Under the
+  ///   search field (`searchable`) the rows abut. A row's quiet text after its label is 12 in the muted foreground; the
+  ///   app's elements in it are 4 apart.
   fn recipe() -> Recipe {
     use PaletteColor::{Background, Foreground, Muted, MutedForeground, Ring, SecondaryHover};
     use WindowTabsPart::{

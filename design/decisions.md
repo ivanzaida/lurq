@@ -11,6 +11,23 @@ dropped). When a decision is replaced, the old entry stays and says what replace
 
 ## 2026-11-24
 
+### An add button of window tabs that cannot be pressed, and a menu moved along its anchor
+
+- **Question.** The add button of `WindowTabs` was there and working or not there: one shown while adding a tab is not
+  possible yet could not be drawn. A menu could be put on a side of its anchor but not moved along that side
+  (issue #243).
+- **Decision (Ivan).** Do it, without breaking the current API.
+- **Decided by Claude in the work, to be confirmed.**
+  - *`WindowTabs::add_unavailable(reason)`*, as `MenuItem::unavailable(reason)` is said: the button is shown with or
+    without `on_add`, drawn in the `Disabled` state of its parts (the recipe's faded `Add`), a press of it does
+    nothing, and its reason is its tooltip, under it, and what describes it to tooling. It stays a stop of Tab, as
+    the strip's other controls are, so that the keyboard reaches its reason. `WindowTabsView::add()` keeps its type
+    (`Option<Button>`); the tooltip is put on it by a new `add_control()`, which the strip lays out.
+  - *`Menu::cross_offset(..)`*, the name `Popover` already has for it, not a new `Placement::offset(main, cross)`:
+    `Placement` is an enum of the engine's that every overlay matches, and a menu's `offset` is already its own. A
+    context menu and a menu at a point do not use it: their corner is at the point.
+- **State.** Built on `feat/open-issues`.
+
 ### A part justified, a code block's bar text and fold chevron placed
 
 - **Question.** A menu item's keys could not end at the menu's edge in a column of a width of their own (a part had no

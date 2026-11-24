@@ -180,6 +180,7 @@ pub struct Menu {
   back_label: Arc<str>,
   placement: Option<Placement>,
   offset: Option<SpacingValue>,
+  cross_offset: Option<SpacingValue>,
   collision: Option<CollisionStrategy>,
   within: Option<ElementRef>,
   placed_by: Option<ElementRef>,
@@ -236,6 +237,7 @@ impl Menu {
       back_label: super::current_locale().common.back.clone(),
       placement: None,
       offset: None,
+      cross_offset: None,
       collision: None,
       within: None,
       placed_by: None,
@@ -358,6 +360,16 @@ impl Menu {
   /// for, down and toward the end.
   pub fn offset(mut self, offset: impl Into<SpacingValue>) -> Self {
     self.offset = Some(offset.into());
+    self
+  }
+
+  /// How far the panel is moved along the edge of its anchor it stands on, besides [`offset`](Self::offset) away
+  /// from it: toward the end for a menu under or over its anchor, down for one beside it, and back with a negative
+  /// value. A title bar's switcher whose menu starts 12 before its edge: `cross_offset(-12.0)`, as a popover's
+  /// [`cross_offset`](super::Popover::cross_offset). None by default; not used by a context menu, nor with
+  /// [`at`](Self::at).
+  pub fn cross_offset(mut self, offset: impl Into<SpacingValue>) -> Self {
+    self.cross_offset = Some(offset.into());
     self
   }
 
@@ -558,6 +570,7 @@ impl Menu {
       anchor: self.anchor,
       open: self.open,
       offset: self.offset,
+      cross_offset: self.cross_offset,
       collision: self.collision,
       within: self.within,
       placed_by: self.placed_by,
@@ -607,6 +620,7 @@ pub struct MenuView {
   anchor: ElementRef,
   open: OpenState,
   offset: Option<SpacingValue>,
+  cross_offset: Option<SpacingValue>,
   collision: Option<CollisionStrategy>,
   within: Option<ElementRef>,
   placed_by: Option<ElementRef>,
@@ -891,7 +905,11 @@ impl MenuView {
         | Placement::Right
         | Placement::RightEnd
     );
-    let (mut x, mut y) = if beside { (gap, 0.0) } else { (0.0, gap) };
+    // Along the edge it stands on, as far as told.
+    let cross = self
+      .cross_offset
+      .map_or(0.0, |offset| offset.resolve(&self.theme().spacing(), 0.0));
+    let (mut x, mut y) = if beside { (gap, cross) } else { (cross, gap) };
     if self.submenu {
       let (theme, panel) = (self.theme(), self.part(MenuPart::Panel).rest());
       let padding = |padding: Option<SpacingValue>| {

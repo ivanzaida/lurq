@@ -902,3 +902,47 @@ fn a_press_that_selects_another_tab_leaves_the_focus_on_it_and_the_arrows_go_on_
     .and_then(|element| element.id().map(str::to_owned));
   assert_eq!(focused.as_deref(), Some("theme"), "and the arrows go on from it");
 }
+
+#[test]
+fn an_add_button_that_cannot_be_pressed_is_faded_and_says_why() {
+  let added = Arc::new(AtomicUsize::new(0));
+  let heard = added.clone();
+  let mut stage = wide(move |ctx| {
+    let heard = heard.clone();
+    let tabs = WindowTabs::controlled(0, files(), |_| {})
+      .on_add(move || {
+        heard.fetch_add(1, Ordering::Relaxed);
+      })
+      .add_unavailable("A project is opening")
+      .id("strip")
+      .mount(ctx);
+    Column::new().size(800.0, 300.0).padding(8.0).child(tabs).into()
+  });
+  stage.own_timers();
+  let (x, y, width, height) = stage.bounds("strip-add");
+  let plus = stage
+    .quads()
+    .into_iter()
+    .find(|quad| {
+      matches!(quad.content, QuadContent::Text { .. })
+        && quad.x >= x
+        && quad.y >= y
+        && quad.x + quad.width <= x + width
+        && quad.y + quad.height <= y + height
+    })
+    .expect("the plus");
+  assert!(plus.opacity < 0.75, "faded: {}", plus.opacity);
+  stage.hover("strip-add");
+  stage.tick_timers(std::time::Duration::from_millis(600));
+  stage.pass();
+  assert!(stage.paints("A project is opening"), "its tooltip says why");
+  stage.click("strip-add");
+  assert_eq!(added.load(Ordering::Relaxed), 0, "a press does nothing");
+  // Without a handler of the app's it is shown all the same.
+  let mut stage = staged(|| {
+    WindowTabs::controlled(0, files(), |_| {})
+      .add_unavailable("Not on this plan")
+      .id("strip")
+  });
+  assert!(stage.tree.get_element_by_id_mut("strip-add").is_some());
+}

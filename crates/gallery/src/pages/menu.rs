@@ -784,6 +784,12 @@ impl Component for MenuPage {
         "How far the panel is from its anchor, along the side it opens on.",
       ),
       (
+        "cross_offset",
+        "impl Into<SpacingValue>",
+        "0",
+        "How far the panel is moved along its anchor's edge: -12 starts it 12 before the anchor's start.",
+      ),
+      (
         "collision",
         "CollisionStrategy",
         "FlipThenClamp",

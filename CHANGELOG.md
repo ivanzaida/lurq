@@ -4,6 +4,7 @@
 
 Added:
 
+- **An add button of window tabs that cannot be pressed, and a menu moved along its anchor's edge** ([#243](https://github.com/ivanzaida/lurq/issues/243), decided 2026-11-24, `design/decisions.md`). `WindowTabs::add_unavailable(reason)` shows the add button faded, in the `Disabled` state of its parts, with or without `on_add`; a press of it does nothing and its tooltip says the reason. `Menu::cross_offset(..)` moves the panel along the edge of its anchor it stands on, as `Popover::cross_offset` does: a title bar's switcher whose menu starts 12 before its edge. `WindowTabsView` has `add_reason` and `add_control()` for a renderer of its own.
 - **A part's children justified along it, a code block's bar text after its title, and the fold's chevron before its words** ([#246](https://github.com/ivanzaida/lurq/issues/246), decided 2026-11-24, `design/decisions.md`). `PartStyle::justify(Justify)` says where a part's children stand along it, where it is a row or a column: a menu's keys in a column of a width of their own, ending at the menu's edge (`s.width(96.0).justify(Justify::End)` on `MenuItemPart::Shortcut`). `CodeBlock::bar_meta_at(CodeBlockMeta::ByTitle)` puts the bar's other text after the title, with the copy button alone at the bar's end; `CodeBlock::fold_icon_at(CodeBlockFoldIcon::Leading)` puts the fold's chevron before its words. Unless told, each is where it was: `CodeBlockView` has `meta_at` and `fold_icon_at` for a renderer of its own.
 
 ## 0.72.0 — 2026-11-24
