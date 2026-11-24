@@ -24,7 +24,8 @@ use lurq::{
   layout::quad::QuadContent,
   node::{Element, color::Color},
   ui::{
-    Case, Opacity, Sidebar, SidebarGroup, SidebarHeading, SidebarItem, SidebarPart, SidebarState, SidebarTrigger, icons,
+    Case, Opacity, Sidebar, SidebarGroup, SidebarHeading, SidebarItem, SidebarPart, SidebarState, SidebarTrigger,
+    TreeItem, TreeView, icons,
   },
 };
 
@@ -1183,4 +1184,161 @@ fn over_the_page_on_a_phone_its_items_keep_clear_of_the_status_bar_and_the_home_
     y <= 59.0 && y + height <= 844.0 - 34.0 + 0.5,
     "what it holds ends over the home indicator: {y} {height}"
   );
+}
+
+/// A tree of `count` pages, `page-0` on: what an app puts in a sidebar's body.
+fn tree_of_pages(count: usize) -> TreeView<usize> {
+  TreeView::new(
+    Signal::new(None),
+    (0..count).map(|index| TreeItem::file(index, &format!("Page {index}")).id(format!("page-{index}"))),
+  )
+  .label("Pages")
+}
+
+/// The id of what holds the focus.
+fn focused(stage: &Stage) -> Option<String> {
+  stage
+    .tree
+    .focused_element()
+    .and_then(|element| element.id().map(str::to_owned))
+}
+
+#[test]
+fn a_groups_content_stands_under_its_label_and_scrolls_with_the_body_while_the_header_stays() {
+  let mut stage = stage(|ctx| {
+    let sidebar = Sidebar::new()
+      .id("sidebar")
+      .narrow(false)
+      .header(SidebarHeading::new("lurq").icon(icons::BOX).id("heading"))
+      .group(SidebarGroup::new("Pages").content(tree_of_pages(40)));
+    Row::new()
+      .size(1024.0, 300.0)
+      .child(sidebar.mount(ctx))
+      .child(page())
+      .into()
+  });
+  assert_eq!(
+    stage.bounds("sidebar").3,
+    300.0,
+    "as high as the window, not as its tree"
+  );
+  let label = stage.text_quad("PAGES").expect("the group's label");
+  let (x, top, width, _) = stage.bounds("page-0");
+  assert!(top >= label.y + label.height, "the tree under the label: {top}");
+  // As wide as the group: the rows end before the bar's lane.
+  let bar = stage.app.theme().scrollbar().clone();
+  let lane = bar.width + bar.resolved_edge_inset() * 2.0;
+  assert!(
+    x + width <= 260.0 - lane + 0.01 && width > 200.0,
+    "the row is {width} wide at {x}"
+  );
+  assert!(
+    !stage.paints("Page 39"),
+    "what is past the height is scrolled out of sight"
+  );
+  let heading = stage.bounds("heading");
+  stage
+    .tree
+    .wheel(100.0, 200.0, 0.0, -360.0, lurq::app::events::ScrollPhase::Scroll);
+  stage.pass();
+  let scrolled = stage.bounds("page-0").1;
+  assert!(
+    scrolled < top - 100.0,
+    "scrolled with the body: the first page from {top} to {scrolled}"
+  );
+  assert_eq!(stage.bounds("heading"), heading, "the header stays");
+}
+
+#[test]
+fn content_in_the_body_keeps_its_place_among_the_items_and_the_rail_does_not_show_it() {
+  let collapsed = Signal::new(false);
+  let held = collapsed.clone();
+  let mut stage = stage(move |ctx| {
+    layout(
+      ctx,
+      Sidebar::new()
+        .narrow(false)
+        .item(SidebarItem::new("Inbox").icon(icons::INBOX).id("inbox"))
+        .content(Column::new().id("mine").height(40.0).child(Text::new("Mine")))
+        .item(SidebarItem::new("Overview").icon(icons::HOME).id("overview"))
+        .collapsed(held.get()),
+    )
+  });
+  let (inbox, mine, overview) = (stage.bounds("inbox"), stage.bounds("mine"), stage.bounds("overview"));
+  assert!(
+    inbox.1 + inbox.3 <= mine.1 + 0.01,
+    "the content under the item before it"
+  );
+  assert!(
+    mine.1 + mine.3 <= overview.1 + 0.01,
+    "the item after it under it, not over it"
+  );
+  assert!(mine.2 > 200.0, "as wide as the body: {}", mine.2);
+  collapsed.set(true);
+  stage.pass();
+  assert!(!stage.paints("Mine"), "the rail shows its items' icons alone");
+  assert!(stage.ids().contains(&"overview".to_owned()));
+}
+
+#[test]
+fn a_group_that_closes_closes_its_content_with_it() {
+  let mut stage = stage(|ctx| {
+    layout(
+      ctx,
+      Sidebar::new().narrow(false).group(
+        SidebarGroup::new("Pages")
+          .collapsible(true)
+          .content(Column::new().id("mine").height(40.0).child(Text::new("Mine"))),
+      ),
+    )
+  });
+  assert!(stage.paints("Mine"), "open at the start");
+  let label = stage.text_quad("PAGES").expect("the group's label");
+  let (x, y) = (label.x + 4.0, label.y + label.height / 2.0);
+  stage.tree.mouse_move(x, y);
+  stage.tree.mouse_down(x, y, MouseButton::Left);
+  stage.tree.mouse_up(x, y, MouseButton::Left);
+  stage.pass();
+  assert!(!stage.paints("Mine"), "closed with its group");
+}
+
+#[test]
+fn a_tree_in_the_body_is_a_stop_of_tab_of_its_own_that_the_items_arrows_pass_by() {
+  let mut stage = stage(|ctx| {
+    layout(
+      ctx,
+      Sidebar::new()
+        .narrow(false)
+        .item(SidebarItem::new("Inbox").id("inbox").selected(true))
+        .item(SidebarItem::new("Drafts").id("drafts"))
+        .group(SidebarGroup::new("Pages").content(tree_of_pages(3))),
+    )
+  });
+  stage.key("Tab");
+  assert_eq!(
+    focused(&stage).as_deref(),
+    Some("inbox"),
+    "one stop, at the selected item"
+  );
+  stage.key("ArrowDown");
+  assert_eq!(focused(&stage).as_deref(), Some("drafts"));
+  stage.key("ArrowDown");
+  assert_eq!(
+    focused(&stage).as_deref(),
+    Some("inbox"),
+    "the items' arrows pass the tree by, round to the first"
+  );
+  stage.key("ArrowUp");
+  stage.key("Tab");
+  assert_eq!(focused(&stage).as_deref(), Some("page-0"), "Tab goes on into the tree");
+  stage.key("ArrowDown");
+  stage.key("ArrowDown");
+  stage.key("ArrowDown");
+  assert_eq!(
+    focused(&stage).as_deref(),
+    Some("page-2"),
+    "the tree's own arrows, to its end"
+  );
+  stage.key("ArrowUp");
+  assert_eq!(focused(&stage).as_deref(), Some("page-1"));
 }

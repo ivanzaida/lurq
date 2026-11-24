@@ -28,7 +28,7 @@ use crate::{
     runtime::{DOUBLE_CLICK_DISTANCE, DOUBLE_CLICK_INTERVAL},
     theme::{BorderSize, Density, IconSize, OpacityLevel, PaletteColor, RadiusSize, Theme, TypographyStyle},
   },
-  components::{self, Column, Row, VirtualizedList},
+  components::{self, Column, Row, TextOverflow, VirtualizedList},
   core::{Signal, SignalValue},
   layout::{
     Alignment,
@@ -327,6 +327,8 @@ pub struct TreeView<T: 'static, M: RowSelection<T> = OneSelected> {
   selected: Vec<T>,
   select: Option<Arc<dyn Fn(Vec<T>) + Send + Sync>>,
   guides: bool,
+  /// Whether the whole label of a row is said in a tooltip while it is cut with an ellipsis.
+  label_tooltip_when_cut: bool,
   /// Whether a press of a row adds it to what is selected or takes it out, with no key held, and no second press
   /// activates: the tree of a tree select of any number.
   pub(crate) press_toggles: bool,
@@ -413,6 +415,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, M: RowSelection<T>> TreeView<
       selected: Vec::new(),
       select: None,
       guides: false,
+      label_tooltip_when_cut: false,
       press_toggles: false,
       autofocus: false,
       disabled: false,
@@ -461,6 +464,14 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, M: RowSelection<T>> TreeView<
   /// Whether a line runs down each level, under the chevron of the row it is in.
   pub fn guides(mut self, guides: bool) -> Self {
     self.guides = guides;
+    self
+  }
+
+  /// Whether the whole label of a row is said in a tooltip while it is cut with an ellipsis, as
+  /// [`Tooltip::when_cut`](super::Tooltip::when_cut) says: shown after the theme's delay, and only while the last
+  /// layout cut the label. Off unless told; a cut label ends in an ellipsis either way.
+  pub fn label_tooltip_when_cut(mut self, tooltip: bool) -> Self {
+    self.label_tooltip_when_cut = tooltip;
     self
   }
 
@@ -705,6 +716,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, M: RowSelection<T>> TreeView<
           trailing_on_hover: row.trailing_on_hover,
           position: (row.position, row.siblings),
           guides: self.guides,
+          label_tooltip_when_cut: self.label_tooltip_when_cut,
           entry: entry == Some(index),
           index,
           multiple,
@@ -1057,6 +1069,8 @@ pub struct TreeRow {
   pub position: (usize, usize),
   /// Whether a line runs down each level of its indent.
   pub guides: bool,
+  /// Whether its whole label is said in a tooltip while it is cut.
+  pub label_tooltip_when_cut: bool,
   /// Whether Tab enters the tree at it: the first selected row.
   pub entry: bool,
   /// Which of the tree's shown rows it is.
@@ -1272,13 +1286,24 @@ impl TreeRow {
       .map(|name| glyph(&self.part(TreeViewPart::Icon), name, false))
   }
 
-  /// What the row says, in the room it has: a longer label is cut.
+  /// What the row says, in the room it has: a longer label is cut with an ellipsis, and said whole in a tooltip
+  /// where the tree is told to.
   pub fn label(&self) -> Column {
     let part = self.part(TreeViewPart::Label);
+    let text = part.text(&self.label).nowrap().text_overflow(TextOverflow::Elipsis);
+    let text: Element = if self.label_tooltip_when_cut {
+      let cut = crate::core::ElementRef::new();
+      super::Tooltip::new(&self.label)
+        .when_cut(&cut)
+        .declared(text.ref_element(cut.clone()))
+    } else {
+      text.into()
+    };
     Column::new()
       .flex_full(1.0, 1.0, None)
+      .min_width(Dimension::Px(0.0))
       .part(&part)
-      .child(part.text(&self.label).nowrap())
+      .child(text)
   }
 
   /// The row's recipe, its parts named after its id, else after its key or its place in the tree (its path), and

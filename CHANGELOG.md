@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+Added:
+
+- **A placeholder in an empty block of a rich text editor** ([#251](https://github.com/ivanzaida/lurq/issues/251), decided 2026-11-24, `design/decisions.md`). `RichTextEditor::block_placeholder("Type / for blocks")` draws the words in the empty block the caret is in (a new paragraph after Enter, an empty line between two others) while the editor has the focus and nothing is selected, in that block's type and in the placeholder's role; `block_placeholder_in_every_empty_block(true)` draws them in every empty block. They are drawn over the text: the block keeps its height, the caret its place, and nothing of them is in the document. The editor's `placeholder` still takes their place while the whole document is empty. Under it, for any styled input of several lines: `TextInput::block_placeholder(InputBlockPlaceholder)`.
+- **A tree's cut label said whole, and any element in a sidebar's body** ([#250](https://github.com/ivanzaida/lurq/issues/250), decided 2026-11-24, `design/decisions.md`). `TreeView::label_tooltip_when_cut(true)` says a cut label whole in a tooltip after the theme's delay, only while it is cut, as `ListItem::title_tooltip_when_cut` does. `SidebarGroup::content(element)` puts an element of the app's under a group's items (a `TreeView` of pages), and `Sidebar::content(element)` one in a group of no label: it scrolls with the sidebar's body, opens and closes with its group, and the rail does not show it. The items' arrow keys pass it by; a tree in it is a stop of Tab of its own.
+
+Fixes:
+
+- **A tree's label longer than its row ends in an ellipsis** ([#250](https://github.com/ivanzaida/lurq/issues/250)). It was cut where the row ended, in the middle of a letter.
+
 ## 0.73.0 — 2026-11-24
 
 Breaking:

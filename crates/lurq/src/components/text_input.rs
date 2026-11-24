@@ -176,7 +176,51 @@ impl InputGhost {
   }
 }
 
+/// What an empty paragraph of a styled input of several lines says, in the place and the type its text would
+/// have: *Type / for blocks* in the empty block the caret is in, as a block editor draws it. It is drawn over the
+/// paragraph and is not part of the value: the paragraph keeps its height and the caret its place. The input's own
+/// [placeholder](TextInput::placeholder) is drawn in place of it while the whole input is empty.
+///
+/// ```
+/// use lurq::{components::{InputBlockPlaceholder, TextInput}, core::Signal};
+///
+/// let text = Signal::new("A first paragraph\n\nA third".to_owned());
+/// let input = TextInput::new(text).multiline().block_placeholder(InputBlockPlaceholder::new("Type / for blocks"));
+/// ```
+#[derive(Clone, Debug, PartialEq)]
+pub struct InputBlockPlaceholder {
+  pub(crate) text: std::sync::Arc<str>,
+  pub(crate) every: bool,
+}
+
+impl InputBlockPlaceholder {
+  /// `text` in the empty paragraph the caret is in, while the input has the focus and nothing is selected.
+  pub fn new(text: &str) -> Self {
+    Self {
+      text: text.into(),
+      every: false,
+    }
+  }
+
+  /// Whether it is drawn in every empty paragraph, focused or not, and not only in the one the caret is in.
+  pub fn every_empty_block(mut self, every: bool) -> Self {
+    self.every = every;
+    self
+  }
+}
+
 impl TextInput {
+  /// Draws a placeholder in the empty paragraphs of a styled input of several lines: see
+  /// [`InputBlockPlaceholder`]. A plain input draws none.
+  pub fn block_placeholder(mut self, placeholder: InputBlockPlaceholder) -> Self {
+    self.update_node(|node| {
+      if let crate::node::node_kind::NodeKind::TextInput { state, .. } = node.node_kind() {
+        state.set_block_placeholder(Some(placeholder));
+      }
+    });
+    self
+  }
+
   /// Draws wavy lines under ranges of the text: see [`InputSquiggles`].
   pub fn squiggles(mut self, squiggles: InputSquiggles) -> Self {
     self.update_node(|node| {

@@ -434,6 +434,53 @@ impl TextInputState {
     inner.ghost.clone().filter(|ghost| shown && !ghost.text.is_empty())
   }
 
+  /// Sets what the empty paragraphs say.
+  pub(crate) fn set_block_placeholder(&self, placeholder: Option<crate::components::InputBlockPlaceholder>) {
+    let mut inner = self.inner.lock();
+    if inner.block_placeholder == placeholder {
+      return;
+    }
+    inner.block_placeholder = placeholder;
+    drop(inner);
+    self.mark_layout_dirty_keeping_scroll();
+  }
+
+  /// What the empty paragraphs say, and those it is drawn in, by their place among the paragraphs and the byte
+  /// they are at: the one the caret is in while the input has the focus and nothing is selected, or every empty
+  /// one where told. None while the input's own placeholder is drawn, while it is masked or an input method
+  /// composes, and in an input of one line.
+  pub(crate) fn shown_block_placeholder(&self) -> Option<ShownBlockPlaceholder> {
+    if self.is_showing_placeholder() {
+      return None;
+    }
+    let value = self.value();
+    let inner = self.inner.lock();
+    let placeholder = inner.block_placeholder.clone()?;
+    if placeholder.text.is_empty()
+      || inner.mask.is_some()
+      || inner.composition.is_some()
+      || inner.overflow != TextInputOverflow::Multiline
+    {
+      return None;
+    }
+    let caret = (inner.focused && selection_range_indices(&value, inner.selection_anchor, inner.caret).is_none())
+      .then_some(inner.caret);
+    drop(inner);
+    // Paragraphs are a styled input's, which the `markdown` feature brings.
+    #[cfg(feature = "markdown")]
+    let paragraphs = crate::components::styled_text::paragraph_ranges(&value);
+    #[cfg(not(feature = "markdown"))]
+    let paragraphs: Vec<std::ops::Range<usize>> = Vec::new();
+    let empty = paragraphs
+      .into_iter()
+      .enumerate()
+      .filter(|(_, range)| range.is_empty())
+      .filter(|(_, range)| placeholder.every || caret == Some(range.start))
+      .map(|(index, range)| (index, range.start))
+      .collect::<Vec<_>>();
+    (!empty.is_empty()).then_some((placeholder.text, empty))
+  }
+
   pub(crate) fn set_focused(&self, focused: bool) {
     let mut inner = self.inner.lock();
     if inner.focused == focused {
@@ -465,3 +512,7 @@ impl TextInputState {
     self.inner.lock().focused
   }
 }
+
+/// What the empty paragraphs say, and those it is drawn in: each by its place among the paragraphs and the byte it
+/// starts at.
+pub(crate) type ShownBlockPlaceholder = (std::sync::Arc<str>, Vec<(usize, usize)>);

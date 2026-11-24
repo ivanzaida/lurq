@@ -1193,3 +1193,47 @@ fn in_the_touch_form_a_tap_opens_a_row_at_once() {
   stage.click("demo");
   assert_eq!(held.activated.lock().unwrap().len(), 1);
 }
+
+/// Whether `content` is painted whole: a text of it and nothing cut from it.
+fn whole(stage: &Stage, content: &str) -> bool {
+  !texts(stage, content).is_empty()
+}
+
+#[test]
+fn a_cut_label_ends_in_an_ellipsis_and_is_said_whole_in_a_tooltip_while_it_is_cut() {
+  const TITLE: &str = "2026-10 one queue for every project and its runs";
+  let selected = Signal::new(None::<Id>);
+  let mut stage = Stage::new(move |_| {
+    let tree = |id: Id, label: &str, tooltip: bool| {
+      TreeView::new(selected.clone(), [TreeItem::file(id, label).id(id)])
+        .label_tooltip_when_cut(tooltip)
+        .style(TreeViewPart::Root, |s| s.width(160.0))
+    };
+    Column::new()
+      .padding(8.0)
+      .spacing(8.0)
+      .child(tree("cut", TITLE, true))
+      .child(tree("whole", "Short", true))
+      .child(tree("off", &TITLE.replace("queue", "board"), false))
+      .into()
+  });
+  let (x, _, width, _) = stage.bounds("cut");
+  assert!(!whole(&stage, TITLE), "cut at rest");
+  let cut = stage.cut_text_quad(TITLE).expect("it is cut with an ellipsis");
+  assert!(cut.x + cut.width <= x + width + 0.5, "the cut text stays in its row");
+  let label = stage.bounds("cut-label");
+  assert!(label.0 + label.2 <= x + width + 0.01, "the label stays in its row");
+  stage.own_timers();
+  stage.hover("whole-label");
+  stage.tick_timers(Duration::from_secs(2));
+  stage.pass();
+  assert_eq!(texts(&stage, "Short").len(), 1, "no tooltip over a label that fits");
+  stage.hover("off-label");
+  stage.tick_timers(Duration::from_secs(2));
+  stage.pass();
+  assert!(!whole(&stage, &TITLE.replace("queue", "board")), "none unless told");
+  stage.hover("cut-label");
+  stage.tick_timers(Duration::from_secs(4));
+  stage.pass();
+  assert!(whole(&stage, TITLE), "its tooltip says it whole");
+}

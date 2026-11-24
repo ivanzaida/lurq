@@ -268,6 +268,13 @@ laid out, and the input lays out a paragraph at a time. A row of a paragraph wit
 height says, whatever the font's own line is. An empty input that shows its placeholder draws it in the kind of its
 first paragraph: its type, after its indent and its mark.
 
+`block_placeholder(InputBlockPlaceholder::new("Type / for blocks"))` gives an input of several lines what an empty
+paragraph says, as a block editor draws it: in the empty paragraph the caret is in, while the input has the focus and
+nothing is selected, or with `every_empty_block(true)` in every empty paragraph. It is drawn where that paragraph's
+caret stands, on its row and in its kind's type, in the placeholder's color, over the text: the paragraph keeps its
+height, the caret its place, and nothing of it is in the value. The input's own placeholder is drawn in its place
+while the whole input is empty.
+
 ## One value: `RichText`
 
 `RichText` holds what the signals hold as one value: `text`, `spans`, `paragraphs` and `objects`.

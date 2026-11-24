@@ -1,6 +1,7 @@
 //! What a `TextInput` draws beside its text, its selection and its caret: the wavy lines under ranges an app
 //! marks ([`crate::components::InputSquiggles`]), and the suggestion after the end of what is typed
-//! ([`crate::components::InputGhost`]).
+//! ([`crate::components::InputGhost`]), and what an empty paragraph says
+//! ([`crate::components::InputBlockPlaceholder`]).
 
 use super::{LayoutEngine, intersect_clip, text_input_vertical_offset, transformed_quad_frame};
 use crate::{
@@ -48,7 +49,11 @@ impl LayoutEngine {
       .painted_layout()
       .filter(|_| state.is_showing_placeholder())
       .and_then(|layout| layout.config.paragraphs.first().cloned());
-    if squiggles.is_none() && ghost.is_none() && kind.is_none() {
+    // The placeholder of empty paragraphs, drawn where the caret of each stands in the layout that is painted.
+    let blocks = state
+      .shown_block_placeholder()
+      .and_then(|blocks| Some((state.painted_layout()?, blocks)));
+    if squiggles.is_none() && ghost.is_none() && kind.is_none() && blocks.is_none() {
       return;
     }
     let padding = self.resolved_padding_for_size(node, result.size);
@@ -108,6 +113,48 @@ impl LayoutEngine {
             text: placeholder,
             style: text,
             wrap: true,
+            vertical_align: VerticalAlign::LineBox,
+            transform_mode: TextTransformMode::Bitmap,
+          },
+          border_radius: None,
+          border: None,
+          clip: marks_clip,
+        });
+      }
+    }
+    if let Some((layout, (placeholder, paragraphs))) = blocks {
+      let color = palette.text_color(placeholder_style.unwrap_or(style));
+      let (scroll_x, scroll_y) = (state.scroll_x(), state.scroll_y());
+      for (index, byte) in paragraphs {
+        let Some(caret) = layout.carets.iter().find(|caret| caret.byte == byte) else {
+          continue;
+        };
+        // In the paragraph's own type, on its line: where what is typed in it would stand.
+        let mut text = layout
+          .config
+          .paragraphs
+          .get(index)
+          .map_or_else(|| layout.config.base.clone(), |format| format.base.clone());
+        text.color = color;
+        let x = abs_x + padding.left + caret.x - scroll_x;
+        let y = abs_y + padding.top + caret.y - scroll_y;
+        let width = (viewport.x + viewport.width - x).max(0.0);
+        if width <= 0.0 {
+          continue;
+        }
+        let (x, y, transform, transform_origin) = transformed_quad_frame(x, y, transform);
+        quads.push(Quad {
+          x,
+          y,
+          width,
+          height: caret.height.max(1.0),
+          opacity,
+          transform,
+          transform_origin,
+          content: QuadContent::Text {
+            text: placeholder.to_string(),
+            style: text,
+            wrap: false,
             vertical_align: VerticalAlign::LineBox,
             transform_mode: TextTransformMode::Bitmap,
           },
