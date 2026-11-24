@@ -609,9 +609,7 @@ impl Sidebar {
   pub fn item(mut self, item: SidebarItem) -> Self {
     match self.groups.last_mut() {
       // Not into one that holds content: the item would stand over it.
-      Some(group) if group.label.is_none() && group.key.is_none() && group.content.is_none() => {
-        group.items.push(item)
-      }
+      Some(group) if group.label.is_none() && group.key.is_none() && group.content.is_none() => group.items.push(item),
       _ => self.groups.push(SidebarGroup::new("").item(item)),
     }
     self

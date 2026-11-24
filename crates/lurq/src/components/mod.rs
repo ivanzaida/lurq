@@ -123,8 +123,8 @@ pub use tabs::{
 };
 pub use text::{OBJECT_CHARACTER, Text, TextOverflow};
 pub use text_input::{
-  ContentKind, InputGhost, InputSquiggles, KeyboardKind, LineGutter, ReturnKey, TextInput, TextInputOverflow,
-  TextInputOverflowAnchor,
+  ContentKind, InputBlockPlaceholder, InputGhost, InputSquiggles, KeyboardKind, LineGutter, ReturnKey, TextInput,
+  TextInputOverflow, TextInputOverflowAnchor,
 };
 pub use text_input_controller::{
   CaretInfo, InputCaretPoint, InputEditError, InputSelection, InputTextRect, TextInputController,

@@ -557,6 +557,8 @@ pub struct RichTextEditor {
   on_paste_image: Option<ImageKeeper>,
   controller: Option<RichTextController>,
   placeholder: Option<Arc<str>>,
+  block_placeholder: Option<Arc<str>>,
+  every_empty_block: bool,
   min_rows: usize,
   max_rows: usize,
   keep_selection: bool,
@@ -622,6 +624,8 @@ impl RichTextEditor {
       on_paste_image: None,
       controller: None,
       placeholder: None,
+      block_placeholder: None,
+      every_empty_block: false,
       min_rows: RICH_TEXT_MIN_ROWS,
       max_rows: RICH_TEXT_MAX_ROWS,
       keep_selection: false,
@@ -739,6 +743,24 @@ impl RichTextEditor {
   /// What the box shows while it holds nothing.
   pub fn placeholder(mut self, placeholder: &str) -> Self {
     self.placeholder = Some(Arc::from(placeholder));
+    self
+  }
+
+  /// What an empty block says while the caret is in it, as a block editor draws it: *Type / for blocks* in a new
+  /// paragraph after Enter, or on an empty line between two others. It is in the block's own type, in the
+  /// placeholder's role, where its text would stand, and changes neither the block's height nor the caret's
+  /// place; nothing is selected or copied of it. While the whole document is empty the
+  /// [`placeholder`](Self::placeholder) is drawn in place of it, where there is one. See
+  /// [`InputBlockPlaceholder`](crate::components::InputBlockPlaceholder).
+  pub fn block_placeholder(mut self, placeholder: &str) -> Self {
+    self.block_placeholder = Some(Arc::from(placeholder));
+    self
+  }
+
+  /// Whether the [`block_placeholder`](Self::block_placeholder) is drawn in every empty block, with the focus or
+  /// without it, and not only in the one the caret is in. Off unless told.
+  pub fn block_placeholder_in_every_empty_block(mut self, every: bool) -> Self {
+    self.every_empty_block = every;
     self
   }
 
@@ -1006,6 +1028,10 @@ impl RichTextEditor {
     });
     let mut view = RichTextEditorView {
       placeholder: self.placeholder,
+      block_placeholder: self
+        .block_placeholder
+        .as_deref()
+        .map(|text| crate::components::InputBlockPlaceholder::new(text).every_empty_block(self.every_empty_block)),
       min_rows: self.min_rows,
       max_rows: self.max_rows,
       keep_selection: self.keep_selection,
@@ -1222,6 +1248,8 @@ fn style_kind(style: u8) -> ParagraphKind {
 /// and its pieces ready to be laid out.
 pub struct RichTextEditorView {
   pub placeholder: Option<Arc<str>>,
+  /// What an empty block says: in the one the caret is in, or in every one.
+  pub block_placeholder: Option<crate::components::InputBlockPlaceholder>,
   pub min_rows: usize,
   pub max_rows: usize,
   /// Whether its selection stays painted while another element has the focus.
@@ -1828,6 +1856,9 @@ impl RichTextEditorView {
     let mut input = text_box::text_box(input, &self.boxed, Vec::new());
     if let Some(placeholder) = &self.placeholder {
       input = input.placeholder(placeholder);
+    }
+    if let Some(placeholder) = &self.block_placeholder {
+      input = input.block_placeholder(placeholder.clone());
     }
     if let Some(id) = self.sub_id("content") {
       input = input.id(id);
