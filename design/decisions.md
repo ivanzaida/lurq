@@ -11,6 +11,24 @@ dropped). When a decision is replaced, the old entry stays and says what replace
 
 ## 2026-11-24
 
+### The links of an app's own scheme on macOS
+
+- **Question.** On macOS a link of an app's own scheme never reached it: LaunchServices sends it as an Apple Event,
+  not as an argument, and lurq forwarded opened links on iOS alone (issue #242).
+- **Decision (Ivan).** Deliver it as iOS does, for the link that starts the app and for those that come while it runs.
+- **Decided by Claude in the work, to be confirmed.**
+  - *A handler of the shared `NSAppleEventManager`* for `kInternetEventClass`/`kAEGetURL`, not an
+    `NSApplicationDelegate`'s `application:openURLs:`: winit's delegate is its own, and replacing it (or adding the
+    method to it) breaks winit, as `macos_menu` found; AppKit gives `application:openURLs:` only where the delegate
+    has it, by this same event. It is installed before the event loop runs, so the event of the link that started
+    the app, sent while it finishes launching, is heard.
+  - *It is `AppEvent::OpenUrl(url)`, told to the main window*, once it has a handler of app events, as iOS keeps what
+    the app was started with until there is one. The handler only keeps the link; the shell tells it at its next
+    turn, as AppKit's callbacks can come while winit has borrowed the shell.
+  - *Built and checked for macOS (`cargo check --target aarch64-apple-darwin`), not run*: the work was done on
+    Windows. To be tried with an app whose `Info.plist` names a scheme.
+- **State.** Built on `feat/open-issues`.
+
 ### A dialog's mark on its title's row, a path field's button variant, and an action in a field's description
 
 - **Question.** A dialog's mark stood beside its title and its description together; a path field's button was

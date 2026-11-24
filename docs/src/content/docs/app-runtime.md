@@ -137,6 +137,22 @@ WinitWindow::new(app, tree)
 
 `with_icon` sets the window icon: on Windows the title bar's small icon and the taskbar's and Alt+Tab's big icon, on X11 the window icon; macOS shows the application bundle's icon instead and ignores it. A title bar the app draws with `ui::WindowChrome` shows it too, on every platform.
 
+### Links Of The App's Own Scheme
+
+On macOS a link of a scheme the app's bundle names (`CFBundleURLTypes` in its `Info.plist`, `myapp://join?invite=…`)
+comes as `AppEvent::OpenUrl(url)` to the main window's `ctx.window().on_app_event(..)`, as it does on a phone: the
+link that started the app, once the window has a handler, and each one that comes while it runs. LaunchServices sends
+such a link as an Apple Event, not as an argument, and the shell hears it from before its loop runs. On Windows and
+Linux the link is an argument of a new process (`std::env::args()`), which the app hands to the one that runs.
+
+```rust
+ctx.window().on_app_event(move |event| {
+  if let AppEvent::OpenUrl(url) = event {
+    join.set(url.clone());
+  }
+});
+```
+
 The shell drives timers, async work, animation deadlines, and requested redraws. It waits when idle; continuous video or an installed `on_tick` callback can keep the loop polling. Use `on_tick` only when the app needs continuous custom work.
 
 Runtime window commands requested through `ctx.window()` are applied by the winit shell. This includes closing, minimizing, fullscreen toggles, decoration toggles, the window title, native title bar color, native corner radius, window icon, moving, resizing, native platform window drag or resize requests for custom chrome, synthetic input injection, and — with the `screenshot` feature — full-window, region, and node-scoped frame capture (see [Ctx § Window](../ctx/#window)). `start_drag()` asks the shell to begin an OS-level window move, and `start_resize(direction)` asks it to begin an OS-level edge or corner resize. `stop_drag()` is available for portable shells that track drag state manually.
