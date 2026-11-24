@@ -277,7 +277,7 @@ pub type SkeletonRenderer = Arc<dyn Fn(SkeletonView) -> Element + Send + Sync>;
 pub struct Skeleton {
   shape: SkeletonShape,
   lines: usize,
-  animation: SkeletonAnimation,
+  animation: Option<SkeletonAnimation>,
   motion: Option<SkeletonMotion>,
   width: Option<Length>,
   height: Option<Length>,
@@ -295,7 +295,7 @@ impl Skeleton {
     Self {
       shape,
       lines: 1,
-      animation: SkeletonAnimation::default(),
+      animation: None,
       motion: None,
       width: None,
       height: None,
@@ -347,9 +347,10 @@ impl Skeleton {
       .child(content)
   }
 
-  /// How the skeleton moves while it waits.
+  /// How the skeleton moves while it waits, in place of the theme's ([`Theme::skeleton_animation`]), a pulse
+  /// unless the theme says otherwise.
   pub fn animation(mut self, animation: SkeletonAnimation) -> Self {
-    self.animation = animation;
+    self.animation = Some(animation);
     self
   }
 
@@ -497,7 +498,7 @@ impl Skeleton {
       animation: if theme.reduced_motion() {
         SkeletonAnimation::None
       } else {
-        self.animation
+        self.animation.unwrap_or_else(|| theme.skeleton_animation())
       },
       recipe: theme
         .resolve::<Skeleton>(&case, Some(&rules))

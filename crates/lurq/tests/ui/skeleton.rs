@@ -387,3 +387,36 @@ fn a_pulse_dims_to_half_unless_a_theme_or_a_skeleton_says_how_far() {
   assert_eq!(SkeletonMotion::SMOOTH.dim_to(-1.0).dimmed(), 0.0);
   assert_eq!(SkeletonMotion::SMOOTH.dimmed(), 0.5);
 }
+
+#[test]
+fn a_theme_has_every_skeleton_shimmer_unless_one_says_otherwise() {
+  let app = App::new();
+  app.theme().set_skeleton_animation(SkeletonAnimation::Shimmer);
+  assert_eq!(app.theme().skeleton_animation(), SkeletonAnimation::Shimmer);
+  let mut stage = Stage::in_app(app, |_| {
+    Column::new()
+      .width(200.0)
+      .spacing(16.0)
+      .child(Skeleton::line().id("themed"))
+      .child(Skeleton::line().animation(SkeletonAnimation::Pulse).id("own"))
+      .into()
+  });
+  let sheens = |stage: &mut Stage| {
+    (0..4)
+      .map(|quarter| {
+        stage.pass_after(SKELETON_SHIMMER_PERIOD / 4 * quarter);
+        stage
+          .quads()
+          .into_iter()
+          .filter(|quad| matches!(&quad.content, QuadContent::Rect { gradient: Some(_), .. }))
+          .count()
+      })
+      .max()
+      .unwrap_or(0)
+  };
+  assert_eq!(
+    sheens(&mut stage),
+    1,
+    "the themed one shimmers, the one told to pulse does not"
+  );
+}

@@ -4,6 +4,7 @@
 
 Added:
 
+- **A theme's skeleton animation** ([#248](https://github.com/ivanzaida/lurq/issues/248)). `Theme::set_skeleton_animation(SkeletonAnimation::Shimmer)` has every skeleton not told its own shimmer, as `set_skeleton_motion` gives them their motion; the sheen crosses a skeleton in the period of that motion (`SkeletonMotion::SMOOTH.period(..)`). A pulse unless set.
 - **Fades that end at once while motion is reduced** ([#248](https://github.com/ivanzaida/lurq/issues/248), decided 2026-11-24, `design/decisions.md`). `Theme::set_reduce_fades(true)` has every transition end at once while motion is reduced, a fill, a color, an edge, a shadow, an outline and an opacity as well as a place and a size: for an app whose design has everything still then. Off unless told; keyframe animations, a spinner's turning, are untouched.
 
 Changed:

@@ -2630,7 +2630,7 @@ Skeleton::status(
 | `width(length)`, `height(length)` | The app's size over the shape's. For a paragraph, the width of all of it and the height of each line |
 | `min_width`, `max_width`, `min_height`, `max_height`, `radius(..)` | The rest of what an app lays on a bone: its least and most sizes and its corners, over the shape's. For a paragraph, the widths are of all of it, the heights and the radius of each line |
 | `flex(factor)`, `flex_shrink(factor)` | Its share of the room left in its row or column, and how much of its size it gives up where there is too little, as an element's. lurq has no margins: a gap or a padding around it says where it stands |
-| `animation(SkeletonAnimation)` | `Pulse` (the default), `Shimmer` or `None` |
+| `animation(SkeletonAnimation)` | `Pulse`, `Shimmer` or `None`, in place of the theme's (`theme.set_skeleton_animation(..)`, `Pulse` unless set): `app.theme().set_skeleton_animation(SkeletonAnimation::Shimmer)` has every skeleton not told its own shimmer, its sheen crossing it in the period of the theme's motion |
 | `motion(SkeletonMotion)` | How it pulses or shimmers, in place of the theme's (`theme.set_skeleton_motion(..)`): `SkeletonMotion::SMOOTH` (the default), or `SkeletonMotion::stepped(per_second)`, with `.period(duration)` and `.dim_to(opacity)` |
 | `Skeleton::status(label, content)` | A `status` called `label` around a group of skeletons |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them |
