@@ -60,7 +60,7 @@ pub enum SidebarPart {
   Root,
   /// What stays at the top: the app's header, a workspace or the app with its mark.
   Header,
-  /// The groups of items, which scroll where they are more than the sidebar's height.
+  /// The groups of items and what the app puts in them, which scroll where they are more than the sidebar's height.
   Body,
   /// What stays at the bottom: the room of the app's footer at the sidebar's sides.
   Footer,
@@ -385,6 +385,7 @@ pub struct SidebarGroup {
   collapsible: bool,
   default_open: bool,
   items: Vec<SidebarItem>,
+  content: Option<Element>,
   key: Option<Arc<str>>,
 }
 
@@ -398,6 +399,7 @@ impl SidebarGroup {
       collapsible: false,
       default_open: true,
       items: Vec::new(),
+      content: None,
       key: None,
     }
   }
@@ -436,6 +438,15 @@ impl SidebarGroup {
   /// Items, in order, after those it holds already.
   pub fn items(mut self, items: impl IntoIterator<Item = SidebarItem>) -> Self {
     self.items.extend(items);
+    self
+  }
+
+  /// An element of the app's under its items: a [`TreeView`](super::TreeView) of pages, a list of its own. It
+  /// scrolls with the sidebar's body, opens and closes with a group that does, and is as wide as the group. The
+  /// items' arrow keys pass it by: a tree in it is a stop of Tab of its own after the items, with its own keys.
+  /// The rail does not show it. A second call takes the place of the first.
+  pub fn content(mut self, content: impl Into<Element>) -> Self {
+    self.content = Some(content.into());
     self
   }
 
@@ -586,10 +597,21 @@ impl Sidebar {
     self
   }
 
+  /// An element of the app's in the body, after what it holds already, in a group of no label: a
+  /// [`TreeView`](super::TreeView) of pages. It scrolls with the body; the rail does not show it. A group with a
+  /// label over it is [`SidebarGroup::content`].
+  pub fn content(mut self, content: impl Into<Element>) -> Self {
+    self.groups.push(SidebarGroup::new("").content(content));
+    self
+  }
+
   /// An item in a group of no label, after what it holds already.
   pub fn item(mut self, item: SidebarItem) -> Self {
     match self.groups.last_mut() {
-      Some(group) if group.label.is_none() && group.key.is_none() => group.items.push(item),
+      // Not into one that holds content: the item would stand over it.
+      Some(group) if group.label.is_none() && group.key.is_none() && group.content.is_none() => {
+        group.items.push(item)
+      }
       _ => self.groups.push(SidebarGroup::new("").item(item)),
     }
     self
@@ -983,11 +1005,24 @@ impl Build<'_> {
     }
     // To the keys a group that opens and closes is an item its items are in.
     let level = if collapsible { 2 } else { 1 };
-    let items: Vec<Element> = group
+    let mut items: Vec<Element> = group
       .items
       .iter()
       .map(|item| self.item(ctx, item, &format!("{key}/{}", item.ident()), 0, level))
       .collect();
+    if let Some(content) = group.content.as_ref().filter(|_| !self.collapsed) {
+      items.push(
+        Column::new()
+          .key("content")
+          .width(Dimension::Pct(100.0))
+          .align_items(Alignment::Stretch)
+          .overflow_visible()
+          // Out of the items' keys: a tree in it is a stop of Tab of its own, with its own arrows.
+          .focus_group(FocusGroup::none())
+          .child(content.clone())
+          .into(),
+      );
+    }
     if !collapsible {
       return root.with_children(items).into();
     }
