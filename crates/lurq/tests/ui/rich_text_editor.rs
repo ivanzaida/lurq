@@ -1722,3 +1722,183 @@ fn a_recipe_of_inline_code_keeps_room_round_it_and_the_theme_is_kept_without_one
     after(&padded) - after(&plain)
   );
 }
+
+#[test]
+fn an_unfocused_editor_keeps_its_selection_across_renders() {
+  let mut editor = Editor::with(640.0, notes(), |editor| editor.keep_selection(true));
+  editor.select(2, 6);
+  let selection = |editor: &Editor| editor.editor.input().selection().ok().map(|s| (s.anchor, s.caret));
+  assert_eq!(selection(&editor), Some((Some(2), 6)), "selected while unfocused");
+  // The app sets the same document again, and the editor is rendered again.
+  editor.value.set(notes());
+  editor.stage.pass();
+  editor.stage.pass();
+  assert_eq!(selection(&editor), Some((Some(2), 6)), "kept across the same document");
+}
+
+#[test]
+fn an_unfocused_editor_keeps_its_selection_across_a_document_read_again_and_a_new_appearance() {
+  let mut editor = Editor::with(640.0, notes(), |editor| editor.keep_selection(true));
+  let selection = |editor: &Editor| editor.editor.input().selection().ok().map(|s| (s.anchor, s.caret));
+  editor.select(2, 6);
+  // The same document as Markdown writes it and reads it again: equal in its text.
+  editor.value.set(RichText::from_markdown(&notes().to_markdown()));
+  editor.stage.pass();
+  assert_eq!(
+    selection(&editor),
+    Some((Some(2), 6)),
+    "kept across the document read again"
+  );
+  editor
+    .stage
+    .app
+    .theme()
+    .set_preferred_appearance(Some(lurq::app::window::Appearance::Dark));
+  editor.stage.pass();
+  editor.stage.pass();
+  assert_eq!(selection(&editor), Some((Some(2), 6)), "kept across the appearance");
+}
+
+#[test]
+fn an_editor_selected_before_its_first_frame_keeps_the_selection() {
+  let mut editor = Editor::with(640.0, notes(), |editor| editor.keep_selection(true));
+  let selection = |editor: &Editor| editor.editor.input().selection().ok().map(|s| (s.anchor, s.caret));
+  // Selected and then rendered with a document of its own: a new one resets it, the same one does not.
+  assert!(editor.editor.select(2, 6));
+  editor.value.set(notes());
+  editor.stage.pass();
+  assert_eq!(selection(&editor), Some((Some(2), 6)));
+}
+
+#[test]
+fn an_editor_that_lost_the_focus_keeps_its_selection_across_renders() {
+  let mut editor = Editor::with(640.0, notes(), |editor| editor.keep_selection(true));
+  let selection = |editor: &Editor| editor.editor.input().selection().ok().map(|s| (s.anchor, s.caret));
+  editor.focus();
+  editor.select(2, 6);
+  editor.stage.tree.get_element_by_id_mut("elsewhere").unwrap().focus();
+  editor.stage.pass();
+  assert_eq!(selection(&editor), Some((Some(2), 6)), "kept as the focus goes");
+  editor.value.set(RichText::from_markdown(&notes().to_markdown()));
+  editor.stage.pass();
+  assert_eq!(
+    selection(&editor),
+    Some((Some(2), 6)),
+    "kept across the document read again"
+  );
+  editor
+    .stage
+    .app
+    .theme()
+    .set_preferred_appearance(Some(lurq::app::window::Appearance::Dark));
+  editor.stage.pass();
+  assert_eq!(selection(&editor), Some((Some(2), 6)), "kept across the appearance");
+  assert!(editor.editor.select(1, 4));
+  editor.stage.pass();
+  assert_eq!(
+    selection(&editor),
+    Some((Some(1), 4)),
+    "selected by the app while unfocused"
+  );
+}
+
+#[test]
+fn an_editor_mounted_again_keeps_the_selection_its_controller_holds() {
+  let value = Signal::new(notes());
+  let controller = RichTextController::new();
+  let shown = Signal::new(false);
+  let (held, handle, toolbar) = (value.clone(), controller.clone(), shown.clone());
+  let mut stage = Stage::first_frame_in(App::new(), 640.0, 480.0, move |ctx| {
+    let mut page = Column::new().size(640.0, 480.0);
+    // A toolbar over the selection, put before the editor once there is one.
+    if toolbar.get() {
+      page = page.child(lurq::components::Button::new("Bold").id("bold"));
+    }
+    page
+      .child(
+        RichTextEditor::new(held.clone())
+          .id(ID)
+          .controller(&handle)
+          .keep_selection(true)
+          .mount(ctx),
+      )
+      .into()
+  });
+  stage.pass();
+  let selection = || controller.input().selection().ok().map(|s| (s.anchor, s.caret));
+  assert!(controller.select(2, 6));
+  stage.pass();
+  shown.set(true);
+  stage.pass();
+  stage.pass();
+  assert_eq!(selection(), Some((Some(2), 6)), "kept as the toolbar comes");
+}
+
+#[test]
+fn a_controlled_editor_of_markdown_keeps_its_selection_across_renders() {
+  let markdown = Signal::new(
+    "# Brief\n\nRead **this** and [that](https://example.com).\n\n- one\n- two\n\n```rust\nfn main() {}\n```\n\n> said\n"
+      .to_owned(),
+  );
+  let controller = RichTextController::new();
+  let tick = Signal::new(0);
+  let (held, handle, ticks) = (markdown.clone(), controller.clone(), tick.clone());
+  let mut stage = Stage::first_frame_in(App::new(), 640.0, 480.0, move |ctx| {
+    ticks.get();
+    let written = held.clone();
+    Column::new()
+      .size(640.0, 480.0)
+      .child(
+        RichTextEditor::controlled(RichText::from_markdown(&held.get()), move |document| {
+          written.set(document.to_markdown())
+        })
+        .id(ID)
+        .controller(&handle)
+        .keep_selection(true)
+        .mount(ctx),
+      )
+      .into()
+  });
+  stage.pass();
+  let selection = || controller.input().selection().ok().map(|s| (s.anchor, s.caret));
+  assert!(controller.select(2, 6));
+  stage.pass();
+  assert_eq!(selection(), Some((Some(2), 6)));
+  tick.set(1);
+  stage.pass();
+  tick.set(2);
+  stage.pass();
+  assert_eq!(
+    selection(),
+    Some((Some(2), 6)),
+    "kept across renders of the same Markdown"
+  );
+}
+
+#[test]
+fn an_editor_not_mounted_keeps_its_selection_across_renders() {
+  let value = Signal::new(notes());
+  let controller = RichTextController::new();
+  let tick = Signal::new(0);
+  let (held, handle, ticks) = (value.clone(), controller.clone(), tick.clone());
+  let mut stage = Stage::first_frame_in(App::new(), 640.0, 480.0, move |_| {
+    ticks.get();
+    Column::new()
+      .size(640.0, 480.0)
+      .child(
+        RichTextEditor::new(held.clone())
+          .id(ID)
+          .controller(&handle)
+          .keep_selection(true),
+      )
+      .into()
+  });
+  stage.pass();
+  let selection = || controller.input().selection().ok().map(|s| (s.anchor, s.caret));
+  assert!(controller.select(2, 6));
+  stage.pass();
+  assert_eq!(selection(), Some((Some(2), 6)));
+  tick.set(1);
+  stage.pass();
+  assert_eq!(selection(), Some((Some(2), 6)), "kept across a render");
+}
