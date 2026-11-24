@@ -11,6 +11,7 @@ use lurq::{
 
 use crate::support::{RenderSnapshot, render_pass_with_app};
 
+mod blocks;
 mod clipboard;
 mod editing;
 mod objects;

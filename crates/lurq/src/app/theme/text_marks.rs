@@ -23,6 +23,9 @@ pub struct TextMarkStyle {
   pub background: Option<TextColor>,
   /// Corner radius of the fill, in logical pixels.
   pub background_radius: f32,
+  /// The room before and after the marked text, inside its fill, in logical pixels: the text beside it is moved
+  /// by it, as inline code's box is in a document. None unless told.
+  pub padding: f32,
   /// A line under the text, in its color.
   pub underline: bool,
   /// A line through the text, in its color.
@@ -59,6 +62,7 @@ impl ThemeTextMarks {
     let mut resolved = ResolvedMarks {
       text: base.clone(),
       fill: None,
+      padding: 0.0,
       underline: false,
       strikethrough: false,
     };
@@ -117,6 +121,8 @@ impl Default for ThemeTextMarks {
 pub(crate) struct ResolvedMarks {
   pub(crate) text: TextStyle,
   pub(crate) fill: Option<(Color, f32)>,
+  /// The room before and after the run, inside its fill: the largest its marks give.
+  pub(crate) padding: f32,
   pub(crate) underline: bool,
   pub(crate) strikethrough: bool,
 }
@@ -149,6 +155,9 @@ impl ResolvedMarks {
         0.0
       };
       self.fill = Some((color, radius));
+    }
+    if mark.padding.is_finite() {
+      self.padding = self.padding.max(mark.padding);
     }
     self.underline |= mark.underline;
     self.strikethrough |= mark.strikethrough;

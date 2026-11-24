@@ -63,7 +63,10 @@ pub enum RichTextEditorPart {
   Content,
   /// What the box shows while it holds nothing: laid over the content's type.
   Placeholder,
-  /// A heading of the first level: its type, over the content's.
+  /// A heading of the first level: its type, over the content's. The vertical padding of this part and of every
+  /// part of a kind of paragraph is the room above and under a run of the kind, besides the content's gap (and
+  /// inside a quote's bar and a block of code's fill), and its gap the room between two paragraphs of the kind,
+  /// in place of the content's: what a list's items are closer by. Neither is there unless told.
   Heading1,
   /// A heading of the second level.
   Heading2,
@@ -75,7 +78,8 @@ pub enum RichTextEditorPart {
   BulletMark,
   /// An item of a numbered list: the room before its text.
   Ordered,
-  /// The number before an item: its gap the room to the text, its foreground the color.
+  /// The number before an item: its gap the room to the text, its foreground the color, and its type (family,
+  /// size, weight), where told, the number's in place of the item's.
   OrderedMark,
   /// A paragraph of a quote: the room before its text, and its color.
   Quote,
@@ -83,6 +87,22 @@ pub enum RichTextEditorPart {
   QuoteMark,
   /// A line of a block of code: its type, the room before its text, its fill and the fill's radius.
   CodeBlock,
+  /// An item of a checklist: the room before its text.
+  Checklist,
+  /// An item of a checklist that is checked, after `Checklist`: its color.
+  ChecklistChecked,
+  /// The box before an item of a checklist: its width is its side, its gap the room to the text, its radius and
+  /// its edge.
+  ChecklistMark,
+  /// The box of an item that is checked, after `ChecklistMark`: its fill, its edge, and its foreground the color of
+  /// the tick in it.
+  ChecklistMarkChecked,
+  /// A divider: its height is its line's, its fill the line's color, and its vertical padding the room above and
+  /// under it.
+  Divider,
+  /// Code in a sentence: its fill, the fill's radius, its horizontal padding (which the text beside it is moved
+  /// by) and its color, over the theme's mark of code (`ThemeTextMarks::code`). Nothing unless told: the theme's.
+  InlineCode,
   /// The row under the box: what it says of the editor.
   Footer,
   /// A text of the footer.
@@ -112,6 +132,12 @@ names!(RichTextEditorPart {
   Quote => "quote",
   QuoteMark => "quote_mark",
   CodeBlock => "code_block",
+  Checklist => "checklist",
+  ChecklistChecked => "checklist_checked",
+  ChecklistMark => "checklist_mark",
+  ChecklistMarkChecked => "checklist_mark_checked",
+  Divider => "divider",
+  InlineCode => "inline_code",
   Footer => "footer",
   FooterText => "footer_text",
   LinkPanel => "link_panel",
@@ -162,6 +188,12 @@ pub enum RichTextTool {
   Ordered,
   /// A quote.
   Quote,
+  /// A checklist of the paragraphs the selection touches, or plain paragraphs of them again. Not among the
+  /// default tools.
+  Checklist,
+  /// Puts a divider after the paragraph the caret is in ([`RichTextController::insert_divider`]). Not among the
+  /// default tools.
+  Divider,
   /// Inline code.
   Code,
   /// Opens the panel a link's target is typed in.
@@ -195,7 +227,7 @@ impl RichTextTool {
     match self {
       Self::Style => 0,
       Self::Bold | Self::Italic | Self::Underline | Self::Strikethrough => 1,
-      Self::Bullet | Self::Ordered | Self::Quote | Self::Code => 2,
+      Self::Bullet | Self::Ordered | Self::Quote | Self::Checklist | Self::Divider | Self::Code => 2,
       Self::Link | Self::Image => 3,
       Self::Undo | Self::Redo => 4,
     }
@@ -236,6 +268,8 @@ struct Words {
   bullet: Arc<str>,
   ordered: Arc<str>,
   quote: Arc<str>,
+  checklist: Arc<str>,
+  divider: Arc<str>,
   code: Arc<str>,
   link: Arc<str>,
   image: Arc<str>,
@@ -270,6 +304,8 @@ impl Default for Words {
       bullet: words.bulleted_list.clone(),
       ordered: words.numbered_list.clone(),
       quote: words.quote.clone(),
+      checklist: words.checklist.clone(),
+      divider: words.divider.clone(),
       code: words.code.clone(),
       link: words.link.clone(),
       image: words.image.clone(),
@@ -347,15 +383,31 @@ impl RichTextController {
   }
 
   /// Makes the paragraphs the selection touches a `kind`, or body text again where they all are one already:
-  /// what the tool of a list or a quote does.
+  /// what the tool of a list or a quote does. Items of a checklist are one, checked or not.
   pub fn toggle_paragraphs(&self, kind: ParagraphKind) -> bool {
     let all = self
       .input
       .selected_paragraphs()
       .ok()
       .flatten()
-      .is_some_and(|kinds| kinds.iter().all(|held| *held == kind));
+      .is_some_and(|kinds| kinds.iter().all(|held| held.continues(kind)));
     self.set_paragraphs(if all { ParagraphKind::Body } else { kind })
+  }
+
+  /// Checks the items of a checklist the selection touches, or unchecks them where they all are checked, as one
+  /// step of the undo: what Ctrl+Enter does in an item, and a press on its box. `false` where it touches none.
+  pub fn toggle_checks(&self) -> bool {
+    let done = self.input.toggle_checks().unwrap_or(false);
+    self.redraw();
+    done
+  }
+
+  /// Puts a divider after the paragraph the caret is in, or makes that paragraph one where it is empty, with a
+  /// paragraph after it that the caret is put in, as one step of the undo: what a `/` menu of an app runs.
+  pub fn insert_divider(&self) -> bool {
+    let done = self.input.insert_divider().unwrap_or(false);
+    self.redraw();
+    done
   }
 
   /// Links the selection to `target`, or unlinks it with `None`; with nothing selected, the link the caret is in.
@@ -795,6 +847,10 @@ impl RichTextEditor {
     ordered_label => ordered,
     /// What the tool of a quote is called: "Quote" by default.
     quote_label => quote,
+    /// What the tool of a checklist is called: "Checklist" by default.
+    checklist_label => checklist,
+    /// What the tool that puts in a divider is called: "Divider" by default.
+    divider_label => divider,
     /// What the tool of inline code is called: "Code" by default.
     code_label => code,
     /// What the tool of a link is called: "Link" by default.
@@ -1127,9 +1183,9 @@ pub struct RichTextFormat {
 }
 
 impl RichTextFormat {
-  /// Whether every paragraph the selection touches is a `kind`.
+  /// Whether every paragraph the selection touches is a `kind`: items of a checklist are one, checked or not.
   pub fn all(&self, kind: ParagraphKind) -> bool {
-    !self.paragraphs.is_empty() && self.paragraphs.iter().all(|held| *held == kind)
+    !self.paragraphs.is_empty() && self.paragraphs.iter().all(|held| held.continues(kind))
   }
 
   /// The style the control of a paragraph's style shows: the level of a heading every paragraph is, 9 for a
@@ -1406,6 +1462,22 @@ impl RichTextEditorView {
         block(ParagraphKind::Quote),
       ))
       .shortcut(&keys("Shift+9")),
+      RichTextTool::Checklist => ToolbarItem::from(self.toggle(
+        &words.checklist,
+        icons::LIST_CHECK,
+        "checklist",
+        self.format.all(ParagraphKind::Checklist { checked: false }),
+        block(ParagraphKind::Checklist { checked: false }),
+      )),
+      RichTextTool::Divider => ToolbarItem::from(self.button(
+        &words.divider,
+        icons::MINUS,
+        "divider",
+        false,
+        self.run(|editor| {
+          editor.insert_divider();
+        }),
+      )),
       RichTextTool::Code => {
         ToolbarItem::from(self.toggle(&words.code, icons::CODE, "code", all(marks.code), mark(TextMark::Code)))
           .shortcut(&keys("E"))
@@ -1491,6 +1563,9 @@ impl RichTextEditorView {
     };
     let ink =
       |part: &PartStyle, fallback: PaletteColor| part.foreground.clone().unwrap_or(TextColor::Palette(fallback));
+    let room = |value: Option<&crate::node::spacing_value::SpacingValue>| {
+      value.map_or(0.0, |value| value.resolve(&theme.spacing(), 0.0))
+    };
     let kind = |part: RichTextEditorPart| {
       let over = self.part(part).rest();
       let text = content.clone().merged(&over).text.resolve(theme);
@@ -1499,29 +1574,104 @@ impl RichTextEditorView {
         .weight(text.weight)
         .line_height(text.line_height)
         .font_family(text.font_family.clone())
-        .indent(px(&over.padding_start));
+        .indent(px(&over.padding_start))
+        .padding_y(
+          room(over.padding_top.as_ref().or(over.padding_y.as_ref())),
+          room(over.padding_bottom.as_ref().or(over.padding_y.as_ref())),
+        );
+      if let Some(gap) = &over.gap {
+        style = style.item_gap(room(Some(gap)));
+      }
       if let Some(color) = &over.foreground {
         style = style.color(color.clone());
       }
       (style, over)
     };
-    let dot = self.part(RichTextEditorPart::BulletMark).rest();
-    let number = self.part(RichTextEditorPart::OrderedMark).rest();
-    let bar = self.part(RichTextEditorPart::QuoteMark).rest();
-    let (code, code_part) = kind(RichTextEditorPart::CodeBlock);
-    let fill = match &code_part.background {
+    let tint = |fill: &Option<crate::node::BackgroundColor>| match fill {
       Some(crate::node::BackgroundColor::Palette(role)) => Some(TextColor::Palette(role.clone())),
       Some(crate::node::BackgroundColor::Color(color)) => Some(TextColor::Color(*color)),
       _ => None,
     };
-    let code = match fill {
-      Some(fill) => {
-        let radius = code_part
-          .radius
-          .as_ref()
-          .map_or(0.0, |radius| radius.resolve(&theme.radii()).top_left);
-        code.background(fill, radius)
+    let corner = |part: &PartStyle| {
+      part
+        .radius
+        .as_ref()
+        .map_or(0.0, |radius| radius.resolve(&theme.radii()).top_left)
+    };
+    let edge_of = |part: &PartStyle| match &part.border {
+      Some(border) => (
+        border.width.resolve(&theme.border_sizes()),
+        match &border.color {
+          crate::node::BackgroundColor::Palette(role) => TextColor::Palette(role.clone()),
+          crate::node::BackgroundColor::Color(color) => TextColor::Color(*color),
+          _ => TextColor::Palette(PaletteColor::Border),
+        },
+      ),
+      None => (0.0, TextColor::Palette(PaletteColor::Border)),
+    };
+    let dot = self.part(RichTextEditorPart::BulletMark).rest();
+    let number = self.part(RichTextEditorPart::OrderedMark).rest();
+    // A number in a type of its own, where the mark's part says one.
+    let (mut ordered, ordered_part) = kind(RichTextEditorPart::Ordered);
+    let typed = &number.text;
+    if typed.role.is_some() || typed.family.is_some() || typed.size.is_some() || typed.weight.is_some() {
+      let text = content
+        .clone()
+        .merged(&ordered_part)
+        .merged(&number)
+        .text
+        .resolve(theme);
+      if typed.role.is_some() || typed.family.is_some() {
+        ordered = ordered.marker_font_family(text.font_family.clone());
       }
+      if typed.role.is_some() || typed.size.is_some() {
+        ordered = ordered.marker_font_size(text.font_size);
+      }
+      if typed.role.is_some() || typed.weight.is_some() {
+        ordered = ordered.marker_weight(text.weight);
+      }
+    }
+    let check = self.part(RichTextEditorPart::ChecklistMark).rest();
+    let check_on = check
+      .clone()
+      .merged(&self.part(RichTextEditorPart::ChecklistMarkChecked).rest());
+    let tick = theme.icon(icons::CHECK);
+    let check_mark = |part: &PartStyle| {
+      let (edge_width, edge) = edge_of(part);
+      ParagraphMarker::Check {
+        size: match length(part.width) {
+          0.0 => 14.0,
+          size => size,
+        },
+        gap: px(&part.gap),
+        radius: corner(part),
+        edge_width,
+        edge,
+        fill: tint(&part.background).unwrap_or(TextColor::Palette(PaletteColor::Primary)),
+        tick: part
+          .foreground
+          .clone()
+          .unwrap_or(TextColor::Palette(PaletteColor::PrimaryForeground)),
+        icon: tick.clone(),
+      }
+    };
+    let (checklist, _) = kind(RichTextEditorPart::Checklist);
+    let mut checked = checklist.clone();
+    if let Some(color) = &self.part(RichTextEditorPart::ChecklistChecked).rest().foreground {
+      checked = checked.color(color.clone());
+    }
+    let (divider, divider_part) = kind(RichTextEditorPart::Divider);
+    let divider = divider.marker(ParagraphMarker::Rule {
+      thickness: match length(divider_part.height) {
+        0.0 => 1.0,
+        thickness => thickness,
+      },
+      color: tint(&divider_part.background).unwrap_or(TextColor::Palette(PaletteColor::Border)),
+    });
+    let bar = self.part(RichTextEditorPart::QuoteMark).rest();
+    let (code, code_part) = kind(RichTextEditorPart::CodeBlock);
+    let code = match tint(&code_part.background) {
+      Some(fill) => code.background(fill, corner(&code_part)),
       None => code,
     }
     .joined(true);
@@ -1543,7 +1693,7 @@ impl RichTextEditorView {
       )
       .with(
         ParagraphKind::Ordered,
-        kind(RichTextEditorPart::Ordered).0.marker(ParagraphMarker::Number {
+        ordered.marker(ParagraphMarker::Number {
           gap: px(&number.gap),
           color: ink(&number, PaletteColor::MutedForeground),
         }),
@@ -1556,6 +1706,44 @@ impl RichTextEditorView {
         }),
       )
       .with(ParagraphKind::Code, code)
+      .with(
+        ParagraphKind::Checklist { checked: false },
+        checklist.marker(check_mark(&check)),
+      )
+      .with(
+        ParagraphKind::Checklist { checked: true },
+        checked.marker(check_mark(&check_on)),
+      )
+      .with(ParagraphKind::Divider, divider)
+  }
+
+  /// The look of the marks in the box where the recipe says one of inline code (`InlineCode`): the theme's,
+  /// with what the part says over its code. `None` where it says nothing, and the box draws the theme's.
+  fn text_marks(&self) -> Option<crate::app::theme::ThemeTextMarks> {
+    let theme = self.theme();
+    let part = self.part(RichTextEditorPart::InlineCode).rest();
+    let across = part.padding_start.as_ref().or(part.padding_x.as_ref());
+    if part.background.is_none() && part.radius.is_none() && across.is_none() && part.foreground.is_none() {
+      return None;
+    }
+    let mut marks = crate::app::theme::ThemeTextMarks::clone(&theme.text_marks());
+    match &part.background {
+      Some(crate::node::BackgroundColor::Palette(role)) => {
+        marks.code.background = Some(TextColor::Palette(role.clone()));
+      }
+      Some(crate::node::BackgroundColor::Color(color)) => marks.code.background = Some(TextColor::Color(*color)),
+      _ => {}
+    }
+    if let Some(radius) = &part.radius {
+      marks.code.background_radius = radius.resolve(&theme.radii()).top_left;
+    }
+    if let Some(across) = across {
+      marks.code.padding = across.resolve(&theme.spacing(), 0.0);
+    }
+    if let Some(color) = &part.foreground {
+      marks.code.color = Some(color.clone());
+    }
+    Some(marks)
   }
 
   /// The box that is typed in: the engine's styled text input with kinds of paragraphs and objects, bound to
@@ -1591,11 +1779,17 @@ impl RichTextEditorView {
       // What is copied keeps its marks and kinds beside its text, and comes back with them.
       .rich_clipboard(true)
       .controller(kept.controller.input.clone())
+      // A press on the box of a checklist's item checks it, where the editor takes changes.
+      .checks_on_press(self.editable())
       .keep_selection(self.keep_selection)
       .multiline()
       .rows(self.min_rows, self.max_rows)
       .part(&part)
       .describe("a11y_multiline", "true");
+    let input = match self.text_marks() {
+      Some(marks) => input.text_marks(marks),
+      None => input,
+    };
     let mut input = text_box::text_box(input, &self.boxed, Vec::new());
     if let Some(placeholder) = &self.placeholder {
       input = input.placeholder(placeholder);
@@ -1906,6 +2100,12 @@ fn command_key(editor: &RichTextController, event: &KeyboardEvent, open_link: &R
       editor.toggle_mark(TextMark::Strikethrough);
     }
     ("k", false, false) => open_link(),
+    // In an item of a checklist, Ctrl+Enter checks it or unchecks it; anywhere else it is the text's own.
+    ("enter", false, false) => {
+      if !editor.toggle_checks() {
+        return false;
+      }
+    }
     (_, false, true) if digit.is_some_and(|digit| digit <= 3) => {
       {
         editor.set_paragraphs(style_kind(digit.unwrap_or(0)));
@@ -1953,7 +2153,9 @@ fn enter_key(kept: &Kept, shortcuts: bool) -> bool {
     return false;
   };
   match kind {
-    ParagraphKind::Bullet | ParagraphKind::Ordered | ParagraphKind::Quote if range.is_empty() => {
+    ParagraphKind::Bullet | ParagraphKind::Ordered | ParagraphKind::Quote | ParagraphKind::Checklist { .. }
+      if range.is_empty() =>
+    {
       input.set_paragraphs(ParagraphKind::Body).unwrap_or(false)
     }
     ParagraphKind::Heading(_) if caret == range.end && !range.is_empty() => {
@@ -1961,6 +2163,12 @@ fn enter_key(kept: &Kept, shortcuts: bool) -> bool {
         let _ = input.set_paragraphs(ParagraphKind::Body);
         true
       }
+    }
+    // Three hyphens alone in a paragraph are a divider, with a paragraph after it.
+    ParagraphKind::Body if shortcuts && kept.text.with_untracked(|text| text.get(range.clone()) == Some("---")) => {
+      input.select(range.start, range.end).is_ok()
+        && input.replace_selection("").unwrap_or(false)
+        && input.insert_divider().unwrap_or(false)
     }
     ParagraphKind::Body if shortcuts && kept.text.with_untracked(|text| text.get(range.clone()) == Some("```")) => {
       input.select(range.start, range.end).is_ok() && input.replace_selection("").unwrap_or(false) && {
@@ -1992,6 +2200,8 @@ fn block_of(prefix: &str) -> Option<ParagraphKind> {
     "-" | "*" | "+" => Some(ParagraphKind::Bullet),
     ">" => Some(ParagraphKind::Quote),
     "```" => Some(ParagraphKind::Code),
+    "[]" | "[ ]" => Some(ParagraphKind::Checklist { checked: false }),
+    "[x]" | "[X]" => Some(ParagraphKind::Checklist { checked: true }),
     _ if number
       .is_some_and(|digits| !digits.is_empty() && digits.len() <= 3 && digits.bytes().all(|b| b.is_ascii_digit())) =>
     {
@@ -2001,11 +2211,12 @@ fn block_of(prefix: &str) -> Option<ParagraphKind> {
   }
 }
 
-/// A space after `#`, `-`, `1.`, `>` at the start of a paragraph of body text: the mark is taken away and the
-/// paragraph is what it said.
+/// A space after `#`, `-`, `1.`, `>`, `[ ]` at the start of a paragraph of body text: the mark is taken away and
+/// the paragraph is what it said. `[ ]` and `[x]` at the start of an item make it one of a checklist, as `- [ ]`
+/// is typed.
 fn block_shortcut(kept: &Kept) -> bool {
   let input = &kept.controller.input;
-  let Some((ParagraphKind::Body, range, caret)) = caret_paragraph(input) else {
+  let Some((held, range, caret)) = caret_paragraph(input) else {
     return false;
   };
   let kind = kept
@@ -2014,6 +2225,10 @@ fn block_shortcut(kept: &Kept) -> bool {
   let Some(kind) = kind else {
     return false;
   };
+  let checklist = matches!(kind, ParagraphKind::Checklist { .. });
+  if !(held == ParagraphKind::Body || held == ParagraphKind::Bullet && checklist) {
+    return false;
+  }
   input.select(range.start, caret).is_ok() && input.replace_selection("").unwrap_or(false) && {
     let _ = input.set_paragraphs(kind);
     true
@@ -2205,6 +2420,17 @@ impl Themed for RichTextEditor {
           .background(Muted)
           .radius(RadiusSize::Sm)
       })
+      .base(Checklist, |s| s.padding_start(24.0))
+      .base(ChecklistChecked, |s| s.foreground(MutedForeground))
+      .base(ChecklistMark, |s| {
+        s.width(14.0).gap(10.0).radius(4.0).border(edge(PaletteColor::Border))
+      })
+      .base(ChecklistMarkChecked, |s| {
+        s.background(PaletteColor::Primary)
+          .border(edge(PaletteColor::Primary))
+          .foreground(PaletteColor::PrimaryForeground)
+      })
+      .base(Divider, |s| s.height(1.0).background(PaletteColor::Border))
       .base(Footer, |s| {
         s.height(28.0)
           .padding_x(12.0)

@@ -133,17 +133,34 @@ let styles = ParagraphStyles::new()
 let editor = TextInput::new(value).spans(spans).paragraphs(kinds, styles).multiline();
 ```
 
-A `ParagraphKind` is `Body`, `Heading(1..=6)`, `Bullet`, `Ordered`, `Quote` or `Code`. A `ParagraphStyle` gives a
+A `ParagraphKind` is `Body`, `Heading(1..=6)`, `Bullet`, `Ordered`, `Quote`, `Code`, `Checklist { checked }` or
+`Divider`. A `ParagraphStyle` gives a
 kind its type over the input's own (`font_size` or `font_size_scale`, `weight`, `line_height`, `font_family`,
 `color`), the room before its text (`indent`) and what stands in that room (`marker`): a `Dot` centred on the first
-row, a `Number` (the item's place in its run of numbered items, with a full stop) or a `Bar` down all its rows. A
-`background` is a fill behind the paragraph across the input, and `joined(true)` leaves no room between two
-paragraphs of the kind, as between the lines of a block of code. A run of paragraphs of one kind has one bar and
-one fill. `ParagraphStyles::gap` is the room between two paragraphs. A mark is drawn over the type of the paragraph
-it is in: bold in a heading is the heading's size.
+row, a `Number` (the item's place in its run of numbered items, with a full stop), a `Bar` down all its rows, a
+`Check` (the box of a checklist's item, with an edge, filled and with its icon when the item is checked) or a `Rule`
+(a divider's line across the input). A `background` is a fill behind the paragraph across the input, and
+`joined(true)` leaves no room between two paragraphs of the kind, as between the lines of a block of code. A run of
+paragraphs of one kind has one bar and one fill. `ParagraphStyles::gap` is the room between two paragraphs. A mark
+is drawn over the type of the paragraph it is in: bold in a heading is the heading's size.
+
+None of these is there unless told:
+
+- `item_gap(gap)` is the room between two paragraphs of the kind that follow one another, in place of the styles'
+  gap: the items of a list 6 apart where the blocks round them are 12.
+- `padding_y(top, bottom)` is room above a run of the kind and under it, besides the gap and inside its bar and its
+  fill: a quote's.
+- `marker_font_family`, `marker_font_size` and `marker_weight` give a numbered item's number a type of its own, on
+  the baseline of the item's first row: the mono face.
+
+The items of a checklist are one run, checked or not. `ParagraphStyles::checked` draws the checked ones in a style of
+their own (`with(ParagraphKind::Checklist { checked: true }, ..)`). A press on an item's box checks it, as one undo
+step that leaves the caret where it was, where the input says so (`checks_on_press(true)`). A divider holds no text:
+an edit that puts text in one makes it body text.
 
 The input keeps the kinds in step with the text. A paragraph that an edit splits (Enter, a paste of several lines)
-gives its kind to both halves; paragraphs that an edit joins (Backspace at the start of one, a selection deleted)
+gives its kind to both halves, but what is split off a checked item is not checked and what is split off a divider is
+body text; paragraphs that an edit joins (Backspace at the start of one, a selection deleted)
 take the kind of the first. The kinds are part of the undo history, and of what `on_styled_change` reports:
 `StyledChange::paragraphs()` is what each paragraph is now, and an edit of the kinds alone is
 `StyledEdit::Paragraphs { range }`, the indices of the paragraphs it changed. The app loads a document by setting
@@ -154,6 +171,10 @@ The controller's commands:
 
 - `set_paragraphs(kind)` makes every paragraph the selection touches a `kind` (the one the caret is in with nothing
   selected), as one undo step.
+- `toggle_checks()` checks the items of a checklist the selection touches, or unchecks them where they all are
+  checked, as one undo step.
+- `insert_divider()` puts a divider after the paragraph the caret is in (or makes that paragraph one where it is
+  empty body text) with a paragraph of body text after it, the caret in it, as one undo step.
 - `selected_paragraphs()` is what each paragraph the selection touches is, for a toolbar to show, and
   `caret_paragraph()` the kind and the bytes of the paragraph the caret is in.
 - `rich_text()` is the text, its spans and its kinds as one [`RichText`](#one-value-richtext).
@@ -310,7 +331,9 @@ The theme's `ThemeTextMarks` (`theme.set_text_marks`) holds one `TextMarkStyle` 
 weight, style, features, a color and a background fill (palette roles or colors), and an underline or a line
 through. A run with several marks applies code, bold, italic, underline, strikethrough, then link. The defaults are
 a bold weight, an italic style, a line under, the `monospace` family at 0.92 over the `SurfaceRaised` role, a line
-through, and the `Accent` role underlined.
+through, and the `Accent` role underlined. A mark's `padding` is room before and after its text inside its fill, which
+moves the text beside it, as inline code's box does in a document: none unless told. `TextInput::text_marks(marks)`
+gives one input a look of its own in place of the theme's.
 
 ## Limits
 

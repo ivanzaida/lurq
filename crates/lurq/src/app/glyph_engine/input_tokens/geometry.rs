@@ -302,6 +302,8 @@ impl DecoratedInputLayout {
       color,
       radius,
       token: None,
+      edge: None,
+      check: false,
       row: self.rows.len(),
     });
   }

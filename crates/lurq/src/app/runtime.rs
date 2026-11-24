@@ -6137,19 +6137,24 @@ impl Tree {
             .resolved_padding_for_size(node, Size::new(rect.width, rect.height));
           let content_height = (rect.height - padding.top - padding.bottom).max(0.0);
           let vertical_offset = padding.top + text_input_vertical_offset(state, content_height);
-          state.begin_selection_at_point(
+          let (text_x, text_y) = (
             rect.local_x - rect.x - padding.left,
             rect.local_y - rect.y - vertical_offset,
           );
-          pending_text_selection_drag = Some(TextSelectionDrag {
-            kind: TextSelectionDragKind::Input {
-              target_id: node.node_id(),
-              state: state.clone(),
-            },
-            x: rect.x + padding.left,
-            y: rect.y + vertical_offset,
-            transform: rect.transform,
-          });
+          // A press on the box of a checklist's item checks it as the click ends, and leaves the caret and the
+          // selection where they were.
+          if !state.check_at_point(text_x, text_y) {
+            state.begin_selection_at_point(text_x, text_y);
+            pending_text_selection_drag = Some(TextSelectionDrag {
+              kind: TextSelectionDragKind::Input {
+                target_id: node.node_id(),
+                state: state.clone(),
+              },
+              x: rect.x + padding.left,
+              y: rect.y + vertical_offset,
+              transform: rect.transform,
+            });
+          }
           pending_focus = Some(FocusTarget {
             input_id: node.node_id(),
             event_id: node.node_id(),
@@ -6279,7 +6284,9 @@ impl Tree {
           // A styled input's link clicked with the shortcut modifier goes to the app, however quickly it follows
           // another click.
           let link_modifier = Self::platform_shortcut_modifier(evt.ctrl, evt.meta);
-          if !(link_modifier && state.click_link_at_point(text_x, text_y)) {
+          // A press on the box of a checklist's item checks it, and leaves the caret where it was.
+          let checked = text_click_count == 1 && is_left_click && state.press_check_at_point(text_x, text_y);
+          if !checked && !(link_modifier && state.click_link_at_point(text_x, text_y)) {
             match text_click_count {
               1 => state.set_caret_from_point(text_x, text_y),
               2 => state.select_word_at_point(text_x, text_y),

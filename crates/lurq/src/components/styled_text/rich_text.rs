@@ -218,7 +218,9 @@ impl RichText {
       if let Some(previous) = previous {
         out.push_str(match (previous, *kind) {
           (ParagraphKind::Code, ParagraphKind::Code) => "\n",
-          (ParagraphKind::Bullet, ParagraphKind::Bullet) | (ParagraphKind::Ordered, ParagraphKind::Ordered) => "\n",
+          (ParagraphKind::Bullet, ParagraphKind::Bullet)
+          | (ParagraphKind::Ordered, ParagraphKind::Ordered)
+          | (ParagraphKind::Checklist { .. }, ParagraphKind::Checklist { .. }) => "\n",
           (ParagraphKind::Quote, ParagraphKind::Quote) => "\n>\n",
           _ => "\n\n",
         });
@@ -243,6 +245,12 @@ impl RichText {
         ParagraphKind::Bullet => out.push_str("- "),
         ParagraphKind::Ordered => out.push_str(&format!("{number}. ")),
         ParagraphKind::Quote => out.push_str("> "),
+        ParagraphKind::Checklist { checked } => out.push_str(if *checked { "- [x] " } else { "- [ ] " }),
+        // A divider holds no text.
+        ParagraphKind::Divider => {
+          out.push_str("---");
+          continue;
+        }
         _ => {}
       }
       write_inline(&mut out, text, &objects[index], *kind == ParagraphKind::Body);
@@ -350,8 +358,23 @@ impl Reader {
           if entry.blocks.is_empty() {
             self.start(item);
           }
-          for block in &entry.blocks {
-            self.block(block, item);
+          // An item that starts with `[ ]` or `[x]` is one of a checklist: its box stands for the mark.
+          let mut blocks = std::borrow::Cow::Borrowed(&entry.blocks);
+          let mut kind = item;
+          if !*ordered
+            && let Some(MarkdownBlock::Paragraph(inlines)) = entry.blocks.first()
+            && let Some(MarkdownInline::TaskListMarker(checked)) = inlines.first()
+          {
+            kind = ParagraphKind::Checklist { checked: *checked };
+            if let Some(MarkdownBlock::Paragraph(inlines)) = blocks.to_mut().first_mut() {
+              inlines.remove(0);
+              if let Some(MarkdownInline::Text(text)) = inlines.first_mut() {
+                *text = text.trim_start().to_owned();
+              }
+            }
+          }
+          for block in blocks.iter() {
+            self.block(block, kind);
           }
         }
       }
@@ -375,7 +398,8 @@ impl Reader {
           }
         }
       }
-      MarkdownBlock::Table { .. } | MarkdownBlock::ThematicBreak => {}
+      MarkdownBlock::ThematicBreak => self.start(ParagraphKind::Divider),
+      MarkdownBlock::Table { .. } => {}
     }
     self.open = false;
   }

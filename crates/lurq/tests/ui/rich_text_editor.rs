@@ -1620,3 +1620,105 @@ fn what_is_written_after_a_picture_goes_after_it_and_enter_starts_a_paragraph_un
   editor.type_text("e");
   assert_eq!(editor.document().to_markdown(), "ab![](kept.png)e\n\ndc");
 }
+
+#[test]
+fn a_recipe_spaces_the_items_of_a_list_and_the_room_round_a_quote() {
+  let document = RichText::from_markdown("Intro\n\n1. one\n2. two\n\n> said\n\nafter");
+  let mut editor = Editor::with(640.0, document, |editor| {
+    editor
+      .style(RichTextEditorPart::Ordered, |s| s.gap(4.0))
+      .style(RichTextEditorPart::OrderedMark, |s| s.font_size(12.0))
+      .style(RichTextEditorPart::Quote, |s| s.padding_top(6.0).padding_bottom(8.0))
+  });
+  editor.focus();
+  let input = editor.editor.input();
+  let text = editor.document().text;
+  let top = |word: &str| input.caret_point(text.find(word).unwrap()).unwrap().y;
+  // Rows of 18, 10 between two blocks unless a part says otherwise.
+  assert!(
+    close(top("one") - top("Intro"), 18.0 + 10.0),
+    "{}",
+    top("one") - top("Intro")
+  );
+  assert!(
+    close(top("two") - top("one"), 18.0 + 4.0),
+    "the items' gap: {}",
+    top("two") - top("one")
+  );
+  assert!(
+    close(top("said") - top("two"), 18.0 + 10.0 + 6.0),
+    "above the quote: {}",
+    top("said") - top("two")
+  );
+  assert!(
+    close(top("after") - top("said"), 18.0 + 8.0 + 10.0),
+    "under it: {}",
+    top("after") - top("said")
+  );
+}
+
+#[test]
+fn a_checklist_is_typed_checked_and_ended_and_three_hyphens_are_a_divider() {
+  const DONE: ParagraphKind = ParagraphKind::Checklist { checked: true };
+  const TODO: ParagraphKind = ParagraphKind::Checklist { checked: false };
+  let mut editor = Editor::new(RichText::default());
+  editor.focus();
+  editor.type_text("[ ] ");
+  assert_eq!((editor.document().text.as_str(), editor.kinds()), ("", vec![TODO]));
+  editor.type_text("ship");
+  // Ctrl+Enter checks the item the caret is in, and again unchecks it.
+  editor.shortcut("Enter", "Enter", false, false);
+  assert_eq!(editor.kinds(), vec![DONE]);
+  assert_eq!(editor.told().last().unwrap(), "- [x] ship");
+  assert_eq!(editor.document().text, "ship", "and types no line");
+  // Enter starts an item that is not checked; in an empty one it ends the list.
+  editor.stage.key("Enter");
+  assert_eq!(editor.kinds(), vec![DONE, TODO]);
+  editor.stage.key("Enter");
+  assert_eq!(editor.kinds(), vec![DONE, Body]);
+  editor.type_text("---");
+  editor.stage.key("Enter");
+  assert_eq!(editor.kinds(), vec![DONE, ParagraphKind::Divider, Body]);
+  assert_eq!(editor.document().text, "ship\n\n");
+  // `[x]` after the bullet's `-` makes a checked item.
+  editor.type_text("- [x] ");
+  assert_eq!(editor.kinds(), vec![DONE, ParagraphKind::Divider, DONE]);
+}
+
+#[test]
+fn the_tools_of_a_checklist_and_a_divider_are_the_apps_to_put_on_the_bar() {
+  let mut editor = Editor::with(640.0, RichText::plain("one\ntwo"), |editor| {
+    editor.tools([RichTextTool::Checklist, RichTextTool::Divider])
+  });
+  editor.focus();
+  editor.select(0, 5);
+  editor.stage.click("editor-checklist");
+  let todo = ParagraphKind::Checklist { checked: false };
+  assert_eq!(editor.kinds(), vec![todo, todo]);
+  assert!(editor.on("checklist"));
+  editor.select(7, 7);
+  editor.stage.click("editor-divider");
+  assert_eq!(editor.kinds(), vec![todo, todo, ParagraphKind::Divider, Body]);
+  assert_eq!(editor.told().last().unwrap(), "- [ ] one\n- [ ] two\n\n---\n\n");
+  // Not on the bar unless the app names them.
+  let mut plain = Editor::new(RichText::plain("one"));
+  assert!(plain.stage.tree.get_element_by_id_mut("editor-checklist").is_none());
+}
+
+#[test]
+fn a_recipe_of_inline_code_keeps_room_round_it_and_the_theme_is_kept_without_one() {
+  let document = RichText::from_markdown("`ab` cd");
+  let after = |editor: &Editor| {
+    let text = editor.document().text;
+    editor.editor.input().caret_point(text.find("cd").unwrap()).unwrap().x
+  };
+  let plain = Editor::new(document.clone());
+  let padded = Editor::with(640.0, document, |editor| {
+    editor.style(RichTextEditorPart::InlineCode, |s| s.padding_x(5.0))
+  });
+  assert!(
+    close(after(&padded) - after(&plain), 10.0),
+    "5 before the code and 5 after it: {}",
+    after(&padded) - after(&plain)
+  );
+}

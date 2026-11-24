@@ -1,6 +1,6 @@
 //! The page of the rich text editor: its playground, the board's document bound to a signal with the Markdown
-//! it writes, a comment box with a few tools, a document with pictures in it, its states, and a controller that
-//! works it from outside.
+//! it writes, a comment box with a few tools, a document with pictures in it, a checklist and a divider, its
+//! states, and a controller that works it from outside.
 
 use std::sync::{Arc, Mutex};
 
@@ -12,8 +12,8 @@ use lurq::{
   layout::Alignment,
   node::Element,
   ui::{
-    Button, ButtonSize, ButtonVariant, Picture, RICH_TEXT_MAX_ROWS, RICH_TEXT_MIN_ROWS, RichTextController,
-    RichTextEditor, RichTextTool, icons,
+    Button, ButtonSize, ButtonVariant, FontFamily, Picture, RICH_TEXT_MAX_ROWS, RICH_TEXT_MIN_ROWS, RichTextController,
+    RichTextEditor, RichTextEditorPart, RichTextTool, icons,
   },
 };
 
@@ -31,6 +31,11 @@ const NOTES: &str = "## Release notes\n\nBackdrop blur now **follows rounded cli
 const FIELD_NOTES: &str = "## Field notes\n\nThe lake at dusk, from the north shore:\n\n<img src=\"lake\" alt=\"The \
                            lake at dusk\" width=\"320\">\n\nA small one <img src=\"lake\" alt=\"the lake, small\" \
                            width=\"28\"> stands among the words of its line, and the row makes room for it.";
+
+/// A checklist between two sections, and a numbered list.
+const TASKS: &str = "### Acceptance\n\n- [x] The brief reads as it is edited\n- [ ] A divider between sections\n- [ ] \
+                     Items closer than the blocks round them\n\n---\n\n### Steps\n\n1. Write the brief\n2. Check \
+                     the items";
 
 /// The pictures pasted into the page's editors as pixels: a document names one `pasted-0`, `pasted-1`, by its
 /// place here. An app would write them to its files; the gallery has none, and keeps them while it runs.
@@ -110,6 +115,8 @@ pub struct RichTextEditorPage {
   pictured: Signal<RichText>,
   picturing: RichTextController,
   playing: RichTextController,
+  /// The checklist, with its divider, and the spacing a recipe gives its paragraphs.
+  tasks: Signal<RichText>,
   /// The page's picture, drawn once: the same pixels each render.
   lake: ImageData,
   pasted: Pasted,
@@ -304,6 +311,7 @@ impl Component for RichTextEditorPage {
         "### Terms\n\nBy using lurq you agree to *build something*.",
       )),
       pictured: ctx.signal(RichText::from_markdown(FIELD_NOTES)),
+      tasks: ctx.signal(RichText::from_markdown(TASKS)),
       picturing: RichTextController::new(),
       playing: RichTextController::new(),
       lake: super::picture::lake(640, 480),
@@ -381,6 +389,42 @@ impl Component for RichTextEditorPage {
           .spacing(8.0)
           .child(quiet("document.to_markdown()", 12.0))
           .child(plain_block(&pictured)),
+      );
+
+    // A checklist and a divider, with the tools that put them in, and a recipe that spaces the paragraphs as a
+    // document of Markdown is: items 6 apart, the numbers in the mono face, code in a sentence padded.
+    let tasks: Vec<String> = self.tasks.get().to_markdown().lines().map(str::to_owned).collect();
+    let checklists = stack()
+      .child(
+        RichTextEditor::new(self.tasks.clone())
+          .label("Acceptance")
+          .tools([
+            RichTextTool::Style,
+            RichTextTool::Bold,
+            RichTextTool::Bullet,
+            RichTextTool::Ordered,
+            RichTextTool::Checklist,
+            RichTextTool::Divider,
+            RichTextTool::Code,
+            RichTextTool::Undo,
+            RichTextTool::Redo,
+          ])
+          .style(RichTextEditorPart::Bullet, |s| s.gap(6.0))
+          .style(RichTextEditorPart::Ordered, |s| s.gap(6.0))
+          .style(RichTextEditorPart::Checklist, |s| s.gap(6.0))
+          .style(RichTextEditorPart::OrderedMark, |s| s.font_family(FontFamily::Mono))
+          .style(RichTextEditorPart::InlineCode, |s| s.padding_x(4.0))
+          .rows(6, 20)
+          .key("tasks")
+          .mount(ctx),
+      )
+      .child(
+        Column::new()
+          .width(560.0)
+          .max_width(FILL)
+          .spacing(8.0)
+          .child(quiet("document.to_markdown()", 12.0))
+          .child(plain_block(&tasks)),
       );
 
     let fixed = || self.terms.clone();
@@ -494,8 +538,8 @@ impl Component for RichTextEditorPage {
       (
         "tools",
         "impl IntoIterator<Item = RichTextTool>",
-        "all but Image",
-        "The tools of the bar, in order; a line stands between two groups, and the history is at the end.",
+        "all but Image, Checklist, Divider",
+        "The tools of the bar, in order; a line stands between two groups, and the history is at the end.          Checklist and Divider are the app's to name.",
       ),
       (
         "toolbar",
@@ -685,6 +729,40 @@ impl Component for RichTextEditorPage {
               "",
               "// What the app stores.",
               "notes.get().to_markdown()",
+            ],
+          ),
+        ),
+        Section::new(
+          "Checklists and dividers",
+          "An item of a checklist has a box before it: a press on the box checks it, and so does Ctrl+Enter in the \
+           item. `[ ] ` at the start of a paragraph makes it an item, `[x] ` a checked one, and three hyphens and \
+           Enter a divider. The tools of a checklist and of a divider are not on the bar unless the app names them; \
+           an app's `/` menu runs `set_paragraphs` and `insert_divider`. Markdown writes them as `- [x]` and `---`. \
+           Here a recipe also puts the items of a list 6 apart, closer than the blocks round them, the numbers in \
+           the mono face, and room round code in a sentence.",
+          self.frame.demo(
+            5,
+            checklists,
+            ".tools([.., RichTextTool::Checklist, RichTextTool::Divider])",
+            &[
+              "RichTextEditor::new(tasks.clone())",
+              "    .tools([",
+              "        RichTextTool::Style,",
+              "        RichTextTool::Bullet,",
+              "        RichTextTool::Checklist,",
+              "        RichTextTool::Divider,",
+              "        RichTextTool::Undo,",
+              "    ])",
+              "    // The items of a list 6 apart, the numbers in the mono face.",
+              "    .style(RichTextEditorPart::Bullet, |s| s.gap(6.0))",
+              "    .style(RichTextEditorPart::Checklist, |s| s.gap(6.0))",
+              "    .style(RichTextEditorPart::OrderedMark, |s| s.font_family(FontFamily::Mono))",
+              "    .style(RichTextEditorPart::InlineCode, |s| s.padding_x(4.0))",
+              "    .mount(ctx)",
+              "",
+              "// A `/` menu of the app.",
+              "controller.set_paragraphs(ParagraphKind::Checklist { checked: false });",
+              "controller.insert_divider();",
             ],
           ),
         ),

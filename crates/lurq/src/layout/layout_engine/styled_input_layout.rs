@@ -31,18 +31,19 @@ impl LayoutEngine {
     sizes: &[Option<Size>],
   ) -> Option<(Arc<str>, Vec<TokenStyle>, Vec<ParagraphFormat>)> {
     let objects = state.shown_objects().unwrap_or_default();
+    let own_marks = state.text_marks();
     // Kinds of paragraphs are drawn where the lines wrap and are not justified: there an empty input is laid out
     // as its first paragraph too, for its placeholder to stand in it.
     let kinds_drawn = state.wraps_lines() && base.text_align != crate::layout::text_style::TextAlign::Justified;
     let (text, spans) = state.styled_display(kinds_drawn)?;
-    let marks = self.text_marks.borrow().clone();
+    let marks = own_marks.unwrap_or_else(|| self.text_marks.borrow().clone());
     let palette = self.palette.borrow();
     let token = |range: Range<usize>, span: &StyledSpan, base: &TextStyle| {
       let resolved = marks.resolve(&span.style, base, &palette);
       TokenStyle {
         range,
         text: resolved.text,
-        padding: 0.0,
+        padding: resolved.padding,
         fill: resolved.fill,
         lines: TextLines {
           underline: resolved.underline,
@@ -94,7 +95,7 @@ impl LayoutEngine {
     let mut before = None;
     for index in 0..count {
       let kind = kinds.get(index).copied().unwrap_or_default();
-      let continues = std::mem::replace(&mut before, Some(kind)) == Some(kind);
+      let continues = std::mem::replace(&mut before, Some(kind)).is_some_and(|before| kind.continues(before));
       let look = looks.of(kind);
       number = if kind == ParagraphKind::Ordered { number + 1 } else { 0 };
       let mut text = look.text(base);
@@ -118,20 +119,59 @@ impl LayoutEngine {
           width: finite(*width),
           color: color(bar),
         },
+        ParagraphMarker::Check {
+          size,
+          gap,
+          radius,
+          edge_width,
+          edge,
+          fill,
+          tick,
+          icon,
+        } => {
+          let size = finite(*size);
+          let checked = matches!(kind, ParagraphKind::Checklist { checked: true }).then(|| {
+            let icon = icon.as_ref().map(|icon| {
+              let style = TextStyle {
+                font_family: icon.family.clone(),
+                font_size: size * 0.75,
+                line_height: 1.0,
+                color: color(tick),
+                ..TextStyle::default()
+              };
+              (style, icon.glyph)
+            });
+            (color(fill), icon)
+          });
+          ParagraphMark::Check {
+            size,
+            gap: finite(*gap),
+            radius: finite(*radius),
+            edge: (finite(*edge_width), color(edge)),
+            checked,
+          }
+        }
+        ParagraphMarker::Rule { thickness, color: line } => ParagraphMark::Rule {
+          thickness: finite(*thickness),
+          color: color(line),
+        },
       };
       let fill = look
         .background
         .as_ref()
         .and_then(|fill| fill.resolve(&palette))
         .map(|fill| (fill, finite(look.background_radius)));
+      let gap_before = match (continues, look.joined, look.item_gap) {
+        (true, true, _) => 0.0,
+        (true, false, Some(gap)) => finite(gap),
+        _ => finite(looks.gap),
+      };
       formats.push(ParagraphFormat {
+        marker_text: look.marker_text(&text),
         base: text,
         indent: finite(look.indent),
-        gap_before: if continues && look.joined {
-          0.0
-        } else {
-          finite(looks.gap)
-        },
+        gap_before,
+        padding: (finite(look.padding_top), finite(look.padding_bottom)),
         marker,
         fill,
         continues,
