@@ -502,8 +502,13 @@ impl Themed for Collapsible {
         fading(s.gap(8.0).radius(RadiusSize::Md).cursor(CursorIcon::Pointer))
       })
       .base(Label, |s| s.typography(TypographyStyle::Label))
+      // A recipe that turns the chevron as the collapsible opens (`.state(CollapsibleState::Open, Chevron, |s|
+      // s.rotate(90.0))`) has it turn in the base time.
       .base(Chevron, |s| {
-        fading(s.square(32.0).radius(RadiusSize::Md))
+        fading(s.square(32.0).radius(RadiusSize::Md)).transition(crate::ui::PartTransition::new(
+          crate::animation::Transition::transform(),
+          crate::app::theme::MotionDuration::Base,
+        ))
       })
       .base(Body, |s| s.padding_top(8.0).typography(TypographyStyle::Body))
       .hovered(Chevron, |s| s.background(Highlight).foreground(HighlightForeground))

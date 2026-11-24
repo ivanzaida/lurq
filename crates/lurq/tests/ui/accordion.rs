@@ -130,12 +130,29 @@ fn an_accordion_is_its_headers_with_a_line_under_each_as_the_board_draws_it() {
   assert!(close(top(&stage, GPU) - y, 14.0), "{}", top(&stage, GPU) - y);
   assert!(close(top(&stage, DARK) - (lines[0].y + lines[0].height), 14.0));
   assert_eq!(stage.text(GPU), (light(PaletteColor::Foreground), 14.0));
-  // At its end a chevron of 16 in the muted foreground: up on the open item, down on the closed ones.
-  assert_eq!(count(&stage, CHEVRON_UP), 1);
-  assert_eq!(count(&stage, CHEVRON_DOWN), 2);
-  assert_eq!(stage.text(CHEVRON_UP), (light(PaletteColor::MutedForeground), 16.0));
-  let chevron = stage.text_quad(CHEVRON_UP).unwrap();
-  assert!(close(chevron.x + chevron.width, x + 360.0), "at the end of the header");
+  // At its end a chevron of 16 in the muted foreground, pointing down, turned up on the open item.
+  assert_eq!(count(&stage, CHEVRON_DOWN), 3);
+  assert_eq!(stage.text(CHEVRON_DOWN), (light(PaletteColor::MutedForeground), 16.0));
+  let mut turned: Vec<_> = stage
+    .quads()
+    .into_iter()
+    .filter(|quad| matches!(&quad.content, QuadContent::Text { text, .. } if text == CHEVRON_DOWN))
+    .filter(|quad| (quad.transform.a + 1.0).abs() < 0.01 && (quad.transform.d + 1.0).abs() < 0.01)
+    .collect();
+  assert_eq!(turned.len(), 1, "the open item's chevron is turned half round");
+  // Turned about its middle, it is drawn where the others are: at the end of its header.
+  let turned = turned.remove(0);
+  let closed: Vec<_> = stage
+    .quads()
+    .into_iter()
+    .filter(|quad| matches!(&quad.content, QuadContent::Text { text, .. } if text == CHEVRON_DOWN))
+    .filter(|quad| (quad.transform.a - 1.0).abs() < 0.01)
+    .collect();
+  assert!(
+    close(closed[0].x + closed[0].width, x + 360.0),
+    "at the end of the header"
+  );
+  assert!(close(turned.x - turned.width, closed[0].x), "turned in place");
   // 14 under the label of a closed item is the line.
   let label = stage.text_quad(DARK).unwrap();
   assert!(close(lines[1].y + lines[1].height - (label.y + label.height), 14.0));
@@ -702,4 +719,26 @@ fn a_headers_height_follows_the_density() {
       "{density:?}: {step} from the default, not {moved}"
     );
   }
+}
+
+#[test]
+fn the_chevron_of_an_item_turns_as_it_opens() {
+  let open = Signal::new(None);
+  let mut stage = faq(&open);
+  let turn = |stage: &Stage| {
+    stage
+      .quads()
+      .into_iter()
+      .find(|quad| matches!(&quad.content, QuadContent::Text { text, .. } if text == CHEVRON_DOWN))
+      .map(|quad| quad.transform.a)
+      .expect("a chevron")
+  };
+  assert!((turn(&stage) - 1.0).abs() < 0.01, "down while closed");
+  open.set(Some(0));
+  stage.pass_after(Duration::ZERO);
+  stage.pass_after(Duration::from_millis(60));
+  let on_its_way = turn(&stage);
+  assert!(on_its_way < 0.99 && on_its_way > -0.99, "turning: {on_its_way}");
+  stage.pass();
+  assert!((turn(&stage) + 1.0).abs() < 0.01, "up once open");
 }

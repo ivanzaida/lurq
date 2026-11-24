@@ -161,6 +161,7 @@ let swipes = lurq::ui::touch_form();
 | `padding_x(spacing)`, `padding_y(spacing)`, `gap(spacing)` | Padding across and down, and the room between the part's children |
 | `padding_top(spacing)`, `padding_bottom(spacing)`, `padding_start(spacing)`, `padding_end(spacing)` | The padding of one side, laid over `padding_y` or `padding_x`: 6 above and 4 under a label. Start is the left, end the right. `paddings()` reads the four as they come out: top, end, bottom, start |
 | `width(length)`, `height(length)`, `min_width(length)`, `min_height(length)`, `max_width(length)`, `square(length)` | A `Length`: pixels, a step of the control, density or icon scale, `Length::Fill`. `max_width` is the most the part grows to |
+| `rotate(degrees)` | Turns the part about its middle, clockwise, without moving what is around it; a transition of its transform (`Transition::transform()`) runs it: an accordion's chevron turns up as its item opens. A collapsible turns its own the same way where a recipe says so: `.state(CollapsibleState::Open, CollapsiblePart::Chevron, \|s\| s.rotate(90.0))` with `icon(icons::CHEVRON_RIGHT)`, its chevron turning in the base time |
 | `justify(Justify)` | Where the part's children stand along it, where it is a row or a column: `Justify::End` puts the text of a part with a width of its own at its end, as a menu's keys in a column that ends at its edge (`s.width(96.0).justify(Justify::End)` on `MenuItemPart::Shortcut`). Where its renderer puts them unless told |
 | `typography(role)` | Every field of the part's text at once |
 | `font_family(family)`, `font_size(px)`, `weight(weight)`, `font_style(style)`, `line_height(ratio)`, `letter_spacing(px)` | One field of the text, over the role's |
@@ -1819,7 +1820,8 @@ Accordion::multiple(sections, [
 - In the design each item has a line of 1 in `Border` under it. Its header is 14 above and under its label, which is
 - A header follows the [density](../theme/#density): 10, 18 and 20 above and under its label at compact, comfortable and touch, the steps of a row from the design's 14.
   in the body's type (14) at medium weight in `Foreground`, with a chevron of 16 in `MutedForeground` at its end, 12
-  from the label: down while the item is closed, up while it is open. What it opens is in the body's type in
+  from the label: down while the item is closed, turned up while it is open, in the base time (its part's
+  `rotate(180.0)` in the state `Open`, with a transition of its transform). What it opens is in the body's type in
   `MutedForeground` at a line height of 1.5, 14 above the line. A disabled header is dimmed; the ring of the focus is
   around the header.
 - To what reads the tree (`lurq_snapshot` of the MCP server) a header is a `button` called by its label, with

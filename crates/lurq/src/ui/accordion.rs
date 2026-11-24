@@ -398,7 +398,8 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> Accordio
           item.body,
           open,
           disabled,
-          (if open { icons::CHEVRON_UP } else { icons::CHEVRON_DOWN }).into(),
+          // One chevron, which its part turns as the item opens.
+          icons::CHEVRON_DOWN.into(),
           theme
             .resolve::<Accordion>(&case(open, disabled), Some(&self.rules))
             .owned_like(&recipe)
@@ -507,6 +508,8 @@ impl<T: Send + Sync + 'static, V: ?Sized + 'static> Themed for Accordion<T, V> {
   fn recipe() -> Recipe {
     use AccordionPart::{Body, Chevron, Item, Label, Panel, Root, Trigger};
     use PaletteColor::{Foreground, MutedForeground};
+
+    use crate::{animation::Transition, app::theme::MotionDuration, ui::PartTransition};
     let recipe = Recipe::new()
       .base(Root, |s| s.foreground(Foreground))
       .base(Item, |s| {
@@ -523,7 +526,13 @@ impl<T: Send + Sync + 'static, V: ?Sized + 'static> Themed for Accordion<T, V> {
       .base(Label, |s| {
         s.typography(TypographyStyle::Body).weight(FontWeight::Medium)
       })
-      .base(Chevron, |s| s.square(16.0).foreground(MutedForeground))
+      // The chevron points down, and turns up as its item opens, in the base time.
+      .base(Chevron, |s| {
+        s.square(16.0)
+          .foreground(MutedForeground)
+          .transition(PartTransition::new(Transition::transform(), MotionDuration::Base))
+      })
+      .state(CollapsibleState::Open, Chevron, |s| s.rotate(180.0))
       .base(Body, |s| {
         s.padding_bottom(14.0)
           .typography(TypographyStyle::Body)

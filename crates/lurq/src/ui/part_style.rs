@@ -324,6 +324,9 @@ pub struct PartStyle {
   /// Where the part's children stand along it, where it is a row or a column: its text at the end of a slot of a
   /// width of its own, as a column of keys whose text ends at a menu's edge.
   pub justify: Option<Justify>,
+  /// How far the part is turned about its middle, in degrees, clockwise: a chevron that points down once its
+  /// section is open.
+  pub rotate: Option<f32>,
   pub width: Option<Length>,
   pub height: Option<Length>,
   pub min_width: Option<Length>,
@@ -511,6 +514,21 @@ impl PartStyle {
     self
   }
 
+  /// Turns the part about its middle by `degrees`, clockwise, without moving what is around it: a chevron of a
+  /// section that turns as it opens, which a transition of its transform (`Transition::transform()`) runs.
+  ///
+  /// ```
+  /// use lurq::{animation::Transition, app::theme::MotionDuration, ui::{PartStyle, PartTransition}};
+  ///
+  /// let open = PartStyle::new()
+  ///   .rotate(90.0)
+  ///   .transition(PartTransition::new(Transition::transform(), MotionDuration::Base));
+  /// ```
+  pub fn rotate(mut self, degrees: f32) -> Self {
+    self.rotate = Some(degrees);
+    self
+  }
+
   pub fn width(mut self, width: impl Into<Length>) -> Self {
     self.width = Some(width.into());
     self
@@ -675,6 +693,7 @@ impl PartStyle {
       && self.padding_end.is_none()
       && self.gap.is_none()
       && self.justify.is_none()
+      && self.rotate.is_none()
       && self.width.is_none()
       && self.height.is_none()
       && self.min_width.is_none()
@@ -718,6 +737,7 @@ impl PartStyle {
       padding_end,
       gap,
       justify,
+      rotate,
       width,
       height,
       min_width,
@@ -803,6 +823,9 @@ impl PartStyle {
     }
     if let Some(justify) = self.justify {
       NodeUpdate::justify(node, justify);
+    }
+    if let Some(degrees) = self.rotate.filter(|degrees| degrees.is_finite()) {
+      NodeUpdate::transform(node, crate::node::transform::Transform2D::rotate_deg(degrees));
     }
     if let Some(width) = self.width.and_then(|width| width.resolve(theme)) {
       NodeUpdate::width(node, width);
