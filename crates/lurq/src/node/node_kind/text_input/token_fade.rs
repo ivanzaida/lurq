@@ -32,6 +32,9 @@ pub(crate) fn begin_frame(now: Instant) {
   FRAME.with(|frame| frame.set(Some(now)));
   FADING.with(|fading| {
     fading.borrow_mut().retain(|state| {
+      if std::sync::Arc::strong_count(&state.inner) <= 1 {
+        return false;
+      }
       let going = state.token_fade_going(now);
       state.mark_layout_dirty_keeping_scroll();
       going
@@ -39,9 +42,14 @@ pub(crate) fn begin_frame(now: Instant) {
   });
 }
 
-/// Whether a token look is changing: the window draws frames for it.
+/// Whether a token look is changing: the window draws frames for it. An input nothing else holds any more (its
+/// tree was let go) is let go here too.
 pub(crate) fn active() -> bool {
-  FADING.with(|fading| !fading.borrow().is_empty())
+  FADING.with(|fading| {
+    let mut fading = fading.borrow_mut();
+    fading.retain(|state| std::sync::Arc::strong_count(&state.inner) > 1);
+    !fading.is_empty()
+  })
 }
 
 /// The moment the frame being laid out is drawn for.

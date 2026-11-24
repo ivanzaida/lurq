@@ -1882,9 +1882,9 @@ use lurq::ui::Reveal;
 Reveal::new(shown.get(), rows).key("rows");
 ```
 
-- Its height runs from nothing to its content's in the theme's base time as it opens, and what it holds fades in;
-  closing, the other way, and what it held stays, painted and inert, until its fade is over. Where motion is reduced its
-  height is there at once. It is an accordion's panel, alone: the same recipe (`opening`).
+- Opening, its height runs from nothing to its content's in the theme's base time, and then what it holds fades in;
+  closing, what it holds fades out first, kept painted and inert, and then its height runs back to nothing. Where
+  motion is reduced it opens and closes at once.
 - Its height is a transition of its node, which stays from one render to the next where it stays in one place of the
   tree, or has a key.
 - Parts: `RevealPart::Root` (what opens, closes and clips) and `Body` (what it holds). State: `RevealState::Open`.

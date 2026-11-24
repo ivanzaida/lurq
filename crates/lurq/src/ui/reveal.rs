@@ -5,13 +5,15 @@
 use std::sync::Arc;
 
 use super::{
-  collapsible::opening,
   names,
+  part_style::Length,
   recipe::{Case, Name, Recipe, ResolvedPart, ResolvedRecipe},
+  shared::{FADE_IN, FADE_OUT},
   theme::{Themed, current_theme},
 };
 use crate::{
-  app::theme::Theme,
+  animation::{Animation, AnimationFillMode, Transition},
+  app::theme::{MotionDuration, MotionEasing, Theme},
   components::Column,
   layout::Alignment,
   node::{Element, FocusGroup},
@@ -163,24 +165,48 @@ impl RevealView {
   }
 
   /// How the default renderer builds a reveal: what clips and opens, with what it holds while it is open, which
-  /// stays as it closes, painted and inert, until its fade is over.
+  /// stays as it closes, painted and inert, until its fade is over. Opening, its height runs first and what it holds
+  /// fades in after; closing, what it holds fades out first and its height runs after, each in the theme's base
+  /// time. Where motion is reduced it opens and closes at once.
   pub fn render(mut self) -> Element {
+    let theme = self.recipe.theme().clone();
+    let still = theme.reduced_motion();
+    let (base, easing) = (
+      theme.duration_value(MotionDuration::Base),
+      theme.easing_value(MotionEasing::Standard),
+    );
     let mut root = Column::new()
       .align_items(Alignment::Stretch)
       .clip()
       .presence()
       .part(&self.part(RevealPart::Root));
+    if !still {
+      // Closing, the height waits for what it holds to fade out.
+      let wait = if self.open { std::time::Duration::ZERO } else { base };
+      root = root.transition(Transition::height().duration(base).easing(easing).delay(wait));
+    }
     if self.open
       && let Some(content) = self.content.take()
     {
-      root = root.child(
-        Column::new()
-          .key("content")
-          .focus_group(FocusGroup::none())
-          .align_items(Alignment::Stretch)
-          .part(&self.part(RevealPart::Body))
-          .child(content),
-      );
+      let mut body = Column::new()
+        .key("content")
+        .focus_group(FocusGroup::none())
+        .align_items(Alignment::Stretch)
+        .part(&self.part(RevealPart::Body))
+        .child(content);
+      if !still {
+        // Opening, it fades in once the height has run; closing, it fades out first.
+        body = body
+          .animation(
+            Animation::new(FADE_IN)
+              .duration(base)
+              .easing(easing)
+              .delay(base)
+              .fill_mode(AnimationFillMode::Backwards),
+          )
+          .exit_animation(Animation::new(FADE_OUT).duration(base).easing(easing));
+      }
+      root = root.child(body);
     }
     if let Some(id) = &self.id {
       root = root.id(id.clone());
@@ -216,14 +242,11 @@ impl Themed for Reveal {
     RevealState::declared()
   }
 
-  /// What opens and closes as a collapsible's panel does: of no height while closed and of its content's while open,
-  /// over the theme's base duration; what it holds fades in as it opens and out as it closes.
+  /// What opens and closes: of no height while closed and of its content's while open. Its motion is the renderer's,
+  /// in the theme's base time: the height, then the fade, and the other way round.
   fn recipe() -> Recipe {
-    opening(
-      Recipe::new(),
-      RevealState::Open.into(),
-      RevealPart::Root.into(),
-      RevealPart::Body.into(),
-    )
+    Recipe::new()
+      .base(RevealPart::Root, |s| s.height(0.0))
+      .state(RevealState::Open, RevealPart::Root, |s| s.height(Length::Auto))
   }
 }

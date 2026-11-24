@@ -761,6 +761,12 @@ fn a_reveal_opens_and_closes_what_it_holds_with_its_height() {
   stage.pass_after(Duration::ZERO);
   stage.pass_after(Duration::from_millis(40));
   let on_the_way = top(&stage, "Under it");
+  let words = |stage: &Stage| stage.text_quad("Rows a choice shows").map(|quad| quad.opacity);
+  assert!(
+    words(&stage).is_none_or(|opacity| opacity < 0.05),
+    "what it holds waits for the height: {:?}",
+    words(&stage)
+  );
   stage.pass();
   let opened = top(&stage, "Under it");
   assert!(
@@ -773,6 +779,10 @@ fn a_reveal_opens_and_closes_what_it_holds_with_its_height() {
   stage.pass_after(Duration::ZERO);
   stage.pass_after(Duration::from_millis(40));
   assert!(stage.paints("Rows a choice shows"), "kept while it closes");
+  assert!(
+    (top(&stage, "Under it") - opened).abs() < 0.5,
+    "the height waits for what it held to fade out"
+  );
   stage.pass();
   assert!(!stage.paints("Rows a choice shows"));
   assert!((top(&stage, "Under it") - closed).abs() < 0.5);

@@ -37,8 +37,11 @@ dropped). When a decision is replaced, the old entry stays and says what replace
     told by the pass each node was first reached in; not an option on keys or a flag of the app's.
   - *`PartStyle::rotate(degrees)`* about the part's middle, which `Transition::transform()` runs. An accordion's
     chevron turns where it swapped its icon; a collapsible's turns where a recipe turns it.
-  - *`Reveal` is an accordion's panel alone* (the same recipe, `opening`): height and fade together, not one after
-    the other, as the collapsible already does. `Collapsible::header(element)` keeps the label as its name.
+  - *`Reveal` sequences its height and its fade*, as the issue asks: opening the height first and the fade after,
+    closing the fade first and the height after, each in the base time. The sequence is its renderer's, with the
+    theme's durations, not its recipe's: a part's transition and animation have no delay, and giving them one would
+    break the apps that write them out field by field. A collapsible keeps its height and fade together.
+    `Collapsible::header(element)` keeps the label as its name.
   - *`FadingText`* is built from a stack with presence, its words keyed by what they say, an enter that does not play
     with its parent and an exit, all a recipe can restyle.
   - *A select's trigger and options take their parts' transitions*: the engine reads the trigger's colors as a node's
