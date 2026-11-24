@@ -109,6 +109,8 @@ struct ThemeInner {
   reduced_motion: Option<bool>,
   /// What the system asks for, as the shell last read it.
   system_reduced_motion: bool,
+  /// See [`Theme::set_reduce_fades`].
+  reduce_fades: bool,
   /// See [`Theme::set_smooth_scroll`].
   smooth_scroll: bool,
   /// The app's keyframes, and whether each plays in phase: see [`Theme::set_keyframes`].
@@ -200,6 +202,7 @@ impl Theme {
         markdown: definition.markdown,
         reduced_motion: None,
         system_reduced_motion: false,
+        reduce_fades: false,
         smooth_scroll: true,
         keyframes: Arc::default(),
         version: 0,
@@ -944,6 +947,22 @@ impl Theme {
   pub fn set_reduced_motion(&self, reduced: Option<bool>) {
     if self.inner.read().unwrap().reduced_motion != reduced {
       self.mutate_inner(|inner| inner.reduced_motion = reduced);
+    }
+  }
+
+  /// Whether a fade or a change of color ends at once too while motion is reduced: see [`Self::set_reduce_fades`].
+  pub fn reduce_fades(&self) -> bool {
+    self.inner.read().unwrap().reduce_fades
+  }
+
+  /// Makes every transition end at once while motion is reduced ([`Self::reduced_motion`]): a fill, a color, an
+  /// edge, a shadow, an outline and an opacity as well as where an element is and how large it is, for an app
+  /// whose design has everything still then. Off by default: a fade is no motion and runs. Keyframe animations
+  /// are a part's own, which says what it plays then (`PartStyle::reduced_enter`), a spinner's turning on. As
+  /// reduced motion, it is the app's, not part of a [`ThemeDefinition`], and stays when one is applied.
+  pub fn set_reduce_fades(&self, reduce: bool) {
+    if self.inner.read().unwrap().reduce_fades != reduce {
+      self.mutate_inner(|inner| inner.reduce_fades = reduce);
     }
   }
 

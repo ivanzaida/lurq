@@ -97,7 +97,9 @@ app.theme().set_reduced_motion(Some(true));
   `width`, `height`) ends at once: the element is at its new place and size in the next frame. Sheets and stack
   navigation, which move with such transitions, switch without the slide.
 - A fade or a change of color is not motion and still runs: opacity, colors, the foreground, the outline, box shadows,
-  blur, radii and border widths.
+  blur, radii and border widths. An app whose design has everything still then says so with
+  `app.theme().set_reduce_fades(true)`: while motion is reduced, every transition ends at once. Keyframe animations
+  are untouched by it, so a spinner goes on turning.
 - Keyframe animations are the app's and are not changed. Read `ctx.reduced_motion()`, which renders the component again
   when the setting changes, to hold back one that moves or to show a fade in its place.
 - What a part of a component plays as it appears or leaves is its recipe's (`PartStyle::enter`, `exit`), and the

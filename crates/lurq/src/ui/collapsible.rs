@@ -97,6 +97,7 @@ pub(crate) enum Content {
 /// closed it is not there, and the controls in it are not stops of Tab.
 pub struct Collapsible {
   label: Arc<str>,
+  header: Option<Element>,
   body: Content,
   open: bool,
   disabled: bool,
@@ -125,6 +126,7 @@ impl Collapsible {
   fn of(label: &str, body: Content) -> Self {
     Self {
       label: Arc::from(label),
+      header: None,
       body,
       open: false,
       disabled: false,
@@ -138,6 +140,20 @@ impl Collapsible {
       id: None,
       key: None,
     }
+  }
+
+  /// An element of the app's in the header in place of the label's text: a title with a count and marks of its
+  /// own. The label is still what the header is called to what reads the tree, and the whole header is pressed.
+  ///
+  /// ```
+  /// use lurq::{components::{Row, Text}, ui::Collapsible};
+  ///
+  /// let done = Collapsible::new("Done", Text::new("Three tasks"))
+  ///   .header(Row::new().spacing(6.0).child(Text::new("Done")).child(Text::new("3")));
+  /// ```
+  pub fn header(mut self, header: impl Into<Element>) -> Self {
+    self.header = Some(header.into());
+    self
   }
 
   /// Whether what it holds is shown.
@@ -247,6 +263,7 @@ impl Collapsible {
     }
     let view = CollapsibleView {
       label: self.label,
+      header: self.header,
       open: self.open,
       disabled: self.disabled,
       icon,
@@ -278,6 +295,8 @@ impl From<Collapsible> for Element {
 /// [`Accordion`](super::Accordion) is one too, in the accordion's recipe.
 pub struct CollapsibleView {
   pub label: Arc<str>,
+  /// The app's element in the header in place of the label's text, where it gave one.
+  pub header: Option<Element>,
   pub open: bool,
   pub disabled: bool,
   /// The icon of the chevron as the collapsible is now, open or closed: none where it has no chevron.
@@ -311,6 +330,7 @@ impl CollapsibleView {
   ) -> Self {
     Self {
       label,
+      header: None,
       open,
       disabled,
       icon: Some(icon),
@@ -371,7 +391,11 @@ impl CollapsibleView {
   /// The label in the style of its part, taking the room of the header the chevron does not.
   pub fn label(&self) -> Row {
     let part = self.part(CollapsiblePart::Label);
-    Row::new().flex(1.0).part(&part).child(part.text(&self.label))
+    let row = Row::new().flex(1.0).part(&part);
+    match &self.header {
+      Some(header) => row.child(header.clone()),
+      None => row.child(part.text(&self.label)),
+    }
   }
 
   /// The chevron: the icon of the collapsible as it is now, an icon of the theme's middle size in the middle of
@@ -502,8 +526,13 @@ impl Themed for Collapsible {
         fading(s.gap(8.0).radius(RadiusSize::Md).cursor(CursorIcon::Pointer))
       })
       .base(Label, |s| s.typography(TypographyStyle::Label))
+      // A recipe that turns the chevron as the collapsible opens (`.state(CollapsibleState::Open, Chevron, |s|
+      // s.rotate(90.0))`) has it turn in the base time.
       .base(Chevron, |s| {
-        fading(s.square(32.0).radius(RadiusSize::Md))
+        fading(s.square(32.0).radius(RadiusSize::Md)).transition(crate::ui::PartTransition::new(
+          crate::animation::Transition::transform(),
+          crate::app::theme::MotionDuration::Base,
+        ))
       })
       .base(Body, |s| s.padding_top(8.0).typography(TypographyStyle::Body))
       .hovered(Chevron, |s| s.background(Highlight).foreground(HighlightForeground))

@@ -610,6 +610,21 @@ pub(crate) fn engine_style(
   // back, and a build without optimizations keeps a copy of it on the stack for each, some 450 KB of stack here,
   // which overflowed the main thread's where a select is drawn deep in a page (a table's filter row).
   let mut style = SelectStyle::unstyled();
+  // What the trigger and an option change with, as a node of the recipe's does: the engine draws them.
+  style.trigger_transitions = rest
+    .transitions
+    .iter()
+    .flatten()
+    .map(|transition| transition.resolve(theme))
+    .collect();
+  style.option_transitions = recipe
+    .part(Item)
+    .rest()
+    .transitions
+    .iter()
+    .flatten()
+    .map(|transition| transition.resolve(theme))
+    .collect();
   style.trigger = text;
   style.placeholder_text = Some(ink(theme, &placeholder));
   if let Some(gap) = rest.gap {
@@ -829,6 +844,8 @@ impl<V: 'static> Themed for Select<V> {
       Background, Destructive, Foreground, Highlight, Muted, MutedForeground, Popover, Ring, Success,
     };
     use SelectPart::{Check, Chevron, Detail, Group, Hint, Item, Panel, Placeholder, Separator, Trigger};
+
+    use crate::{animation::Transition, app::theme::MotionDuration, ui::PartTransition};
     let edge = |color: PaletteColor| Border::inside(BorderSize::Sm, color);
     // The focus is a line of 2 inside the box, over its edge, as an input's is: an outline, so that the edge under
     // the pointer does not take it away.
@@ -846,6 +863,9 @@ impl<V: 'static> Themed for Select<V> {
           .foreground(Foreground)
           .typography(TypographyStyle::Body)
           .cursor(CursorIcon::Pointer)
+          // Its fill and its edge change under the pointer, focused and open in the fast time.
+          .transition(PartTransition::new(Transition::background_color(), MotionDuration::Fast))
+          .transition(PartTransition::new(Transition::border_color(), MotionDuration::Fast))
       })
       .base(Placeholder, |s| s.foreground(MutedForeground))
       .base(Chevron, |s| s.square(IconSize::Md).foreground(MutedForeground))
@@ -865,6 +885,8 @@ impl<V: 'static> Themed for Select<V> {
           .radius(RadiusSize::Sm)
           .foreground(Foreground)
           .typography(TypographyStyle::Body)
+          // Its highlight comes and goes under the pointer and the keys in the fast time.
+          .transition(PartTransition::new(Transition::background_color(), MotionDuration::Fast))
       })
       // A row of the density's height: 32 at the default, 24, 40 and 44 at the others. The box keeps its size.
       .row_density(Selector::new(), Item, 32.0)

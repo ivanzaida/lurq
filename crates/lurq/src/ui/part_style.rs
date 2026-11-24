@@ -236,7 +236,7 @@ impl PartTransition {
     self
   }
 
-  fn resolve(&self, theme: &Theme) -> Transition {
+  pub(crate) fn resolve(&self, theme: &Theme) -> Transition {
     let duration = match self.duration {
       TransitionDuration::Role(role) => theme.durations().try_get(role).unwrap_or_default(),
       TransitionDuration::Set(duration) => duration,
@@ -324,6 +324,11 @@ pub struct PartStyle {
   /// Where the part's children stand along it, where it is a row or a column: its text at the end of a slot of a
   /// width of its own, as a column of keys whose text ends at a menu's edge.
   pub justify: Option<Justify>,
+  /// Whether the part's enter plays where it comes in with what holds it: see [`PartStyle::enter_with_parent`].
+  pub enter_with_parent: Option<bool>,
+  /// How far the part is turned about its middle, in degrees, clockwise: a chevron that points down once its
+  /// section is open.
+  pub rotate: Option<f32>,
   pub width: Option<Length>,
   pub height: Option<Length>,
   pub min_width: Option<Length>,
@@ -511,6 +516,30 @@ impl PartStyle {
     self
   }
 
+  /// Whether the part's [`enter`](Self::enter) plays where the part comes in with what holds it, in the same frame:
+  /// a page's first paint. `false` has the part there at once then, and play its enter only where it comes into
+  /// what was there: a panel keyed by its tab fades in as another tab is chosen, and not as the page is first
+  /// painted. It does unless told.
+  pub fn enter_with_parent(mut self, plays: bool) -> Self {
+    self.enter_with_parent = Some(plays);
+    self
+  }
+
+  /// Turns the part about its middle by `degrees`, clockwise, without moving what is around it: a chevron of a
+  /// section that turns as it opens, which a transition of its transform (`Transition::transform()`) runs.
+  ///
+  /// ```
+  /// use lurq::{animation::Transition, app::theme::MotionDuration, ui::{PartStyle, PartTransition}};
+  ///
+  /// let open = PartStyle::new()
+  ///   .rotate(90.0)
+  ///   .transition(PartTransition::new(Transition::transform(), MotionDuration::Base));
+  /// ```
+  pub fn rotate(mut self, degrees: f32) -> Self {
+    self.rotate = Some(degrees);
+    self
+  }
+
   pub fn width(mut self, width: impl Into<Length>) -> Self {
     self.width = Some(width.into());
     self
@@ -675,6 +704,8 @@ impl PartStyle {
       && self.padding_end.is_none()
       && self.gap.is_none()
       && self.justify.is_none()
+      && self.rotate.is_none()
+      && self.enter_with_parent.is_none()
       && self.width.is_none()
       && self.height.is_none()
       && self.min_width.is_none()
@@ -718,6 +749,8 @@ impl PartStyle {
       padding_end,
       gap,
       justify,
+      rotate,
+      enter_with_parent,
       width,
       height,
       min_width,
@@ -804,6 +837,9 @@ impl PartStyle {
     if let Some(justify) = self.justify {
       NodeUpdate::justify(node, justify);
     }
+    if let Some(degrees) = self.rotate.filter(|degrees| degrees.is_finite()) {
+      NodeUpdate::transform(node, crate::node::transform::Transform2D::rotate_deg(degrees));
+    }
     if let Some(width) = self.width.and_then(|width| width.resolve(theme)) {
       NodeUpdate::width(node, width);
     }
@@ -832,7 +868,8 @@ impl PartStyle {
       _ => usual.clone(),
     };
     if let Some(animation) = pick(&self.enter, &self.reduced_enter) {
-      NodeUpdate::animation(node, animation.resolve(theme));
+      let plays = self.enter_with_parent.unwrap_or(true);
+      NodeUpdate::animation(node, animation.resolve(theme).plays_with_parent(plays));
     }
     if let Some(animation) = pick(&self.exit, &self.reduced_exit) {
       NodeUpdate::exit_animation(node, animation.resolve(theme));

@@ -130,12 +130,29 @@ fn an_accordion_is_its_headers_with_a_line_under_each_as_the_board_draws_it() {
   assert!(close(top(&stage, GPU) - y, 14.0), "{}", top(&stage, GPU) - y);
   assert!(close(top(&stage, DARK) - (lines[0].y + lines[0].height), 14.0));
   assert_eq!(stage.text(GPU), (light(PaletteColor::Foreground), 14.0));
-  // At its end a chevron of 16 in the muted foreground: up on the open item, down on the closed ones.
-  assert_eq!(count(&stage, CHEVRON_UP), 1);
-  assert_eq!(count(&stage, CHEVRON_DOWN), 2);
-  assert_eq!(stage.text(CHEVRON_UP), (light(PaletteColor::MutedForeground), 16.0));
-  let chevron = stage.text_quad(CHEVRON_UP).unwrap();
-  assert!(close(chevron.x + chevron.width, x + 360.0), "at the end of the header");
+  // At its end a chevron of 16 in the muted foreground, pointing down, turned up on the open item.
+  assert_eq!(count(&stage, CHEVRON_DOWN), 3);
+  assert_eq!(stage.text(CHEVRON_DOWN), (light(PaletteColor::MutedForeground), 16.0));
+  let mut turned: Vec<_> = stage
+    .quads()
+    .into_iter()
+    .filter(|quad| matches!(&quad.content, QuadContent::Text { text, .. } if text == CHEVRON_DOWN))
+    .filter(|quad| (quad.transform.a + 1.0).abs() < 0.01 && (quad.transform.d + 1.0).abs() < 0.01)
+    .collect();
+  assert_eq!(turned.len(), 1, "the open item's chevron is turned half round");
+  // Turned about its middle, it is drawn where the others are: at the end of its header.
+  let turned = turned.remove(0);
+  let closed: Vec<_> = stage
+    .quads()
+    .into_iter()
+    .filter(|quad| matches!(&quad.content, QuadContent::Text { text, .. } if text == CHEVRON_DOWN))
+    .filter(|quad| (quad.transform.a - 1.0).abs() < 0.01)
+    .collect();
+  assert!(
+    close(closed[0].x + closed[0].width, x + 360.0),
+    "at the end of the header"
+  );
+  assert!(close(turned.x - turned.width, closed[0].x), "turned in place");
   // 14 under the label of a closed item is the line.
   let label = stage.text_quad(DARK).unwrap();
   assert!(close(lines[1].y + lines[1].height - (label.y + label.height), 14.0));
@@ -702,4 +719,92 @@ fn a_headers_height_follows_the_density() {
       "{density:?}: {step} from the default, not {moved}"
     );
   }
+}
+
+#[test]
+fn the_chevron_of_an_item_turns_as_it_opens() {
+  let open = Signal::new(None);
+  let mut stage = faq(&open);
+  let turn = |stage: &Stage| {
+    stage
+      .quads()
+      .into_iter()
+      .find(|quad| matches!(&quad.content, QuadContent::Text { text, .. } if text == CHEVRON_DOWN))
+      .map(|quad| quad.transform.a)
+      .expect("a chevron")
+  };
+  assert!((turn(&stage) - 1.0).abs() < 0.01, "down while closed");
+  open.set(Some(0));
+  stage.pass_after(Duration::ZERO);
+  stage.pass_after(Duration::from_millis(60));
+  let on_its_way = turn(&stage);
+  assert!(on_its_way < 0.99 && on_its_way > -0.99, "turning: {on_its_way}");
+  stage.pass();
+  assert!((turn(&stage) + 1.0).abs() < 0.01, "up once open");
+}
+
+#[test]
+fn a_reveal_opens_and_closes_what_it_holds_with_its_height() {
+  use lurq::{components::Text, ui::Reveal};
+  let shown = Signal::new(false);
+  let held = shown.clone();
+  let mut stage = Stage::new(move |_| {
+    Column::new()
+      .padding(8.0)
+      .child(Reveal::new(held.get(), Text::new("Rows a choice shows")).key("rows"))
+      .child(Text::new("Under it"))
+      .into()
+  });
+  let closed = top(&stage, "Under it");
+  assert!(!stage.paints("Rows a choice shows"), "closed, it holds nothing");
+  shown.set(true);
+  stage.pass_after(Duration::ZERO);
+  stage.pass_after(Duration::from_millis(40));
+  let on_the_way = top(&stage, "Under it");
+  let words = |stage: &Stage| stage.text_quad("Rows a choice shows").map(|quad| quad.opacity);
+  assert!(
+    words(&stage).is_none_or(|opacity| opacity < 0.05),
+    "what it holds waits for the height: {:?}",
+    words(&stage)
+  );
+  stage.pass();
+  let opened = top(&stage, "Under it");
+  assert!(
+    on_the_way > closed + 0.5 && on_the_way < opened - 0.5,
+    "what is under it moves down as it opens: {closed} < {on_the_way} < {opened}"
+  );
+  assert!(stage.paints("Rows a choice shows"));
+  // Closing, what it held stays painted while it closes over it, and is gone once it has.
+  shown.set(false);
+  stage.pass_after(Duration::ZERO);
+  stage.pass_after(Duration::from_millis(40));
+  assert!(stage.paints("Rows a choice shows"), "kept while it closes");
+  assert!(
+    (top(&stage, "Under it") - opened).abs() < 0.5,
+    "the height waits for what it held to fade out"
+  );
+  stage.pass();
+  assert!(!stage.paints("Rows a choice shows"));
+  assert!((top(&stage, "Under it") - closed).abs() < 0.5);
+}
+
+#[test]
+fn a_collapsible_has_the_apps_element_for_its_header_and_is_called_by_its_label() {
+  use lurq::components::Text;
+  let open = Signal::new(false);
+  let held = open.clone();
+  let mut stage = Stage::new(move |_| {
+    Column::new()
+      .padding(8.0)
+      .child(
+        Collapsible::new("Done", Text::new("Three tasks"))
+          .header(Row::new().spacing(6.0).child(Text::new("Done")).child(Text::new("3")))
+          .bind(held.clone())
+          .id("done"),
+      )
+      .into()
+  });
+  assert!(stage.paints("3"), "the app's header");
+  press(&mut stage, "3");
+  assert!(open.get_untracked(), "the whole header is pressed");
 }

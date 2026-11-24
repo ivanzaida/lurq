@@ -31,6 +31,8 @@ impl LayoutEngine {
   ) -> crate::layout::layout_result::LayoutResult {
     let width = Self::decorated_input_width(state, constraints);
     let (hovered, selection) = (state.hovered_token(), state.selection_bounds());
+    let now = crate::node::node_kind::text_input::token_fade::now();
+    let (fade, length) = state.token_fade_at(now);
     let styles = tokens
       .tokens
       .iter()
@@ -38,12 +40,20 @@ impl LayoutEngine {
       .map(|(index, token)| {
         // The selection covering all of a token, then the pointer on it, give it their looks.
         let covered = selection.is_some_and(|(start, end)| start <= token.range.start && token.range.end <= end);
-        let look = match (&token.style.selected, &token.style.hovered) {
-          (Some(selected), _) if covered => selected.as_ref(),
-          (_, Some(look)) if hovered == Some(index) => look.as_ref(),
-          _ => &token.style,
+        let share = crate::node::node_kind::text_input::token_fade::share(index, hovered, fade, now, length);
+        let mut style = match (&token.style.selected, &token.style.hovered) {
+          (Some(selected), _) if covered => self.token_style(selected, token.range.clone(), base, width),
+          // On its way between its rest look and the one under the pointer: their colors mixed.
+          (_, Some(look)) if share > 0.0 && share < 1.0 => {
+            let (rest, over) = (
+              self.token_style(&token.style, token.range.clone(), base, width),
+              self.token_style(look, token.range.clone(), base, width),
+            );
+            mix_tokens(rest, over, share)
+          }
+          (_, Some(look)) if share >= 1.0 => self.token_style(look, token.range.clone(), base, width),
+          _ => self.token_style(&token.style, token.range.clone(), base, width),
         };
-        let mut style = self.token_style(look, token.range.clone(), base, width);
         style.chip.atomic = token.atomic;
         // A token in its selected look is its own sign of the selection: it is drawn over the highlight.
         style.chip.over_selection = covered && token.style.selected.is_some();
@@ -209,4 +219,42 @@ impl LayoutEngine {
     };
     if max_width.is_nan() { 0.0 } else { max_width.max(0.0) }
   }
+}
+
+/// A token `share` of the way from its look `rest` to its look `over`: their colors mixed, of its text, its fill,
+/// its line and its icon, and the rest of it the look it is nearer.
+fn mix_tokens(rest: TokenStyle, over: TokenStyle, share: f32) -> TokenStyle {
+  use crate::node::color::Color;
+  let mix = |a: Color, b: Color| {
+    let channel = |a: u8, b: u8| (f32::from(a) + (f32::from(b) - f32::from(a)) * share).round() as u8;
+    Color::new(
+      channel(a.r(), b.r()),
+      channel(a.g(), b.g()),
+      channel(a.b(), b.b()),
+      channel(a.a(), b.a()),
+    )
+  };
+  let clear = |color: Color| Color::new(color.r(), color.g(), color.b(), 0);
+  let mut style = if share < 0.5 { rest.clone() } else { over.clone() };
+  style.text.color = mix(rest.text.color, over.text.color);
+  style.fill = match (rest.fill, over.fill) {
+    (Some((a, _)), Some((b, radius))) => Some((mix(a, b), radius)),
+    (Some((a, radius)), None) => Some((mix(a, clear(a)), radius)),
+    (None, Some((b, radius))) => Some((mix(clear(b), b), radius)),
+    (None, None) => None,
+  };
+  style.chip.border = match (rest.chip.border, over.chip.border) {
+    (Some((width, a)), Some((_, b))) => Some((width, mix(a, b))),
+    (Some((width, a)), None) => Some((width, mix(a, clear(a)))),
+    (None, Some((width, b))) => Some((width, mix(clear(b), b))),
+    (None, None) => None,
+  };
+  if let (Some(icon), Some(a), Some(b)) = (
+    style.chip.icon.as_mut(),
+    rest.chip.icon.as_ref().map(|icon| icon.style.color),
+    over.chip.icon.as_ref().map(|icon| icon.style.color),
+  ) {
+    icon.style.color = mix(a, b);
+  }
+  style
 }

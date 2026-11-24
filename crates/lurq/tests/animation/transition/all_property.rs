@@ -147,5 +147,7 @@ fn transition_state_is_cleared_when_root_is_replaced() {
     .hovered(|s| s.size(240.0, 32.0));
   rt.set_root(second);
 
-  assert_eq!(render_pass(&mut rt).rects[0].width, 120.0);
+  // A node that comes in under the pointer is as it is there at once, and nothing of the old run is left.
+  assert_eq!(render_pass(&mut rt).rects[0].width, 240.0);
+  assert!(!rt.has_active_timeline());
 }

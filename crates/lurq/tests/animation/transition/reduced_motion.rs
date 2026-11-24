@@ -111,3 +111,22 @@ fn reducing_motion_while_the_app_runs_takes_effect_on_the_next_change() {
 
   assert_eq!(stage.fill().0, 200.0);
 }
+
+#[test]
+fn an_app_that_reduces_fades_too_has_every_transition_end_at_once() {
+  let mut stage = Stage::new(Some(true), growing_and_fading());
+  stage.app.theme().set_reduce_fades(true);
+  stage.at(0);
+
+  stage.tree.mouse_move(50.0, 20.0);
+  stage.at(0);
+  assert_eq!(stage.fill(), (200.0, 0.0), "the size and the fade at once");
+  // Only while motion is reduced.
+  let mut stage = Stage::new(Some(false), growing_and_fading());
+  stage.app.theme().set_reduce_fades(true);
+  stage.at(0);
+  stage.tree.mouse_move(50.0, 20.0);
+  stage.at(0);
+  stage.at(500);
+  assert_eq!(stage.fill(), (150.0, 0.5));
+}

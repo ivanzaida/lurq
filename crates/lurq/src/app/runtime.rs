@@ -1965,6 +1965,8 @@ impl Tree {
       || !self.leaving_children.is_empty()
       // A wheel's scroll on its way is an animation of the offset.
       || self.wheel_scrolling()
+      // The look of a token under the pointer on its way.
+      || crate::node::node_kind::text_input::token_fade::active()
   }
 
   /// When the running animations and transitions next draw something else, as of the last pass: the end of a
@@ -1992,7 +1994,9 @@ impl Tree {
     // A frame callback wants the next frame at once, as a span that changes continuously does.
     let frame_callback = self
       .has_frame_callbacks()
-      .then(|| self.frames_ran_at.unwrap_or_else(|| self.now()));
+      .then(|| self.frames_ran_at.unwrap_or_else(|| self.now()))
+      // A token's look on its way changes continuously: its next frame is due at once.
+      .or_else(|| crate::node::node_kind::text_input::token_fade::active().then(|| self.now()));
     transition
       .into_iter()
       .chain(animation)
@@ -3293,6 +3297,9 @@ impl Tree {
       self.tick_wheel_scrolls(app.theme());
     }
     crate::core::element_ref::take_observed_before_paint();
+    // The layouts of this pass are one frame to the transitions: what a node comes in with in them is there at once.
+    self.transition_engine.begin_pass();
+    self.animation_engine.begin_pass();
     let mut layout_updated = {
       crate::app::profile_support::frame_section!("update_layout");
       self.update_layout(app)
@@ -7770,6 +7777,8 @@ impl Tree {
     let Some(mut app) = self.root_ctx.as_ref().and_then(Ctx::app_handle) else {
       return;
     };
+    self.transition_engine.begin_pass();
+    self.animation_engine.begin_pass();
     let mut laid_out = self.update_layout(&mut app);
     if self.resolve_pending_scroll_into_view() {
       laid_out |= self.update_layout(&mut app);
@@ -8158,6 +8167,8 @@ impl Tree {
   }
 
   fn update_layout(&mut self, app: &mut App) -> bool {
+    // The looks of tokens on their way are laid out for this frame's moment.
+    crate::node::node_kind::text_input::token_fade::begin_frame(self.now());
     let component_dirty_before_rebuild = self.root_ctx.as_ref().is_some_and(Ctx::any_dirty);
     self.transition_engine.begin_frame();
     self.animation_engine.begin_frame();

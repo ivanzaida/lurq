@@ -686,8 +686,9 @@ impl Component for SegmentedControlPage {
     let chosen = periods[self.period.get().min(2)].1;
     let live = items()
       .child(item(
-        SegmentedControl::new(self.period.clone(), periods),
-        &format!("the signal has: {chosen}"),
+        // Mounted: its thumb slides to the segment chosen next.
+        SegmentedControl::new(self.period.clone(), periods).mount(ctx),
+        &format!("mounted, the thumb slides · the signal has: {chosen}"),
       ))
       .child(item(
         SegmentedControl::new(
@@ -819,7 +820,8 @@ impl Component for SegmentedControlPage {
             "SegmentedControl::new(period, [(Period::Day, \"Day\"), ..])",
             &[
               "// period, view: Signal<usize>",
-              "SegmentedControl::new(period.clone(), [(0usize, \"Day\"), (1, \"Week\"), (2, \"Month\")])",
+              "// Mounted, its thumb slides to the segment chosen next.",
+              "SegmentedControl::new(period.clone(), [(0usize, \"Day\"), (1, \"Week\"), (2, \"Month\")]).mount(ctx)",
               "",
               "// With icons.",
               "SegmentedControl::new(view.clone(), [",

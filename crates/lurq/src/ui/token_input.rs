@@ -779,6 +779,10 @@ impl TokenInputView {
       .padding_end(end)
       .radius(radius)
       .text_style(text.clone());
+    // The look under the pointer comes and goes as long as the token's first transition says.
+    if let Some(transition) = token.transitions.as_ref().and_then(|transitions| transitions.first()) {
+      style = style.fade(transition.resolve(theme).duration);
+    }
     if let Some(Dimension::Px(height)) = token.height.and_then(|height| height.resolve(theme)) {
       style = style.height(height);
     }
@@ -1031,6 +1035,11 @@ impl Themed for TokenInput {
           .gap(4.0)
           .radius(RadiusSize::Sm)
           .background(Secondary)
+          // Its look under the pointer comes and goes in the fast time.
+          .transition(crate::ui::PartTransition::new(
+            crate::animation::Transition::background_color(),
+            crate::app::theme::MotionDuration::Fast,
+          ))
       })
       .base(TokenLabel, |s| {
         s.typography(TypographyStyle::Body)

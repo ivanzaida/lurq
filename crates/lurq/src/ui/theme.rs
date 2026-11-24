@@ -12,7 +12,7 @@ use super::{
   icon::SpinMotion,
   part_style::PartStyle,
   recipe::{Case, Name, Recipe, ResolvedRecipe, ResolvedStyles, resolve_styles},
-  skeleton::SkeletonMotion,
+  skeleton::{SkeletonAnimation, SkeletonMotion},
 };
 use crate::{
   app::theme::{Breakpoint, Theme},
@@ -198,6 +198,7 @@ pub struct UiDefinition {
   bare: bool,
   spin_motion: SpinMotion,
   skeleton_motion: SkeletonMotion,
+  skeleton_animation: SkeletonAnimation,
 }
 
 impl UiDefinition {
@@ -264,6 +265,17 @@ impl UiDefinition {
   /// How every skeleton moves that is not told its own motion: smooth unless set.
   pub fn skeleton_motion(&self) -> SkeletonMotion {
     self.skeleton_motion
+  }
+
+  /// What every skeleton does while it waits that is not told its own: see [`SkeletonAnimation`].
+  pub fn set_skeleton_animation(&mut self, animation: SkeletonAnimation) -> &mut Self {
+    self.skeleton_animation = animation;
+    self
+  }
+
+  /// What every skeleton does while it waits that is not told its own: a pulse unless set.
+  pub fn skeleton_animation(&self) -> SkeletonAnimation {
+    self.skeleton_animation
   }
 
   /// Gives a component a recipe in place of the design's, all of it: nothing
@@ -472,6 +484,23 @@ impl Theme {
   pub fn set_skeleton_motion(&self, motion: SkeletonMotion) {
     self.update_ui(|ui| {
       ui.set_skeleton_motion(motion);
+    });
+  }
+
+  /// What every skeleton does while it waits that is not told its own ([`Skeleton::animation`]): a pulse unless
+  /// set. `SkeletonAnimation::Shimmer` has every skeleton shimmer, the sheen crossing it in the period of the
+  /// theme's [`skeleton_motion`](Self::skeleton_motion) (`SkeletonMotion::SMOOTH.period(..)`).
+  ///
+  /// [`Skeleton::animation`]: super::Skeleton::animation
+  pub fn skeleton_animation(&self) -> SkeletonAnimation {
+    self.track_access();
+    self.with_ui(UiDefinition::skeleton_animation)
+  }
+
+  /// Gives every skeleton that is not told its own animation `animation`.
+  pub fn set_skeleton_animation(&self, animation: SkeletonAnimation) {
+    self.update_ui(|ui| {
+      ui.set_skeleton_animation(animation);
     });
   }
 

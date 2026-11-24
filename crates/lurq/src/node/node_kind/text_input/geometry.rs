@@ -39,6 +39,7 @@ impl TextInputState {
     let old_typing = (old_inner.typing, old_inner.undo_grouping, old_inner.typing_pause);
     let old_styled = old_inner.styled.clone();
     let old_hover = (old_inner.hovered_token, old_inner.token_icon_hovered);
+    let old_fade = (old_inner.token_fade, old_inner.token_fade_length);
     let old_caret_told = old_inner.caret_told;
     let layout_dirty = if layout_signature_matches {
       old.layout_dirty.load(Ordering::Relaxed)
@@ -72,6 +73,7 @@ impl TextInputState {
     inner.styled.copy_runtime_state_from(&old_styled);
     // The pointer is where it was: on the same token, until it moves.
     (inner.hovered_token, inner.token_icon_hovered) = old_hover;
+    (inner.token_fade, inner.token_fade_length) = old_fade;
     inner.caret_told = old_caret_told;
     self.layout_dirty.store(layout_dirty, Ordering::Relaxed);
   }

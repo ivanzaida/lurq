@@ -315,19 +315,17 @@ fn the_item_of_the_page_before_is_not_left_veiled_by_a_pointer_that_crossed_it()
   assert_eq!(stage.fill_color("drafts"), Some(light(PaletteColor::Background)));
 
   // The pointer comes onto the side bar across the item of the page before, a frame on it, and stops in the
-  // side bar's own padding beside it, on no item.
+  // side bar's own padding beside it, on no item. The veil it began to fade in fades out again.
   let (x, y) = stage.center("inbox");
   stage.tree.mouse_move(x, y);
   stage.frame();
-  assert!(stage.fill_color("inbox").is_some(), "veiled under the pointer");
   let (left, ..) = stage.bounds("sidebar");
   stage.tree.mouse_move(left + 2.0, y);
   stage.frame();
-
-  assert_eq!(stage.fill_color("inbox"), None, "no veil in the frame the pointer left");
-  assert!(!stage.tree.has_active_timeline(), "and no fade left on its way to one");
   stage.pass();
-  assert_eq!(stage.fill_color("inbox"), None, "nor once everything has settled");
+
+  assert_eq!(stage.fill_color("inbox"), None, "no veil once the fade is over");
+  assert!(!stage.tree.has_active_timeline(), "and no fade left on its way to one");
   assert_eq!(stage.fill_color("drafts"), Some(light(PaletteColor::Background)));
 }
 

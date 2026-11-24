@@ -922,3 +922,50 @@ fn on_blur_hears_the_draft_of_a_list_after_commit_on_blur_made_an_item_of_it() {
     }
   }
 }
+
+#[test]
+fn the_look_of_a_token_under_the_pointer_comes_and_goes_by_degrees() {
+  let value = Signal::new("rust wgpu ".to_owned());
+  let bound = value.clone();
+  let mut stage = Stage::new(move |_| Column::new().padding(8.0).child(tags(bound.clone())).into());
+  let (rest, over) = (light(PaletteColor::Secondary), light(PaletteColor::SecondaryHover));
+  let chip = tokens(&stage, rest).swap_remove(0);
+  let (x, y) = (chip.x + 6.0, chip.y + chip.height / 2.0);
+  // The fill of the first token: neither the rest nor the hover while it is on its way.
+  let first = |stage: &Stage| {
+    stage
+      .quads()
+      .into_iter()
+      .filter(|quad| {
+        matches!(&quad.content, QuadContent::Rect { .. }) && quad.border_radius.is_some() && quad.height <= 30.0
+      })
+      .find(|quad| (quad.x - chip.x).abs() < 0.5 && (quad.y - chip.y).abs() < 0.5)
+      .and_then(|quad| match quad.content {
+        QuadContent::Rect { color, .. } => Some(color),
+        _ => None,
+      })
+  };
+  stage.tree.mouse_move(x, y);
+  stage.pass_after(std::time::Duration::ZERO);
+  stage.pass_after(std::time::Duration::from_millis(60));
+  let on_its_way = first(&stage);
+  assert!(
+    on_its_way.is_some_and(|fill| fill != rest && fill != over),
+    "on its way to the hover: {on_its_way:?}"
+  );
+  assert!(stage.tree.has_active_timeline(), "and drawing frames for it");
+  stage.pass();
+  assert_eq!(first(&stage), Some(over));
+  assert!(!stage.tree.has_active_timeline());
+  // And back as the pointer leaves it.
+  stage.tree.mouse_move(390.0, 290.0);
+  stage.pass_after(std::time::Duration::ZERO);
+  stage.pass_after(std::time::Duration::from_millis(60));
+  let back = first(&stage);
+  assert!(
+    back.is_some_and(|fill| fill != rest && fill != over),
+    "on its way back: {back:?}"
+  );
+  stage.pass();
+  assert_eq!(first(&stage), Some(rest));
+}

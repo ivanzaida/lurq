@@ -3386,6 +3386,10 @@ impl Node {
 
   pub fn select_style(mut self, style: crate::node::SelectStyle) -> Self {
     let trigger = style.resolved_trigger(false, false, false);
+    // The trigger the engine draws changes its fill and its edge with these, as a node's style does.
+    for transition in &style.trigger_transitions {
+      self.push_transition(transition.clone());
+    }
     if let Some(padding) = trigger.padding {
       self = self.padding_custom(padding);
     }
@@ -4685,7 +4689,7 @@ impl Node {
     self
   }
 
-  fn push_transition(&mut self, spec: Transition) {
+  pub(crate) fn push_transition(&mut self, spec: Transition) {
     self.transitions.push(spec);
     self.layout_cache.invalidate();
   }
@@ -5904,10 +5908,44 @@ impl Node {
   pub fn get_border(&self) -> Option<Borders> {
     let mut b = self.state_style().border.or_else(|| self.border.as_deref().cloned());
     let overrides = &self.animation_overrides;
+    // A border that went, fading in the shape it had: the node has none of its own.
+    if b.is_none() {
+      b = overrides.iter().find_map(|(prop, val)| match (prop, val) {
+        (
+          crate::animation::AnimatableProperty::BorderColor,
+          crate::animation::AnimatableValue::Edge {
+            widths,
+            placement,
+            dash,
+            ..
+          },
+        ) => {
+          let side = |width: Option<f32>| {
+            width.map(|width| Border {
+              width: BorderSizeValue::Px(width),
+              color: BackgroundColor::Color(Color::new(0, 0, 0, 0)),
+              placement: *placement,
+              dash: *dash,
+            })
+          };
+          Some(Borders {
+            top: side(widths[0]),
+            right: side(widths[1]),
+            bottom: side(widths[2]),
+            left: side(widths[3]),
+          })
+        }
+        _ => None,
+      });
+    }
     if let Some(ref mut borders) = b {
       for (prop, val) in overrides.iter() {
         match (prop, val) {
-          (crate::animation::AnimatableProperty::BorderColor, crate::animation::AnimatableValue::Color(c)) => {
+          (crate::animation::AnimatableProperty::BorderColor, crate::animation::AnimatableValue::Color(c))
+          | (
+            crate::animation::AnimatableProperty::BorderColor,
+            crate::animation::AnimatableValue::Edge { color: c, .. },
+          ) => {
             borders.set_color(*c);
           }
           (crate::animation::AnimatableProperty::BorderWidthTop, crate::animation::AnimatableValue::Float(v)) => {

@@ -27,6 +27,8 @@ pub struct InputTokenStyle {
   pub(crate) icon: Option<InputTokenIcon>,
   pub(crate) hovered: Option<Arc<InputTokenStyle>>,
   pub(crate) selected: Option<Arc<InputTokenStyle>>,
+  /// How long the look under the pointer takes to come and go: none, at once, unless told.
+  pub(crate) fade: Option<std::time::Duration>,
 }
 
 impl InputTokenStyle {
@@ -46,7 +48,16 @@ impl InputTokenStyle {
       icon: None,
       hovered: None,
       selected: None,
+      fade: None,
     }
+  }
+
+  /// How long the look under the pointer ([`Self::hovered`]) takes to come onto the token and to leave it: its
+  /// colors, of its text, its fill, its line and its icon, run from one look to the other over `duration`. At once
+  /// unless told.
+  pub fn fade(mut self, duration: std::time::Duration) -> Self {
+    self.fade = Some(duration);
+    self
   }
 
   /// The weight of the token's text, over its type: the input's own, or [`Self::text_style`]'s. A code field's

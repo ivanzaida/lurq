@@ -161,11 +161,13 @@ let swipes = lurq::ui::touch_form();
 | `padding_x(spacing)`, `padding_y(spacing)`, `gap(spacing)` | Padding across and down, and the room between the part's children |
 | `padding_top(spacing)`, `padding_bottom(spacing)`, `padding_start(spacing)`, `padding_end(spacing)` | The padding of one side, laid over `padding_y` or `padding_x`: 6 above and 4 under a label. Start is the left, end the right. `paddings()` reads the four as they come out: top, end, bottom, start |
 | `width(length)`, `height(length)`, `min_width(length)`, `min_height(length)`, `max_width(length)`, `square(length)` | A `Length`: pixels, a step of the control, density or icon scale, `Length::Fill`. `max_width` is the most the part grows to |
+| `rotate(degrees)` | Turns the part about its middle, clockwise, without moving what is around it; a transition of its transform (`Transition::transform()`) runs it: an accordion's chevron turns up as its item opens. A collapsible turns its own the same way where a recipe says so: `.state(CollapsibleState::Open, CollapsiblePart::Chevron, \|s\| s.rotate(90.0))` with `icon(icons::CHEVRON_RIGHT)`, its chevron turning in the base time |
 | `justify(Justify)` | Where the part's children stand along it, where it is a row or a column: `Justify::End` puts the text of a part with a width of its own at its end, as a menu's keys in a column that ends at its edge (`s.width(96.0).justify(Justify::End)` on `MenuItemPart::Shortcut`). Where its renderer puts them unless told |
 | `typography(role)` | Every field of the part's text at once |
 | `font_family(family)`, `font_size(px)`, `weight(weight)`, `font_style(style)`, `line_height(ratio)`, `letter_spacing(px)` | One field of the text, over the role's |
 | `transition(PartTransition::new(Transition::background_color(), MotionDuration::Fast))` | A transition, with a duration and an easing of the theme's |
 | `enter(PartAnimation::new(FADE_IN, MotionDuration::Base, MotionEasing::Enter))`, `exit(PartAnimation::new(FADE_OUT, ..))` | Keyframes the part plays as it appears and as it leaves, with a duration and an easing of the theme's. A part that leaves is kept while it plays where what holds it keeps leaving parts: an overlay's layer, or a child with an id or a key of an element with `presence()`. `ui::FADE_IN` and `ui::FADE_OUT` are an opacity from nothing to whole and back, which every window has; an app's own are set on its theme (`Theme::set_keyframes`) |
+| `enter_with_parent(false)` | The part's enter plays only where the part comes into what was there (a panel keyed by its tab, as another tab is chosen), not where it comes in with what holds it in one frame (the page's first paint), where it is there at once. It plays both ways unless told (`Animation::plays_with_parent` under it) |
 | `reduced_enter(Some(PartAnimation::new(FADE_IN, ..)))`, `reduced_exit(None)` | What the part plays in place of its enter or its exit while motion is reduced (`Theme::reduced_motion`): another animation, or `None`, for a part there, or gone, at once. A part that does not say plays its enter and exit |
 | `cursor(icon)` | The cursor over the part |
 
@@ -595,7 +597,8 @@ SegmentedControl::controlled(theme.preferred_appearance(), [(None, "System"), (S
 
 - The control is one choice: Tab stops in it once, at the chosen segment; Left and Right move the focus to the next segment and choose it, Home and End the first and the last, and a click chooses one.
 - A choice is a `(value, label)` or a `ui::Choice`: `icon(name)`, `icon_only(bool)` and `disabled(bool)`, and of its own `id(..)` (the segment's id, after which its parts are named: `<id>-label`, `<id>-count`), `count(n)` (a number after the label, in the part `Count`, 12 in `MutedForeground`), `state(name, on)` (a state of the theme's recipe on that segment alone, resolved over the control's and `Selected`: a choice that warns) and `element_ref(ElementRef)` (on the segment, for a popup it opens to hang from). A [radio group](#radio) draws the same; a toggle group and a chip group take a choice's `id` and `state`.
-- Parts: `SegmentedControlPart::Root`, the track (`Muted`, padded 3, its segments 2 apart); `Segment`; `Label`; `Icon`; `Count`. States: `Selected`, of a segment (a `Background` surface with a small shadow); `Disabled`; `FullWidth`; `Invalid`.
+- Parts: `SegmentedControlPart::Root`, the track (`Muted`, padded 3, its segments 2 apart); `Segment`; `Label`; `Icon`; `Count`; `Thumb`, the chosen segment's surface as one node (`Background`, the small shadow and radius) of a mounted control. States: `Selected`, of a segment (a `Background` surface with a small shadow); `Disabled`; `FullWidth`; `Invalid`; `Thumb`, while the thumb is under the chosen segment, which then draws its ink alone.
+- `control.mount(ctx)` keeps where its segments were laid out: its thumb stands under the chosen one from the first frame and slides to the one chosen next (`offset_x` and `width` in the fast time), at once where motion is reduced. Converted into an element, a control has no thumb and its chosen segment draws its own surface, as before.
 
 ## Link
 
@@ -1754,7 +1757,7 @@ Tabs::new(canvas, [(0, "Canvas"), (1, "Layout"), (2, "Text")])
 - A tab disabled with a reason (`Tab::disabled_reason`) is a disabled tab whose reason is its tooltip, shown as the pointer rests on it, and its description to tooling (`a11y_description`). A tab given a tooltip of the app's (`Tab::tooltip`, `Tab::hint`) shows it whether it can be selected or not, an explanation beside a lock on a tab that opens; on a disabled tab it takes the place of the reason's tooltip, the reason staying its description. A renderer gets the tab with its tooltip from `view.tab_element(index)` (`view.tab(index)` is the button alone); `TabEntry` has the `reason`, the `badge` and the tab's own `states`.
 - The panel of a tab is built only while the tab is selected, keyed by the tab, so one tab's panel never takes another's nodes. What the runtime keeps of a panel's nodes (a scroll offset, a caret, an open select) goes when another tab is selected; what the app keeps in its own signals stays. A panel that is to come back as it was keeps its state in the app: its values in signals made in the app's `create`, its scroll in a `ScrollState` it gives the scroll area (`with_scroll_state`).
 - The panel is a stop of Tab itself, so a panel with nothing focusable in it is still reached and read; its ring is the color and width of the focus ring, 4 out from the panel, clear of what runs to its edges.
-- Parts: `TabsPart::Root` (the list and the panel), `List`, `Tab` (what is pressed and focused), `Label`, `Icon`, `TrailingIcon`, `Count`, `Badge` (lurq's, the board has none: a pill of `Primary` padded 6 and 1, its count 11/500 in `PrimaryForeground`, the other way round on a selected pill tab), `Dot`, `CountSkeleton` (7 by 10), `Separator`, `Note`, `End`, `Panel`, and in the overflowing form `Bar` (the row of the list, its buttons and More), `ScrollButton`, `ScrollIcon`, `More`, `MoreLabel`, `MoreIcon`. A tab's parts are styled in its states: `TabsState::Selected`, `Disabled`, `Inert`; the whole has `Horizontal` or `Vertical`, and `Overflow`. Variants: `TabsVariant::Default`, `Line`, `Pill`.
+- Parts: `TabsPart::Root` (the list and the panel), `List`, `Tab` (what is pressed and focused), `Label`, `Icon`, `TrailingIcon`, `Count`, `Badge` (lurq's, the board has none: a pill of `Primary` padded 6 and 1, its count 11/500 in `PrimaryForeground`, the other way round on a selected pill tab), `Dot`, `CountSkeleton` (7 by 10), `Separator`, `Note`, `End`, `Panel`, and in the overflowing form `Bar` (the row of the list, its buttons and More), `ScrollButton`, `ScrollIcon`, `More`, `MoreLabel`, `MoreIcon`, and `Indicator`: the mark of the selected tab as one node for the list, the `Line` form's line of 2 in `Foreground` under it (at its start down the side). Tabs that are mounted place it where the selected tab was laid out, at the list's corner moved by its offset, so that its transitions (`offset_x` and `width` in the base time along the top, `offset_y` and `height` down the side) slide it to the tab chosen next; it stands where it is from the first frame, and with motion reduced it moves at once. Tabs built with nothing kept draw it as a line of the selected tab's own. A tab's parts are styled in its states: `TabsState::Selected`, `Disabled`, `Inert`; the whole has `Horizontal` or `Vertical`, and `Overflow`. Variants: `TabsVariant::Default`, `Line`, `Pill`.
 - In the design the default list is a rail of `Muted`, `radius-lg`, padded 3, its tabs 2 apart; a tab is 28 high, padded 12, `radius-md`, its label 13/500 in `MutedForeground` and a count of 12 in `MutedForeground` 6 after it; the selected tab is `Background` with the small shadow and its label in `Foreground`. The line list is 44 high over a line of 1 in `Border`, as wide as what holds it, its tabs 28 apart; a label is 14 in `MutedForeground` and a count 13 at 0.7, 8 apart; the selected tab is underlined with 2 in `Foreground`, its label 500 in `Foreground` and its count whole. A separator is 1 by 16 in `Border`. Down the side the line list is at least 180 wide with a line of 1 in `Border` at its start, a tab 32 high, padded 12, its label 13, and the selected tab marked with 2 in `Foreground` at its start. The pills are 30 high, padded 14, round, 4 apart, the label 13/500; the selected one is `Primary` with its label in `PrimaryForeground`. The panel is 16 under the list, or 24 beside it.
 - A tab follows the [density](../theme/#density) by the steps of a row, 8 lower at compact, 8 and 12 higher at comfortable and touch, from the design's height of each form: the default's 28 is 20, 36 and 40; a line's 44 (its list with it) is 36, 52 and 56, its 32 standing and its 40 overflowing (the bar and the list with it) the same steps; a pill's 30 is 22, 38 and 42.
 - The overflowing form is a row 40 high (over the line in the line variant): the list, its tabs 20 apart with labels of 13, between two scroll buttons 28 wide with chevrons of 14 in `Foreground`, and More at the end, set apart by a line of 1 in `Border`, padded 8 and 4, its label 13 and a chevron of 14 in `MutedForeground`. A scroll button moves the list most of the way it shows; it is for the pointer and no stop of Tab, since the arrow keys scroll the list to the tab they select. More opens a menu of every tab (`ui::Menu`), the selected one marked as a radio and a disabled one not to be chosen; choosing one selects it and scrolls the list the least that shows it.
@@ -1818,7 +1821,8 @@ Accordion::multiple(sections, [
 - In the design each item has a line of 1 in `Border` under it. Its header is 14 above and under its label, which is
 - A header follows the [density](../theme/#density): 10, 18 and 20 above and under its label at compact, comfortable and touch, the steps of a row from the design's 14.
   in the body's type (14) at medium weight in `Foreground`, with a chevron of 16 in `MutedForeground` at its end, 12
-  from the label: down while the item is closed, up while it is open. What it opens is in the body's type in
+  from the label: down while the item is closed, turned up while it is open, in the base time (its part's
+  `rotate(180.0)` in the state `Open`, with a transition of its transform). What it opens is in the body's type in
   `MutedForeground` at a line height of 1.5, 14 above the line. A disabled header is dimmed; the ring of the focus is
   around the header.
 - To what reads the tree (`lurq_snapshot` of the MCP server) a header is a `button` called by its label, with
@@ -1850,10 +1854,12 @@ Collapsible::text("Why is this here?", "Because the build needs it.")
 | `bind(Signal<bool>)` | Open while the signal is true, which a press of the header turns; the handlers of `on_open_change` are told after it is set |
 | `on_open_change(Fn(bool))` | Called on a press of the header with what the collapsible is to be: open if it was closed. Not for what the app sets. A second one is called after the first |
 | `icon(..)`, `open_icon(..)` | The icon of the chevron by its name in the theme's set, `chevrons-vertical` unless told otherwise, and the one while it is open, the same unless told otherwise. `icon(None)` takes the chevron away |
+| `header(element)` | An element of the app's in the header in place of the label's text: a title with a count and marks of its own. The label is still what the header is called to what reads the tree, and the whole header is pressed |
 | `disabled(bool)`, `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `force(..)`, `id`, `key` | As a [button](#button) has them. `id` is the id of the header |
 
 - The whole header is pressed; Tab reaches it, and Space and Enter press it. What it holds opens and closes as an
-  accordion's item does.
+  accordion's item does. A chevron that turns as it opens, in place of one icon for another: `icon(icons::CHEVRON_RIGHT)`
+  and `.rules(&Recipe::new().state(CollapsibleState::Open, CollapsiblePart::Chevron, |s| s.rotate(90.0)))`.
 - Parts: `CollapsiblePart::Root`, `Trigger`, `Label`, `Chevron`, `Panel`, `Body`. States: `CollapsibleState::Open`,
   `Disabled`.
 - In the design the label is in the label's type (13, medium), `Foreground`; at the end of the header the
@@ -1863,6 +1869,45 @@ Collapsible::text("Why is this here?", "Because the build needs it.")
 - A renderer that draws another collapsible (`CollapsibleRenderer`) starts from `view.trigger()`, the behavior with the
   header's style, and `view.panel()`, what opens and closes with what it holds; `view.label()` and `view.chevron()`
   (none where it has no icon) are the default ones.
+
+## Reveal
+
+What opens and closes in place, for any element of the app's, with no header of its own: rows a choice shows, an item
+that comes into a live list, an answer that folds to a line.
+
+```rust
+use lurq::ui::Reveal;
+
+// shown: Signal<bool>
+Reveal::new(shown.get(), rows).key("rows");
+```
+
+- Opening, its height runs from nothing to its content's in the theme's base time, and then what it holds fades in;
+  closing, what it holds fades out first, kept painted and inert, and then its height runs back to nothing. Where
+  motion is reduced it opens and closes at once.
+- Its height is a transition of its node, which stays from one render to the next where it stays in one place of the
+  tree, or has a key.
+- Parts: `RevealPart::Root` (what opens, closes and clips) and `Body` (what it holds). State: `RevealState::Open`.
+  `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` as a [button](#button) has them; a theme's
+  `RevealRenderer` draws one of its own from `RevealView`.
+
+## Fading Text
+
+A short text a live view updates, which changes in its slot by a fade: a count (*4*, *12*), a short time (*12m*), a
+share (*41 %*).
+
+```rust
+use lurq::ui::FadingText;
+
+FadingText::new(&format!("{waiting} waiting")).key("waiting");
+```
+
+- The new words fade in over the old ones, which fade out, in the theme's fast time; on the page's first paint they are
+  there at once. Words that say the same again do not fade. The slot is as wide as the longer of the two while they
+  change.
+- Parts: `FadingTextPart::Root` (the slot) and `Text` (the words: their type and color, their enter and exit, with
+  `enter_with_parent(false)`). `state`, `style`, `rules`, `id`, `key` as a [button](#button) has them; a theme's
+  `FadingTextRenderer` draws one of its own from `FadingTextView`.
 
 ## Breadcrumb
 
@@ -2630,7 +2675,7 @@ Skeleton::status(
 | `width(length)`, `height(length)` | The app's size over the shape's. For a paragraph, the width of all of it and the height of each line |
 | `min_width`, `max_width`, `min_height`, `max_height`, `radius(..)` | The rest of what an app lays on a bone: its least and most sizes and its corners, over the shape's. For a paragraph, the widths are of all of it, the heights and the radius of each line |
 | `flex(factor)`, `flex_shrink(factor)` | Its share of the room left in its row or column, and how much of its size it gives up where there is too little, as an element's. lurq has no margins: a gap or a padding around it says where it stands |
-| `animation(SkeletonAnimation)` | `Pulse` (the default), `Shimmer` or `None` |
+| `animation(SkeletonAnimation)` | `Pulse`, `Shimmer` or `None`, in place of the theme's (`theme.set_skeleton_animation(..)`, `Pulse` unless set): `app.theme().set_skeleton_animation(SkeletonAnimation::Shimmer)` has every skeleton not told its own shimmer, its sheen crossing it in the period of the theme's motion |
 | `motion(SkeletonMotion)` | How it pulses or shimmers, in place of the theme's (`theme.set_skeleton_motion(..)`): `SkeletonMotion::SMOOTH` (the default), or `SkeletonMotion::stepped(per_second)`, with `.period(duration)` and `.dim_to(opacity)` |
 | `Skeleton::status(label, content)` | A `status` called `label` around a group of skeletons |
 | `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` | As a [button](#button) has them |

@@ -10,7 +10,7 @@ use lurq::{
   core::Signal,
   layout::Alignment,
   node::Element,
-  ui::{Badge, BadgePart, BadgeShape, BadgeSize, BadgeVariant, Button, ButtonVariant, FontFamily, icons},
+  ui::{Badge, BadgePart, BadgeShape, BadgeSize, BadgeVariant, Button, ButtonVariant, FadingText, FontFamily, icons},
 };
 
 use crate::{
@@ -101,6 +101,8 @@ pub struct BadgePage {
   square: Signal<bool>,
   show_zero: Signal<bool>,
   on: Signal<bool>,
+  /// The waiting count the fading text says.
+  waiting: Signal<u32>,
 }
 
 impl BadgePage {
@@ -339,6 +341,7 @@ impl Component for BadgePage {
       square: ctx.signal(false),
       show_zero: ctx.signal(false),
       on: ctx.signal(false),
+      waiting: ctx.signal(4),
     }
   }
 
@@ -420,6 +423,19 @@ impl Component for BadgePage {
         Badge::count(0).label("notifications").on(bell("Notifications")),
         "0: the button alone",
       ));
+    // A count that a live view updates: its new words fade in over the old ones.
+    let waiting = self.waiting.clone();
+    let fading = items().child(
+      Row::new()
+        .spacing(12.0)
+        .align_items(Alignment::Center)
+        .child(
+          Button::new("One more")
+            .variant(ButtonVariant::Outline)
+            .on_click(move |_| waiting.update(|count| *count += 1)),
+        )
+        .child(FadingText::new(&format!("{} waiting", self.waiting.get())).key("waiting")),
+    );
     let narrow = items()
       .child(item(
         Row::new().width(96.0).child(
@@ -432,7 +448,9 @@ impl Component for BadgePage {
         "truncate · 96, whole in a tooltip",
       ))
       .child(item(
-        Row::new().width(96.0).child(Badge::new("Merged").variant(BadgeVariant::Success).truncate(true)),
+        Row::new()
+          .width(96.0)
+          .child(Badge::new("Merged").variant(BadgeVariant::Success).truncate(true)),
         "room enough",
       ));
     let rows = [
@@ -662,6 +680,16 @@ impl Component for BadgePage {
               "    .tooltip_when_cut(true),",
               ")",
             ],
+          ),
+        ),
+        Section::new(
+          "A count that changes",
+          "A short text a live view updates, a count, a short time, a share, changes in its slot by a fade: the new            words fade in over the old ones in the fast time, and the page's first paint shows them at once.",
+          self.frame.demo(
+            7,
+            fading,
+            "FadingText::new(&count.to_string())",
+            &["FadingText::new(&format!(\"{count} waiting\")).key(\"waiting\")"],
           ),
         ),
         Section::new(

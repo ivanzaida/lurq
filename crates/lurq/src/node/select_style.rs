@@ -225,6 +225,10 @@ impl std::ops::DerefMut for SelectStyle {
 /// What a [`SelectStyle`] holds.
 #[derive(Clone)]
 pub struct SelectStyleParts {
+  /// What the trigger's fill and edge change with, under the pointer, focused and open: none, at once, unless told.
+  pub(crate) trigger_transitions: Vec<crate::animation::Transition>,
+  /// What an option's fill changes with, under the pointer and the keys.
+  pub(crate) option_transitions: Vec<crate::animation::Transition>,
   pub(crate) trigger: SelectPartStyle,
   pub(crate) trigger_hovered: Option<SelectPartStyle>,
   pub(crate) trigger_focused: Option<SelectPartStyle>,
@@ -377,6 +381,8 @@ impl Default for SelectStyle {
     };
     let muted = |part| look.ink(part).unwrap_or(TextColor::Palette(legacy::MUTED));
     Self(Box::new(SelectStyleParts {
+      trigger_transitions: Vec::new(),
+      option_transitions: Vec::new(),
       trigger: SelectPartStyle::new()
         .background(fill(&look, Trigger, None, legacy::TRIGGER))
         .border_inside(BorderSize::Sm, edge(&look, Trigger, None))
@@ -436,6 +442,8 @@ impl SelectStyle {
   /// a `background` or border.
   pub fn unstyled() -> Self {
     Self(Box::new(SelectStyleParts {
+      trigger_transitions: Vec::new(),
+      option_transitions: Vec::new(),
       trigger: SelectPartStyle::default(),
       trigger_hovered: None,
       trigger_focused: None,

@@ -656,3 +656,59 @@ fn a_read_only_select_shows_its_value_on_the_muted_fill_and_does_not_open() {
   assert!(!stage.paints("Dark"), "nor do the keys");
   assert_eq!(value.get(), "light");
 }
+
+#[test]
+fn the_edge_of_the_trigger_changes_under_the_pointer_by_degrees() {
+  let value = Signal::new("system".to_owned());
+  let mut stage = page(&value, |select| select);
+  let input = light(PaletteColor::Input);
+  let ring = light(PaletteColor::Ring);
+  assert_eq!(edge(&mut stage, "select").1, input);
+  let (x, y) = stage.center("select");
+  stage.tree.mouse_move(x, y);
+  stage.pass_after(std::time::Duration::ZERO);
+  stage.pass_after(std::time::Duration::from_millis(60));
+  let on_its_way = edge(&mut stage, "select").1;
+  assert!(
+    on_its_way != input && on_its_way != ring,
+    "on its way to the ring's color: {on_its_way:?}"
+  );
+  stage.pass();
+  assert_eq!(edge(&mut stage, "select").1, ring);
+}
+
+#[test]
+fn an_option_is_highlighted_under_the_pointer_by_degrees() {
+  let value = Signal::new("system".to_owned());
+  let mut stage = page(&value, |select| select);
+  stage.click("select");
+  let quad = stage.text_quad(themes()[2].1).expect("the list is open");
+  let (x, y) = (quad.x + quad.width / 2.0, quad.y + quad.height / 2.0);
+  let highlight = light(PaletteColor::Highlight);
+  let fill = |stage: &Stage| {
+    stage
+      .quads()
+      .into_iter()
+      .filter(|quad| {
+        matches!(&quad.content, QuadContent::Rect { color, .. }
+          if (color.r(), color.g(), color.b()) == (highlight.r(), highlight.g(), highlight.b()) && color.a() > 0)
+          && quad.y <= y
+          && quad.y + quad.height >= y
+      })
+      .map(|quad| match quad.content {
+        QuadContent::Rect { color, .. } => color.a(),
+        _ => 0,
+      })
+      .max()
+  };
+  stage.tree.mouse_move(x, y);
+  stage.pass_after(std::time::Duration::ZERO);
+  stage.pass_after(std::time::Duration::from_millis(40));
+  let on_its_way = fill(&stage);
+  assert!(
+    on_its_way.is_some_and(|alpha| alpha < highlight.a()),
+    "fading in: {on_its_way:?}"
+  );
+  stage.pass();
+  assert_eq!(fill(&stage), Some(highlight.a()));
+}
