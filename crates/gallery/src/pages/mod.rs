@@ -928,7 +928,7 @@ pub const PAGES: &[Page] = &[
     path: "/badge",
     name: "Badge",
     icon: Some("inbox"),
-    about: "badge status label count counter dot indicator unread notification variant success warning info destructive outline size shape icon dot_only adge max show_zero",
+    about: "badge status label count counter dot indicator unread notification variant success warning info destructive outline size shape icon dot_only adge max show_zero fading text cross fade changes",
     group: Group::Data,
     mount: |ctx| ctx.mount::<badge::BadgePage>(()),
   },

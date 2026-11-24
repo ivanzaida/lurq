@@ -1891,6 +1891,24 @@ Reveal::new(shown.get(), rows).key("rows");
   `state(name, on)`, `style(part, ..)`, `rules(&recipe)`, `id`, `key` as a [button](#button) has them; a theme's
   `RevealRenderer` draws one of its own from `RevealView`.
 
+## Fading Text
+
+A short text a live view updates, which changes in its slot by a fade: a count (*4*, *12*), a short time (*12m*), a
+share (*41 %*).
+
+```rust
+use lurq::ui::FadingText;
+
+FadingText::new(&format!("{waiting} waiting")).key("waiting");
+```
+
+- The new words fade in over the old ones, which fade out, in the theme's fast time; on the page's first paint they are
+  there at once. Words that say the same again do not fade. The slot is as wide as the longer of the two while they
+  change.
+- Parts: `FadingTextPart::Root` (the slot) and `Text` (the words: their type and color, their enter and exit, with
+  `enter_with_parent(false)`). `state`, `style`, `rules`, `id`, `key` as a [button](#button) has them; a theme's
+  `FadingTextRenderer` draws one of its own from `FadingTextView`.
+
 ## Breadcrumb
 
 The way to where one is: a step for each place on it, each but the last a link back there, the last the page one is on. As a path control, the folders of a path in a bar, as a file manager has them.

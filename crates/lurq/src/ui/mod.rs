@@ -160,6 +160,7 @@ mod shortcut_recorder;
 mod sidebar;
 #[cfg(feature = "canvas")]
 mod signature_pad;
+mod fading_text;
 mod reveal;
 mod skeleton;
 mod slide;
@@ -385,6 +386,7 @@ pub use input_otp::{
   INPUT_OTP_CARET_BLINK, INPUT_OTP_CARET_PERIOD, InputOtp, InputOtpKind, InputOtpPart, InputOtpRenderer, InputOtpSize,
   InputOtpState, InputOtpView,
 };
+pub use fading_text::{FadingText, FadingTextPart, FadingTextRenderer, FadingTextView};
 pub use reveal::{Reveal, RevealPart, RevealRenderer, RevealState, RevealView};
 pub use kbd::{
   InlineCode, InlineCodePart, InlineCodeRenderer, InlineCodeView, Kbd, KbdKey, KbdPart, KbdRenderer, KbdSize, KbdState,

@@ -502,3 +502,34 @@ fn an_enter_plays_with_its_parent_unless_told() {
     "it fades in with the page: {opacity:?}"
   );
 }
+
+#[test]
+fn a_fading_text_fades_its_new_words_over_its_old_ones_and_not_with_the_page() {
+  use lurq::{core::Signal, ui::FadingText};
+  let count = Signal::new(4u32);
+  let held = count.clone();
+  let mut stage = Stage::first_frame(400.0, 300.0, move |_| {
+    Column::new()
+      .size(400.0, 300.0)
+      .child(FadingText::new(&held.get().to_string()).key("count"))
+      .into()
+  });
+  let words = |stage: &Stage, text: &str| {
+    stage
+      .quads()
+      .into_iter()
+      .find(|quad| matches!(&quad.content, QuadContent::Text { text: said, .. } if said == text))
+      .map(|quad| quad.opacity)
+  };
+  assert_eq!(words(&stage, "4"), Some(1.0), "whole on the first paint");
+  count.set(12);
+  stage.pass_after(std::time::Duration::ZERO);
+  stage.pass_after(std::time::Duration::from_millis(40));
+  let (old, new) = (words(&stage, "4"), words(&stage, "12"));
+  assert!(
+    old.is_some_and(|old| old < 1.0) && new.is_some_and(|new| new < 1.0),
+    "the old fading out under the new fading in: {old:?} {new:?}"
+  );
+  stage.pass();
+  assert_eq!((words(&stage, "4"), words(&stage, "12")), (None, Some(1.0)));
+}
