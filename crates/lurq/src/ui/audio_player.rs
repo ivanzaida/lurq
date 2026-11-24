@@ -972,11 +972,12 @@ impl AudioPlayer {
   /// with their tooltips, the speed menu, the mini player's form from its own width and the time over its line.
   pub fn mount(self, ctx: &mut Ctx) -> Element {
     let key = self.key.clone();
-    let mut element = ctx.mount::<AudioPlayerHost>(AudioPlayerProps { player: self });
-    if let Some(key) = key {
-      element = element.key(key);
+    // Keyed, it keeps its host where what is before it comes and goes.
+    let props = AudioPlayerProps { player: self };
+    match key {
+      Some(key) => ctx.mount_keyed::<AudioPlayerHost>(&key, props).key(key),
+      None => ctx.mount::<AudioPlayerHost>(props),
     }
-    element
   }
 
   /// Builds a still picture of the player in `theme`, for a test or a screenshot: no tooltips, no speed menu, a

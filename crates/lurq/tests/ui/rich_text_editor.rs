@@ -1902,3 +1902,81 @@ fn an_editor_not_mounted_keeps_its_selection_across_renders() {
   stage.pass();
   assert_eq!(selection(), Some((Some(2), 6)), "kept across a render");
 }
+
+/// The words the editor's box has selected, as it was last drawn.
+fn selected_words(stage: &mut Stage) -> Option<String> {
+  stage
+    .tree
+    .get_element_by_id_mut(CONTENT)
+    .and_then(|element| element.as_text_input())
+    .and_then(|input| input.selected_text())
+}
+
+#[test]
+fn a_selection_put_while_the_editors_parent_renders_lasts() {
+  let value = Signal::new(RichText::plain("Hello world"));
+  let controller = RichTextController::new();
+  let pin = Signal::new(false);
+  let (held, handle, pinning) = (value.clone(), controller.clone(), pin.clone());
+  let mut stage = Stage::first_frame_in(App::new(), 640.0, 480.0, move |ctx| {
+    let element = RichTextEditor::new(held.clone())
+      .id(ID)
+      .controller(&handle)
+      .keep_selection(true)
+      .mount(ctx);
+    // After the editor is mounted in this render: an app that pins a selection to float a toolbar over it.
+    if pinning.get() {
+      handle.input().select(0, 5).expect("a selection");
+    }
+    Column::new().size(640.0, 480.0).child(element).into()
+  });
+  stage.pass();
+  pin.set(true);
+  for _ in 0..3 {
+    stage.pass();
+  }
+  let now = controller.input().selection().expect("mounted");
+  assert_eq!((now.anchor, now.caret), (Some(0), 5));
+  assert_eq!(selected_words(&mut stage).as_deref(), Some("Hello"));
+}
+
+#[test]
+fn a_keyed_editor_keeps_its_selection_and_its_undo_when_a_component_comes_before_it() {
+  use lurq::components::{Markdown, MarkdownProps};
+  let value = Signal::new(RichText::plain("Hello world"));
+  let controller = RichTextController::new();
+  let before = Signal::new(false);
+  let (held, handle, mounts) = (value.clone(), controller.clone(), before.clone());
+  let mut stage = Stage::first_frame_in(App::new(), 640.0, 480.0, move |ctx| {
+    let mut column = Column::new().size(640.0, 480.0);
+    if mounts.get() {
+      column = column.child(Markdown::mount(ctx, MarkdownProps::new("A note")));
+    }
+    column
+      .child(
+        RichTextEditor::new(held.clone())
+          .id(ID)
+          .controller(&handle)
+          .keep_selection(true)
+          .key("editor")
+          .mount(ctx),
+      )
+      .into()
+  });
+  stage.pass();
+  assert!(controller.insert_text("Hi "));
+  stage.pass();
+  assert!(controller.select(0, 2));
+  stage.pass();
+  let words = value.get().text[..2].to_owned();
+  assert_eq!(selected_words(&mut stage), Some(words.clone()));
+  before.set(true);
+  stage.pass();
+  stage.pass();
+  let now = controller.input().selection().expect("mounted");
+  assert_eq!((now.anchor, now.caret), (Some(0), 2), "the same host, the same input");
+  assert_eq!(selected_words(&mut stage), Some(words));
+  assert!(controller.undo(), "its undo is kept");
+  stage.pass();
+  assert_eq!(value.get().text, "Hello world");
+}

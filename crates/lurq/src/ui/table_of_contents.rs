@@ -340,11 +340,12 @@ impl TableOfContents {
   /// the app gave it no signal, and goes to a section when its entry is pressed.
   pub fn mount(self, ctx: &mut Ctx) -> Element {
     let key = self.key.clone();
-    let mut element = ctx.mount::<Host>(Props { contents: self });
-    if let Some(key) = key {
-      element = element.key(key);
+    // Keyed, it keeps its host where what is before it comes and goes.
+    let props = Props { contents: self };
+    match key {
+      Some(key) => ctx.mount_keyed::<Host>(&key, props).key(key),
+      None => ctx.mount::<Host>(props),
     }
-    element
   }
 
   /// Builds the list in `theme`, still: it marks what its signal says, the first entry where it has none.

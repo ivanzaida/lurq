@@ -338,11 +338,12 @@ impl ActionBar {
   /// [`return_focus`](Self::return_focus) says as the bar leaves with it.
   pub fn mount(self, ctx: &mut Ctx) -> Element {
     let key = self.key.clone();
-    let mut element = ctx.mount::<ActionBarHost>(ActionBarProps { bar: self });
-    if let Some(key) = key {
-      element = element.key(key);
+    // Keyed, it keeps its host where what is before it comes and goes.
+    let props = ActionBarProps { bar: self };
+    match key {
+      Some(key) => ctx.mount_keyed::<ActionBarHost>(&key, props).key(key),
+      None => ctx.mount::<ActionBarHost>(props),
     }
-    element
   }
 
   /// Builds the bar in `theme`, with nothing kept: a still one, which cannot

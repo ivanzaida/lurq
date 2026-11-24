@@ -1505,9 +1505,10 @@ impl<V: Picked> Component for PickerHost<V> {
 /// Mounts a picker in the tree of `ctx`'s component.
 pub(crate) fn mount_picker<V: Picked>(ctx: &mut Ctx, picker: Picker<V>) -> Element {
   let key = picker.key.clone();
-  let mut element = ctx.mount::<PickerHost<V>>(PickerProps { picker });
-  if let Some(key) = key {
-    element = element.key(key);
+  // Keyed, it keeps its host where what is before it comes and goes.
+  let props = PickerProps { picker };
+  match key {
+    Some(key) => ctx.mount_keyed::<PickerHost<V>>(&key, props).key(key),
+    None => ctx.mount::<PickerHost<V>>(props),
   }
-  element
 }

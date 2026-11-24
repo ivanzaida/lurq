@@ -637,11 +637,12 @@ impl<T: Clone + Send + Sync + 'static> EventCalendar<T> {
   /// days as the app says.
   pub fn mount(self, ctx: &mut Ctx) -> Element {
     let key = self.key.clone();
-    let mut element = ctx.mount::<Host<T>>(Props { calendar: self });
-    if let Some(key) = key {
-      element = element.key(key);
+    // Keyed, it keeps its host where what is before it comes and goes.
+    let props = Props { calendar: self };
+    match key {
+      Some(key) => ctx.mount_keyed::<Host<T>>(&key, props).key(key),
+      None => ctx.mount::<Host<T>>(props),
     }
-    element
   }
 
   /// Builds the calendar in `theme`. Converting a calendar into an element does this in the theme of what is

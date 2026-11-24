@@ -112,9 +112,15 @@ impl TextInputState {
       return false;
     }
     let mut inner = self.inner.lock();
+    let anchor = (anchor != caret).then_some(anchor);
+    inner.selection_set = true;
+    // The same selection again changes nothing: an app that sets it in each render does not lay out each time.
+    if inner.caret == caret && inner.selection_anchor == anchor {
+      return true;
+    }
     inner.caret = caret;
     inner.token_affinity = None;
-    inner.selection_anchor = (anchor != caret).then_some(anchor);
+    inner.selection_anchor = anchor;
     drop(inner);
     self.mark_layout_dirty();
     true

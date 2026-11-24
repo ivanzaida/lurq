@@ -938,11 +938,12 @@ impl RichTextEditor {
   /// text being edited, what its bar shows of the selection, and the panel of a link.
   pub fn mount(self, ctx: &mut Ctx) -> Element {
     let key = self.key.clone();
-    let mut element = ctx.mount::<RichTextEditorHost>(RichTextEditorProps { editor: self });
-    if let Some(key) = key {
-      element = element.key(key);
+    // Keyed, it keeps its host where what is before it comes and goes.
+    let props = RichTextEditorProps { editor: self };
+    match key {
+      Some(key) => ctx.mount_keyed::<RichTextEditorHost>(&key, props).key(key),
+      None => ctx.mount::<RichTextEditorHost>(props),
     }
-    element
   }
 
   /// Builds the editor in `theme` once, with nothing kept: the document as it is drawn. Converting an editor

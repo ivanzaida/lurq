@@ -341,11 +341,12 @@ impl Editable {
   /// its reading form as one ends by a key or a button.
   pub fn mount(self, ctx: &mut Ctx) -> Element {
     let key = self.key.clone();
-    let mut element = ctx.mount::<EditableHost>(EditableProps { editable: self });
-    if let Some(key) = key {
-      element = element.key(key);
+    // Keyed, it keeps its host where what is before it comes and goes.
+    let props = EditableProps { editable: self };
+    match key {
+      Some(key) => ctx.mount_keyed::<EditableHost>(&key, props).key(key),
+      None => ctx.mount::<EditableHost>(props),
     }
-    element
   }
 
   /// Builds the editable in `theme` once, with nothing kept: the reading form, or the editing one where the

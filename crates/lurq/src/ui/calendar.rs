@@ -632,11 +632,12 @@ impl<V: Picked> Calendar<V> {
   /// where the range would end, and names its months and days as the app says (`App::set_date_locale`).
   pub fn mount(self, ctx: &mut Ctx) -> Element {
     let key = self.key.clone();
-    let mut element = ctx.mount::<CalendarHost<V>>(CalendarProps { calendar: self });
-    if let Some(key) = key {
-      element = element.key(key);
+    // Keyed, it keeps its host where what is before it comes and goes.
+    let props = CalendarProps { calendar: self };
+    match key {
+      Some(key) => ctx.mount_keyed::<CalendarHost<V>>(&key, props).key(key),
+      None => ctx.mount::<CalendarHost<V>>(props),
     }
-    element
   }
 
   /// The value's date, or the end of its range, read so that the render reading it is run again when it changes.

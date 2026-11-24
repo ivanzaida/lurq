@@ -440,11 +440,12 @@ impl<V: FieldValue<Time>> TimePicker<V> {
   /// The picker mounted where it is declared: it keeps whether its panel is open and the field it opens under.
   pub fn mount(self, ctx: &mut Ctx) -> Element {
     let key = self.key.clone();
-    let mut element = ctx.mount::<PickerHost<V>>(PickerProps { picker: self });
-    if let Some(key) = key {
-      element = element.key(key);
+    // Keyed, it keeps its host where what is before it comes and goes.
+    let props = PickerProps { picker: self };
+    match key {
+      Some(key) => ctx.mount_keyed::<PickerHost<V>>(&key, props).key(key),
+      None => ctx.mount::<PickerHost<V>>(props),
     }
-    element
   }
 
   fn view(self, theme: &Theme) -> TimePickerView {

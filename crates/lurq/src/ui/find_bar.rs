@@ -601,11 +601,12 @@ impl FindBar {
   /// says as it closes with the focus in it.
   pub fn mount(self, ctx: &mut Ctx) -> Element {
     let key = self.key.clone();
-    let mut element = ctx.mount::<FindBarHost>(FindBarProps { bar: self });
-    if let Some(key) = key {
-      element = element.key(key);
+    // Keyed, it keeps its host where what is before it comes and goes.
+    let props = FindBarProps { bar: self };
+    match key {
+      Some(key) => ctx.mount_keyed::<FindBarHost>(&key, props).key(key),
+      None => ctx.mount::<FindBarHost>(props),
     }
-    element
   }
 
   /// Builds the bar in `theme`. Converting a bar into an element does this
