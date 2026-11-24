@@ -14,7 +14,7 @@ use lurq::{
   core::Signal,
   layout::scrollbar::{ScrollBarPlacement, ScrollBarStyle},
   node::{Element, color::Color},
-  ui::{CodeBlock, CodeBlockPart, SegmentedControl},
+  ui::{CodeBlock, CodeBlockFoldIcon, CodeBlockMeta, CodeBlockPart, SegmentedControl},
 };
 
 use crate::{
@@ -536,6 +536,18 @@ impl Component for CodeBlockPage {
         .mount(ctx),
       "bar_meta · fold(8) · a scroll part of its own",
     );
+    let handbook = item(
+      CodeBlock::new(&file())
+        .language("rust")
+        .bar_meta(&format!("· {lines} lines"))
+        .bar_meta_at(CodeBlockMeta::ByTitle)
+        .fold(6)
+        .show_all_text(&format!("Show all {lines} lines"))
+        .fold_icon(true)
+        .fold_icon_at(CodeBlockFoldIcon::Leading)
+        .mount(ctx),
+      "bar_meta_at(ByTitle) · fold_icon_at(Leading)",
+    );
     let rows = [
       (
         "new",
@@ -639,6 +651,19 @@ impl Component for CodeBlockPage {
         "bool",
         "false",
         "A chevron after the fold button's text: down while folded, up once unfolded.",
+      ),
+      (
+        "fold_icon_at",
+        "CodeBlockFoldIcon",
+        "Trailing",
+        "Where the chevron stands: after the fold button's text, or before it.",
+      ),
+      (
+        "bar_meta_at",
+        "CodeBlockMeta",
+        "ByCopy",
+        "Where the bar's other text stands: by the copy button, or after the title, the copy button alone at the \
+         end.",
       ),
       (
         "copy_button",
@@ -825,6 +850,27 @@ impl Component for CodeBlockPage {
               "      })",
               "    })",
               "    .max_height(320)",
+              "    .mount(ctx)",
+            ],
+          ),
+        ),
+        Section::new(
+          "A card in a handbook",
+          "The bar reads as one line from its start, the language and how many lines the code has, with the copy \
+           button alone at its end; the fold's chevron stands before its words.",
+          self.frame.demo(
+            8,
+            handbook,
+            ".bar_meta_at(CodeBlockMeta::ByTitle)",
+            &[
+              "CodeBlock::new(steps_rs)",
+              "    .language(\"rust\")",
+              "    .bar_meta(&format!(\"· {lines} lines\"))",
+              "    .bar_meta_at(CodeBlockMeta::ByTitle)",
+              "    .fold(6)",
+              "    .show_all_text(&format!(\"Show all {lines} lines\"))",
+              "    .fold_icon(true)",
+              "    .fold_icon_at(CodeBlockFoldIcon::Leading)",
               "    .mount(ctx)",
             ],
           ),

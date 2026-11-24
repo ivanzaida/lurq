@@ -161,6 +161,7 @@ let swipes = lurq::ui::touch_form();
 | `padding_x(spacing)`, `padding_y(spacing)`, `gap(spacing)` | Padding across and down, and the room between the part's children |
 | `padding_top(spacing)`, `padding_bottom(spacing)`, `padding_start(spacing)`, `padding_end(spacing)` | The padding of one side, laid over `padding_y` or `padding_x`: 6 above and 4 under a label. Start is the left, end the right. `paddings()` reads the four as they come out: top, end, bottom, start |
 | `width(length)`, `height(length)`, `min_width(length)`, `min_height(length)`, `max_width(length)`, `square(length)` | A `Length`: pixels, a step of the control, density or icon scale, `Length::Fill`. `max_width` is the most the part grows to |
+| `justify(Justify)` | Where the part's children stand along it, where it is a row or a column: `Justify::End` puts the text of a part with a width of its own at its end, as a menu's keys in a column that ends at its edge (`s.width(96.0).justify(Justify::End)` on `MenuItemPart::Shortcut`). Where its renderer puts them unless told |
 | `typography(role)` | Every field of the part's text at once |
 | `font_family(family)`, `font_size(px)`, `weight(weight)`, `font_style(style)`, `line_height(ratio)`, `letter_spacing(px)` | One field of the text, over the role's |
 | `transition(PartTransition::new(Transition::background_color(), MotionDuration::Fast))` | A transition, with a duration and an easing of the theme's |
@@ -3943,6 +3944,7 @@ CodeBlock::new("fn main() {\n  let app = App::new();\n}")
 | `code_scheme(CodeScheme)` | The block's own colors of code in place of the theme's: a block that looks apart, as a terminal's |
 | `title(&str)`, `label(&str)` | What the bar shows in place of the language, a file's name, on one line ending in an ellipsis; its name to what reads the tree, its title or its language unless told |
 | `bar_meta(&str)` | What the bar shows after the title, by the copy button: what the app says of the code ("22 lines"), on one line, in the style of the `Meta` part. The title gives way first where the bar has no room |
+| `bar_meta_at(CodeBlockMeta)` | Where that text stands: `ByCopy` at the bar's end by the copy button (unless told), or `ByTitle` after the title, the bar's gap between them, with the copy button alone at the end: *Bash · 22 lines* |
 | `line_numbers(bool)`, `first_line(usize)` | The numbers of the lines, in a column at their start that a selection does not take; the number of the first, 1 unless told |
 | `highlight_lines(lines)` | Lines picked out by their numbers: a band in `Highlight` behind each, across the block, its number in the code's color |
 | `wrap(bool)` | Wraps the lines at the block's width. Otherwise each is one line, and the code scrolls sideways under the [scroll area](#scroll-area)'s bar |
@@ -3950,6 +3952,7 @@ CodeBlock::new("fn main() {\n  let app = App::new();\n}")
 | `fold(usize)`, `show_all_text(&str)`, `show_less_text(&str)` | Shows the first lines of a longer code alone (state `Folded`), and a button under them, the `Fold` part, that shows all of them in place ("Show all"), and fewer again ("Show less"): the locale's `EditingWords::show_all_code` and `show_less_code` unless told. The copy button copies the whole code, folded or not; a code of no more lines is shown whole, with no button. It unfolds mounted, as `.child(block)` mounts it; `build(theme)` stays folded |
 | `fold_open(bool)`, `folded(Signal<bool>)`, `on_fold(Fn(bool))` | Whether a block that folds starts with all its lines shown (folded unless told); the app's own signal of whether it is folded, which a press of the button sets and the app sets to fold or unfold it, kept across a block mounted again; told `true` folded or `false` unfolded after a press |
 | `fold_icon(bool)` | A chevron after the fold button's text, the `FoldIcon` part: down while folded, up once unfolded. Off unless told |
+| `fold_icon_at(CodeBlockFoldIcon)` | Where the chevron stands: `Trailing` after the button's text (unless told), or `Leading` before it, the `Fold` part's gap between them |
 | `copy_button(bool)`, `copy_label(&str)`, `copied_text(&str)`, `on_copy(Fn(&str))` | The button in the bar that copies the code (shown unless told otherwise), its name ("Copy code") and its name while it shows it copied ("Copied"); `on_copy` is told the code it put on the clipboard |
 | `copy_text(&str)` | What the button copies in place of the code shown: a command shown short and copied whole. `on_copy` is told it |
 | `copy_failed_text(&str)` | The button's name while it shows that the clipboard refused the copy ("Couldn't copy", the locale's `EditingWords::copy_failed`) |

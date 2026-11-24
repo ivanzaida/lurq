@@ -2,7 +2,7 @@
 //! menu with checked, disabled and grouped items, the split button's menu, and
 //! items with a detail, a reason and an avatar, a menu of the app's own rows, a menu that keeps the focus in a
 //! field, its items asked for aside, and a section that scrolls, a filter that stays open and submenus opened by a
-//! press.
+//! press, and keys in a column of their own.
 
 use std::sync::Arc;
 
@@ -10,9 +10,11 @@ use lurq::{
   app::{component::Component, ctx::Ctx},
   components::{Column, Placement, Rect, Row, Text, TextInput},
   core::{ElementRef, Signal},
-  layout::Alignment,
+  layout::{Alignment, layout_kind::Justify},
   node::Element,
-  ui::{Button, ButtonGroup, ButtonGroupVariant, ButtonVariant, Menu, MenuItem, MenuKeys, SubmenuOpen, icons},
+  ui::{
+    Button, ButtonGroup, ButtonGroupVariant, ButtonVariant, Menu, MenuItem, MenuItemPart, MenuKeys, SubmenuOpen, icons,
+  },
 };
 
 use crate::{
@@ -384,7 +386,10 @@ impl MenuPage {
     let open = typed.is_some();
     let mut menu = Menu::controlled(open, self.slash_field.clone(), |_| {}).keeps_focus(&self.slash_keys);
     for name in COMMANDS {
-      if typed.as_ref().is_some_and(|typed| !name.to_lowercase().contains(typed.as_str())) {
+      if typed
+        .as_ref()
+        .is_some_and(|typed| !name.to_lowercase().contains(typed.as_str()))
+      {
         continue;
       }
       let (ran, cleared) = (self.slash_ran.clone(), self.slash_text.clone());
@@ -715,6 +720,22 @@ impl Component for MenuPage {
     let own = items().child(item(models, "content(row) on each item, a child foot"));
     let slash = self.slash();
     let longer = self.longer();
+
+    // The keys in a column of 96 whose text ends at the menu's edge, as a `/` menu draws them.
+    let keyed = |label: &str, keys: &str| {
+      MenuItem::new(label)
+        .shortcut(keys)
+        .style(MenuItemPart::Shortcut, |s| s.width(96.0).justify(Justify::End))
+    };
+    let column = items().child(item(
+      Menu::controlled(true, ElementRef::new(), |_| {})
+        .inline(true)
+        .item(keyed("Heading", "Ctrl+Alt+1"))
+        .item(keyed("Bulleted list", "Ctrl+Shift+8"))
+        .item(keyed("Quote", "Ctrl+Shift+."))
+        .item(keyed("Divider", "---")),
+      "the shortcut part 96 wide, justified to its end",
+    ));
 
     let rows = [
       (
@@ -1123,6 +1144,21 @@ impl Component for MenuPage {
               "    .item(MenuItem::new(\"Open\").icon(icons::EXTERNAL_LINK).on_select(..))",
               "    .item(MenuItem::new(\"Move to\").submenu(Menu::new(moving, move_to).items(..)))",
               "    .item(MenuItem::new(\"Priority\").submenu(Menu::new(ranking, priority).items(..)))",
+            ],
+          ),
+        ),
+        Section::new(
+          "Keys in a column of their own",
+          "A recipe gives the shortcut part a width and puts its text at the end of it: the keys stand in one column \
+           and end at the menu's edge, whatever their length.",
+          self.frame.demo(
+            7,
+            column,
+            ".style(MenuItemPart::Shortcut, |s| s.width(96.0).justify(Justify::End))",
+            &[
+              "MenuItem::new(\"Heading\")",
+              "    .shortcut(\"Ctrl+Alt+1\")",
+              "    .style(MenuItemPart::Shortcut, |s| s.width(96.0).justify(Justify::End))",
             ],
           ),
         ),

@@ -11,6 +11,24 @@ dropped). When a decision is replaced, the old entry stays and says what replace
 
 ## 2026-11-24
 
+### A part justified, a code block's bar text and fold chevron placed
+
+- **Question.** A menu item's keys could not end at the menu's edge in a column of a width of their own (a part had no
+  justify), a code block's bar text stood only by the copy button, and the fold's chevron only after its words
+  (issue #246).
+- **Decision (Ivan).** Do it, without breaking the current API.
+- **Decided by Claude in the work, to be confirmed.**
+  - *Justify is a field of `PartStyle`*, for every part that is a row or a column, not one of the menu's shortcut
+    alone: a column of keys, a badge's text, a footer's buttons are said the same way. It is laid at rest; a state
+    does not change it, as a state paints and does not lay out. A text align of a text node of its own is not added:
+    the shortcut's text is one line, and its row's justify places it.
+  - *The bar's text and the chevron are placed by an enum each*, `CodeBlockMeta { ByCopy, ByTitle }` and
+    `CodeBlockFoldIcon { Trailing, Leading }`, their defaults where they were. Not by a part's style: a recipe cannot
+    reorder children, and the order is the block's to build.
+  - *After the title, the bar's text is the bar's gap from it*, as it is from the copy button: an app writes its own
+    separator (`· 22 lines`).
+- **State.** Built on `feat/placement-gaps`.
+
 ### A rich text editor spaced as Markdown is
 
 - **Question.** One gap for every paragraph of a rich text editor, a number in the body's type, inline code with no

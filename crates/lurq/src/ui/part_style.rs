@@ -13,6 +13,7 @@ use crate::{
   animation::{Animation, Easing, KeyframesId, Transition},
   app::theme::{ControlSize, Density, IconSize, MotionDuration, MotionEasing, OpacityLevel, Theme, TypographyStyle},
   layout::{
+    layout_kind::Justify,
     scrollbar::ScrollBarStyle,
     text_style::{FontStyle, FontWeight, TextStyle},
   },
@@ -320,6 +321,9 @@ pub struct PartStyle {
   pub padding_end: Option<SpacingValue>,
   /// The room between the part's children.
   pub gap: Option<SpacingValue>,
+  /// Where the part's children stand along it, where it is a row or a column: its text at the end of a slot of a
+  /// width of its own, as a column of keys whose text ends at a menu's edge.
+  pub justify: Option<Justify>,
   pub width: Option<Length>,
   pub height: Option<Length>,
   pub min_width: Option<Length>,
@@ -493,6 +497,20 @@ impl PartStyle {
     self
   }
 
+  /// Where the part's children stand along it, where it is a row or a column: `Justify::End` puts the text of a
+  /// part with a [`width`](Self::width) of its own at its end. Where the part's renderer puts them unless told.
+  ///
+  /// ```
+  /// use lurq::{layout::layout_kind::Justify, ui::PartStyle};
+  ///
+  /// // A menu's keys in a column 72 wide, ending at its edge.
+  /// let keys = PartStyle::new().width(72.0).justify(Justify::End);
+  /// ```
+  pub fn justify(mut self, justify: Justify) -> Self {
+    self.justify = Some(justify);
+    self
+  }
+
   pub fn width(mut self, width: impl Into<Length>) -> Self {
     self.width = Some(width.into());
     self
@@ -656,6 +674,7 @@ impl PartStyle {
       && self.padding_start.is_none()
       && self.padding_end.is_none()
       && self.gap.is_none()
+      && self.justify.is_none()
       && self.width.is_none()
       && self.height.is_none()
       && self.min_width.is_none()
@@ -698,6 +717,7 @@ impl PartStyle {
       padding_start,
       padding_end,
       gap,
+      justify,
       width,
       height,
       min_width,
@@ -780,6 +800,9 @@ impl PartStyle {
     }
     if let Some(gap) = &self.gap {
       NodeUpdate::spacing(node, *gap);
+    }
+    if let Some(justify) = self.justify {
+      NodeUpdate::justify(node, justify);
     }
     if let Some(width) = self.width.and_then(|width| width.resolve(theme)) {
       NodeUpdate::width(node, width);
