@@ -48,6 +48,8 @@ mod loop_wait;
 mod loop_wait_tests;
 #[cfg(target_os = "macos")]
 mod macos_controls;
+#[cfg(target_os = "macos")]
+mod macos_urls;
 mod native_resize;
 mod notched_wheel;
 #[cfg(test)]
@@ -320,6 +322,9 @@ impl WinitWindow {
     #[cfg(target_os = "macos")]
     let _native =
       crate::app::macos_menu::NativeMenu::install(handler.app.shared.menu.clone(), handler.main.tree.window().clone());
+    // The links of the app's own scheme, the one that starts it too, which comes as it finishes launching.
+    #[cfg(target_os = "macos")]
+    macos_urls::install();
     #[cfg(not(target_arch = "wasm32"))]
     {
       event_loop.run_app(&mut handler).unwrap();
@@ -1016,6 +1021,18 @@ impl ManagedWindow {
     self.tree.tick_timers();
     self.tree.tick_futures();
     self.tree.finger_tick(now);
+    // The links of the app's own scheme go to the window's handler of app events; the one the app was started
+    // with waits until there is one.
+    #[cfg(target_os = "macos")]
+    if self.tree.window().has_app_event_handler() {
+      let events = macos_urls::take_opened();
+      if !events.is_empty() {
+        for event in &events {
+          self.tree.window().dispatch_app_event(event);
+        }
+        self.tree.request_redraw();
+      }
+    }
     #[cfg(target_os = "ios")]
     {
       // An Apple Pencil hovering over the window hovers what is under it.

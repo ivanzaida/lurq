@@ -1099,3 +1099,44 @@ fn a_fold_the_app_holds_is_set_by_a_press_and_by_the_app() {
   stage.pass();
   assert!(painted(&stage).contains("line 8"), "and the app unfolds it");
 }
+
+#[test]
+fn the_bar_says_what_the_app_says_of_the_code_after_its_title_where_told() {
+  use lurq::ui::CodeBlockMeta;
+  let mut stage = staged(|| {
+    CodeBlock::new(MAIN)
+      .language("rust")
+      .bar_meta("4 lines")
+      .bar_meta_at(CodeBlockMeta::ByTitle)
+      .id("block")
+  });
+  let (title_x, _, title_width, _) = stage.bounds("block-title");
+  let (meta_x, _, meta_width, _) = stage.bounds("block-meta");
+  let (copy_x, ..) = stage.bounds("block-copy");
+  assert_eq!(title_x, 14.0, "the language keeps its place");
+  assert_eq!(meta_x, title_x + title_width + 8.0, "the bar's gap after the title");
+  assert!(copy_x > meta_x + meta_width + 8.0, "the copy button alone at the end");
+  stage.text("4 lines");
+}
+
+#[test]
+fn the_chevron_of_a_fold_stands_before_its_text_where_told() {
+  use lurq::ui::{CodeBlockFoldIcon, icons};
+  let chevron_and_text = |at: CodeBlockFoldIcon| {
+    let code = eight_lines();
+    let stage = staged(move || {
+      CodeBlock::new(&code)
+        .fold(3)
+        .fold_icon(true)
+        .fold_icon_at(at)
+        .id("block")
+    });
+    let chevron = stage.text_quad(&glyph(icons::CHEVRON_DOWN)).unwrap().x;
+    let text = stage.text_quad("Show all").unwrap().x;
+    (chevron, text)
+  };
+  let (chevron, text) = chevron_and_text(CodeBlockFoldIcon::Trailing);
+  assert!(chevron > text, "after it unless told");
+  let (chevron, text) = chevron_and_text(CodeBlockFoldIcon::Leading);
+  assert!(chevron < text, "before it");
+}

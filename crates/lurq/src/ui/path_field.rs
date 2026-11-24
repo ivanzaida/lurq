@@ -142,6 +142,7 @@ pub struct PathField {
   dialog: FileDialog,
   icon: Option<IconChoice>,
   browse_label: Arc<str>,
+  button_variant: ButtonVariant,
   on_browse: Vec<BrowseHandler>,
   on_pick: Vec<PickHandler>,
   full_width: bool,
@@ -162,6 +163,7 @@ impl PathField {
       dialog: FileDialog::new(),
       icon: None,
       browse_label: super::current_locale().fields.browse.clone(),
+      button_variant: ButtonVariant::Outline,
       on_browse: Vec::new(),
       on_pick: Vec::new(),
       full_width: false,
@@ -204,6 +206,19 @@ impl PathField {
   /// What the button says, and is called to tooling, in place of "Browse…".
   pub fn browse_label(mut self, label: &str) -> Self {
     self.browse_label = Arc::from(label);
+    self
+  }
+
+  /// The variant of the button that browses, with its looks at rest, under the pointer and held down: `Outline`
+  /// unless told. The `Button` part is laid over it.
+  ///
+  /// ```
+  /// use lurq::{core::Signal, ui::{ButtonVariant, PathField}};
+  ///
+  /// let folder = PathField::new(Signal::new(String::new())).button_variant(ButtonVariant::Secondary);
+  /// ```
+  pub fn button_variant(mut self, variant: ButtonVariant) -> Self {
+    self.button_variant = variant;
     self
   }
 
@@ -377,6 +392,7 @@ impl PathField {
     let view = PathFieldView {
       input: input.view(theme),
       browse_label: self.browse_label,
+      button_variant: self.button_variant,
       size,
       picks: self.picks,
       disabled,
@@ -517,6 +533,8 @@ pub struct PathFieldView {
   pub input: InputView,
   /// What the button says.
   pub browse_label: Arc<str>,
+  /// The variant of the button that browses.
+  pub button_variant: ButtonVariant,
   /// The size of the field: the button's too.
   pub size: Name,
   /// What the path is of, where the field says.
@@ -589,12 +607,13 @@ impl PathFieldView {
     field
   }
 
-  /// The button that browses: an outlined [`Button`] of the field's size, a stop of Tab after the input.
+  /// The button that browses: a [`Button`] of the field's size in its variant (outlined unless told), a stop of
+  /// Tab after the input.
   pub fn button(&self) -> Element {
     let rules = self.recipe.rules_for(PathFieldPart::Button, ButtonPart::Root);
     let browse = self.browse();
     let mut button = Button::new(&self.browse_label)
-      .variant(ButtonVariant::Outline)
+      .variant(self.button_variant)
       .size(self.size)
       .disabled(!self.takes())
       .rules(&rules)

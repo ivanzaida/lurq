@@ -302,11 +302,12 @@ impl MediaVolume {
   /// whether its slider is being dragged, so that a collapsed control shows its slider while any of them is so.
   pub fn mount(self, ctx: &mut Ctx) -> Element {
     let key = self.key.clone();
-    let mut element = ctx.mount::<MediaVolumeHost>(MediaVolumeProps { control: self });
-    if let Some(key) = key {
-      element = element.key(key);
+    // Keyed, it keeps its host where what is before it comes and goes.
+    let props = MediaVolumeProps { control: self };
+    match key {
+      Some(key) => ctx.mount_keyed::<MediaVolumeHost>(&key, props).key(key),
+      None => ctx.mount::<MediaVolumeHost>(props),
     }
-    element
   }
 
   /// The control with what a component that holds it keeps for it between renders, in place of the control's

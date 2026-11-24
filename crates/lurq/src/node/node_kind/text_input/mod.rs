@@ -97,6 +97,9 @@ struct TextInputInner {
   last_value: String,
   caret: usize,
   selection_anchor: Option<usize>,
+  /// Whether the app's controller set the selection of this state before it took the runtime state of the input it
+  /// replaces: a selection set during the render that built it, which the old one's does not overwrite.
+  selection_set: bool,
   caret_x: f32,
   caret_y: f32,
   caret_height: f32,
@@ -216,6 +219,7 @@ impl TextInputState {
         last_value: initial_value,
         caret,
         selection_anchor: None,
+        selection_set: false,
         caret_x: 0.0,
         caret_y: 0.0,
         caret_height: 0.0,

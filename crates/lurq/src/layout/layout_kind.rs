@@ -1710,7 +1710,7 @@ pub enum FlexWrap {
   Wrap,
 }
 
-#[derive(Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Justify {
   #[default]
   Start,

@@ -934,7 +934,7 @@ impl TextInputState {
     let kinds = self.current_paragraphs()?;
     // Code is pasted into code as it is written.
     let (touched, _) = self.selected_paragraph_range();
-    if kinds[touched.start] == ParagraphKind::Code {
+    if kinds[touched.start].is_code() {
       return None;
     }
     let source = match markdown {

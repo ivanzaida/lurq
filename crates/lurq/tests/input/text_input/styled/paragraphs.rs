@@ -295,13 +295,18 @@ fn styled_paragraphs_draw_one_bar_down_a_run_of_quotes_and_the_room_between_them
 
 #[test]
 fn styled_paragraphs_fill_a_run_of_code_lines_as_one_block_with_no_room_between() {
-  let kinds = Signal::new(vec![Body, ParagraphKind::Code, ParagraphKind::Code, Body]);
+  let kinds = Signal::new(vec![
+    Body,
+    ParagraphKind::Code { language: None },
+    ParagraphKind::Code { language: None },
+    Body,
+  ]);
   let bound = kinds.clone();
   let mut editor = Editor::with("a\nb\nc\nd", vec![], move |input| {
     input.paragraphs(
       bound.clone(),
       looks().with(
-        ParagraphKind::Code,
+        ParagraphKind::Code { language: None },
         ParagraphStyle::new().indent(12.0).background(BAR, 6.0).joined(true),
       ),
     )

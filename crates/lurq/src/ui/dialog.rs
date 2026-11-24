@@ -103,6 +103,8 @@ pub enum DialogState {
   Scrollable,
   /// It has a mark before its title: an icon in its well, or the app's element.
   Mark,
+  /// Its mark is on the title's row alone, the description under both ([`Dialog::mark_with_title`]).
+  MarkWithTitle,
   /// Its footer has a note at its start.
   Note,
 }
@@ -110,6 +112,7 @@ pub enum DialogState {
 names!(DialogState {
   Scrollable => "scrollable",
   Mark => "mark",
+  MarkWithTitle => "mark_with_title",
   Note => "note",
 });
 
@@ -194,6 +197,7 @@ pub struct Dialog {
   footer: Vec<Element>,
   size: Option<Name>,
   scrollable: bool,
+  mark_with_title: bool,
   close_button: bool,
   dismiss_on_veil: bool,
   dismiss_on_escape: bool,
@@ -246,6 +250,7 @@ impl Dialog {
       footer: Vec::new(),
       size: None,
       scrollable: false,
+      mark_with_title: false,
       close_button: false,
       dismiss_on_veil: true,
       dismiss_on_escape: true,
@@ -289,6 +294,24 @@ impl Dialog {
     self
   }
 
+  /// Puts the mark on the title's row alone, level with the title, and the description under both, as wide as the
+  /// header: a short title by its icon over a longer text. Off unless told: the mark stands beside the title and
+  /// the description together. State `MarkWithTitle` while it is on and the dialog has a mark.
+  ///
+  /// ```
+  /// use lurq::{core::Signal, ui::{Dialog, icons}};
+  ///
+  /// let dialog = Dialog::new(Signal::new(true))
+  ///   .title("Run git init?")
+  ///   .description("The folder is not a repository yet.")
+  ///   .icon(icons::FOLDER)
+  ///   .mark_with_title(true);
+  /// ```
+  pub fn mark_with_title(mut self, on: bool) -> Self {
+    self.mark_with_title = on;
+    self
+  }
+
   /// Quiet words at the start of the footer, the buttons at its end: why the action cannot be taken yet, what a
   /// key does. An empty text is none.
   pub fn note(mut self, note: &str) -> Self {
@@ -315,7 +338,9 @@ impl Dialog {
   /// the platform's name or glyph, and the words of what the key does after it, as [`note_key`](Self::note_key)
   /// puts them. An empty `words` is the key cap alone.
   pub fn note_key_worded(mut self, cap: &str, words: &str) -> Self {
-    self.note_pieces.push(NotePiece::Worded(Arc::from(cap), Arc::from(words)));
+    self
+      .note_pieces
+      .push(NotePiece::Worded(Arc::from(cap), Arc::from(words)));
     self
   }
 
@@ -519,6 +544,10 @@ impl Dialog {
     }
     .state(DialogState::Scrollable, self.scrollable)
     .state(DialogState::Mark, self.icon.is_some() || self.media.is_some())
+    .state(
+      DialogState::MarkWithTitle,
+      self.mark_with_title && (self.icon.is_some() || self.media.is_some()),
+    )
     .state(DialogState::Note, self.note.is_some() || !self.note_pieces.is_empty());
     let view = DialogView {
       title: self.title,
@@ -534,6 +563,7 @@ impl Dialog {
       body: self.body,
       footer: self.footer,
       scrollable: self.scrollable,
+      mark_with_title: self.mark_with_title,
       close_button: self.close_button,
       dismiss_on_veil: self.dismiss_on_veil,
       dismiss_on_escape: self.dismiss_on_escape,
@@ -589,6 +619,8 @@ pub struct DialogView {
   /// What the app put in the footer.
   pub footer: Vec<Element>,
   pub scrollable: bool,
+  /// Whether the mark is on the title's row alone, the description under both.
+  pub mark_with_title: bool,
   pub close_button: bool,
   pub dismiss_on_veil: bool,
   pub dismiss_on_escape: bool,
@@ -837,9 +869,15 @@ impl DialogView {
   }
 
   /// The header: the text, and the close button at its end. `None` for a
-  /// dialog with neither.
+  /// dialog with neither. With [`mark_with_title`](Dialog::mark_with_title) and a mark, the mark, the title and
+  /// the close button are one row, the description under it as wide as the header.
   pub fn header(&self) -> Option<Row> {
     let mark = self.mark();
+    if self.mark_with_title
+      && let Some(mark) = mark
+    {
+      return Some(self.header_with_mark(mark));
+    }
     let text = self.text();
     if mark.is_none() && text.is_none() && !self.close_button {
       return None;
@@ -864,6 +902,41 @@ impl DialogView {
       header = header.justify(Justify::End).child(self.close());
     }
     Some(header)
+  }
+
+  /// The header of a dialog whose mark is on the title's row: the row of the mark, the title and the close button,
+  /// the header's gap between them, and the description under it, the text's gap apart.
+  fn header_with_mark(&self, mark: Row) -> Row {
+    let header = self.part(DialogPart::Header);
+    let mut row = Row::new()
+      .width(Dimension::Pct(100.0))
+      .align_items(Alignment::Center)
+      .child(mark);
+    if let Some(gap) = header.rest().gap {
+      row = row.spacing(gap);
+    }
+    let mut title = Row::new().flex_full(1.0, 1.0, Some(0.0)).min_width(Dimension::Px(0.0));
+    if let Some(words) = &self.title {
+      title = title.child(wrapping(&self.part(DialogPart::Title), words));
+    }
+    row = row.child(title);
+    if self.close_button {
+      row = row.child(self.close());
+    }
+    let mut text = Column::new()
+      .part(&self.part(DialogPart::Text))
+      .flex_full(1.0, 1.0, Some(0.0))
+      .min_width(Dimension::Px(0.0))
+      .child(row);
+    if let Some(description) = &self.description {
+      text = text.child(wrapping(&self.part(DialogPart::Description), description));
+    }
+    // The header's own look and room, its gap given to the row above.
+    Row::new()
+      .width(Dimension::Pct(100.0))
+      .align_items(Alignment::Start)
+      .part(&header)
+      .child(text)
   }
 
   /// A line across the panel, in the style of its part.

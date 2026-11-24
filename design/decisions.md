@@ -11,6 +11,104 @@ dropped). When a decision is replaced, the old entry stays and says what replace
 
 ## 2026-11-24
 
+### A block of code's language, kept and named while it is edited
+
+- **Question.** A rich text editor showed a block of code as plain mono lines, where `Markdown` reading the same
+  document gave it a `CodeBlock`'s bar, and `RichText` dropped the language a fence names: editing a document lost
+  it (issue #245).
+- **Decision (Ivan).** The language is the paragraph's: `ParagraphKind::Code { language }`, a break that a `match`
+  over the kinds needs to follow.
+- **Decided by Claude in the work, to be confirmed.**
+  - *`language: Option<&'static str>`, not `Option<Arc<str>>`*: `ParagraphKind` is `Copy`, and is copied all
+    through the input and the apps that use it; an `Arc` would break that too. `ParagraphKind::code(Some(name))`
+    keeps each name once for the app's life (the names of the languages of the documents an app reads: few), the
+    first word of a fence's info string, and none longer than 64 bytes.
+  - *Two blocks of other languages one after another are two runs*, each with its fence; two of one language
+    stay one, as before.
+  - *The bar is the engine's `ParagraphHeader`, a band over a run that names it*, drawn in the room it keeps above
+    the run's first text and inside its fill, not a `CodeBlock` laid over the input: the lines stay the input's
+    text, selected and typed in as any. The editor's `CodeBar` part says its look, as a `CodeBlock`'s bar: 28 high,
+    the name 12 in, the mono face at 11 in `MutedForeground`, a line of `Border` under it. A block with no language
+    has none.
+  - *No copy button, no fold and no `bar_meta` in the editor*: a button in the text it edits would take the
+    pointer from the text, a fold would hide lines being edited, and the app's text of a block is its own to give
+    where it reads it. Reading (`Markdown`) and editing now share the language and the bar's look.
+  - *Three backticks and a name, and Enter*, start a block in that language, as `` ``` `` and a space did and does.
+- **State.** Built on `feat/open-issues`.
+
+### The links of an app's own scheme on macOS
+
+- **Question.** On macOS a link of an app's own scheme never reached it: LaunchServices sends it as an Apple Event,
+  not as an argument, and lurq forwarded opened links on iOS alone (issue #242).
+- **Decision (Ivan).** Deliver it as iOS does, for the link that starts the app and for those that come while it runs.
+- **Decided by Claude in the work, to be confirmed.**
+  - *A handler of the shared `NSAppleEventManager`* for `kInternetEventClass`/`kAEGetURL`, not an
+    `NSApplicationDelegate`'s `application:openURLs:`: winit's delegate is its own, and replacing it (or adding the
+    method to it) breaks winit, as `macos_menu` found; AppKit gives `application:openURLs:` only where the delegate
+    has it, by this same event. It is installed before the event loop runs, so the event of the link that started
+    the app, sent while it finishes launching, is heard.
+  - *It is `AppEvent::OpenUrl(url)`, told to the main window*, once it has a handler of app events, as iOS keeps what
+    the app was started with until there is one. The handler only keeps the link; the shell tells it at its next
+    turn, as AppKit's callbacks can come while winit has borrowed the shell.
+  - *Built and checked for macOS (`cargo check --target aarch64-apple-darwin`), not run*: the work was done on
+    Windows. To be tried with an app whose `Info.plist` names a scheme.
+- **State.** Built on `feat/open-issues`.
+
+### A dialog's mark on its title's row, a path field's button variant, and an action in a field's description
+
+- **Question.** A dialog's mark stood beside its title and its description together; a path field's button was
+  always `Outline`, a recipe restyling its rest and not its hover or press; a field's description line held text
+  alone (issue #244).
+- **Decision (Ivan).** Do it, without breaking the current API.
+- **Decided by Claude in the work, to be confirmed.**
+  - *`Dialog::mark_with_title(bool)`*, with a state `MarkWithTitle` for a recipe: the mark, the title and the close
+    button are one row in the middle of the mark's height, the header's gap between them, and the description is
+    under that row, as wide as the header, the text's gap apart. Not a part of its own: the parts it lays out are
+    the ones a dialog has.
+  - *`PathField::button_variant(ButtonVariant)`*, not a part with the button's whole recipe: a variant is what gives
+    a button its looks in every state, and the `Button` part is still laid over it.
+  - *`Field::description_action(element)`*, an element on the description's line, after its words, the
+    `Description` part's gap apart (6, the gap of its error icon), not `hint_action(label, on_press)`: the app gives
+    the `Link` (or a button) it wants, with its own handler. The words keep their length, so the action stands right
+    after them; they shrink, and wrap, where the line has no room. It stands after an error too, which takes the
+    description's place: the hint of a key that is taken is its error.
+- **State.** Built on `feat/open-issues`.
+
+### An add button of window tabs that cannot be pressed, and a menu moved along its anchor
+
+- **Question.** The add button of `WindowTabs` was there and working or not there: one shown while adding a tab is not
+  possible yet could not be drawn. A menu could be put on a side of its anchor but not moved along that side
+  (issue #243).
+- **Decision (Ivan).** Do it, without breaking the current API.
+- **Decided by Claude in the work, to be confirmed.**
+  - *`WindowTabs::add_unavailable(reason)`*, as `MenuItem::unavailable(reason)` is said: the button is shown with or
+    without `on_add`, drawn in the `Disabled` state of its parts (the recipe's faded `Add`), a press of it does
+    nothing, and its reason is its tooltip, under it, and what describes it to tooling. It stays a stop of Tab, as
+    the strip's other controls are, so that the keyboard reaches its reason. `WindowTabsView::add()` keeps its type
+    (`Option<Button>`); the tooltip is put on it by a new `add_control()`, which the strip lays out.
+  - *`Menu::cross_offset(..)`*, the name `Popover` already has for it, not a new `Placement::offset(main, cross)`:
+    `Placement` is an enum of the engine's that every overlay matches, and a menu's `offset` is already its own. A
+    context menu and a menu at a point do not use it: their corner is at the point.
+- **State.** Built on `feat/open-issues`.
+
+### A part justified, a code block's bar text and fold chevron placed
+
+- **Question.** A menu item's keys could not end at the menu's edge in a column of a width of their own (a part had no
+  justify), a code block's bar text stood only by the copy button, and the fold's chevron only after its words
+  (issue #246).
+- **Decision (Ivan).** Do it, without breaking the current API.
+- **Decided by Claude in the work, to be confirmed.**
+  - *Justify is a field of `PartStyle`*, for every part that is a row or a column, not one of the menu's shortcut
+    alone: a column of keys, a badge's text, a footer's buttons are said the same way. It is laid at rest; a state
+    does not change it, as a state paints and does not lay out. A text align of a text node of its own is not added:
+    the shortcut's text is one line, and its row's justify places it.
+  - *The bar's text and the chevron are placed by an enum each*, `CodeBlockMeta { ByCopy, ByTitle }` and
+    `CodeBlockFoldIcon { Trailing, Leading }`, their defaults where they were. Not by a part's style: a recipe cannot
+    reorder children, and the order is the block's to build.
+  - *After the title, the bar's text is the bar's gap from it*, as it is from the copy button: an app writes its own
+    separator (`· 22 lines`).
+- **State.** Built on `feat/placement-gaps`.
+
 ### A rich text editor spaced as Markdown is
 
 - **Question.** One gap for every paragraph of a rich text editor, a number in the body's type, inline code with no

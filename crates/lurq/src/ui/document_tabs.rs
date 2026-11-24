@@ -647,11 +647,12 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, V: ?Sized + 'static> Document
   pub fn mount(self, ctx: &mut Ctx) -> Element {
     let mut tabs = self.prepare();
     let key = tabs.key.take();
-    let mut element = ctx.mount::<DocumentTabsHost>(DocumentTabsProps { tabs });
-    if let Some(key) = key {
-      element = element.key(key);
+    // Keyed, it keeps its host where what is before it comes and goes.
+    let props = DocumentTabsProps { tabs };
+    match key {
+      Some(key) => ctx.mount_keyed::<DocumentTabsHost>(&key, props).key(key),
+      None => ctx.mount::<DocumentTabsHost>(props),
     }
-    element
   }
 
   /// Builds the tabs in `theme`, with nothing kept: every tab in the bar, whether it fits or not, with no drag and

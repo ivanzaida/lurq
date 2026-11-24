@@ -372,6 +372,10 @@ impl Component for DialogPage {
       .child(item(
         marked(&Signal::new(false)).inline(true),
         "dialog · a mark, a note, Enter confirms",
+      ))
+      .child(item(
+        marked(&Signal::new(false)).mark_with_title(true).inline(true),
+        "mark_with_title: the mark on the title's row, the description under both",
       ));
     let answers = Row::new()
       .spacing(12.0)
@@ -406,6 +410,13 @@ impl Component for DialogPage {
         "&str",
         "",
         "More of it under the title, 14 in the muted color.",
+      ),
+      (
+        "mark_with_title",
+        "bool",
+        "false",
+        "The mark on the title's row alone, level with the title, and the description under both, as wide as the \
+         header.",
       ),
       (
         "child",

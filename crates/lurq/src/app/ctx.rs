@@ -3550,7 +3550,11 @@ impl Ctx {
       slot.keep_rendered(&element.node);
     }
 
-    if key.is_some() {
+    // A keyed slot is not replaced by a component without its key that comes where it was: it is still there to be
+    // found by its key further on in this render (a component put before a keyed one), and dropped at the end of
+    // the render where it is not.
+    let keyed_here = self.children.get(cursor).is_some_and(|slot| slot.key.is_some());
+    if key.is_some() || keyed_here {
       self.insert_child_slot(cursor, slot);
     } else {
       self.set_child_slot(cursor, slot);
@@ -3616,7 +3620,12 @@ impl Ctx {
         offstage: false,
         offstage_dirty: false,
       };
-      self.set_child_slot(cursor, slot);
+      // A keyed slot where the group comes is kept to be found by its key, as a component does.
+      if self.children.get(cursor).is_some_and(|slot| slot.key.is_some()) {
+        self.insert_child_slot(cursor, slot);
+      } else {
+        self.set_child_slot(cursor, slot);
+      }
     }
 
     let slot = &mut self.children[cursor];

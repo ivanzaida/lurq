@@ -654,11 +654,12 @@ impl Toolbar {
   /// is being rendered.
   pub fn mount(self, ctx: &mut Ctx) -> Element {
     let (bar, key) = self.prepare(&current_theme());
-    let mut element = ctx.mount::<ToolbarHost>(ToolbarProps { bar });
-    if let Some(key) = key {
-      element = element.key(key);
+    // Keyed, it keeps its host where what is before it comes and goes.
+    let props = ToolbarProps { bar };
+    match key {
+      Some(key) => ctx.mount_keyed::<ToolbarHost>(&key, props).key(key),
+      None => ctx.mount::<ToolbarHost>(props),
     }
-    element
   }
 
   /// Builds the bar in `theme` once, with nothing kept: its controls without

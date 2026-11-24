@@ -1201,11 +1201,12 @@ impl<V: FieldValue<Date>> DateField<V> {
   /// The field mounted where it is declared: it keeps what is half typed in its segments between renders.
   pub fn mount(self, ctx: &mut Ctx) -> Element {
     let key = self.core.key.clone();
-    let mut element = ctx.mount::<FieldHost<DateField<V>>>(FieldProps { field: self });
-    if let Some(key) = key {
-      element = element.key(key);
+    // Keyed, it keeps its host where what is before it comes and goes.
+    let props = FieldProps { field: self };
+    match key {
+      Some(key) => ctx.mount_keyed::<FieldHost<DateField<V>>>(&key, props).key(key),
+      None => ctx.mount::<FieldHost<DateField<V>>>(props),
     }
-    element
   }
 }
 

@@ -380,6 +380,13 @@ impl Component for PathFieldPage {
         "What the button says, and is called.",
       ),
       (
+        "button_variant",
+        "ButtonVariant",
+        "Outline",
+        "The variant of the button, with its looks at rest, under the pointer and held down: Secondary for a \
+         quieter one.",
+      ),
+      (
         "icon",
         "impl Into<IconChoice>",
         "folder",

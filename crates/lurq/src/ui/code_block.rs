@@ -136,6 +136,26 @@ names!(CodeBlockState {
   Folded => "folded",
 });
 
+/// Where the bar's other text ([`CodeBlock::bar_meta`]) stands.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum CodeBlockMeta {
+  /// At the bar's end, by the copy button.
+  #[default]
+  ByCopy,
+  /// After the title, at the bar's start: *Bash · 22 lines*, the copy button alone at the end.
+  ByTitle,
+}
+
+/// Where the chevron of the button under a folded block ([`CodeBlock::fold_icon`]) stands.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum CodeBlockFoldIcon {
+  /// After the button's text.
+  #[default]
+  Trailing,
+  /// Before it.
+  Leading,
+}
+
 /// What builds the nodes of a code block: a theme's in place of the default one.
 pub type CodeBlockRenderer = Arc<dyn Fn(CodeBlockView) -> Element + Send + Sync>;
 
@@ -191,6 +211,7 @@ pub struct CodeBlock {
   kept: Option<Arc<Mutex<crate::code::LineCache>>>,
   title: Option<Arc<str>>,
   meta: Option<Arc<str>>,
+  meta_at: CodeBlockMeta,
   label: Option<Arc<str>>,
   line_numbers: bool,
   first_line: usize,
@@ -203,6 +224,7 @@ pub struct CodeBlock {
   fold_state: Option<Signal<bool>>,
   on_fold: Vec<FoldHandler>,
   fold_icon: bool,
+  fold_icon_at: CodeBlockFoldIcon,
   show_all_text: Arc<str>,
   show_less_text: Arc<str>,
   copy_button: bool,
@@ -237,6 +259,7 @@ impl CodeBlock {
       kept: None,
       title: None,
       meta: None,
+      meta_at: CodeBlockMeta::ByCopy,
       label: None,
       line_numbers: false,
       first_line: 1,
@@ -249,6 +272,7 @@ impl CodeBlock {
       fold_state: None,
       on_fold: Vec::new(),
       fold_icon: false,
+      fold_icon_at: CodeBlockFoldIcon::Trailing,
       show_all_text: super::current_locale().editing.show_all_code.clone(),
       show_less_text: super::current_locale().editing.show_less_code.clone(),
       copy_button: true,
@@ -349,6 +373,20 @@ impl CodeBlock {
     self
   }
 
+  /// Where the bar's other text ([`bar_meta`](Self::bar_meta)) stands: by the copy button unless told, or after
+  /// the title, the copy button alone at the bar's end.
+  ///
+  /// ```
+  /// use lurq::ui::{CodeBlock, CodeBlockMeta};
+  ///
+  /// // "Bash · 22 lines" at the bar's start, Copy at its end.
+  /// let block = CodeBlock::new("ls").language("bash").bar_meta("· 22 lines").bar_meta_at(CodeBlockMeta::ByTitle);
+  /// ```
+  pub fn bar_meta_at(mut self, at: CodeBlockMeta) -> Self {
+    self.meta_at = at;
+    self
+  }
+
   /// Its name to what reads the tree: its title, or its language, unless told.
   pub fn label(mut self, label: &str) -> Self {
     self.label = Some(Arc::from(label));
@@ -437,6 +475,13 @@ impl CodeBlock {
   /// while the block is folded, up once it is unfolded. Off unless told.
   pub fn fold_icon(mut self, icon: bool) -> Self {
     self.fold_icon = icon;
+    self
+  }
+
+  /// Where the chevron of the button under a folded block stands ([`fold_icon`](Self::fold_icon)): after the
+  /// button's text unless told, or before it.
+  pub fn fold_icon_at(mut self, at: CodeBlockFoldIcon) -> Self {
+    self.fold_icon_at = at;
     self
   }
 
@@ -683,6 +728,7 @@ impl CodeBlock {
       lines_window: window,
       title: self.title,
       meta: self.meta,
+      meta_at: self.meta_at,
       label: self.label,
       line_numbers: self.line_numbers,
       first_line: self.first_line,
@@ -693,6 +739,7 @@ impl CodeBlock {
       fold: fold_at.and(self.fold),
       folded,
       fold_icon: self.fold_icon,
+      fold_icon_at: self.fold_icon_at,
       show_all_text: self.show_all_text,
       show_less_text: self.show_less_text,
       fold_press,
@@ -884,6 +931,8 @@ pub struct CodeBlockView {
   pub title: Option<Arc<str>>,
   /// What the bar shows after its title.
   pub meta: Option<Arc<str>>,
+  /// Where that text stands: by the copy button, or after the title.
+  pub meta_at: CodeBlockMeta,
   pub label: Option<Arc<str>>,
   pub line_numbers: bool,
   /// The number of the first line.
@@ -899,8 +948,10 @@ pub struct CodeBlockView {
   pub folded: bool,
   pub show_all_text: Arc<str>,
   pub show_less_text: Arc<str>,
-  /// Whether its button has a chevron after its text.
+  /// Whether its button has a chevron by its text.
   pub fold_icon: bool,
+  /// Whether the chevron is after the text or before it.
+  pub fold_icon_at: CodeBlockFoldIcon,
   /// What a press of its button does: folds or unfolds it, where it folds.
   fold_press: Option<FoldPress>,
   pub copy_button: bool,
@@ -1121,7 +1172,8 @@ impl CodeBlockView {
     }
   }
 
-  /// The bar: the title, or the language, at its start, and its other text and the copy button at its end.
+  /// The bar: the title, or the language, at its start, and the copy button at its end; its other text by the copy
+  /// button, or after the title ([`CodeBlockMeta`]).
   pub fn header(&self) -> Option<Element> {
     let heading = self.heading();
     if !self.has_header {
@@ -1147,8 +1199,11 @@ impl CodeBlockView {
       if let Some(id) = &self.id {
         text = text.id(format!("{id}-meta"));
       }
-      // The room between is empty, so that the text stands by the copy button.
-      bar = bar.child(Row::new().flex(1.0)).child(text);
+      // The room between is empty, so that the text stands by the copy button, or after the title.
+      bar = match self.meta_at {
+        CodeBlockMeta::ByCopy => bar.child(Row::new().flex(1.0)).child(text),
+        CodeBlockMeta::ByTitle => bar.child(text).child(Row::new().flex(1.0)),
+      };
     }
     if self.copy_button {
       bar = bar.child(self.copy_control());
@@ -1190,15 +1245,22 @@ impl CodeBlockView {
       .describe("a11y_role", "button")
       .describe("a11y_name", text.clone())
       .describe("a11y_expanded", if self.folded { "false" } else { "true" })
-      .on_click(self.fold_press())
-      .child(part.text(text).nowrap());
-    if self.fold_icon {
-      let chevron = if self.folded {
+      .on_click(self.fold_press());
+    let chevron = || {
+      let name = if self.folded {
         icons::CHEVRON_DOWN
       } else {
         icons::CHEVRON_UP
       };
-      button = button.child(glyph(&self.part(CodeBlockPart::FoldIcon), Name::from(chevron), false));
+      glyph(&self.part(CodeBlockPart::FoldIcon), Name::from(name), false)
+    };
+    let leading = self.fold_icon_at == CodeBlockFoldIcon::Leading;
+    if self.fold_icon && leading {
+      button = button.child(chevron());
+    }
+    button = button.child(part.text(text).nowrap());
+    if self.fold_icon && !leading {
+      button = button.child(chevron());
     }
     if let Some(id) = &self.id {
       button = button.id(format!("{id}-fold"));

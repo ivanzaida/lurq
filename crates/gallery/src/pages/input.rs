@@ -12,7 +12,7 @@ use lurq::{
   layout::Alignment,
   node::{Element, color::Color},
   ui::{
-    ColorField, Combobox, DateField, DatePicker, DateRangePicker, Field, Input, InputSize, Interaction, Mention,
+    ColorField, Combobox, DateField, DatePicker, DateRangePicker, Field, Input, InputSize, Interaction, Link, Mention,
     Mentions, MentionsController, MultiSelect, NumberInput, Orientation, PasswordInput, SearchField, Select, Switch,
     Textarea, TimeField, TimePicker, Token, TokenInput, icons,
   },
@@ -383,6 +383,13 @@ impl Component for InputPage {
         .child(
           Field::new("Port", showing("80").full_width(true))
             .description("Ports below 1024 need admin rights.")
+            .warning(true),
+        )
+        .child(
+          // An action on the description's line, after its words.
+          Field::new("Key", showing("KON").full_width(true))
+            .description("Taken by Kontur ·")
+            .description_action(Link::new("Use KON2"))
             .warning(true),
         )
         .child(

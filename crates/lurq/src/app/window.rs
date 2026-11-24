@@ -33,7 +33,7 @@ pub struct WindowInfo {
 }
 
 /// What the system tells an app about itself, heard with `ctx.window().on_app_event(..)`. A phone tells all of
-/// it; a desktop tells [`GraphicsDeviceLost`](Self::GraphicsDeviceLost) alone.
+/// it; a desktop tells [`GraphicsDeviceLost`](Self::GraphicsDeviceLost), and macOS [`OpenUrl`](Self::OpenUrl) too.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AppEvent {
   /// The app is in front and takes input.
@@ -44,7 +44,10 @@ pub enum AppEvent {
   Background,
   /// The app is coming back into view.
   Foreground,
-  /// The app was opened with a link: its own scheme, or a universal link of its site.
+  /// The app was opened with a link: its own scheme, or a universal link of its site. On macOS, a link of a scheme
+  /// the app's bundle names (`CFBundleURLTypes`), the one that started the app and those that come while it runs:
+  /// told to the main window once it has a handler. On Windows and Linux such a link is an argument of a new
+  /// process, which the app hands to the one that runs.
   OpenUrl(String),
   /// The app was opened by one of its shortcuts on the home screen, named by the shortcut's type.
   Shortcut(String),

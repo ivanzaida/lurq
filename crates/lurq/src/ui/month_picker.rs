@@ -892,11 +892,12 @@ impl<V: FieldValue<YearMonth>> MonthPicker<V> {
   /// The picker mounted where it is declared: it keeps the year it shows between renders.
   pub fn mount(self, ctx: &mut Ctx) -> Element {
     let key = self.core.key.clone();
-    let mut element = ctx.mount::<PeriodHost<MonthPicker<V>>>(PeriodProps { picker: self });
-    if let Some(key) = key {
-      element = element.key(key);
+    // Keyed, it keeps its host where what is before it comes and goes.
+    let props = PeriodProps { picker: self };
+    match key {
+      Some(key) => ctx.mount_keyed::<PeriodHost<MonthPicker<V>>>(&key, props).key(key),
+      None => ctx.mount::<PeriodHost<MonthPicker<V>>>(props),
     }
-    element
   }
 }
 

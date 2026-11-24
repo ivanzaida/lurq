@@ -177,11 +177,12 @@ impl Highlight {
   /// the current mark into view each time it changes, not as it is first shown.
   pub fn mount(self, ctx: &mut Ctx) -> Element {
     let key = self.key.clone();
-    let mut element = ctx.mount::<HighlightHost>(HighlightProps { highlight: self });
-    if let Some(key) = key {
-      element = element.key(key);
+    // Keyed, it keeps its host where what is before it comes and goes.
+    let props = HighlightProps { highlight: self };
+    match key {
+      Some(key) => ctx.mount_keyed::<HighlightHost>(&key, props).key(key),
+      None => ctx.mount::<HighlightHost>(props),
     }
-    element
   }
 
   /// Builds the highlight in `theme`. Converting a highlight into an element

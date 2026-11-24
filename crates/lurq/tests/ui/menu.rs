@@ -1341,3 +1341,68 @@ fn a_recipe_sees_the_side_of_its_anchor_the_menu_opened_on() {
   assert!(y >= ay + ah, "it went under its anchor");
   assert_eq!(flipped.fill_color("menu"), Some(under), "and its recipe sees it there");
 }
+
+#[test]
+fn a_recipe_puts_the_keys_of_the_items_at_the_end_of_a_column_of_their_own() {
+  use lurq::layout::layout_kind::Justify;
+  let keys = |justify: Option<Justify>| {
+    let anchor = ElementRef::new();
+    let app = App::new();
+    app.theme().patch_recipe::<MenuItem>(move |recipe| {
+      recipe.base(MenuItemPart::Shortcut, move |s| {
+        let s = s.width(96.0);
+        match justify {
+          Some(justify) => s.justify(justify),
+          None => s,
+        }
+      })
+    });
+    let mut stage = Stage::in_app(app, move |_| {
+      page(
+        anchor.clone(),
+        Menu::controlled(true, anchor.clone(), |_| {})
+          .id("menu")
+          .item(MenuItem::new("Undo").shortcut("Ctrl+Z").id("undo"))
+          .item(MenuItem::new("Redo").shortcut("Ctrl+Shift+Z").id("redo")),
+      )
+    });
+    let (ix, _, iw, _) = stage.bounds("undo");
+    let short = stage.text_quad("Ctrl+Z").unwrap();
+    let long = stage.text_quad("Ctrl+Shift+Z").unwrap();
+    (ix + iw, short.x, short.x + short.width, long.x, long.x + long.width)
+  };
+  // A column of 96 alone: the keys start where it does.
+  let (_, short_start, _, long_start, _) = keys(None);
+  assert!((short_start - long_start).abs() < 0.5, "{short_start} {long_start}");
+  // Justified to its end: they end at it, 8 from the item's edge.
+  let (edge, _, short_end, _, long_end) = keys(Some(Justify::End));
+  assert!((short_end - long_end).abs() < 0.5, "{short_end} {long_end}");
+  assert!((edge - 8.0 - short_end).abs() < 0.5, "{edge} {short_end}");
+}
+
+#[test]
+fn a_menu_is_moved_along_the_edge_of_its_anchor_as_far_as_told() {
+  let placed = |cross: Option<f32>| {
+    let anchor = ElementRef::new();
+    let mut stage = Stage::new(move |_| {
+      let menu = Menu::controlled(true, anchor.clone(), |_| {})
+        .id("menu")
+        .item(MenuItem::new("Undo"));
+      let menu = match cross {
+        Some(cross) => menu.cross_offset(cross),
+        None => menu,
+      };
+      page(anchor.clone(), menu)
+    });
+    let (ax, ay, _, ah) = stage.bounds("anchor");
+    let (x, y, ..) = stage.bounds("menu");
+    (x - ax, y - (ay + ah))
+  };
+  assert_eq!(placed(None), (0.0, 4.0));
+  assert_eq!(
+    placed(Some(-12.0)),
+    (-12.0, 4.0),
+    "12 before the anchor's start, 4 under it"
+  );
+  assert_eq!(placed(Some(10.0)), (10.0, 4.0));
+}

@@ -48,9 +48,13 @@ impl TextInputState {
     let len = self.value().len();
     let mut inner = self.inner.lock();
     inner.last_value = old_last_value;
-    inner.caret = old_caret.min(len);
-    inner.token_affinity = old_affinity;
-    inner.selection_anchor = old_selection_anchor.map(|anchor| anchor.min(len));
+    // A selection the app's controller set in this state, during the render that built it, is the one it has; the
+    // old one's is what it had before.
+    if !std::mem::take(&mut inner.selection_set) {
+      inner.caret = old_caret.min(len);
+      inner.token_affinity = old_affinity;
+      inner.selection_anchor = old_selection_anchor.map(|anchor| anchor.min(len));
+    }
     inner.caret_x = old_caret_x;
     inner.caret_y = old_caret_y;
     inner.caret_height = old_caret_height;

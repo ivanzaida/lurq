@@ -1,6 +1,9 @@
 //! A document is read from Markdown and written as Markdown that reads back as the same document.
 use super::*;
-use crate::components::styled_text::{ParagraphKind::*, SpanStyle};
+use crate::components::styled_text::{
+  ParagraphKind::{self, *},
+  SpanStyle,
+};
 
 fn span(range: std::ops::Range<usize>, style: SpanStyle) -> StyledSpan {
   StyledSpan::new(range, style)
@@ -18,6 +21,8 @@ fn read(source: &str) -> RichText {
   document
 }
 
+/// A line of a block of code with no language.
+const CODE: ParagraphKind = ParagraphKind::Code { language: None };
 #[test]
 fn rich_text_reads_the_blocks_of_markdown_as_kinds_of_paragraphs() {
   let document = read(
@@ -29,7 +34,7 @@ fn rich_text_reads_the_blocks_of_markdown_as_kinds_of_paragraphs() {
   );
   assert_eq!(
     document.paragraphs,
-    vec![Heading(2), Body, Bullet, Bullet, Ordered, Ordered, Quote, Code, Code]
+    vec![Heading(2), Body, Bullet, Bullet, Ordered, Ordered, Quote, CODE, CODE]
   );
   assert!(document.spans.is_empty());
 }
@@ -153,4 +158,26 @@ fn rich_text_reads_a_task_list_as_a_checklist_and_a_thematic_break_as_a_divider(
   let mixed = read("- [ ] task\n- plain");
   assert_eq!(mixed.paragraphs, vec![Checklist { checked: false }, Bullet]);
   assert_eq!(mixed.text, "task\nplain");
+}
+
+#[test]
+fn rich_text_keeps_the_language_of_a_fence_and_writes_it_back() {
+  let source = "```rust\nfn main() {}\n```";
+  let document = read(source);
+  assert_eq!(document.paragraphs, [ParagraphKind::code(Some("rust"))]);
+  assert_eq!(document.paragraphs[0].language(), Some("rust"));
+  assert_eq!(document.to_markdown(), source);
+  // Two blocks of other languages one after another stay two, each with its fence.
+  let two = read("```rust\nlet a = 1;\n```\n\n```py\nb = 2\n```");
+  assert_eq!(
+    two.paragraphs,
+    [ParagraphKind::code(Some("rust")), ParagraphKind::code(Some("py"))]
+  );
+  assert_eq!(two.to_markdown(), "```rust\nlet a = 1;\n```\n\n```py\nb = 2\n```");
+  // The first word of the info string is the language; a fence with none has none.
+  assert_eq!(
+    read("```rust ignore\nx\n```").paragraphs,
+    [ParagraphKind::code(Some("rust"))]
+  );
+  assert_eq!(read("```\nx\n```").paragraphs, [CODE]);
 }
