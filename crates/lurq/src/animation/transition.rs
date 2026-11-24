@@ -200,6 +200,8 @@ pub struct TransitionEngine {
   scopes: Vec<(Theme, TargetTheme)>,
   /// Whether motion is reduced (`Theme::reduced_motion`): what moves or resizes an element then ends at once.
   reduced_motion: bool,
+  /// Whether a fade ends at once too while motion is reduced (`Theme::reduce_fades`).
+  reduce_fades: bool,
   /// Which values this engine holds: a subtree it ticked clean is skipped only while it holds the values it had.
   epoch: u64,
   /// What the walk of the children of the node last ticked found, child by child: see [`Self::tick_subtree`].
@@ -235,6 +237,7 @@ impl TransitionEngine {
       theme_changed: false,
       scopes: Vec::new(),
       reduced_motion: false,
+      reduce_fades: false,
       epoch: next_epoch(),
       child_results: Vec::new(),
     }
@@ -244,6 +247,7 @@ impl TransitionEngine {
   /// are read against. Copies nothing while the theme and its version are the ones last taken.
   pub(crate) fn set_theme(&mut self, theme: &Theme) {
     self.reduced_motion = theme.reduced_motion();
+    self.reduce_fades = theme.reduce_fades();
     let version = theme.version();
     if self
       .theme_seen
@@ -521,8 +525,8 @@ impl TransitionEngine {
         };
 
         // With motion reduced, what moves or resizes an element is there at once. A fade or a
-        // change of color is no motion and still runs.
-        let (duration, delay) = if self.reduced_motion && moves(*prop) {
+        // change of color is no motion and still runs, unless the app has fades end at once too.
+        let (duration, delay) = if self.reduced_motion && (self.reduce_fades || moves(*prop)) {
           (Duration::ZERO, Duration::ZERO)
         } else {
           (*duration, *delay)

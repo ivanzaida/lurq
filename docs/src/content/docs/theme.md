@@ -694,7 +694,7 @@ let fade = Transition::opacity()
 
 Two settings of the theme say whether things move at all, and neither is part of a definition:
 
-- `theme.set_reduced_motion(Some(true))` holds back what moves across the screen, whatever the system says: see [Reduced Motion](../animation-transforms/#reduced-motion).
+- `theme.set_reduced_motion(Some(true))` holds back what moves across the screen, whatever the system says: see [Reduced Motion](../animation-transforms/#reduced-motion). `theme.set_reduce_fades(true)` has fades and changes of color end at once too while it is reduced.
 - `theme.set_smooth_scroll(false)` scrolls a notch of a mouse's wheel at once, where it is animated by default: see [The mouse wheel](../styling-events/#the-mouse-wheel). `theme.smooth_scroll()` reads it.
 
 ## Opacity
