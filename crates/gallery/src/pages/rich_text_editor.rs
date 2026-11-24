@@ -35,7 +35,7 @@ const FIELD_NOTES: &str = "## Field notes\n\nThe lake at dusk, from the north sh
 /// A checklist between two sections, and a numbered list.
 const TASKS: &str = "### Acceptance\n\n- [x] The brief reads as it is edited\n- [ ] A divider between sections\n- [ ] \
                      Items closer than the blocks round them\n\n---\n\n### Steps\n\n1. Write the brief\n2. Check \
-                     the items";
+                     the items\n\n```rust\nfn main() {\n    brief::check();\n}\n```";
 
 /// The pictures pasted into the page's editors as pixels: a document names one `pasted-0`, `pasted-1`, by its
 /// place here. An app would write them to its files; the gallery has none, and keeps them while it runs.

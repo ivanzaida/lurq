@@ -11,6 +11,31 @@ dropped). When a decision is replaced, the old entry stays and says what replace
 
 ## 2026-11-24
 
+### A block of code's language, kept and named while it is edited
+
+- **Question.** A rich text editor showed a block of code as plain mono lines, where `Markdown` reading the same
+  document gave it a `CodeBlock`'s bar, and `RichText` dropped the language a fence names: editing a document lost
+  it (issue #245).
+- **Decision (Ivan).** The language is the paragraph's: `ParagraphKind::Code { language }`, a break that a `match`
+  over the kinds needs to follow.
+- **Decided by Claude in the work, to be confirmed.**
+  - *`language: Option<&'static str>`, not `Option<Arc<str>>`*: `ParagraphKind` is `Copy`, and is copied all
+    through the input and the apps that use it; an `Arc` would break that too. `ParagraphKind::code(Some(name))`
+    keeps each name once for the app's life (the names of the languages of the documents an app reads: few), the
+    first word of a fence's info string, and none longer than 64 bytes.
+  - *Two blocks of other languages one after another are two runs*, each with its fence; two of one language
+    stay one, as before.
+  - *The bar is the engine's `ParagraphHeader`, a band over a run that names it*, drawn in the room it keeps above
+    the run's first text and inside its fill, not a `CodeBlock` laid over the input: the lines stay the input's
+    text, selected and typed in as any. The editor's `CodeBar` part says its look, as a `CodeBlock`'s bar: 28 high,
+    the name 12 in, the mono face at 11 in `MutedForeground`, a line of `Border` under it. A block with no language
+    has none.
+  - *No copy button, no fold and no `bar_meta` in the editor*: a button in the text it edits would take the
+    pointer from the text, a fold would hide lines being edited, and the app's text of a block is its own to give
+    where it reads it. Reading (`Markdown`) and editing now share the language and the bar's look.
+  - *Three backticks and a name, and Enter*, start a block in that language, as `` ``` `` and a space did and does.
+- **State.** Built on `feat/open-issues`.
+
 ### The links of an app's own scheme on macOS
 
 - **Question.** On macOS a link of an app's own scheme never reached it: LaunchServices sends it as an Apple Event,

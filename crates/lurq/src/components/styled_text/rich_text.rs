@@ -217,7 +217,8 @@ impl RichText {
       };
       if let Some(previous) = previous {
         out.push_str(match (previous, *kind) {
-          (ParagraphKind::Code, ParagraphKind::Code) => "\n",
+          // Lines of one block; a block of another language after it is a fence of its own.
+          (previous, kind) if previous.is_code() && previous == kind => "\n",
           (ParagraphKind::Bullet, ParagraphKind::Bullet)
           | (ParagraphKind::Ordered, ParagraphKind::Ordered)
           | (ParagraphKind::Checklist { .. }, ParagraphKind::Checklist { .. }) => "\n",
@@ -225,13 +226,15 @@ impl RichText {
           _ => "\n\n",
         });
       }
-      if *kind == ParagraphKind::Code {
+      if kind.is_code() {
         if !fenced {
-          out.push_str("```\n");
+          out.push_str("```");
+          out.push_str(kind.language().unwrap_or_default());
+          out.push('\n');
           fenced = true;
         }
         out.push_str(&text_with_labels(&text.text, &objects[index]));
-        if blocks.get(index + 1).is_none_or(|next| next.0 != ParagraphKind::Code) {
+        if blocks.get(index + 1).is_none_or(|next| next.0 != *kind) {
           out.push_str("\n```");
           fenced = false;
         }
@@ -378,9 +381,20 @@ impl Reader {
           }
         }
       }
-      MarkdownBlock::CodeBlock { text, .. } | MarkdownBlock::Math { text } => {
+      MarkdownBlock::CodeBlock { text, kind: code } => {
+        // The fence's language is the lines', for the block's header and for the fence it is written with.
+        let language = match code {
+          crate::markdown::MarkdownCodeBlockKind::Fenced { language } => language.as_deref(),
+          crate::markdown::MarkdownCodeBlockKind::Indented => None,
+        };
         for line in text.strip_suffix('\n').unwrap_or(text).split('\n') {
-          self.start(ParagraphKind::Code);
+          self.start(ParagraphKind::code(language));
+          self.text.push_str(line.trim_end_matches('\r'));
+        }
+      }
+      MarkdownBlock::Math { text } => {
+        for line in text.strip_suffix('\n').unwrap_or(text).split('\n') {
+          self.start(ParagraphKind::Code { language: None });
           self.text.push_str(line.trim_end_matches('\r'));
         }
       }

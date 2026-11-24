@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use lurq::{
   app::{ClipboardReader, ClipboardWriter, events::ClipboardContent},
   components::{
-    ParagraphKind::{self, Body, Bullet, Code, Heading, Quote},
+    ParagraphKind::{self, Body, Bullet, Heading, Quote},
     ParagraphStyles, RichText, TextInput,
   },
   core::Signal,
@@ -81,6 +81,8 @@ fn notes() -> RichText {
   RichText::from_markdown("## Release notes\n\nBackdrop blur **follows clips**.\n\n- Faster shaping\n- Fewer passes")
 }
 
+/// A line of a block of code with no language.
+const CODE: ParagraphKind = ParagraphKind::Code { language: None };
 #[test]
 fn styled_a_copy_keeps_the_markdown_of_the_selection_beside_its_text() {
   let (mut editor, clipboard) = opened(&notes(), true);
@@ -269,12 +271,12 @@ Backdrop blur "
 
 #[test]
 fn styled_a_paste_into_a_line_of_code_is_the_text_as_it_is_written() {
-  let (mut editor, _) = opened(&RichText::new("let x;", vec![], vec![Code]), true);
+  let (mut editor, _) = opened(&RichText::new("let x;", vec![], vec![CODE]), true);
   editor.select(6, 6);
   assert!(editor.tree.paste(ClipboardContent::text("\n# not a heading")));
   let now = document(&editor);
   assert_eq!(now.text, "let x;\n# not a heading");
-  assert_eq!(now.paragraphs, [Code, Code]);
+  assert_eq!(now.paragraphs, [CODE, CODE]);
 }
 
 #[test]

@@ -31,8 +31,11 @@ pub enum ParagraphKind {
   Ordered,
   /// A paragraph of a quote.
   Quote,
-  /// A line of a block of code.
-  Code,
+  /// A line of a block of code, in the language a fence of Markdown names (```` ```rust ````), where it names one:
+  /// what the block's header says ([`ParagraphStyle::header`]). Two blocks of other languages that follow one
+  /// another are two runs. A language read from a document is kept once for the app's life
+  /// ([`ParagraphKind::code`]), so that the kind stays `Copy`.
+  Code { language: Option<&'static str> },
   /// An item of a checklist, with a box before it the person checks: written `- [ ]` in Markdown, and `- [x]`
   /// checked.
   Checklist { checked: bool },
@@ -42,6 +45,28 @@ pub enum ParagraphKind {
 }
 
 impl ParagraphKind {
+  /// A line of a block of code in `language`, the first word of a fence's info string (`rust` of `rust ignore`),
+  /// kept once for the app's life: the names of the languages of the documents an app reads. A name that is empty
+  /// or longer than 64 bytes is none.
+  pub fn code(language: Option<&str>) -> Self {
+    Self::Code {
+      language: language.and_then(intern_language),
+    }
+  }
+
+  /// The language of a line of a block of code, where its fence named one.
+  pub fn language(self) -> Option<&'static str> {
+    match self {
+      Self::Code { language } => language,
+      _ => None,
+    }
+  }
+
+  /// Whether this is a line of a block of code, in any language.
+  pub fn is_code(self) -> bool {
+    matches!(self, Self::Code { .. })
+  }
+
   /// The kind as an input keeps it: a heading's level within 1 to 6.
   pub(crate) fn canonical(self) -> Self {
     match self {
@@ -59,6 +84,15 @@ impl ParagraphKind {
     }
   }
 
+  /// Whether this is a paragraph of the same sort as `other`, what a tool shows on: a heading of its level, an
+  /// item of a checklist checked or not, a line of code in any language.
+  pub fn is_like(self, other: Self) -> bool {
+    match (self.canonical(), other.canonical()) {
+      (Self::Checklist { .. }, Self::Checklist { .. }) | (Self::Code { .. }, Self::Code { .. }) => true,
+      (kind, other) => kind == other,
+    }
+  }
+
   /// The kind of a paragraph an edit splits off one of this kind: an item of a checklist is not checked, and
   /// what follows a divider is body text.
   pub(crate) fn split_off(self) -> Self {
@@ -68,6 +102,26 @@ impl ParagraphKind {
       kind => kind,
     }
   }
+}
+
+/// The one copy of a language's name, for the app's life.
+fn intern_language(name: &str) -> Option<&'static str> {
+  use std::{
+    collections::HashSet,
+    sync::{LazyLock, Mutex},
+  };
+  static NAMES: LazyLock<Mutex<HashSet<&'static str>>> = LazyLock::new(Mutex::default);
+  let name = name.split_whitespace().next()?;
+  if name.len() > 64 {
+    return None;
+  }
+  let mut names = NAMES.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+  if let Some(kept) = names.get(name) {
+    return Some(kept);
+  }
+  let kept: &'static str = Box::leak(name.into());
+  names.insert(kept);
+  Some(kept)
 }
 
 impl DevtoolsInspectable for ParagraphKind {
@@ -140,6 +194,72 @@ pub struct ParagraphStyle {
   pub marker_font_size: Option<f32>,
   /// The weight of the marker's text, in place of the paragraph's.
   pub marker_weight: Option<FontWeight>,
+  /// A band over a run of paragraphs of the kind that names it, inside its fill: a block of code's language. Drawn
+  /// where the run has a name, the language of its first line.
+  pub header: Option<ParagraphHeader>,
+}
+
+/// The band over a run of paragraphs that names it, as a code block's bar names its language: as high as told,
+/// its name at its start in a type of its own, over a fill and a line under it where told.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ParagraphHeader {
+  /// Its height, in logical pixels: the room the run keeps above its first paragraph's text for it.
+  pub height: f32,
+  /// The room before the name, from the start of the run's fill.
+  pub padding_x: f32,
+  /// The family of the name's type, in place of the paragraph's.
+  pub font_family: Option<std::sync::Arc<str>>,
+  /// The size of the name's type in logical pixels, in place of the paragraph's.
+  pub font_size: Option<f32>,
+  pub weight: Option<FontWeight>,
+  /// The color of the name, in place of the paragraph's.
+  pub color: Option<TextColor>,
+  /// A fill behind the band, across the input.
+  pub background: Option<TextColor>,
+  /// A line under the band, across the input: its thickness and its color.
+  pub line: Option<(f32, TextColor)>,
+}
+
+impl ParagraphHeader {
+  /// A band `height` high, its name `padding_x` in.
+  pub fn new(height: f32, padding_x: f32) -> Self {
+    Self {
+      height,
+      padding_x,
+      ..Self::default()
+    }
+  }
+
+  pub fn font_family(mut self, family: impl Into<std::sync::Arc<str>>) -> Self {
+    self.font_family = Some(family.into());
+    self
+  }
+
+  pub fn font_size(mut self, size: f32) -> Self {
+    self.font_size = Some(size);
+    self
+  }
+
+  pub fn weight(mut self, weight: FontWeight) -> Self {
+    self.weight = Some(weight);
+    self
+  }
+
+  pub fn color(mut self, color: impl Into<TextColor>) -> Self {
+    self.color = Some(color.into());
+    self
+  }
+
+  pub fn background(mut self, color: impl Into<TextColor>) -> Self {
+    self.background = Some(color.into());
+    self
+  }
+
+  /// A line `thickness` high under the band.
+  pub fn line(mut self, thickness: f32, color: impl Into<TextColor>) -> Self {
+    self.line = Some((thickness, color.into()));
+    self
+  }
 }
 
 impl ParagraphStyle {
@@ -176,6 +296,13 @@ impl ParagraphStyle {
 
   pub fn color(mut self, color: impl Into<TextColor>) -> Self {
     self.color = Some(color.into());
+    self
+  }
+
+  /// A band over a run of paragraphs of the kind that names it: a block of code's language
+  /// ([`ParagraphKind::language`]). A run with no name has none.
+  pub fn header(mut self, header: ParagraphHeader) -> Self {
+    self.header = Some(header);
     self
   }
 
@@ -307,7 +434,7 @@ impl ParagraphStyles {
     self
   }
 
-  /// How paragraphs of `kind` are drawn.
+  /// How paragraphs of `kind` are drawn: lines of code in every language for any `Code`.
   pub fn with(mut self, kind: ParagraphKind, style: ParagraphStyle) -> Self {
     match kind.canonical() {
       ParagraphKind::Body => self.body = style,
@@ -315,7 +442,7 @@ impl ParagraphStyles {
       ParagraphKind::Bullet => self.bullet = style,
       ParagraphKind::Ordered => self.ordered = style,
       ParagraphKind::Quote => self.quote = style,
-      ParagraphKind::Code => self.code = style,
+      ParagraphKind::Code { .. } => self.code = style,
       ParagraphKind::Checklist { checked: false } => self.checklist = style,
       ParagraphKind::Checklist { checked: true } => self.checked = Some(style),
       ParagraphKind::Divider => self.divider = style,
@@ -331,7 +458,7 @@ impl ParagraphStyles {
       ParagraphKind::Bullet => &self.bullet,
       ParagraphKind::Ordered => &self.ordered,
       ParagraphKind::Quote => &self.quote,
-      ParagraphKind::Code => &self.code,
+      ParagraphKind::Code { .. } => &self.code,
       ParagraphKind::Checklist { checked: false } => &self.checklist,
       ParagraphKind::Checklist { checked: true } => self.checked.as_ref().unwrap_or(&self.checklist),
       ParagraphKind::Divider => &self.divider,

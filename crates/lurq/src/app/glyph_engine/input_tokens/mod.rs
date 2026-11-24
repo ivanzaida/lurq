@@ -167,6 +167,21 @@ pub(crate) struct ParagraphFormat {
   pub(crate) fill: Option<(Color, f32)>,
   /// Whether the paragraph before is of the same kind: a bar and a fill then go on from it as one.
   pub(crate) continues: bool,
+  /// The band over the run it starts, which names it: a block of code's language.
+  pub(crate) header: Option<ParagraphBand>,
+}
+
+/// The band over a run of paragraphs that names it, resolved: its name in its type, its height, the room before
+/// the name, and its fill and the line under it.
+#[derive(Clone, PartialEq)]
+#[cfg_attr(not(feature = "markdown"), allow(dead_code))]
+pub(crate) struct ParagraphBand {
+  pub(crate) text: Arc<str>,
+  pub(crate) style: TextStyle,
+  pub(crate) height: f32,
+  pub(crate) padding_x: f32,
+  pub(crate) fill: Option<Color>,
+  pub(crate) line: Option<(f32, Color)>,
 }
 
 /// What stands in the room before a paragraph's text. Only a styled input has kinds of paragraphs, and those

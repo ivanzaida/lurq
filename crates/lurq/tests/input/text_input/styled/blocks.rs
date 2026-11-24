@@ -265,3 +265,48 @@ fn styled_a_marks_padding_moves_the_text_beside_it() {
     after(&padded) - after(&plain)
   );
 }
+
+#[test]
+fn styled_a_run_of_code_in_a_language_has_a_band_over_it_that_names_it() {
+  use lurq::components::ParagraphHeader;
+  let rust = ParagraphKind::code(Some("rust"));
+  let kinds = Signal::new(vec![Body, rust, rust]);
+  let bound = kinds.clone();
+  let mut editor = Editor::with("a\nfn x\ny", vec![], move |input| {
+    input.paragraphs(
+      bound.clone(),
+      ParagraphStyles::new().gap(GAP).with(
+        rust,
+        ParagraphStyle::new()
+          .indent(12.0)
+          .joined(true)
+          .header(ParagraphHeader::new(28.0, 12.0).font_size(11.0).line(1.0, LINE)),
+      ),
+    )
+  });
+  // The block's first line stands under the band's 28.
+  let pitch = top(&editor, 2) - top(&editor, 0);
+  assert!(near(pitch, ROW + GAP + 28.0), "{pitch}");
+  let snapshot = editor.render();
+  let line = snapshot
+    .rects
+    .iter()
+    .find(|rect| rect.color == LINE)
+    .expect("the line under the band");
+  assert!(line.width > 300.0, "across the input: {}", line.width);
+  assert!(near(line.height, 1.0));
+  let band_glyphs = snapshot
+    .glyphs
+    .iter()
+    .filter(|glyph| glyph.y + glyph.height <= line.y + 0.5 && glyph.y >= line.y - 28.0)
+    .count();
+  assert_eq!(band_glyphs, 4, "the four letters of its name");
+  // A block with no language has none.
+  kinds.set(vec![
+    Body,
+    ParagraphKind::Code { language: None },
+    ParagraphKind::Code { language: None },
+  ]);
+  let snapshot = editor.render();
+  assert!(snapshot.rects.iter().all(|rect| rect.color != LINE), "no band");
+}

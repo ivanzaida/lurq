@@ -31,8 +31,9 @@ use crate::{
     theme::{BorderSize, OpacityLevel, PaletteColor, RadiusSize, Theme, TypographyStyle},
   },
   components::{
-    Column, InlineObject, LinkClick, MarkPresence, ParagraphKind, ParagraphMarker, ParagraphStyle, ParagraphStyles,
-    RichText, Row, SelectionStyle, StyledChange, StyledSpan, StyledText, TextInput, TextInputController, TextMark,
+    Column, InlineObject, LinkClick, MarkPresence, ParagraphHeader, ParagraphKind, ParagraphMarker, ParagraphStyle,
+    ParagraphStyles, RichText, Row, SelectionStyle, StyledChange, StyledSpan, StyledText, TextInput,
+    TextInputController, TextMark,
   },
   core::{ElementRef, Signal},
   layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
@@ -87,6 +88,10 @@ pub enum RichTextEditorPart {
   QuoteMark,
   /// A line of a block of code: its type, the room before its text, its fill and the fill's radius.
   CodeBlock,
+  /// The bar over a block of code that names its language (a fence's ```` ```rust ````), as a `CodeBlock`'s bar
+  /// does: its height, its start padding the room before the name, its type and color the name's, its fill, and
+  /// its underline the line under it. A block with no language has none.
+  CodeBar,
   /// An item of a checklist: the room before its text.
   Checklist,
   /// An item of a checklist that is checked, after `Checklist`: its color.
@@ -132,6 +137,7 @@ names!(RichTextEditorPart {
   Quote => "quote",
   QuoteMark => "quote_mark",
   CodeBlock => "code_block",
+  CodeBar => "code_bar",
   Checklist => "checklist",
   ChecklistChecked => "checklist_checked",
   ChecklistMark => "checklist_mark",
@@ -390,7 +396,7 @@ impl RichTextController {
       .selected_paragraphs()
       .ok()
       .flatten()
-      .is_some_and(|kinds| kinds.iter().all(|held| held.continues(kind)));
+      .is_some_and(|kinds| kinds.iter().all(|held| held.is_like(kind)));
     self.set_paragraphs(if all { ParagraphKind::Body } else { kind })
   }
 
@@ -459,7 +465,7 @@ impl RichTextController {
       .caret_paragraph()
       .ok()
       .flatten()
-      .is_some_and(|(kind, _)| kind == ParagraphKind::Code);
+      .is_some_and(|(kind, _)| kind.is_code());
     let done = !in_code && self.input.insert_object(object).unwrap_or(false);
     self.redraw();
     done
@@ -1184,9 +1190,10 @@ pub struct RichTextFormat {
 }
 
 impl RichTextFormat {
-  /// Whether every paragraph the selection touches is a `kind`: items of a checklist are one, checked or not.
+  /// Whether every paragraph the selection touches is a `kind`: items of a checklist are one, checked or not, and
+  /// lines of code, in any language.
   pub fn all(&self, kind: ParagraphKind) -> bool {
-    !self.paragraphs.is_empty() && self.paragraphs.iter().all(|held| held.continues(kind))
+    !self.paragraphs.is_empty() && self.paragraphs.iter().all(|held| held.is_like(kind))
   }
 
   /// The style the control of a paragraph's style shows: the level of a heading every paragraph is, 9 for a
@@ -1194,7 +1201,7 @@ impl RichTextFormat {
   fn style(&self) -> u8 {
     match self.paragraphs.first() {
       Some(ParagraphKind::Heading(level)) if self.all(ParagraphKind::Heading(*level)) => (*level).min(3),
-      Some(ParagraphKind::Code) if self.all(ParagraphKind::Code) => CODE_STYLE,
+      Some(ParagraphKind::Code { .. }) if self.all(ParagraphKind::Code { language: None }) => CODE_STYLE,
       _ => 0,
     }
   }
@@ -1206,7 +1213,7 @@ const CODE_STYLE: u8 = 9;
 fn style_kind(style: u8) -> ParagraphKind {
   match style {
     0 => ParagraphKind::Body,
-    CODE_STYLE => ParagraphKind::Code,
+    CODE_STYLE => ParagraphKind::Code { language: None },
     level => ParagraphKind::Heading(level),
   }
 }
@@ -1676,6 +1683,33 @@ impl RichTextEditorView {
       None => code,
     }
     .joined(true);
+    // The bar that names a block's language, where the part gives it a height.
+    let bar_part = self.part(RichTextEditorPart::CodeBar).rest();
+    let code = match length(bar_part.height) {
+      0.0 => code,
+      height => {
+        let text = content.clone().merged(&code_part).merged(&bar_part).text.resolve(theme);
+        let mut header = ParagraphHeader::new(height, px(&bar_part.padding_start))
+          .font_family(text.font_family.clone())
+          .font_size(text.font_size)
+          .weight(text.weight);
+        if let Some(color) = &bar_part.foreground {
+          header = header.color(color.clone());
+        }
+        if let Some(fill) = tint(&bar_part.background) {
+          header = header.background(fill);
+        }
+        if let Some(line) = &bar_part.underline {
+          let color = match &line.color {
+            crate::node::BackgroundColor::Palette(role) => TextColor::Palette(role.clone()),
+            crate::node::BackgroundColor::Color(color) => TextColor::Color(*color),
+            _ => TextColor::Palette(PaletteColor::Border),
+          };
+          header = header.line(line.width.resolve(&theme.border_sizes()), color);
+        }
+        code.header(header)
+      }
+    };
     ParagraphStyles::new()
       .gap(px(&content.gap))
       .with(ParagraphKind::Heading(1), kind(RichTextEditorPart::Heading1).0)
@@ -1706,7 +1740,7 @@ impl RichTextEditorView {
           color: ink(&bar, PaletteColor::Border),
         }),
       )
-      .with(ParagraphKind::Code, code)
+      .with(ParagraphKind::Code { language: None }, code)
       .with(
         ParagraphKind::Checklist { checked: false },
         checklist.marker(check_mark(&check)),
@@ -2171,14 +2205,30 @@ fn enter_key(kept: &Kept, shortcuts: bool) -> bool {
         && input.replace_selection("").unwrap_or(false)
         && input.insert_divider().unwrap_or(false)
     }
-    ParagraphKind::Body if shortcuts && kept.text.with_untracked(|text| text.get(range.clone()) == Some("```")) => {
-      input.select(range.start, range.end).is_ok() && input.replace_selection("").unwrap_or(false) && {
-        let _ = input.set_paragraphs(ParagraphKind::Code);
-        true
+    // Three backticks and a language's name, or none, and Enter: a block of code in it.
+    ParagraphKind::Body if shortcuts => match fence(kept, &range) {
+      Some(language) => {
+        input.select(range.start, range.end).is_ok() && input.replace_selection("").unwrap_or(false) && {
+          let _ = input.set_paragraphs(ParagraphKind::code(Some(&language)));
+          true
+        }
       }
-    }
+      None => false,
+    },
     _ => false,
   }
+}
+
+/// The language a paragraph that is three backticks and a name, or none, opens a block of code in: `rust` of
+/// `` ```rust ``, empty for three backticks alone.
+fn fence(kept: &Kept, range: &std::ops::Range<usize>) -> Option<String> {
+  kept.text.with_untracked(|text| {
+    text
+      .get(range.clone())
+      .and_then(|line| line.strip_prefix("```"))
+      .filter(|name| !name.contains(char::is_whitespace) && !name.contains('`'))
+      .map(str::to_owned)
+  })
 }
 
 /// Backspace at the start of anything but a paragraph of body text makes it one.
@@ -2200,7 +2250,7 @@ fn block_of(prefix: &str) -> Option<ParagraphKind> {
     "###" => Some(ParagraphKind::Heading(3)),
     "-" | "*" | "+" => Some(ParagraphKind::Bullet),
     ">" => Some(ParagraphKind::Quote),
-    "```" => Some(ParagraphKind::Code),
+    "```" => Some(ParagraphKind::Code { language: None }),
     "[]" | "[ ]" => Some(ParagraphKind::Checklist { checked: false }),
     "[x]" | "[X]" => Some(ParagraphKind::Checklist { checked: true }),
     _ if number
@@ -2270,7 +2320,7 @@ fn mark_shortcut(kept: &Kept, key: &str) -> bool {
   let Some((kind, range, caret)) = caret_paragraph(input) else {
     return false;
   };
-  if kind == ParagraphKind::Code {
+  if kind.is_code() {
     return false;
   }
   let Some(typed) = kept
@@ -2420,6 +2470,16 @@ impl Themed for RichTextEditor {
           .line_height(21.0 / 13.0)
           .background(Muted)
           .radius(RadiusSize::Sm)
+      })
+      // The bar over a block of code in a language: 28 high, its name 12 in, in the mono face at 11 in the muted
+      // foreground, a line of `Border` under it.
+      .base(CodeBar, |s| {
+        s.height(28.0)
+          .padding_start(12.0)
+          .font_family(FontFamily::Mono)
+          .font_size(11.0)
+          .foreground(MutedForeground)
+          .underline(Border::inside(BorderSize::Sm, PaletteColor::Border))
       })
       .base(Checklist, |s| s.padding_start(24.0))
       .base(ChecklistChecked, |s| s.foreground(MutedForeground))

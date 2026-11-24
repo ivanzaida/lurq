@@ -166,6 +166,16 @@ impl GlyphEngine {
           _ => run_bar = None,
         }
       }
+      // The band that names the run, at its top inside its fill, over the room it keeps above its text.
+      if let Some(band) = format
+        .as_ref()
+        .filter(|format| !format.continues)
+        .and_then(|format| format.header.as_ref())
+      {
+        if let Some(rule) = self.append_band(output, band, indent, first_row) {
+          fills.extend(rule);
+        }
+      }
       output.size.height += padding_top;
       output.append_piece(&piece, range.start, indent);
       output.size.height += padding_bottom;
@@ -191,6 +201,68 @@ impl GlyphEngine {
         output.fragments[fill].width = width;
       }
     }
+  }
+
+  /// Draws the band that names a run at the bottom of what is laid out, and makes room for it: its fill and the
+  /// line under it, which are made as wide as the input once that is known (their indices are given back), and its
+  /// name, `padding_x` from the start of the run's fill, in the middle of its height.
+  fn append_band(
+    &mut self,
+    output: &mut DecoratedInputLayout,
+    band: &super::ParagraphBand,
+    indent: f32,
+    first_row: usize,
+  ) -> Option<Vec<usize>> {
+    let top = output.size.height;
+    let height = band.height.max(0.0);
+    let rect = |y: f32, height: f32, color| super::InputFragment {
+      x: -indent,
+      y,
+      width: 0.0,
+      height,
+      color,
+      radius: 0.0,
+      token: None,
+      edge: None,
+      check: false,
+      row: first_row,
+    };
+    let mut fills = Vec::new();
+    if let Some(color) = band.fill {
+      fills.push(output.fragments.len());
+      output.fragments.push(rect(top, height, color));
+    }
+    if let Some((thickness, color)) = band.line.filter(|(thickness, _)| *thickness > 0.0) {
+      fills.push(output.fragments.len());
+      output.fragments.push(rect(top + height - thickness, thickness, color));
+    }
+    let piece = self.paragraph_piece(InputConfig {
+      source: band.text.clone(),
+      base: band.style.clone(),
+      styles: Vec::new(),
+      width: f32::MAX,
+      min_width: 0.0,
+      wrap: false,
+      paragraphs: Vec::new(),
+      exact_rows: true,
+    });
+    let (left, offset) = (
+      band.padding_x - indent,
+      top + (height - band.style.font_size * band.style.line_height) * 0.5,
+    );
+    output.glyphs.extend(piece.glyphs.iter().map(|glyph| {
+      let mut layout = glyph.glyph.clone();
+      layout.x += left;
+      super::InputGlyph {
+        glyph: layout,
+        baseline: glyph.baseline + offset,
+        row: first_row,
+        color: glyph.color,
+        shadow: glyph.shadow,
+      }
+    }));
+    output.size.height += height;
+    (!fills.is_empty()).then_some(fills)
   }
 
   /// Draws what stands before the text of a paragraph whose first row is the row `first_row`: a dot as a fill, a

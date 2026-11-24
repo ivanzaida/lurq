@@ -189,7 +189,7 @@ fn paragraph_styles(theme: &Theme) -> ParagraphStyles {
         }),
     )
     .with(
-      ParagraphKind::Code,
+      ParagraphKind::Code { language: None },
       ParagraphStyle::new()
         .font_family(mono)
         .font_size_scale(0.92)

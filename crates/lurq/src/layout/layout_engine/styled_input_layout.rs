@@ -6,7 +6,7 @@ use std::{ops::Range, sync::Arc};
 
 use super::LayoutEngine;
 use crate::{
-  app::glyph_engine::input_tokens::{ParagraphFormat, ParagraphMark, TextLines, TokenChip, TokenStyle},
+  app::glyph_engine::input_tokens::{ParagraphBand, ParagraphFormat, ParagraphMark, TextLines, TokenChip, TokenStyle},
   components::{
     InlineObject, ParagraphKind, ParagraphMarker, ParagraphStyles, StyledSpan,
     styled_text::{paragraph_of, paragraph_ranges},
@@ -166,7 +166,41 @@ impl LayoutEngine {
         (true, false, Some(gap)) => finite(gap),
         _ => finite(looks.gap),
       };
+      // The band that names the run this paragraph starts: a block of code's language.
+      let header = look
+        .header
+        .as_ref()
+        .filter(|_| !continues)
+        .zip(kind.language())
+        .map(|(header, language)| {
+          let mut style = text.clone();
+          if let Some(family) = &header.font_family {
+            style.font_family = family.clone();
+          }
+          if let Some(size) = header.font_size.filter(|size| size.is_finite() && *size > 0.0) {
+            style.font_size = size;
+          }
+          if let Some(weight) = header.weight {
+            style.weight = weight;
+          }
+          if let Some(ink) = &header.color {
+            style.color = color(ink);
+          }
+          style.line_height = 1.0;
+          ParagraphBand {
+            text: language.into(),
+            style,
+            height: finite(header.height),
+            padding_x: finite(header.padding_x),
+            fill: header.background.as_ref().and_then(|fill| fill.resolve(&palette)),
+            line: header
+              .line
+              .as_ref()
+              .map(|(thickness, line)| (finite(*thickness), color(line))),
+          }
+        });
       formats.push(ParagraphFormat {
+        header,
         marker_text: look.marker_text(&text),
         base: text,
         indent: finite(look.indent),

@@ -133,8 +133,12 @@ let styles = ParagraphStyles::new()
 let editor = TextInput::new(value).spans(spans).paragraphs(kinds, styles).multiline();
 ```
 
-A `ParagraphKind` is `Body`, `Heading(1..=6)`, `Bullet`, `Ordered`, `Quote`, `Code`, `Checklist { checked }` or
-`Divider`. A `ParagraphStyle` gives a
+A `ParagraphKind` is `Body`, `Heading(1..=6)`, `Bullet`, `Ordered`, `Quote`, `Code { language }`,
+`Checklist { checked }` or `Divider`. A line of code is in the language its block's fence names (`` ```rust ``), or
+`None`: `ParagraphKind::code(Some("rust"))` keeps the name once for the app's life, as `RichText::from_markdown` does,
+so that a kind stays `Copy`, and `language()` reads it. Two blocks of other languages one after another are two runs.
+`ParagraphStyles::with(ParagraphKind::Code { language: None }, ..)` styles the lines of code in every language. A
+`ParagraphStyle` gives a
 kind its type over the input's own (`font_size` or `font_size_scale`, `weight`, `line_height`, `font_family`,
 `color`), the room before its text (`indent`) and what stands in that room (`marker`): a `Dot` centred on the first
 row, a `Number` (the item's place in its run of numbered items, with a full stop), a `Bar` down all its rows, a
@@ -152,6 +156,10 @@ None of these is there unless told:
   fill: a quote's.
 - `marker_font_family`, `marker_font_size` and `marker_weight` give a numbered item's number a type of its own, on
   the baseline of the item's first row: the mono face.
+- `header(ParagraphHeader::new(height, padding_x))` is a band over a run of the kind that names it, inside its fill:
+  a block of code's language, as a `CodeBlock`'s bar names it. Its name is `padding_x` from the start of the fill, in
+  the middle of the band, in its own `font_family`, `font_size`, `weight` and `color` where told, over its
+  `background` and a `line(thickness, color)` under it. A run with no name (a block with no language) has none.
 
 The items of a checklist are one run, checked or not. `ParagraphStyles::checked` draws the checked ones in a style of
 their own (`with(ParagraphKind::Checklist { checked: true }, ..)`). A press on an item's box checks it, as one undo

@@ -11,7 +11,7 @@ use lurq::{
   },
   components::{
     Column,
-    ParagraphKind::{self, Body, Bullet, Code, Heading, Ordered, Quote},
+    ParagraphKind::{self, Body, Bullet, Heading, Ordered, Quote},
     RichText, SpanStyle, StyledSpan,
   },
   core::Signal,
@@ -452,7 +452,7 @@ fn markdown_typed_at_the_start_of_a_paragraph_makes_it_what_it_says() {
     ("* ", Bullet),
     ("1. ", Ordered),
     ("> ", Quote),
-    ("``` ", Code),
+    ("``` ", ParagraphKind::Code { language: None }),
   ] {
     let mut editor = Editor::new(RichText::default());
     editor.focus();
@@ -1979,4 +1979,44 @@ fn a_keyed_editor_keeps_its_selection_and_its_undo_when_a_component_comes_before
   assert!(controller.undo(), "its undo is kept");
   stage.pass();
   assert_eq!(value.get().text, "Hello world");
+}
+
+#[test]
+fn a_block_of_code_in_a_language_has_a_bar_that_names_it_and_the_fence_makes_one() {
+  use lurq::components::ParagraphKind;
+  let mut editor = Editor::new(RichText::from_markdown("Intro\n\n```rust\nfn main() {}\n```"));
+  assert_eq!(editor.kinds(), vec![Body, ParagraphKind::code(Some("rust"))]);
+  // The block's line stands under the bar's 28, which has a line of `Border` under it.
+  let (intro, code) = (
+    editor.editor.input().caret_point(0).unwrap().y,
+    editor.editor.input().caret_point(6).unwrap().y,
+  );
+  assert!(code - intro > 28.0 + 21.0, "{intro} {code}");
+  let (_, content_y, ..) = editor.stage.bounds(CONTENT);
+  let lines = editor
+    .stage
+    .quads()
+    .iter()
+    .filter(|quad| {
+      matches!(quad.content, QuadContent::Rect { color, .. } if color == light(PaletteColor::Border))
+        && (quad.height - 1.0).abs() < 0.01
+        && quad.width > 300.0
+        // Between the paragraph before and the block's line, the box's padding of 16 above the text.
+        && quad.y > content_y + intro + 16.0
+        && quad.y <= content_y + code + 16.0
+    })
+    .count();
+  assert_eq!(lines, 1, "the line under the bar");
+  // The style's control shows a block of code, whatever its language.
+  editor.focus();
+  editor.select(8, 8);
+  assert!(editor.stage.paints("Code block"), "in a block of rust");
+  // Three backticks and a name, and Enter: a block of code in it, written back with its fence.
+  let mut editor = Editor::new(RichText::default());
+  editor.focus();
+  editor.type_text("```py");
+  editor.stage.key("Enter");
+  editor.type_text("x = 1");
+  assert_eq!(editor.kinds(), vec![ParagraphKind::code(Some("py"))]);
+  assert_eq!(editor.document().to_markdown(), "```py\nx = 1\n```");
 }

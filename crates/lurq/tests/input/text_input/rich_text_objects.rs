@@ -152,7 +152,7 @@ fn a_picture_in_code_is_written_as_its_label() {
   let document = RichText::new(
     text,
     vec![StyledSpan::new(17..20, SpanStyle::new().code())],
-    vec![Code, Body],
+    vec![Code { language: None }, Body],
   )
   .with_objects(vec![object(8, "a.png").label("one"), object(17, "b.png").label("two")]);
   assert_eq!(document.to_markdown(), "```\nlet a = one;\n```\n\nrun `two` now");
