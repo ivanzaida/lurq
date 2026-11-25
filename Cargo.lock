@@ -2053,7 +2053,7 @@ dependencies = [
 
 [[package]]
 name = "lurq"
-version = "0.74.0"
+version = "0.75.0"
 dependencies = [
  "arboard",
  "base64 0.22.1",
