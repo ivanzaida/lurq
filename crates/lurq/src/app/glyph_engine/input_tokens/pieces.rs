@@ -86,7 +86,7 @@ impl GlyphEngine {
     let formatted = !output.config.paragraphs.is_empty();
     // The fill and the bar of the run of paragraphs being laid out, which a paragraph that continues it grows,
     // and every fill, to be made as wide as the input once that is known.
-    let (mut run_fill, mut run_bar) = (None::<usize>, None::<usize>);
+    let (mut run_fill, mut run_bar, mut run_edge) = (None::<usize>, None::<usize>, None::<usize>);
     let mut fills = Vec::new();
     for (index, (range, ending)) in paragraphs.into_iter().enumerate() {
       let styles = &output.config.styles;
@@ -133,7 +133,7 @@ impl GlyphEngine {
       });
       if let Some(format) = &format {
         if !format.continues {
-          (run_fill, run_bar) = (None, None);
+          (run_fill, run_bar, run_edge) = (None, None, None);
         }
         // Under what the paragraph itself draws: its marks' fills and lines come after these.
         let part = |x: f32, width: f32, color, radius| super::InputFragment {
@@ -176,10 +176,34 @@ impl GlyphEngine {
           fills.extend(rule);
         }
       }
+      // The run's edge, over its band: an empty box with an edge, in the fill's corners, which grows with the run.
+      if let Some(format) = &format {
+        match format.edge {
+          Some(edge) if run_edge.is_none() => {
+            let radius = format.fill.map_or(0.0, |(_, radius)| radius);
+            run_edge = Some(output.fragments.len());
+            fills.push(output.fragments.len());
+            output.fragments.push(super::InputFragment {
+              x: -indent,
+              y: top,
+              width: 0.0,
+              height: 0.0,
+              color: crate::node::color::Color::new(0, 0, 0, 0),
+              radius,
+              token: None,
+              edge: Some(edge),
+              check: false,
+              row: first_row,
+            });
+          }
+          Some(_) => {}
+          None => run_edge = None,
+        }
+      }
       output.size.height += padding_top;
       output.append_piece(&piece, range.start, indent);
       output.size.height += padding_bottom;
-      for grown in [run_fill, run_bar].into_iter().flatten() {
+      for grown in [run_fill, run_bar, run_edge].into_iter().flatten() {
         output.fragments[grown].height = output.size.height - output.fragments[grown].y;
       }
       if let Some(format) = &format {

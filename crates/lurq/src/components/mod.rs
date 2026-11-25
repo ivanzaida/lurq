@@ -111,8 +111,8 @@ pub use stack_outlet::{
 };
 #[cfg(feature = "markdown")]
 pub use styled_text::{
-  InlineObject, LinkClick, MarkPresence, ParagraphHeader, ParagraphKind, ParagraphMarker, ParagraphStyle, ParagraphStyles, RichText,
-  SelectionStyle, SpanStyle, StyledChange, StyledEdit, StyledSpan, StyledText, TextMark,
+  HeaderLabel, InlineObject, LinkClick, MarkPresence, ParagraphHeader, ParagraphKind, ParagraphMarker, ParagraphStyle,
+  ParagraphStyles, RichText, SelectionStyle, SpanStyle, StyledChange, StyledEdit, StyledSpan, StyledText, TextMark,
 };
 #[cfg(feature = "canvas")]
 pub use svg::Svg;

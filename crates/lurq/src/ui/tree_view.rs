@@ -329,6 +329,8 @@ pub struct TreeView<T: 'static, M: RowSelection<T> = OneSelected> {
   guides: bool,
   /// Whether the whole label of a row is said in a tooltip while it is cut with an ellipsis.
   label_tooltip_when_cut: bool,
+  /// The widest that tooltip is before its text wraps, in place of the tooltip recipe's.
+  label_tooltip_max_width: Option<Length>,
   /// Whether a press of a row adds it to what is selected or takes it out, with no key held, and no second press
   /// activates: the tree of a tree select of any number.
   pub(crate) press_toggles: bool,
@@ -416,6 +418,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, M: RowSelection<T>> TreeView<
       select: None,
       guides: false,
       label_tooltip_when_cut: false,
+      label_tooltip_max_width: None,
       press_toggles: false,
       autofocus: false,
       disabled: false,
@@ -472,6 +475,13 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, M: RowSelection<T>> TreeView<
   /// layout cut the label. Off unless told; a cut label ends in an ellipsis either way.
   pub fn label_tooltip_when_cut(mut self, tooltip: bool) -> Self {
     self.label_tooltip_when_cut = tooltip;
+    self
+  }
+
+  /// The widest the tooltip of a cut label is before its text wraps, in place of the tooltip recipe's, as
+  /// [`Tooltip::max_width`](super::Tooltip::max_width) says: an app whose tooltips wrap at 340 says 340.
+  pub fn label_tooltip_max_width(mut self, width: impl Into<Length>) -> Self {
+    self.label_tooltip_max_width = Some(width.into());
     self
   }
 
@@ -717,6 +727,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, M: RowSelection<T>> TreeView<
           position: (row.position, row.siblings),
           guides: self.guides,
           label_tooltip_when_cut: self.label_tooltip_when_cut,
+          label_tooltip_max_width: self.label_tooltip_max_width,
           entry: entry == Some(index),
           index,
           multiple,
@@ -1071,6 +1082,8 @@ pub struct TreeRow {
   pub guides: bool,
   /// Whether its whole label is said in a tooltip while it is cut.
   pub label_tooltip_when_cut: bool,
+  /// The widest that tooltip is before its text wraps, where the tree says.
+  pub label_tooltip_max_width: Option<Length>,
   /// Whether Tab enters the tree at it: the first selected row.
   pub entry: bool,
   /// Which of the tree's shown rows it is.
@@ -1293,9 +1306,11 @@ impl TreeRow {
     let text = part.text(&self.label).nowrap().text_overflow(TextOverflow::Elipsis);
     let text: Element = if self.label_tooltip_when_cut {
       let cut = crate::core::ElementRef::new();
-      super::Tooltip::new(&self.label)
-        .when_cut(&cut)
-        .declared(text.ref_element(cut.clone()))
+      let mut tooltip = super::Tooltip::new(&self.label).when_cut(&cut);
+      if let Some(width) = self.label_tooltip_max_width {
+        tooltip = tooltip.max_width(width);
+      }
+      tooltip.declared(text.ref_element(cut.clone()))
     } else {
       text.into()
     };

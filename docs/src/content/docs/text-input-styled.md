@@ -160,6 +160,9 @@ None of these is there unless told:
   a block of code's language, as a `CodeBlock`'s bar names it. Its name is `padding_x` from the start of the fill, in
   the middle of the band, in its own `font_family`, `font_size`, `weight` and `color` where told, over its
   `background` and a `line(thickness, color)` under it. A run with no name (a block with no language) has none.
+  `label(HeaderLabel::new(|language| ..))` gives the name it says for a language, `Bash` for `bash`, in place of the
+  fence's word, which the text keeps.
+- `edge(width, color)` is an edge inside the run's box, in its fill's corners, over its band: a code card's 1 px edge.
 
 The items of a checklist are one run, checked or not. `ParagraphStyles::checked` draws the checked ones in a style of
 their own (`with(ParagraphKind::Checklist { checked: true }, ..)`). A press on an item's box checks it, as one undo

@@ -165,6 +165,8 @@ pub(crate) struct ParagraphFormat {
   pub(crate) marker_text: Option<TextStyle>,
   /// A fill behind the paragraph, across the input: its color and the radius of its corners.
   pub(crate) fill: Option<(Color, f32)>,
+  /// An edge inside the run's box, in the fill's corners: its width and its color.
+  pub(crate) edge: Option<(f32, Color)>,
   /// Whether the paragraph before is of the same kind: a bar and a fill then go on from it as one.
   pub(crate) continues: bool,
   /// The band over the run it starts, which names it: a block of code's language.

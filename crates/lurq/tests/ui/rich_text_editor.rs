@@ -2021,6 +2021,49 @@ fn a_block_of_code_in_a_language_has_a_bar_that_names_it_and_the_fence_makes_one
   assert_eq!(editor.document().to_markdown(), "```py\nx = 1\n```");
 }
 
+#[test]
+fn a_border_on_the_code_block_part_is_one_edge_round_the_block_and_its_bar() {
+  use lurq::node::border::Border;
+  let markdown = "Intro\n\n```bash\nls -la\ncd ..\n```\n\nOutro";
+  let edged = |editor: &Editor| -> Vec<lurq::layout::quad::Quad> {
+    editor
+      .stage
+      .quads()
+      .into_iter()
+      .filter(|quad| {
+        matches!(quad.content, QuadContent::Rect { .. })
+          && quad
+            .border
+            .as_ref()
+            .and_then(|border| border.top)
+            .is_some_and(|top| top.color == light(PaletteColor::Primary) && close(top.width, 1.0))
+      })
+      .collect()
+  };
+  let plain = Editor::new(RichText::from_markdown(markdown));
+  assert!(edged(&plain).is_empty(), "no edge unless the part has a border");
+  let card = Editor::with(640.0, RichText::from_markdown(markdown), |editor| {
+    editor
+      .style(RichTextEditorPart::CodeBlock, |s| {
+        s.radius(8.0).border(Border::inside(1.0, PaletteColor::Primary))
+      })
+      .code_bar_label(|language| match language {
+        "bash" => "Bash".to_string(),
+        other => other.to_string(),
+      })
+  });
+  let edges = edged(&card);
+  assert_eq!(edges.len(), 1, "one edge round the whole block");
+  let edge = &edges[0];
+  let radius = edge.border_radius.expect("in the corners of the block");
+  assert!(close(radius.top_left, 8.0), "{radius:?}");
+  // The 28 of the bar and the two lines of 21 of the block.
+  assert!(edge.height >= 28.0 + 2.0 * 21.0, "{}", edge.height);
+  assert!(edge.width > 300.0, "across the box: {}", edge.width);
+  // The document keeps the word of the fence.
+  assert_eq!(card.document().to_markdown(), markdown);
+}
+
 const HINT: &str = "Type / for blocks";
 
 /// The quads that say the block placeholder.

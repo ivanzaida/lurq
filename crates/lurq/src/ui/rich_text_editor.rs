@@ -31,8 +31,8 @@ use crate::{
     theme::{BorderSize, OpacityLevel, PaletteColor, RadiusSize, Theme, TypographyStyle},
   },
   components::{
-    Column, InlineObject, LinkClick, MarkPresence, ParagraphHeader, ParagraphKind, ParagraphMarker, ParagraphStyle,
-    ParagraphStyles, RichText, Row, SelectionStyle, StyledChange, StyledSpan, StyledText, TextInput,
+    Column, HeaderLabel, InlineObject, LinkClick, MarkPresence, ParagraphHeader, ParagraphKind, ParagraphMarker,
+    ParagraphStyle, ParagraphStyles, RichText, Row, SelectionStyle, StyledChange, StyledSpan, StyledText, TextInput,
     TextInputController, TextMark,
   },
   core::{ElementRef, Signal},
@@ -568,6 +568,7 @@ pub struct RichTextEditor {
   markdown_shortcuts: bool,
   boxed: BoxStates,
   full_width: bool,
+  code_bar_label: Option<HeaderLabel>,
   words: Words,
   states: Vec<Name>,
   rules: Recipe,
@@ -635,6 +636,7 @@ impl RichTextEditor {
       markdown_shortcuts: true,
       boxed: BoxStates::default(),
       full_width: false,
+      code_bar_label: None,
       words: Words::default(),
       states: Vec::new(),
       rules: Recipe::new(),
@@ -813,6 +815,27 @@ impl RichTextEditor {
   /// told.
   pub fn markdown_shortcuts(mut self, shortcuts: bool) -> Self {
     self.markdown_shortcuts = shortcuts;
+    self
+  }
+
+  /// What the bar over a block of code says for its language, in place of the fence's word: `label` is given the
+  /// word (`bash`) and answers with the name to show (*Bash*), as a [`CodeBlock`](super::CodeBlock)'s
+  /// [`title`](super::CodeBlock::title) names its card. The document keeps the word. A block with no language has
+  /// no bar either way.
+  ///
+  /// ```
+  /// use lurq::{components::RichText, core::Signal, ui::RichTextEditor};
+  ///
+  /// # fn build(brief: Signal<RichText>) -> RichTextEditor {
+  /// RichTextEditor::new(brief).code_bar_label(|language| match language {
+  ///   "bash" | "sh" => "Bash".to_string(),
+  ///   "ts" => "TypeScript".to_string(),
+  ///   other => other.to_string(),
+  /// })
+  /// # }
+  /// ```
+  pub fn code_bar_label(mut self, label: impl Fn(&str) -> String + Send + Sync + 'static) -> Self {
+    self.code_bar_label = Some(HeaderLabel::new(label));
     self
   }
 
@@ -1055,6 +1078,7 @@ impl RichTextEditor {
       on_paste_image: self.on_paste_image,
       boxed: self.boxed,
       words: self.words,
+      code_bar_label: self.code_bar_label,
       forced: self.forced,
       kept,
       name: self.name,
@@ -1280,6 +1304,7 @@ pub struct RichTextEditorView {
   on_paste_image: Option<ImageKeeper>,
   boxed: BoxStates,
   words: Words,
+  code_bar_label: Option<HeaderLabel>,
   forced: Option<Interaction>,
   kept: Kept,
   // Read only where the engine has forms.
@@ -1711,6 +1736,11 @@ impl RichTextEditorView {
       None => code,
     }
     .joined(true);
+    // The edge of a block of code, where its part gives it a border: a code card's.
+    let code = match edge_of(&code_part) {
+      (width, color) if width > 0.0 => code.edge(width, color),
+      _ => code,
+    };
     // The bar that names a block's language, where the part gives it a height.
     let bar_part = self.part(RichTextEditorPart::CodeBar).rest();
     let code = match length(bar_part.height) {
@@ -1723,6 +1753,9 @@ impl RichTextEditorView {
           .weight(text.weight);
         if let Some(color) = &bar_part.foreground {
           header = header.color(color.clone());
+        }
+        if let Some(label) = &self.code_bar_label {
+          header = header.label(label.clone());
         }
         if let Some(fill) = tint(&bar_part.background) {
           header = header.background(fill);

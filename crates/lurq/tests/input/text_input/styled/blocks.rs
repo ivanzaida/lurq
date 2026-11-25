@@ -310,3 +310,88 @@ fn styled_a_run_of_code_in_a_language_has_a_band_over_it_that_names_it() {
   let snapshot = editor.render();
   assert!(snapshot.rects.iter().all(|rect| rect.color != LINE), "no band");
 }
+
+#[test]
+fn styled_a_band_says_the_label_it_is_given_for_its_language() {
+  use lurq::components::{HeaderLabel, ParagraphHeader};
+  let bash = ParagraphKind::code(Some("bash"));
+  let label = HeaderLabel::new(|language| match language {
+    "bash" => "Shell".to_string(),
+    other => other.to_string(),
+  });
+  let mut editor = Editor::with("ls", vec![], move |input| {
+    input.paragraphs(
+      Signal::new(vec![bash]),
+      ParagraphStyles::new().with(
+        bash,
+        ParagraphStyle::new().header(
+          ParagraphHeader::new(28.0, 12.0)
+            .font_size(11.0)
+            .line(1.0, LINE)
+            .label(label.clone()),
+        ),
+      ),
+    )
+  });
+  let snapshot = editor.render();
+  let line = snapshot
+    .rects
+    .iter()
+    .find(|rect| rect.color == LINE)
+    .expect("the line under the band");
+  let band_glyphs = snapshot
+    .glyphs
+    .iter()
+    .filter(|glyph| glyph.y + glyph.height <= line.y + 0.5 && glyph.y >= line.y - 28.0)
+    .count();
+  assert_eq!(band_glyphs, 5, "the five letters of `Shell`, not the four of `bash`");
+}
+
+#[test]
+fn styled_a_run_with_an_edge_has_one_box_round_it_band_and_all() {
+  use lurq::components::ParagraphHeader;
+  let rust = ParagraphKind::code(Some("rust"));
+  let mut editor = Editor::with("a\nfn x\ny\nb", vec![], move |input| {
+    input.paragraphs(
+      Signal::new(vec![Body, rust, rust, Body]),
+      ParagraphStyles::new().gap(GAP).with(
+        rust,
+        ParagraphStyle::new()
+          .indent(12.0)
+          .joined(true)
+          .background(FILL, 6.0)
+          .edge(1.0, EDGE)
+          .header(ParagraphHeader::new(28.0, 12.0).line(1.0, LINE)),
+      ),
+    )
+  });
+  let snapshot = editor.render();
+  let edged: Vec<_> = snapshot.rects.iter().filter(|rect| rect.stroke_color == EDGE).collect();
+  assert_eq!(edged.len(), 1, "one box round the run");
+  let edge = edged[0];
+  assert!(edge.stroke.iter().all(|side| near(*side, 1.0)), "{:?}", edge.stroke);
+  assert!(
+    edge.radii.iter().all(|radius| near(*radius, 6.0)),
+    "in the fill's corners"
+  );
+  let fill = snapshot
+    .rects
+    .iter()
+    .find(|rect| rect.color == FILL)
+    .expect("the run's fill");
+  assert!(
+    near(edge.x, fill.x) && near(edge.y, fill.y) && near(edge.width, fill.width) && near(edge.height, fill.height),
+    "the edge is the fill's box: {edge:?} {fill:?}"
+  );
+  assert!(
+    near(edge.height, 28.0 + 2.0 * ROW),
+    "the band and both lines: {}",
+    edge.height
+  );
+  let line = snapshot
+    .rects
+    .iter()
+    .find(|rect| rect.color == LINE)
+    .expect("the band's line");
+  assert!(edge.order > line.order, "drawn over the band");
+}

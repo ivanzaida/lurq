@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+Added:
+
+- **A tree's tooltip of a cut label at a width of the app's** ([#255](https://github.com/ivanzaida/lurq/issues/255)). `TreeView::label_tooltip_max_width(width)` is the widest that tooltip is before its text wraps, in place of the tooltip recipe's 200, as `Tooltip::max_width` says.
+- **A rich text editor's code bar names a language as the app does** ([#255](https://github.com/ivanzaida/lurq/issues/255)). `RichTextEditor::code_bar_label(|language| ..)` is given the fence's word (`bash`) and answers with the name the bar shows (*Bash*), as a `CodeBlock`'s title names its card; the document keeps the word. Under it, for any styled input: `ParagraphHeader::label(HeaderLabel::new(..))`.
+- **A rich text editor's block of code has an edge** ([#255](https://github.com/ivanzaida/lurq/issues/255)). A border on the `CodeBlock` part is one edge round the whole block, its bar too, in the block's corners, over the bar's fill and line: a `CodeBlock` card's 1 px edge and radius. Under it, for any styled input: `ParagraphStyle::edge(width, color)`.
+
 ## 0.74.0 — 2026-11-24
 
 Added:
