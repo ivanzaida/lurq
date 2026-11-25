@@ -546,6 +546,12 @@ impl Component for TreeViewPage {
         "A label cut with an ellipsis is said whole in a tooltip, only while it is cut.",
       ),
       (
+        "label_tooltip_max_width",
+        "impl Into<Length>",
+        "the recipe's 200",
+        "The widest that tooltip is before its text wraps.",
+      ),
+      (
         "on_change",
         "impl Fn(&T) / Fn(&[T])",
         "",

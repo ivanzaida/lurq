@@ -600,6 +600,12 @@ impl Component for RichTextEditorPage {
         "Whether `## `, `- `, `1. `, `> ` and `**bold**` become what they say as they are typed.",
       ),
       (
+        "code_bar_label",
+        "impl Fn(&str) -> String",
+        "the fence's word",
+        "What the bar over a block of code says for its language: Bash for `bash`. The document keeps the word.",
+      ),
+      (
         "on_link_click",
         "impl Fn(&str)",
         "",

@@ -188,7 +188,10 @@ impl LayoutEngine {
           }
           style.line_height = 1.0;
           ParagraphBand {
-            text: language.into(),
+            text: header
+              .label
+              .as_ref()
+              .map_or_else(|| language.into(), |label| label.of(language).into()),
             style,
             height: finite(header.height),
             padding_x: finite(header.padding_x),
@@ -199,6 +202,11 @@ impl LayoutEngine {
               .map(|(thickness, line)| (finite(*thickness), color(line))),
           }
         });
+      let edge = look
+        .edge
+        .as_ref()
+        .map(|(width, edge)| (finite(*width), color(edge)))
+        .filter(|(width, _)| *width > 0.0);
       formats.push(ParagraphFormat {
         header,
         marker_text: look.marker_text(&text),
@@ -208,6 +216,7 @@ impl LayoutEngine {
         padding: (finite(look.padding_top), finite(look.padding_bottom)),
         marker,
         fill,
+        edge,
         continues,
       });
     }

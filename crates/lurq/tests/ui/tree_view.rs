@@ -1237,3 +1237,40 @@ fn a_cut_label_ends_in_an_ellipsis_and_is_said_whole_in_a_tooltip_while_it_is_cu
   stage.pass();
   assert!(whole(&stage, TITLE), "its tooltip says it whole");
 }
+
+#[test]
+fn the_tooltip_of_a_cut_label_wraps_at_the_width_the_tree_gives_it() {
+  const TITLE: &str = "2026-11 the brief and page editor of every project, matching the read view of its code cards";
+  // The widest line of the tooltip, a tree told `max_width` or not.
+  let widest = |max_width: Option<f32>| {
+    let selected = Signal::new(None::<Id>);
+    let mut stage = Stage::new(move |_| {
+      let mut tree = TreeView::new(selected.clone(), [TreeItem::file("cut", TITLE).id("cut")])
+        .label_tooltip_when_cut(true)
+        .style(TreeViewPart::Root, |s| s.width(160.0));
+      if let Some(width) = max_width {
+        tree = tree.label_tooltip_max_width(width);
+      }
+      Column::new().padding(8.0).child(tree).into()
+    });
+    stage.own_timers();
+    stage.hover("cut-label");
+    stage.tick_timers(Duration::from_secs(4));
+    stage.pass();
+    let lines: Vec<f32> = stage
+      .quads()
+      .into_iter()
+      .filter_map(|quad| match &quad.content {
+        QuadContent::Text { text, .. } if !text.trim().is_empty() && TITLE.starts_with(text.trim_end()) => {
+          Some(quad.width)
+        }
+        _ => None,
+      })
+      .collect();
+    assert!(!lines.is_empty(), "the tooltip is shown");
+    lines.into_iter().fold(0.0, f32::max)
+  };
+  let (recipe, told) = (widest(None), widest(Some(340.0)));
+  assert!(recipe <= 200.0, "the recipe's 200: {recipe}");
+  assert!(told > 220.0 && told <= 340.0, "the tree's 340: {told}");
+}

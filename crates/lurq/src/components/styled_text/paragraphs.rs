@@ -178,6 +178,9 @@ pub struct ParagraphStyle {
   pub background: Option<TextColor>,
   /// The radius of the fill's corners, in logical pixels.
   pub background_radius: f32,
+  /// An edge inside the run's box, in the fill's corners: its width in logical pixels and its color. Drawn over
+  /// the band that names the run, as a code card's edge is.
+  pub edge: Option<(f32, TextColor)>,
   /// Whether paragraphs of the kind that follow one another stand with no room between them, as the lines of a
   /// block of code do.
   pub joined: bool,
@@ -218,6 +221,36 @@ pub struct ParagraphHeader {
   pub background: Option<TextColor>,
   /// A line under the band, across the input: its thickness and its color.
   pub line: Option<(f32, TextColor)>,
+  /// What the band says for a language, in place of the language's own word: `Bash` for `bash`.
+  pub label: Option<HeaderLabel>,
+}
+
+/// What a band says for the name of its run: a language's display name for the word of its fence. Two are equal
+/// where they are the same function.
+#[derive(Clone)]
+pub struct HeaderLabel(std::sync::Arc<dyn Fn(&str) -> String + Send + Sync>);
+
+impl HeaderLabel {
+  pub fn new(label: impl Fn(&str) -> String + Send + Sync + 'static) -> Self {
+    Self(std::sync::Arc::new(label))
+  }
+
+  /// What the band says for `name`.
+  pub fn of(&self, name: &str) -> String {
+    (self.0)(name)
+  }
+}
+
+impl PartialEq for HeaderLabel {
+  fn eq(&self, other: &Self) -> bool {
+    std::sync::Arc::ptr_eq(&self.0, &other.0)
+  }
+}
+
+impl std::fmt::Debug for HeaderLabel {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.write_str("HeaderLabel(..)")
+  }
 }
 
 impl ParagraphHeader {
@@ -258,6 +291,13 @@ impl ParagraphHeader {
   /// A line `thickness` high under the band.
   pub fn line(mut self, thickness: f32, color: impl Into<TextColor>) -> Self {
     self.line = Some((thickness, color.into()));
+    self
+  }
+
+  /// What the band says for a language, in place of its word: `Bash` for `bash`. A run with no language has no
+  /// band either way.
+  pub fn label(mut self, label: HeaderLabel) -> Self {
+    self.label = Some(label);
     self
   }
 }
@@ -321,6 +361,12 @@ impl ParagraphStyle {
   pub fn background(mut self, color: impl Into<TextColor>, radius: f32) -> Self {
     self.background = Some(color.into());
     self.background_radius = radius;
+    self
+  }
+
+  /// An edge `width` wide inside the run's box, in the corners of its fill: a code card's 1 px edge.
+  pub fn edge(mut self, width: f32, color: impl Into<TextColor>) -> Self {
+    self.edge = Some((width, color.into()));
     self
   }
 
