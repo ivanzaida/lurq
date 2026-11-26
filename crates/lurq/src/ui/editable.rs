@@ -47,6 +47,9 @@ pub enum EditablePart {
   Confirm,
   /// What the editable says of the button that drops the edit: laid over a button's root.
   Cancel,
+  /// Around what the app puts at the field's end, over the end of its box: a key cap that says Enter keeps the
+  /// name. Its width is the room the field's text keeps clear for it.
+  End,
 }
 
 names!(EditablePart {
@@ -58,6 +61,7 @@ names!(EditablePart {
   Field => "field",
   Confirm => "confirm",
   Cancel => "cancel",
+  End => "end",
 });
 
 /// The states of an editable a recipe styles.
@@ -140,6 +144,7 @@ pub struct Editable {
   placeholder: Option<Arc<str>>,
   label: Option<Arc<str>>,
   actions: bool,
+  end: Option<Element>,
   submit_on_blur: bool,
   invalid: bool,
   read_only: bool,
@@ -166,6 +171,7 @@ impl Editable {
       placeholder: None,
       label: None,
       actions: true,
+      end: None,
       submit_on_blur: true,
       invalid: false,
       read_only: false,
@@ -241,6 +247,14 @@ impl Editable {
   /// them Enter and Escape do.
   pub fn actions(mut self, actions: bool) -> Self {
     self.actions = actions;
+    self
+  }
+
+  /// What stands at the end of the field while it is edited, over the end of its box: a key cap that says Enter
+  /// keeps the name. The field's text keeps clear of the room the [`End`](EditablePart::End) part is wide, 40 unless
+  /// a recipe says; what is wider is styled wider. Only what it holds takes the pointer.
+  pub fn end(mut self, element: impl Into<Element>) -> Self {
+    self.end = Some(element.into());
     self
   }
 
@@ -387,6 +401,7 @@ impl Editable {
       label: self.label,
       editing,
       actions: self.actions,
+      end: self.end,
       invalid: self.invalid,
       read_only: self.read_only,
       disabled: self.disabled,
@@ -520,6 +535,8 @@ pub struct EditableView {
   pub editing: bool,
   /// Whether the editing form has its two buttons.
   pub actions: bool,
+  /// What stands at the end of the field while it is edited.
+  pub end: Option<Element>,
   pub invalid: bool,
   pub read_only: bool,
   pub disabled: bool,
@@ -715,7 +732,7 @@ impl EditableView {
     let view = input.view(self.theme());
     let (on_key, on_blur) = (self.end(), self.end());
     let submit_on_blur = self.submit_on_blur;
-    let control = view
+    let mut control = view
       .control()
       .controller(kept.field.clone())
       .select_on_focus(true)
@@ -736,6 +753,22 @@ impl EditableView {
           _ => {}
         }
       });
+    let end = self.end.clone().map(|end| {
+      let part = self.part(EditablePart::End);
+      let side = match part.rest().width.and_then(|width| width.resolve(self.theme())) {
+        Some(crate::node::dimension::Dimension::Px(px)) => px,
+        _ => 0.0,
+      };
+      control = std::mem::take(&mut control).padding_right(view.end_room(side));
+      // What holds it is as wide as the box, and lays it at its end.
+      Row::new().child(
+        Row::new()
+          .part(&part)
+          .align_items(Alignment::Center)
+          .justify(crate::layout::layout_kind::Justify::End)
+          .child(end),
+      )
+    });
     let mut row = Row::new()
       .part(&self.part(EditablePart::Editing))
       .align_items(Alignment::Center)
@@ -745,7 +778,7 @@ impl EditableView {
         Row::new()
           .flex_full(if self.full_width { 1.0 } else { 0.0 }, 1.0, None)
           .min_width(0.0)
-          .child(view.render_with_end(control, None)),
+          .child(view.render_with_end(control, end)),
       );
     if self.actions {
       let (confirm, cancel) = (self.end(), self.end());
@@ -804,7 +837,8 @@ impl Themed for Editable {
   /// The design's editable (`pencil/lurq-design-system.pen`, Editable): a row 32 high, its text 16 semibold in
   /// the foreground, and 8 after it a pencil of 14 in the muted foreground. Its placeholder is in the muted
   /// foreground. Edited, a field 160 wide and 32 high with text of 14, and 6 after it the two buttons, 32
-  /// square: the outline one that keeps the edit and the ghost one that drops it, with icons of 16. Disabled,
+  /// square: the outline one that keeps the edit and the ghost one that drops it, with icons of 16. What the app puts
+  /// at the field's end has 40 of it. Disabled,
   /// it is at half its opacity; read only, it has no pencil.
   fn recipe() -> Recipe {
     use EditablePart::*;
@@ -845,5 +879,6 @@ impl Themed for Editable {
       .state(EditableState::FullWidth, Field, |s| s.width(Length::Fill))
       .base(Confirm, |s| s.square(32.0))
       .base(Cancel, |s| s.square(32.0))
+      .base(End, |s| s.width(40.0))
   }
 }

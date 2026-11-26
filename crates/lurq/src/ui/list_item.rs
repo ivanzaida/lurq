@@ -175,6 +175,7 @@ pub struct ListItem {
   value: Option<Arc<str>>,
   meta: Option<Arc<str>>,
   trailing: Option<Element>,
+  trailing_at_top: bool,
   shortcut: Option<Arc<str>>,
   chevron: bool,
   /// Whether what the row opens is open, where it is the header of something that opens under it.
@@ -211,6 +212,7 @@ impl ListItem {
       value: None,
       meta: None,
       trailing: None,
+      trailing_at_top: false,
       shortcut: None,
       chevron: false,
       expands: None,
@@ -338,6 +340,13 @@ impl ListItem {
   /// What stands at the end, after the value: a [`Switch`](super::Switch), a [`Badge`](super::Badge), a button.
   pub fn trailing(mut self, element: impl Into<Element>) -> Self {
     self.trailing = Some(element.into());
+    self
+  }
+
+  /// Whether what stands after the text stands at the top of the row, on the title's line, in place of the middle
+  /// of the whole row: a row that grows under its title (chips, a block it opens) keeps its controls by its title.
+  pub fn trailing_at_top(mut self, at_top: bool) -> Self {
+    self.trailing_at_top = at_top;
     self
   }
 
@@ -549,6 +558,7 @@ impl ListItem {
       },
       lead: self.lead,
       trailing: self.trailing,
+      trailing_at_top: self.trailing_at_top,
       forced: self.forced,
       press,
       aside: self.on_open_aside,
@@ -633,6 +643,8 @@ pub struct ListItemView {
   toggle: Option<(&'static str, bool)>,
   lead: Option<Lead>,
   trailing: Option<Element>,
+  /// Whether what stands after the text stands at the top of the row, on the title's line.
+  pub trailing_at_top: bool,
   forced: Option<Interaction>,
   press: Option<Press>,
   /// What a press that asks for the row beside what is open calls, in place of `press`.
@@ -971,12 +983,13 @@ impl ListItemView {
     if ends.is_empty() {
       return None;
     }
-    Some(
-      Row::new()
-        .align_items(Alignment::Center)
-        .part(&self.part(ListItemPart::Trailing))
-        .with_children(ends),
-    )
+    let mut row = Row::new()
+      .align_items(Alignment::Center)
+      .part(&self.part(ListItemPart::Trailing));
+    if self.trailing_at_top {
+      row = row.align(Alignment::Start);
+    }
+    Some(row.with_children(ends))
   }
 
   /// How the default renderer builds a row: what is before the text, the text, and what is after it, side by side.

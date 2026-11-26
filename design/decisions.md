@@ -9,6 +9,37 @@ them says so. Decisions about phones and tablets are in [mobile-decisions.md](mo
 Each entry: **the question**, **the decision**, **why**, and its **state** (decided, in work on a branch, built,
 dropped). When a decision is replaced, the old entry stays and says what replaced it.
 
+## 2026-11-26
+
+### Pages' gaps: link triggers and wiki links, a tree's menu, drag and element label, an editable's end, a tag after a range, a list item's end at the top
+
+- **Question.** Orchester v2's Pages (F2-05) and Settings › Environment (F2-08) met gaps (issue #258): typing `[[` or
+  a key's prefix in a rich text editor cannot open a list of links; `[[/slug]]` and `[[/slug|words]]` are read as
+  text; a tree's row has no context menu, cannot be dragged to move it, and takes only text as its label; an
+  editable has no end slot for an *Enter* key cap; Markdown has no tag after a marked range; a list item's end
+  centres on a row that grows under its title.
+- **Decision (Ivan).** Do them (the issue and its comment).
+- **Decided by Claude in the work, to be confirmed.**
+  - *`Editable::end(element)`* stands over the end of the field while it is edited, as a password's eye does; the
+    field's text keeps clear of the width of the part `end`, 40 unless a recipe says.
+  - *`ListItem::trailing_at_top(true)`* stands what is after the text at the top of the row, by the title, in place
+    of its middle. A flag, not an alignment: the middle and the top are the two the board draws.
+  - *`TreeItem::label_content(element)`* stands in the label's place and width; the label's text stays the row's
+    name to what reads the tree and to typeahead. What it holds is in no focus group of the tree's: the arrows and
+    letters typed in a field there are the field's, and Enter the field takes does not activate the row.
+  - *`TreeView::context_menu(|value| items)`*, as `DocumentTabs::context_menu`: the row's own [`ContextMenu`], opened
+    by the secondary button, a long press, the Menu key and Shift+F10. The app gives the items, which may be the
+    ones its ⋯ button opens; the tree does not reach into that button.
+  - *`TreeView::on_move(|dragged, target, position|)` with `TreeView::can_move(..) -> bool`* and `DropPosition`
+    (`Before`, `Inside`, `After`): a row dragged past 4 px over another shows a line before or after it, or the row
+    marked as the one it goes into; letting go tells `on_move`. The tree refuses a row into itself or what it holds;
+    `can_move` refuses the rest (into an archived folder), and a refused *inside* falls to before or after by the
+    half of the row the pointer is in. The callback answers while the pointer moves, not only at the drop, so a
+    refused place is never drawn.
+  - *A tree keeps its menus and its drag by its id* (or its key) where it is built anew by what holds it, as a
+    context menu keeps its point: two trees with these in one window are given ids.
+- **State.** In work on `feat/issue-258`.
+
 ## 2026-11-24
 
 ### Motion a recipe could not make

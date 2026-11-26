@@ -9,7 +9,31 @@ use super::{
 };
 
 pub fn parse_markdown(source: &str) -> MarkdownDocument {
-  MarkdownParser::new().parse(source)
+  parse_markdown_with(source, MarkdownOptions::new())
+}
+
+/// What Markdown reads beside CommonMark and GitHub's tables, strikethrough, task lists, footnotes, math and
+/// admonitions, which it always reads.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct MarkdownOptions {
+  wiki_links: bool,
+}
+
+impl MarkdownOptions {
+  pub fn new() -> Self {
+    Self::default()
+  }
+
+  /// Whether `[[target]]` and `[[target|words]]` are wiki links ([`MarkdownInline::WikiLink`]) and not text.
+  pub fn wiki_links(mut self, wiki_links: bool) -> Self {
+    self.wiki_links = wiki_links;
+    self
+  }
+}
+
+/// `source` read as [`parse_markdown`] reads it, with what `options` adds.
+pub fn parse_markdown_with(source: &str, options: MarkdownOptions) -> MarkdownDocument {
+  MarkdownParser::new().parse(source, options)
 }
 
 struct MarkdownParser {
@@ -91,6 +115,12 @@ enum Frame {
     title: String,
     inlines: Vec<MarkdownInline>,
   },
+  /// A wiki link, and whether it was given its words after a `|`.
+  WikiLink {
+    target: String,
+    piped: bool,
+    inlines: Vec<MarkdownInline>,
+  },
   Image {
     destination: String,
     title: String,
@@ -105,8 +135,11 @@ impl MarkdownParser {
     }
   }
 
-  fn parse(mut self, source: &str) -> MarkdownDocument {
+  fn parse(mut self, source: &str, read: MarkdownOptions) -> MarkdownDocument {
     let mut options = Options::empty();
+    if read.wiki_links {
+      options.insert(Options::ENABLE_WIKILINKS);
+    }
     options.insert(Options::ENABLE_TABLES);
     options.insert(Options::ENABLE_STRIKETHROUGH);
     options.insert(Options::ENABLE_TASKLISTS);
@@ -182,6 +215,15 @@ impl MarkdownParser {
       Tag::Emphasis => self.frames.push(Frame::Emphasis { inlines: Vec::new() }),
       Tag::Strong => self.frames.push(Frame::Strong { inlines: Vec::new() }),
       Tag::Strikethrough => self.frames.push(Frame::Strikethrough { inlines: Vec::new() }),
+      Tag::Link {
+        link_type: LinkType::WikiLink { has_pothole },
+        dest_url,
+        ..
+      } => self.frames.push(Frame::WikiLink {
+        target: dest_url.to_string(),
+        piped: has_pothole,
+        inlines: Vec::new(),
+      }),
       Tag::Link {
         link_type,
         dest_url,
@@ -416,17 +458,22 @@ impl MarkdownParser {
   }
 
   fn close_link(&mut self) {
-    if let Some(Frame::Link {
-      destination,
-      title,
-      inlines,
-    }) = self.frames.pop()
-    {
-      self.push_inline(MarkdownInline::Link {
+    match self.frames.pop() {
+      Some(Frame::Link {
+        destination,
+        title,
+        inlines,
+      }) => self.push_inline(MarkdownInline::Link {
         destination,
         title,
         children: inlines,
-      });
+      }),
+      // Without a `|` its words are its target, which the app's title may stand for.
+      Some(Frame::WikiLink { target, piped, inlines }) => self.push_inline(MarkdownInline::WikiLink {
+        target,
+        words: if piped { inlines } else { Vec::new() },
+      }),
+      _ => {}
     }
   }
 
