@@ -35,6 +35,30 @@ pub struct SpanStyle {
   /// input draws it as a link and reports it when it is clicked
   /// ([`super::TextInput::on_link_click`]); it never opens it itself.
   pub link: Option<Arc<str>>,
+  /// Whether the link is a wiki link, which Markdown writes `[[target]]` or `[[target|words]]` in place of
+  /// `[words](target)`: see [`WikiLink`]. Nothing without a link: a change of the link's target makes it a plain
+  /// link, and the end of the link ends it.
+  pub wiki: Option<WikiLink>,
+}
+
+/// How a wiki link's words came to it, which says how it is written back.
+///
+/// ```
+/// use lurq::components::RichText;
+///
+/// let titles = |target: &str| (target == "/roadmap").then(|| "Roadmap 2027".to_string());
+/// let page = RichText::from_markdown_with_wiki_links("See [[/roadmap]] and [[/roadmap|the plan]].", titles);
+/// assert_eq!(page.text, "See Roadmap 2027 and the plan.");
+/// assert_eq!(page.to_markdown(), "See [[/roadmap]] and [[/roadmap|the plan]].");
+/// ```
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum WikiLink {
+  /// Its words are the title its target had as it was read or put in (`[[target]]`): while they are still that
+  /// title it is written `[[target]]`, so that the title is the app's to change; once a person changes them it is
+  /// written with the words they are.
+  Titled(Arc<str>),
+  /// Its words were written in it (`[[target|words]]`).
+  Worded,
 }
 
 impl SpanStyle {
@@ -69,6 +93,14 @@ impl SpanStyle {
 
   pub fn link(mut self, target: impl Into<Arc<str>>) -> Self {
     self.link = Some(target.into());
+    self
+  }
+
+  /// A wiki link to `target` ([`WikiLink`]): with it Markdown writes the link `[[target]]` or
+  /// `[[target|words]]`.
+  pub fn wiki_link(mut self, target: impl Into<Arc<str>>, wiki: WikiLink) -> Self {
+    self.link = Some(target.into());
+    self.wiki = Some(wiki);
     self
   }
 

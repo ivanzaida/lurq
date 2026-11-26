@@ -580,6 +580,7 @@ impl MarkdownParser {
   }
 }
 
+      | Some(Frame::WikiLink { inlines, .. })
 fn push_implicit_paragraph_inline(blocks: &mut Vec<MarkdownBlock>, inline: MarkdownInline) {
   if let Some(MarkdownBlock::Paragraph(inlines)) = blocks.last_mut() {
     inlines.push(inline);

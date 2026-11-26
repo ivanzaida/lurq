@@ -68,6 +68,10 @@ pub(crate) fn restyle(
     out.push(StyledSpan::new(run.start..inside.start, style.clone()));
     let mut changed = style.clone();
     change(&mut changed);
+    // A link given another target, or taken away, is a wiki link no more unless the change says it is.
+    if changed.link != style.link && changed.wiki == style.wiki {
+      changed.wiki = None;
+    }
     out.push(StyledSpan::new(inside.clone(), changed));
     out.push(StyledSpan::new(inside.end..run.end, style));
   }
@@ -147,12 +151,14 @@ pub(crate) fn insertion_style(text: &str, spans: &[StyledSpan], start: usize, en
     let after = text[start..].chars().next().filter(|ch| !matches!(ch, '\n' | '\r'));
     return after.map_or_else(SpanStyle::default, |_| SpanStyle {
       link: None,
+      wiki: None,
       ..style_at(spans, start)
     });
   }
   let mut style = style_at(spans, before);
   if style.link.is_some() && style_at(spans, start).link != style.link {
     style.link = None;
+    style.wiki = None;
   }
   style
 }
@@ -197,10 +203,13 @@ fn overwrite(spans: Vec<StyledSpan>, range: Range<usize>, style: SpanStyle) -> V
   out
 }
 
-/// Sorted spans without empty or plain ones, equal neighbours merged.
+/// Sorted spans without empty or plain ones, equal neighbours merged. What is a wiki link with no link is none.
 fn merge(spans: Vec<StyledSpan>) -> Vec<StyledSpan> {
   let mut out: Vec<StyledSpan> = Vec::with_capacity(spans.len());
-  for span in spans {
+  for mut span in spans {
+    if span.style.link.is_none() {
+      span.style.wiki = None;
+    }
     if span.range.is_empty() || span.style.is_plain() {
       continue;
     }

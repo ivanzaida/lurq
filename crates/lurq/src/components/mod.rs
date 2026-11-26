@@ -113,6 +113,7 @@ pub use stack_outlet::{
 pub use styled_text::{
   HeaderLabel, InlineObject, LinkClick, MarkPresence, ParagraphHeader, ParagraphKind, ParagraphMarker, ParagraphStyle,
   ParagraphStyles, RichText, SelectionStyle, SpanStyle, StyledChange, StyledEdit, StyledSpan, StyledText, TextMark,
+  WikiLink,
 };
 #[cfg(feature = "canvas")]
 pub use svg::Svg;
