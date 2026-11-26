@@ -56,7 +56,28 @@ dropped). When a decision is replaced, the old entry stays and says what replace
     secondary badge's box (`ThemeMarkdown::tag` for its type). The range before it is marked with `highlights`, as
     a diff view marks it now. Its words are the document's, as a key's are: a highlight's fill is not drawn over
     presentation spans, so a tag that is not words would draw no box.
-- **State.** In work on `feat/issue-258`.
+  - *`RichTextEditor::link_trigger(LinkTrigger::new("[[", offers))`*, any number of triggers of any length, each with
+    its `LinkOffer`s (a list narrowed by what is typed, contains and case-insensitive, or a function of it; 8 at most).
+    A trigger that starts with a letter or digit (`KON-`) starts a word; one that starts with a mark (`[[`) works
+    anywhere. What is typed after it has no space unless the trigger says `.spaces(true)`, is 64 characters at most
+    and is in the caret's paragraph. Where two overlap, the one that starts first wins. None opens in code, in a
+    link, in an editor read only or disabled, or without the focus. The list hangs from the trigger's start, as
+    `Mentions`' does, in parts of the editor's own (`offer_panel`, `offer`, …) copied from `Mentions`' recipe, 280
+    wide for a line of description. Its keys (arrows, Enter, Tab, Escape) go before the editor's only while it has
+    an offer to choose; Escape keeps that trigger closed. A choice puts the link with no space after it.
+  - *The editor remembers a wiki link in the span's style*, `SpanStyle::wiki: Option<WikiLink>` beside `link`:
+    `Titled(title)` where its words are the app's title, `Worded` where the source gave them. It goes with the style
+    through undo, splits and copies; changing or taking off the link clears it. `to_markdown` writes `[[target]]`
+    while the words are still the title and nothing else marks them, else `[[target|words]]`, and `[words](target)`
+    for a target the wiki form cannot hold. A new pub field: code that builds `SpanStyle { .. }` without
+    `..Default::default()` breaks (none in the repository does).
+  - *Wiki links in the editor are asked for*: `RichText::from_markdown_with_wiki_links(source, title)` loads them,
+    `RichTextEditor::wiki_links(title)` reads them in what is pasted; `RichText::from_markdown` reads `[[x]]` as text.
+    The editor does not title a loaded document again: the app loads it with the same resolver.
+  - *Not done*: `[[/slug]]` typed by hand stays text until a trigger or a paste makes it a link; the system clipboard
+    has the Markdown of a wiki link only where the selection has other marks too; the app is not told which offer
+    was chosen beside `on_change`.
+- **State.** Built on `feat/issue-258`.
 
 ## 2026-11-24
 

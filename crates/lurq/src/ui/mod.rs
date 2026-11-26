@@ -73,7 +73,6 @@ pub(crate) mod engine_look;
 mod event_calendar;
 mod expandable_tile;
 mod fab;
-mod fading_text;
 mod field;
 mod fieldset;
 mod file_upload;
@@ -98,8 +97,6 @@ mod lightbox;
 mod line_chart;
 mod link;
 mod link_preview;
-#[cfg(feature = "markdown")]
-mod link_trigger;
 mod list_item;
 mod listbox;
 mod media_captions;
@@ -143,7 +140,8 @@ mod radar_chart;
 mod radio;
 mod rating;
 mod recipe;
-mod reveal;
+#[cfg(feature = "markdown")]
+mod link_trigger;
 #[cfg(feature = "markdown")]
 mod rich_text_editor;
 #[cfg(feature = "canvas")]
@@ -164,6 +162,8 @@ mod shortcut_recorder;
 mod sidebar;
 #[cfg(feature = "canvas")]
 mod signature_pad;
+mod fading_text;
+mod reveal;
 mod skeleton;
 mod slide;
 mod slider;
@@ -209,6 +209,7 @@ mod window_chrome;
 mod window_tabs;
 mod year_picker;
 
+pub use crate::core::PictureError;
 pub use accordion::{Accordion, AccordionItem, AccordionPart, AccordionRenderer, AccordionState, AccordionView};
 pub use action_bar::{
   ActionBar, ActionBarAction, ActionBarPart, ActionBarRenderer, ActionBarSide, ActionBarState, ActionBarView,
@@ -352,7 +353,6 @@ pub use expandable_tile::{
   ExpandableTile, ExpandableTilePart, ExpandableTileRenderer, ExpandableTileState, ExpandableTileView,
 };
 pub use fab::{Fab, FabPart, FabRenderer, FabState};
-pub use fading_text::{FadingText, FadingTextPart, FadingTextRenderer, FadingTextView};
 pub use field::{Field, FieldControl, FieldPart, FieldRenderer, FieldState, FieldView, InField};
 pub use fieldset::{
   ErrorSummary, ErrorSummaryPart, ErrorSummaryRenderer, ErrorSummaryState, ErrorSummaryView, FieldError, Fieldset,
@@ -388,6 +388,8 @@ pub use input_otp::{
   INPUT_OTP_CARET_BLINK, INPUT_OTP_CARET_PERIOD, InputOtp, InputOtpKind, InputOtpPart, InputOtpRenderer, InputOtpSize,
   InputOtpState, InputOtpView,
 };
+pub use fading_text::{FadingText, FadingTextPart, FadingTextRenderer, FadingTextView};
+pub use reveal::{Reveal, RevealPart, RevealRenderer, RevealState, RevealView};
 pub use kbd::{
   InlineCode, InlineCodePart, InlineCodeRenderer, InlineCodeView, Kbd, KbdKey, KbdPart, KbdRenderer, KbdSize, KbdState,
   KbdVariant, KbdView, KeyPlatform,
@@ -400,8 +402,6 @@ pub use link_preview::{
   LINK_PREVIEW_PICTURE_RATIO, LinkImage, LinkPreview, LinkPreviewPart, LinkPreviewRenderer, LinkPreviewState,
   LinkPreviewVariant, LinkPreviewView,
 };
-#[cfg(feature = "markdown")]
-pub use link_trigger::{LINK_OFFERS_LIMIT, LinkOffer, LinkSource, LinkTrigger};
 pub use list_item::{
   List, ListItem, ListItemPart, ListItemRenderer, ListItemState, ListItemView, ListPart, ListRenderer, ListState,
   ListView,
@@ -423,8 +423,8 @@ pub use mentions::{
   MentionsState, MentionsView,
 };
 pub use menu::{
-  Menu, MenuEntry, MenuItem, MenuItemPart, MenuItemRenderer, MenuItemState, MenuItemView, MenuKeys, MenuPart,
-  MenuRenderer, MenuState, MenuView, SubmenuOpen,
+  Menu, MenuEntry, MenuItem, MenuItemPart, MenuItemRenderer, MenuItemState, MenuItemView, MenuKeys, MenuPart, MenuRenderer,
+  MenuState, MenuView, SubmenuOpen,
 };
 pub use menubar::{Menubar, MenubarMenu, MenubarPart, MenubarRenderer, MenubarState, MenubarView};
 pub use message_box::{
@@ -507,7 +507,8 @@ pub use rating::{
 pub use recipe::{
   Case, Interaction, Name, PartStyles, ROW_STEPS, Recipe, ResolvedPart, ResolvedRecipe, Rule, Selector,
 };
-pub use reveal::{Reveal, RevealPart, RevealRenderer, RevealState, RevealView};
+#[cfg(feature = "markdown")]
+pub use link_trigger::{LINK_OFFERS_LIMIT, LinkOffer, LinkSource, LinkTrigger};
 #[cfg(feature = "markdown")]
 pub use rich_text_editor::{
   RICH_TEXT_MAX_ROWS, RICH_TEXT_MIN_ROWS, RichTextController, RichTextEditor, RichTextEditorPart,
@@ -658,7 +659,8 @@ pub use tree_select::{
 };
 pub use tree_view::{
   DropPosition, ManySelected, OneSelected, RowSelection, TreeItem, TreeRow, TreeView, TreeViewPart, TreeViewRenderer,
-  TreeViewState, TreeViewView,
+  TreeViewState,
+  TreeViewView,
 };
 pub use video_player::{
   VIDEO_PLAYER_COMPACT_BELOW, VIDEO_PLAYER_HIDE_AFTER, VIDEO_PLAYER_MINIMAL_BELOW, VIDEO_PLAYER_SEEK_STEP,
@@ -680,8 +682,6 @@ pub use window_tabs::{
   WindowTabsRenderer, WindowTabsState, WindowTabsView,
 };
 pub use year_picker::{YearPicker, YearPickerRenderer, YearPickerView};
-
-pub use crate::core::PictureError;
 
 /// Gives an enum of names its names: `as_str`, and a conversion into
 /// [`Name`], so that a variant, a size, a state or a part of a component is
