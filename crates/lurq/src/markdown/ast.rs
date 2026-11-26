@@ -266,6 +266,9 @@ pub enum MarkdownInline {
   FootnoteReference(String),
   /// A key of the keyboard, `<kbd>Ctrl</kbd>`: its words.
   Kbd(String),
+  /// A small tag in a sentence, `<tag>changed later</tag>`, after the words it says something of: its words, drawn
+  /// in a badge's box as a key's are in a key's.
+  Tag(String),
   SoftBreak,
   HardBreak,
   TaskListMarker(bool),

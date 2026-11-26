@@ -9,7 +9,7 @@ use lurq::{
   core::Signal,
   layout::Alignment,
   node::Element,
-  ui::Editable,
+  ui::{Editable, Kbd},
 };
 
 use crate::{
@@ -53,6 +53,8 @@ pub struct EditablePage {
   files: [Signal<String>; 3],
   empty: Signal<String>,
   fixed: Signal<String>,
+  /// The name of a page, edited with Enter's key cap at the end of its field.
+  page: Signal<String>,
 }
 
 impl EditablePage {
@@ -222,6 +224,7 @@ impl Component for EditablePage {
       ],
       empty: ctx.signal(String::new()),
       fixed: ctx.signal("Project Alpha".to_owned()),
+      page: ctx.signal("Untitled".to_owned()),
     }
   }
 
@@ -266,6 +269,18 @@ impl Component for EditablePage {
     let names = items().child(item(
       list,
       "Enter keeps a name, Escape drops the edit, Tab goes on to the next",
+    ));
+    let named = items().child(item(
+      Column::new().width(280.0).max_width(FILL).child(
+        Editable::new(self.page.clone())
+          .actions(false)
+          .full_width(true)
+          .label("Page name")
+          .end(Kbd::new("Enter"))
+          .key("page")
+          .mount(ctx),
+      ),
+      "press it: Enter's key cap stands at the field's end",
     ));
     let states = items()
       .child(item(
@@ -365,6 +380,13 @@ impl Component for EditablePage {
         "",
         "What the text is, to what reads the tree. Its buttons are `confirm_label` and `cancel_label`.",
       ),
+      (
+        "end",
+        "impl Into<Element>",
+        "none",
+        "What stands at the end of the field while it is edited: a key cap. The text keeps clear of the part \
+         `end`'s width, 40.",
+      ),
     ];
     let playground = self.play(ctx);
     self.frame.page(
@@ -438,6 +460,26 @@ impl Component for EditablePage {
               "            .mount(ctx),",
               "    );",
               "}",
+            ],
+          ),
+        ),
+        Section::new(
+          "Something at the field's end",
+          "What the app puts at the end of the field while it is edited stands over the end of its box, as a \
+           password's eye does, and the text keeps clear of it: a key cap that says Enter keeps the name.",
+          self.frame.demo(
+            4,
+            named,
+            ".end(Kbd::new(\"Enter\"))",
+            &[
+              "Editable::new(name.clone())",
+              "    .actions(false)",
+              "    .full_width(true)",
+              "    .end(Kbd::new(\"Enter\"))",
+              "    .mount(ctx)",
+              "",
+              "// Wider than 40, its part is styled wider: the room the text keeps clear.",
+              ".style(EditablePart::End, |s| s.width(64.0))",
             ],
           ),
         ),

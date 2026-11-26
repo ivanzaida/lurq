@@ -4,11 +4,11 @@
 use std::sync::Arc;
 
 use lurq::{
-  app::{component::Component, ctx::Ctx},
+  app::{component::Component, ctx::Ctx, theme::PaletteColor},
   components::{Column, Markdown, MarkdownProps, Row},
   core::Signal,
   layout::{Alignment, text_style::TextStyle},
-  node::Element,
+  node::{Element, text_highlight::TextHighlight},
   ui::Textarea,
 };
 
@@ -424,6 +424,12 @@ impl Component for MarkdownPage {
         "Fills behind ranges of the rendered text (`rendered_text()`): a search's matches.",
       ),
       (
+        "wiki_links",
+        "impl Fn(&str) -> Option<String>",
+        "none",
+        "Reads `[[target]]` and `[[target|words]]` as links to the target, titled by what this gives it.",
+      ),
+      (
         "theme",
         "ThemeMarkdown",
         "the theme's",
@@ -475,6 +481,44 @@ impl Component for MarkdownPage {
         ),
       ));
     }
+    // Pages that link to each other by wiki links, and a change marked with a tag after it.
+    const LINKED: &str = "The plan is in [[/roadmap]]; ask [[/team|the team]] before you change it. A page that is                           gone is [[/drafts]].
+
+Reviews close in 40 days <tag>changed later</tag> from the day                           they open.";
+    let linked = MarkdownProps::styled(LINKED, prose())
+      .selectable(true)
+      .wiki_links(|target| match target {
+        "/roadmap" => Some("Roadmap 2027".to_string()),
+        _ => None,
+      });
+    let changed = linked.rendered_text();
+    let highlights: Vec<TextHighlight> = changed
+      .find("40 days")
+      .map(|at| TextHighlight::new(at..at + "40 days".len(), PaletteColor::Highlight).radius(3.0))
+      .into_iter()
+      .collect();
+    let pages = Column::new()
+      .width(FILL)
+      .max_width(560.0)
+      .child(Markdown::mount(ctx, linked.highlights(highlights)));
+    sections.push(Section::new(
+      "Pages that link to each other",
+      "With `wiki_links`, `[[/slug]]` is a link titled by the app (`Roadmap 2027`), or by the target where the app        has no title; `[[/slug|words]]` keeps its words. A press is a link's: `on_link_select`, or the router. A        range marked with `highlights` is followed by a tag, `<tag>changed later</tag>`, in a secondary badge's        box, as a key is in its own.",
+      self.frame.demo(
+        BLOCKS.len() as u32 + 2,
+        pages,
+        ".wiki_links(|target| title_of(target))",
+        &[
+          "MarkdownProps::new(\"The plan is in [[/roadmap]]; ask [[/team|the team]].\")",
+          "    .wiki_links(|target| pages.title_of(target))",
+          "    .on_link_select(|link| open_page(link.destination()))",
+          "",
+          "// A change, and a tag after it:",
+          "MarkdownProps::new(\"Reviews close in 40 days <tag>changed later</tag> from the day they open.\")",
+          "    .highlights([TextHighlight::new(changed, PaletteColor::Highlight)])",
+        ],
+      ),
+    ));
     // The demo's Markdown page was this: a real document of some length, the repository's README, as it is.
     let readme = Column::new().width(FILL).max_width(720.0).child(Markdown::mount(
       ctx,

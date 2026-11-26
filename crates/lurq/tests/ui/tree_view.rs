@@ -23,7 +23,10 @@ use lurq::{
     text_style::FontWeight,
   },
   node::{Element, color::Color},
-  ui::{Case, Opacity, Recipe, Themed, TreeItem, TreeView, TreeViewPart, TreeViewRenderer, TreeViewView},
+  ui::{
+    Case, DropPosition, MenuItem, Opacity, Recipe, Themed, TreeItem, TreeView, TreeViewPart, TreeViewRenderer,
+    TreeViewView,
+  },
 };
 
 use super::stage::Stage;
@@ -1273,4 +1276,175 @@ fn the_tooltip_of_a_cut_label_wraps_at_the_width_the_tree_gives_it() {
   let (recipe, told) = (widest(None), widest(Some(340.0)));
   assert!(recipe <= 200.0, "the recipe's 200: {recipe}");
   assert!(told > 220.0 && told <= 340.0, "the tree's 340: {told}");
+}
+
+/// What a tree that moves its rows was told: each row let go, where it was let go over, and where by it.
+type Moves = Arc<Mutex<Vec<(Id, Id, DropPosition)>>>;
+
+/// The board's tree, with crates and lurq open, that tells what is dragged where, and refuses `refused` inside.
+fn dragging(refused: Option<Id>) -> (Stage, Moves) {
+  let held = Held::new(&["crates", "lurq"], None);
+  let moves: Moves = Arc::default();
+  let told = moves.clone();
+  let stage = Stage::new(move |_| {
+    let told = told.clone();
+    Column::new()
+      .padding(8.0)
+      .child(
+        held
+          .tree(files())
+          .can_move(move |_, target, position| !(position == DropPosition::Inside && Some(*target) == refused))
+          .on_move(move |dragged, target, position| told.lock().unwrap().push((dragged, target, position))),
+      )
+      .into()
+  });
+  (stage, moves)
+}
+
+/// A drag of the row `from` to the point `share` of the way down the row `to`, let go there.
+fn drag(stage: &mut Stage, from: Id, to: Id, share: f32) {
+  let (x, y) = stage.center(from);
+  let (_, top, _, height) = stage.bounds(to);
+  let (to_x, to_y) = (x, top + height * share);
+  stage.tree.mouse_move(x, y);
+  stage.tree.mouse_down(x, y, MouseButton::Left);
+  stage.pass();
+  for step in 1..=4 {
+    let at = step as f32 / 4.0;
+    stage.tree.mouse_move(x + (to_x - x) * at, y + (to_y - y) * at);
+    stage.pass();
+  }
+  stage.tree.mouse_up(to_x, to_y, MouseButton::Left);
+  stage.pass();
+}
+
+#[test]
+fn a_row_dragged_onto_another_goes_into_it_or_before_or_after_it_by_where_it_is_let_go() {
+  let (mut stage, moves) = dragging(None);
+  drag(&mut stage, "Cargo.toml", "demo", 0.5);
+  drag(&mut stage, "Cargo.toml", "theme.rs", 0.1);
+  drag(&mut stage, "Cargo.toml", "theme.rs", 0.9);
+  assert_eq!(
+    *moves.lock().unwrap(),
+    vec![
+      ("Cargo.toml", "demo", DropPosition::Inside),
+      ("Cargo.toml", "theme.rs", DropPosition::Before),
+      ("Cargo.toml", "theme.rs", DropPosition::After),
+    ]
+  );
+}
+
+#[test]
+fn a_row_never_goes_into_itself_or_what_it_holds_nor_where_the_app_refuses() {
+  let (mut stage, moves) = dragging(Some("demo"));
+  // Into itself, and into what it holds: nothing.
+  drag(&mut stage, "crates", "crates", 0.5);
+  drag(&mut stage, "crates", "lib.rs", 0.5);
+  assert!(moves.lock().unwrap().is_empty(), "{:?}", moves.lock().unwrap());
+  // Inside a row the app refuses falls to the half the pointer is in.
+  drag(&mut stage, "Cargo.toml", "demo", 0.4);
+  drag(&mut stage, "Cargo.toml", "demo", 0.6);
+  assert_eq!(
+    *moves.lock().unwrap(),
+    vec![
+      ("Cargo.toml", "demo", DropPosition::Before),
+      ("Cargo.toml", "demo", DropPosition::After),
+    ]
+  );
+}
+
+#[test]
+fn while_a_row_is_dragged_the_place_it_would_go_is_drawn() {
+  let (mut stage, _) = dragging(None);
+  let (x, y) = stage.center("Cargo.toml");
+  let (_, top, _, height) = stage.bounds("theme.rs");
+  stage.tree.mouse_move(x, y);
+  stage.tree.mouse_down(x, y, MouseButton::Left);
+  stage.pass();
+  stage.tree.mouse_move(x, top + height * 0.9);
+  stage.pass();
+  stage.pass();
+  let ring = light(PaletteColor::Ring);
+  let line = stage.quads().into_iter().find(|quad| {
+    matches!(quad.content, QuadContent::Rect { color, .. } if color == ring) && quad.height <= 2.01 && quad.width > 20.0
+  });
+  let thin: Vec<_> = stage
+    .quads()
+    .into_iter()
+    .filter(|quad| quad.height <= 3.0 && matches!(quad.content, QuadContent::Rect { .. }))
+    .map(|quad| match quad.content {
+      QuadContent::Rect { color, .. } => (color, quad.x, quad.y, quad.width),
+      _ => unreachable!(),
+    })
+    .collect();
+  let line = line.unwrap_or_else(|| panic!("a line in the ring's color {ring:?} where it would go: {thin:?}"));
+  assert!(
+    (line.y + line.height / 2.0 - (top + height)).abs() < 1.5,
+    "at the bottom of theme.rs: {}",
+    line.y
+  );
+  stage.tree.mouse_up(x, top + height * 0.9, MouseButton::Left);
+  stage.pass();
+  stage.pass();
+  let after = stage.quads().into_iter().any(|quad| {
+    matches!(quad.content, QuadContent::Rect { color, .. } if color == ring) && quad.height <= 2.01 && quad.width > 20.0
+  });
+  assert!(!after, "no line once it is let go");
+}
+
+#[test]
+fn a_press_with_the_secondary_button_opens_the_rows_menu() {
+  let held = Held::new(&["crates"], None);
+  let stage_held = held.clone();
+  let mut stage = Stage::new(move |_| {
+    Column::new()
+      .padding(8.0)
+      .child(
+        stage_held
+          .tree(files())
+          .context_menu(|id| vec![MenuItem::new(&format!("Rename {id}")).id("rename")]),
+      )
+      .into()
+  });
+  assert!(!stage.paints("Rename Cargo.toml"));
+  let (x, y) = stage.center("Cargo.toml");
+  stage.tree.mouse_move(x, y);
+  stage.tree.mouse_down(x, y, MouseButton::Right);
+  stage.tree.mouse_up(x, y, MouseButton::Right);
+  stage.pass();
+  stage.pass();
+  assert!(stage.paints("Rename Cargo.toml"), "the menu of the row pressed");
+  assert_eq!(
+    held.selected.get(),
+    None,
+    "a press with the secondary button selects nothing"
+  );
+  stage.key("Escape");
+  stage.pass();
+  assert!(!stage.paints("Rename Cargo.toml"));
+  // The Menu key on the focused row.
+  stage.click("crates");
+  stage.key("ContextMenu");
+  stage.pass();
+  assert!(stage.paints("Rename crates"));
+}
+
+#[test]
+fn an_element_stands_in_a_rows_label() {
+  let held = Held::new(&[], None);
+  let scene = held.clone();
+  let mut stage = Stage::new(move |_| {
+    Column::new()
+      .padding(8.0)
+      .child(scene.tree(vec![
+        file("Cargo.toml").label_content(Text::new("Naming…").id("naming")),
+        file("README.md"),
+      ]))
+      .into()
+  });
+  assert!(stage.paints("Naming…"));
+  assert!(!stage.paints("Cargo.toml"), "the element in place of the label's text");
+  let (_, row_y, _, row_height) = stage.bounds("Cargo.toml");
+  let (_, y, _, height) = stage.bounds("naming");
+  assert!(y >= row_y && y + height <= row_y + row_height + 0.5, "in the row");
 }

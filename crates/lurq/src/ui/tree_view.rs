@@ -5,7 +5,7 @@ use std::{
   collections::HashMap,
   marker::PhantomData,
   sync::{
-    Arc, LazyLock, Mutex, Weak,
+    Arc, Mutex,
     atomic::{AtomicU64, Ordering},
   },
 };
@@ -773,7 +773,6 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, M: RowSelection<T>> TreeView<
             Some(RowMenu {
               open: kept.menu(&path),
               items: Arc::new(move || items(&value)),
-              _kept: kept.clone(),
             })
           }
           _ => None,
@@ -1069,8 +1068,7 @@ impl Drawn {
 }
 
 /// What a tree with menus or a drag keeps from one build to the next, as it is built anew by what holds it: the
-/// signal of each row's menu and the ref of each row, by the row's key, and the drag under way. It lives while the
-/// rows that hold it do.
+/// signal of each row's menu and the ref of each row, by the row's key, and the drag under way.
 struct TreeKept {
   rows: Mutex<KeptRows>,
   /// Moved on as what a drag draws changes, which renders the tree again.
@@ -1084,23 +1082,27 @@ struct KeptRows {
   drag: Option<TreeDrag>,
 }
 
-/// The trees that keep something, by their id or key.
-static TREES: LazyLock<Mutex<HashMap<Arc<str>, Weak<TreeKept>>>> = LazyLock::new(Default::default);
+thread_local! {
+  /// The trees that keep something, by their id or key: of the thread that builds the window's elements, so that two
+  /// apps on two threads (two tests) never share one. What each keeps is only of the rows it showed last.
+  static TREES: std::cell::RefCell<HashMap<Arc<str>, Arc<TreeKept>>> = std::cell::RefCell::default();
+}
 
-/// What the tree named `name` keeps: what it kept at its last build, while its rows hold it, or a new one.
+/// What the tree named `name` keeps: what it kept at its last build, or a new one.
 fn tree_kept(name: Option<&Arc<str>>) -> Arc<TreeKept> {
   let name = name.cloned().unwrap_or_else(|| Arc::from(""));
-  let mut all = TREES.lock().unwrap();
-  all.retain(|_, kept| kept.strong_count() > 0);
-  if let Some(kept) = all.get(&name).and_then(Weak::upgrade) {
-    return kept;
-  }
-  let kept = Arc::new(TreeKept {
-    rows: Mutex::default(),
-    revision: Signal::new(0),
-  });
-  all.insert(name, Arc::downgrade(&kept));
-  kept
+  TREES.with(|all| {
+    all
+      .borrow_mut()
+      .entry(name)
+      .or_insert_with(|| {
+        Arc::new(TreeKept {
+          rows: Mutex::default(),
+          revision: Signal::new(0),
+        })
+      })
+      .clone()
+  })
 }
 
 impl TreeKept {
@@ -1284,7 +1286,6 @@ impl<T: Send + Sync> Moves for Mover<T> {
 struct RowMenu {
   open: Signal<bool>,
   items: Arc<dyn Fn() -> Vec<MenuItem> + Send + Sync>,
-  _kept: Arc<TreeKept>,
 }
 
 /// What drags a row: the rows of its build, and which it is.
@@ -1634,8 +1635,8 @@ impl TreeRow {
       .build(self.theme())
   }
 
-  /// The line before or after the row where a dragged row would go, in the style of its part, laid over the top or
-  /// the bottom of the row's content: `None` where none would go by this row, or it would go into it.
+  /// The line before or after the row where a dragged row would go, in the style of its part, to be laid in a stack
+  /// over the top or the bottom of the row's content: `None` where none would go by this row, or it would go into it.
   pub fn drop_line(&self) -> Option<Element> {
     let part = self.part(TreeViewPart::DropLine);
     let theme = self.theme();
@@ -1797,9 +1798,6 @@ impl TreeRow {
       content = content.child(icon);
     }
     content = content.child(self.label());
-    if let Some(line) = self.drop_line() {
-      content = content.overflow_visible().child(line);
-    }
     if let Some(trailing) = self.trailing.take() {
       let trailing: Element = if self.trailing_on_hover {
         Row::new()
@@ -1817,6 +1815,17 @@ impl TreeRow {
           .child(trailing),
       );
     }
+    // The line where a dragged row would go is laid over the content, at its top or its bottom.
+    let content: Element = match self.drop_line() {
+      Some(line) => components::Stack::new()
+        .stack_align(crate::layout::stack_alignment::StackAlignment::TopStart)
+        .flex_full(1.0, 1.0, None)
+        .overflow_visible()
+        .child(content.width(Dimension::Pct(100.0)).height(Dimension::Pct(100.0)))
+        .child(line)
+        .into(),
+      None => content.into(),
+    };
     self.with_menu(row.child(content).into())
   }
 }

@@ -23,13 +23,16 @@ dropped). When a decision is replaced, the old entry stays and says what replace
   - *`Editable::end(element)`* stands over the end of the field while it is edited, as a password's eye does; the
     field's text keeps clear of the width of the part `end`, 40 unless a recipe says.
   - *`ListItem::trailing_at_top(true)`* stands what is after the text at the top of the row, by the title, in place
-    of its middle. A flag, not an alignment: the middle and the top are the two the board draws.
+    of its middle, and what is before the text with it: a row's alignment across is the row's, not each child's (the
+    engine's flex rows have no `align_self`). A flag, not an alignment: the middle and the top are the two the board
+    draws.
   - *`TreeItem::label_content(element)`* stands in the label's place and width; the label's text stays the row's
     name to what reads the tree and to typeahead. What it holds is in no focus group of the tree's: the arrows and
     letters typed in a field there are the field's, and Enter the field takes does not activate the row.
-  - *`TreeView::context_menu(|value| items)`*, as `DocumentTabs::context_menu`: the row's own [`ContextMenu`], opened
+  - *`TreeView::context_menu(|value| items)`*, as `DocumentTabs::context_menu`: the row's own `ContextMenu`, opened
     by the secondary button, a long press, the Menu key and Shift+F10. The app gives the items, which may be the
-    ones its ⋯ button opens; the tree does not reach into that button.
+    ones its ⋯ button opens; the tree does not reach into that button. The secondary button does not select the
+    row. The items are asked for only while the row's menu is open.
   - *`TreeView::on_move(|dragged, target, position|)` with `TreeView::can_move(..) -> bool`* and `DropPosition`
     (`Before`, `Inside`, `After`): a row dragged past 4 px over another shows a line before or after it, or the row
     marked as the one it goes into; letting go tells `on_move`. The tree refuses a row into itself or what it holds;
@@ -37,7 +40,22 @@ dropped). When a decision is replaced, the old entry stays and says what replace
     half of the row the pointer is in. The callback answers while the pointer moves, not only at the drop, so a
     refused place is never drawn.
   - *A tree keeps its menus and its drag by its id* (or its key) where it is built anew by what holds it, as a
-    context menu keeps its point: two trees with these in one window are given ids.
+    context menu keeps its point: two trees with these in one window are given ids. What it keeps is of the thread
+    that builds the window (two apps in two tests never share it) and only of the rows it showed last.
+  - *A dragged row's line is laid over the row's content in a stack*, from its chevron to its end, at its top or its
+    bottom (part `drop_line`, 2 high in the ring's color); the row it goes into is ringed (state `drop_target`) and
+    the row dragged faded (state `dragged`). Nothing follows the pointer: the row stays where it is until the app
+    moves it.
+  - *Wiki links are read where asked for*: `MarkdownOptions::wiki_links` and `parse_markdown_with` beside
+    `parse_markdown`, which reads `[[x]]` as text as before; a new inline `MarkdownInline::WikiLink { target, words }`.
+    `MarkdownProps::wiki_links(|target| title)` reads them and turns each into a link to its target as it renders, its
+    words those after `|`, else the app's title, else the target: a page renamed shows its new title without a new
+    parse. A press is a link's (`on_link_select`, `on_link_activate`, else the router for `/slug`); no kind of its own
+    is told, the target is the link's destination.
+  - *A tag is `<tag>changed later</tag>`*, read as `<kbd>` is, a new inline `MarkdownInline::Tag`, drawn in a
+    secondary badge's box (`ThemeMarkdown::tag` for its type). The range before it is marked with `highlights`, as
+    a diff view marks it now. Its words are the document's, as a key's are: a highlight's fill is not drawn over
+    presentation spans, so a tag that is not words would draw no box.
 - **State.** In work on `feat/issue-258`.
 
 ## 2026-11-24

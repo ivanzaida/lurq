@@ -19,7 +19,7 @@ use crate::{
   },
   markdown::{
     MarkdownBlock, MarkdownCodeBlockKind, MarkdownDocument, MarkdownHeadingLevel, MarkdownInline, MarkdownListItem,
-    MarkdownTableAlignment, MarkdownTableRow, markdown_html_text, markdown_inline_rich_text, parse_markdown,
+    MarkdownTableAlignment, MarkdownTableRow, markdown_html_text, markdown_inline_rich_text,
   },
   node::{Element, Node, TextColor, dimension::Dimension, node_kind::NodeKind, text_highlight::TextHighlight},
   ui::{
@@ -85,7 +85,11 @@ pub struct MarkdownProps {
   highlights: Arc<[TextHighlight]>,
   on_task_change: Option<TaskCallback>,
   code_block: Option<MarkdownCodeBlocks>,
+  wiki_title: Option<WikiTitle>,
 }
+
+/// What gives a wiki link's target its title, where the document reads wiki links.
+type WikiTitle = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
 
 impl PartialEq for MarkdownProps {
   fn eq(&self, other: &Self) -> bool {
@@ -101,6 +105,7 @@ impl PartialEq for MarkdownProps {
       && same_callback(&self.list_view, &other.list_view)
       && same_callback(&self.on_task_change, &other.on_task_change)
       && same_callback(&self.code_block, &other.code_block)
+      && same_callback(&self.wiki_title, &other.wiki_title)
       && self.highlights == other.highlights
   }
 }
@@ -121,6 +126,41 @@ impl MarkdownProps {
       highlights: Arc::from([]),
       on_task_change: None,
       code_block: None,
+      wiki_title: None,
+    }
+  }
+
+  /// Reads `[[target]]` and `[[target|words]]` as wiki links: links to `target`, which show their words, or where
+  /// they have none the title `title` gives the target, else the target itself. A press follows one as it does any
+  /// link: [`on_link_select`](Self::on_link_select) and [`on_link_activate`](Self::on_link_activate) are told it,
+  /// its [`destination`](MarkdownLink::destination) the target, and without them a target that is a path of the app
+  /// (`/slug`) navigates the router. Without this `[[target]]` is text.
+  ///
+  /// ```
+  /// use lurq::components::MarkdownProps;
+  ///
+  /// let page = MarkdownProps::new("See [[/roadmap]] and [[/team|the team]].")
+  ///   .wiki_links(|target| (target == "/roadmap").then(|| "Roadmap 2027".to_string()));
+  /// ```
+  pub fn wiki_links(mut self, title: impl Fn(&str) -> Option<String> + Send + Sync + 'static) -> Self {
+    self.wiki_title = Some(Arc::new(title));
+    self
+  }
+
+  /// The document as these props read it: with wiki links where they are asked for, each a link titled.
+  fn read(&self, source: &str) -> MarkdownDocument {
+    let options = crate::markdown::MarkdownOptions::new().wiki_links(self.wiki_title.is_some());
+    let mut document = crate::markdown::parse_markdown_with(source, options);
+    self.titled(&mut document);
+    document
+  }
+
+  /// Turns the wiki links of `document` into links, titled by the app's resolver.
+  fn titled(&self, document: &mut MarkdownDocument) {
+    if let Some(title) = &self.wiki_title
+      && document.has_wiki_links()
+    {
+      document.resolve_wiki_links(&|target| title(target));
     }
   }
 
@@ -207,7 +247,7 @@ impl MarkdownProps {
 
   /// The document built in `theme` with nothing kept, and its rendered text.
   fn still(&self, ui: &Theme) -> (Element, String) {
-    let document = parse_markdown(&self.source);
+    let document = self.read(&self.source);
     let theme = self
       .theme
       .clone()
@@ -222,7 +262,7 @@ impl MarkdownProps {
       TooltipHover::new(crate::app::ctx::Timeout::detached),
     );
     let (code_fill, kbd_fill) = mark_fills(ui);
-    let links = links.with_fills(code_fill, kbd_fill);
+    let links = links.with_fills(code_fill, kbd_fill).with_tag_fill(tag_fill(ui));
     links.set_footnotes(footnote_numbers(&document));
     let text = DocumentText::new(&self.highlights);
     let render_ctx = MarkdownRenderContext {
@@ -393,6 +433,8 @@ impl From<MarkdownProps> for Element {
 
 pub struct Markdown {
   source: Signal<Arc<str>>,
+  /// Whether the document reads wiki links.
+  wiki: Signal<bool>,
   document: Memo<MarkdownDocument>,
   hover: TooltipHover,
   /// The `<details>` a person turned from how they began, by ordinal.
@@ -442,11 +484,16 @@ impl Component for Markdown {
 
   fn create(ctx: &mut Ctx) -> Self {
     let source = ctx.signal(ctx.props::<Self::Props>().source.clone());
-    let memo_source = source.clone();
-    let document = ctx.memo(move || parse_markdown(&memo_source.get()));
+    let wiki = ctx.signal(ctx.props::<Self::Props>().wiki_title.is_some());
+    let (memo_source, memo_wiki) = (source.clone(), wiki.clone());
+    let document = ctx.memo(move || {
+      let options = crate::markdown::MarkdownOptions::new().wiki_links(memo_wiki.get());
+      crate::markdown::parse_markdown_with(&memo_source.get(), options)
+    });
     let hover = TooltipHover::new(|fire| ctx.create_timeout(std::time::Duration::ZERO, fire));
     Self {
       source,
+      wiki,
       document,
       hover,
       details: ctx.signal(Vec::new()),
@@ -460,6 +507,9 @@ impl Component for Markdown {
     if self.source.get_untracked() != props.source {
       self.source.set(props.source.clone());
     }
+    if self.wiki.get_untracked() != props.wiki_title.is_some() {
+      self.wiki.set(props.wiki_title.is_some());
+    }
     let ui = ctx.theme().clone();
     // The document's colors are the palette's roles: drawn in the theme it is in.
     let theme = props
@@ -468,7 +518,9 @@ impl Component for Markdown {
       .unwrap_or_else(|| ui.markdown().clone())
       .resolve(&ui.palette());
     self.hover.set_delay(theme.link_tooltip_delay);
-    let document = self.document.get();
+    let mut document = self.document.get();
+    // The titles are the app's as it renders: a page renamed is shown by its new title.
+    props.titled(&mut document);
     // A jump to a footnote or back: the render it asks for scrolls to the anchor.
     let _ = self.jumps.get();
     let jump: MarkdownJump = {
@@ -488,7 +540,8 @@ impl Component for Markdown {
       self.hover.clone(),
     )
     .with_jump(jump)
-    .with_fills(code_fill, kbd_fill);
+    .with_fills(code_fill, kbd_fill)
+    .with_tag_fill(tag_fill(&ui));
     links.set_footnotes(footnote_numbers(&document));
     let text = DocumentText::new(&props.highlights);
     // A style that keeps the default text color names none: the document is drawn in the theme's foreground.
@@ -650,6 +703,21 @@ fn mark_fills(ui: &Theme) -> (Option<TextHighlight>, Option<TextHighlight>) {
   });
   let _ = Length::Fill;
   (code_fill, kbd_fill)
+}
+
+/// The fill behind a tag in a sentence: a secondary `ui::Badge`'s box, as high as its part says.
+fn tag_fill(ui: &Theme) -> Option<TextHighlight> {
+  let badge = ui
+    .resolve::<crate::ui::Badge>(&Case::new().variant(crate::ui::BadgeVariant::Secondary), None)
+    .part(crate::ui::BadgePart::Root);
+  let height = match badge.rest().height.and_then(|height| height.resolve(ui)) {
+    Some(Dimension::Px(px)) => px,
+    _ => 22.0,
+  };
+  crate::ui::fill_of(&badge, 0..0).map(|fill| {
+    let across = fill.padding.0;
+    fill.padding(across, height)
+  })
 }
 
 fn render_block(

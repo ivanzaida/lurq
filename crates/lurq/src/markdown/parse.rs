@@ -68,6 +68,10 @@ enum Frame {
   Kbd {
     text: String,
   },
+  /// A `<tag>` element, from its opening tag to its closing one: its words.
+  Tag {
+    text: String,
+  },
   FootnoteDefinition {
     label: String,
     blocks: Vec<MarkdownBlock>,
@@ -496,7 +500,8 @@ impl MarkdownParser {
     match self.frames.last_mut() {
       Some(Frame::CodeBlock { text: code, .. })
       | Some(Frame::HtmlBlock { text: code })
-      | Some(Frame::Kbd { text: code }) => code.push_str(text),
+      | Some(Frame::Kbd { text: code })
+      | Some(Frame::Tag { text: code }) => code.push_str(text),
       _ => self.push_inline(MarkdownInline::Text(text.to_owned())),
     }
   }
@@ -518,6 +523,18 @@ impl MarkdownParser {
     {
       if let Some(Frame::Kbd { text }) = self.frames.pop() {
         self.push_inline(MarkdownInline::Kbd(text));
+      }
+      return;
+    }
+    if tag == "<tag>" {
+      self.frames.push(Frame::Tag { text: String::new() });
+      return;
+    }
+    if tag == "</tag>"
+      && let Some(Frame::Tag { .. }) = self.frames.last()
+    {
+      if let Some(Frame::Tag { text }) = self.frames.pop() {
+        self.push_inline(MarkdownInline::Tag(text));
       }
       return;
     }
@@ -563,14 +580,15 @@ impl MarkdownParser {
       | Some(Frame::Strong { inlines })
       | Some(Frame::Strikethrough { inlines })
       | Some(Frame::Link { inlines, .. })
+      | Some(Frame::WikiLink { inlines, .. })
       | Some(Frame::Image { inlines, .. }) => inlines.push(inline),
       Some(Frame::Item { blocks })
       | Some(Frame::BlockQuote { blocks })
       | Some(Frame::Admonition { blocks, .. })
       | Some(Frame::Details { blocks, .. })
       | Some(Frame::FootnoteDefinition { blocks, .. }) => push_implicit_paragraph_inline(blocks, inline),
-      // A key in a key: its words go into the key's.
-      Some(Frame::Kbd { text }) => {
+      // A key in a key, or anything in a tag: its words go into the key's or the tag's.
+      Some(Frame::Kbd { text }) | Some(Frame::Tag { text }) => {
         if let MarkdownInline::Text(words) = inline {
           text.push_str(&words);
         }
@@ -580,7 +598,6 @@ impl MarkdownParser {
   }
 }
 
-      | Some(Frame::WikiLink { inlines, .. })
 fn push_implicit_paragraph_inline(blocks: &mut Vec<MarkdownBlock>, inline: MarkdownInline) {
   if let Some(MarkdownBlock::Paragraph(inlines)) = blocks.last_mut() {
     inlines.push(inline);

@@ -101,6 +101,8 @@ pub(super) struct LinkSession {
   /// The fill behind code in a sentence, and behind a key: `ui::InlineCode`'s and `ui::Kbd`'s boxes.
   code_fill: Option<TextHighlight>,
   kbd_fill: Option<TextHighlight>,
+  /// The fill behind a tag: a secondary `ui::Badge`'s box.
+  tag_fill: Option<TextHighlight>,
 }
 
 /// Where a session was, to forget the links drawn after it.
@@ -133,6 +135,7 @@ impl LinkSession {
       jump: None,
       code_fill: None,
       kbd_fill: None,
+      tag_fill: None,
     }
   }
 
@@ -156,6 +159,12 @@ impl LinkSession {
   pub(super) fn with_fills(mut self, code: Option<TextHighlight>, kbd: Option<TextHighlight>) -> Self {
     self.code_fill = code;
     self.kbd_fill = kbd;
+    self
+  }
+
+  /// The fill behind a tag in a sentence.
+  pub(super) fn with_tag_fill(mut self, tag: Option<TextHighlight>) -> Self {
+    self.tag_fill = tag;
     self
   }
 
@@ -496,6 +505,20 @@ impl<'a> Paragraph<'a> {
           let height = fill.as_ref().map_or(20.0, |fill| fill.padding.1);
           self.fill_from(start, fill.as_ref(), height);
           self.push_room(fill.as_ref(), &key_style, style, false);
+        }
+        // A tag, in a badge's box, as a key is in its own.
+        MarkdownInline::Tag(words) => {
+          let fill = self.session.tag_fill.clone();
+          let tag_style = self.theme.tag.apply(style);
+          self.push_room(fill.as_ref(), &tag_style, style, true);
+          let start = self.text_len();
+          self.push_span(RichTextSpan {
+            text: words.clone(),
+            style: tag_style.clone(),
+          });
+          let height = fill.as_ref().map_or(22.0, |fill| fill.padding.1);
+          self.fill_from(start, fill.as_ref(), height);
+          self.push_room(fill.as_ref(), &tag_style, style, false);
         }
         // A footnote's number, which goes to the footnote.
         MarkdownInline::FootnoteReference(label) => match self.session.footnote_number(label) {

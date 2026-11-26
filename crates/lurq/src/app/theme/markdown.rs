@@ -299,6 +299,8 @@ pub struct ThemeMarkdown {
   pub inline_code: MarkdownInlineStyle,
   /// A key of the keyboard, `<kbd>Ctrl</kbd>`: its type; its box is `ui::Kbd`'s.
   pub kbd: MarkdownInlineStyle,
+  /// A small tag in a sentence, `<tag>changed later</tag>`: its type; its box is a secondary `ui::Badge`'s.
+  pub tag: MarkdownInlineStyle,
   pub link: MarkdownInlineStyle,
   /// A link's look while the pointer is on it.
   pub link_hovered: MarkdownLinkState,
@@ -373,6 +375,7 @@ impl ThemeMarkdown {
       emphasis: inline(&self.emphasis),
       inline_code: inline(&self.inline_code),
       kbd: inline(&self.kbd),
+      tag: inline(&self.tag),
       link: inline(&self.link),
       link_hovered: self.link_hovered.resolve(palette),
       link_focused: self.link_focused.resolve(palette),
@@ -440,6 +443,12 @@ impl Default for ThemeMarkdown {
     kbd.text.font_family = Some(Arc::from("monospace"));
     kbd.text.font_size_scale = of_15(11.0);
     kbd.text.color = color(MutedForeground);
+
+    // A tag: a badge's label, 12 at 500, in the secondary foreground, in a secondary badge's box.
+    let mut tag = MarkdownInlineStyle::default();
+    tag.text.font_size_scale = of_15(12.0);
+    tag.text.weight = Some(FontWeight::Medium);
+    tag.text.color = color(PaletteColor::SecondaryForeground);
 
     let mut link = MarkdownInlineStyle::default();
     link.text.color = color(Info);
@@ -577,6 +586,7 @@ impl Default for ThemeMarkdown {
       emphasis,
       inline_code,
       kbd,
+      tag,
       link,
       link_hovered: MarkdownLinkState::default(),
       link_focused: MarkdownLinkState::default(),
