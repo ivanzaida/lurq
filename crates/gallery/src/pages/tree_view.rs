@@ -12,7 +12,10 @@ use lurq::{
   core::Signal,
   layout::Alignment,
   node::Element,
-  ui::{Badge, Button, ButtonSize, ButtonVariant, Interaction, Length, TreeItem, TreeView, TreeViewPart, icons},
+  ui::{
+    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, DropPosition, Editable, Interaction, Kbd, Length, MenuItem,
+    TreeItem, TreeView, TreeViewPart, icons,
+  },
 };
 
 use crate::{
@@ -442,6 +445,7 @@ impl Component for TreeViewPage {
     })
     .style(TreeViewPart::Root, |s| s.width(260.0));
     let big = ctx.mount::<BigTree>(());
+    let pages = ctx.mount::<PagesTree>(());
     let hover = TreeView::controlled(None, Shape { action: true, ..plain }.project(), |_| {})
       .label("Files")
       .open(self.hover_open.clone())
@@ -505,7 +509,8 @@ impl Component for TreeViewPage {
         "impl IntoIterator<Item = TreeItem<T>>",
         "",
         "The rows at the top, each with what it holds: `TreeItem::new(value, label)`, or `folder` and `file` with \
-         their icons; `icon`, `open_icon`, `trailing`, `disabled`, `item` and `items`, `lazy`, `id`, `key`.",
+         their icons; `icon`, `open_icon`, `label_content`, `trailing`, `disabled`, `item` and `items`, `lazy`, `id`, \
+         `key`.",
       ),
       (
         "open",
@@ -571,10 +576,31 @@ impl Component for TreeViewPage {
         "Told of each row a press or a key opens or closes: where a lazy row's children are brought.",
       ),
       (
+        "context_menu",
+        "impl Fn(&T) -> Vec<MenuItem>",
+        "none",
+        "The commands of a row's menu, which the secondary button, a long press, the Menu key and Shift+F10 open. \
+         Two trees with menus in a window have ids.",
+      ),
+      (
+        "on_move",
+        "impl Fn(&T, &T, DropPosition)",
+        "none",
+        "Rows are dragged once it is given: told the row let go, the row it was let go over, and before, inside \
+         or after it. Never into itself or what it holds.",
+      ),
+      (
+        "can_move",
+        "impl Fn(&T, &T, DropPosition) -> bool",
+        "yes",
+        "Asked while a row is dragged whether it may go there; a refused inside falls to before or after.",
+      ),
+      (
         "style / rules",
         "TreeViewPart",
         "",
-        "Root, Row, Indent, Guide, Content, Chevron, Icon, Label, Trailing.",
+        "Root, Row, Indent, Guide, Content, Chevron, Icon, Label, Trailing, DropLine; the states drop_target and \
+         dragged.",
       ),
     ];
     let playground = self.play(ctx);
@@ -726,6 +752,34 @@ impl Component for TreeViewPage {
           ),
         ),
         Section::new(
+          "Pages: moved, named in place, with a menu",
+          "A notes app's tree of pages. Drag a row onto another to put it in it, or by its top or bottom edge to put \
+           it before or after: a line shows where it goes, or the row it goes into is ringed; an archived page takes \
+           none (`can_move`). A press with the secondary button, the Menu key or Shift+F10 opens the row's menu; \
+           *Rename* puts a field in the label's place (`label_content`), with Enter's key cap at its end \
+           (`Editable::end`).",
+          self.frame.demo(
+            8,
+            pages,
+            ".on_move(..).context_menu(..)",
+            &[
+              "TreeView::new(selected, pages)",
+              "    .id(\"pages\")",
+              "    .context_menu(|page| vec![",
+              "        MenuItem::new(\"Rename\").on_select(..),",
+              "        MenuItem::new(\"Archive\").on_select(..),",
+              "    ])",
+              "    .can_move(|_, target, position| position != DropPosition::Inside || !archived(target))",
+              "    .on_move(|dragged, target, position| move_page(dragged, target, position))",
+              "",
+              "// Named in place: a field in the label's place.",
+              "TreeItem::new(id, &title).label_content(",
+              "    Editable::new(name).actions(false).default_editing(true).end(Kbd::new(\"Enter\")),",
+              ")",
+            ],
+          ),
+        ),
+        Section::new(
           "States",
           "The board draws a row at rest and a selected one. Under the pointer and held down a row is veiled, the \
            focus from the keyboard is a ring inside the row, and a disabled row is dimmed and passed by. What the \
@@ -753,6 +807,230 @@ impl Component for TreeViewPage {
         ),
       ],
     )
+  }
+}
+
+/// One page of the pages tree: where it is, what it is called, and whether it is archived.
+#[derive(Clone, PartialEq)]
+struct Page {
+  id: u32,
+  parent: Option<u32>,
+  title: String,
+  archived: bool,
+}
+
+/// A tree of pages as a notes app has one: its rows dragged to move them, a menu on each, and a page named in place.
+struct PagesTree {
+  pages: Signal<Vec<Page>>,
+  open: Signal<Vec<u32>>,
+  selected: Signal<Option<u32>>,
+  /// The page being named, with what is typed.
+  naming: Signal<Option<u32>>,
+  name: Signal<String>,
+}
+
+fn page(id: u32, parent: Option<u32>, title: &str) -> Page {
+  Page {
+    id,
+    parent,
+    title: title.to_string(),
+    archived: false,
+  }
+}
+
+/// Whether `inner` is `outer` or under it.
+fn under(pages: &[Page], outer: u32, inner: u32) -> bool {
+  let mut at = Some(inner);
+  while let Some(id) = at {
+    if id == outer {
+      return true;
+    }
+    at = pages.iter().find(|page| page.id == id).and_then(|page| page.parent);
+  }
+  false
+}
+
+impl PagesTree {
+  fn items(&self, pages: &[Page], parent: Option<u32>, naming: Option<u32>) -> Vec<TreeItem<u32>> {
+    pages
+      .iter()
+      .filter(|page| page.parent == parent)
+      .map(|page| {
+        let mut item = TreeItem::new(page.id, &page.title)
+          .icon(if page.archived { icons::ARCHIVE } else { icons::FILE })
+          .key(format!("page-{}", page.id))
+          .items(self.items(pages, Some(page.id), naming));
+        if page.archived {
+          item = item.trailing(Badge::new("Archived").variant(BadgeVariant::Secondary));
+        }
+        if naming == Some(page.id) {
+          let (pages, naming) = (self.pages.clone(), self.naming.clone());
+          let id = page.id;
+          item = item.label_content(
+            Editable::new(self.name.clone())
+              .label("Page name")
+              .actions(false)
+              .full_width(true)
+              .default_editing(true)
+              .end(Kbd::new("Enter"))
+              .on_change(move |name| {
+                let name = name.to_string();
+                pages.update(|pages| {
+                  if let Some(page) = pages.iter_mut().find(|page| page.id == id) {
+                    page.title = name.clone();
+                  }
+                })
+              })
+              .on_editing_change(move |editing| {
+                if !editing {
+                  naming.set(None);
+                }
+              })
+              .key(format!("name-{id}")),
+          );
+        }
+        item
+      })
+      .collect()
+  }
+
+  fn menu(&self, id: u32) -> Vec<MenuItem> {
+    let pages = self.pages.get_untracked();
+    let Some(page) = pages.iter().find(|page| page.id == id).cloned() else {
+      return Vec::new();
+    };
+    let (naming, name) = (self.naming.clone(), self.name.clone());
+    let title = page.title.clone();
+    let (add, open) = (self.pages.clone(), self.open.clone());
+    let (archive, delete) = (self.pages.clone(), self.pages.clone());
+    vec![
+      MenuItem::new("Rename")
+        .icon(icons::PENCIL)
+        .shortcut("F2")
+        .on_select(move || {
+          name.set(title.clone());
+          naming.set(Some(id));
+        }),
+      MenuItem::new("New page inside").icon(icons::PLUS).on_select(move || {
+        let next = add.get_untracked().iter().map(|page| page.id).max().unwrap_or(0) + 1;
+        add.update(|pages| pages.push(page_new(next, id)));
+        open.update(|open| {
+          if !open.contains(&id) {
+            open.push(id);
+          }
+        });
+      }),
+      MenuItem::new(if page.archived { "Restore" } else { "Archive" })
+        .icon(icons::ARCHIVE)
+        .on_select(move || {
+          archive.update(|pages| {
+            if let Some(page) = pages.iter_mut().find(|page| page.id == id) {
+              page.archived = !page.archived;
+            }
+          })
+        }),
+      MenuItem::new("Delete")
+        .icon(icons::TRASH)
+        .destructive(true)
+        .on_select(move || {
+          delete.update(|pages| {
+            let all = pages.clone();
+            pages.retain(|page| !under(&all, id, page.id));
+          })
+        }),
+    ]
+  }
+}
+
+fn page_new(id: u32, parent: u32) -> Page {
+  page(id, Some(parent), "Untitled")
+}
+
+/// Moves `dragged` by `target`, where `position` says: before or after it among its siblings, or the last in it.
+fn move_page(pages: &mut Vec<Page>, dragged: u32, target: u32, position: DropPosition) {
+  let Some(from) = pages.iter().position(|page| page.id == dragged) else {
+    return;
+  };
+  let mut moved = pages.remove(from);
+  let Some(at) = pages.iter().position(|page| page.id == target) else {
+    pages.insert(from, moved);
+    return;
+  };
+  match position {
+    DropPosition::Before => {
+      moved.parent = pages[at].parent;
+      pages.insert(at, moved);
+    }
+    DropPosition::After => {
+      moved.parent = pages[at].parent;
+      pages.insert(at + 1, moved);
+    }
+    DropPosition::Inside => {
+      moved.parent = Some(target);
+      pages.push(moved);
+    }
+  }
+}
+
+impl Component for PagesTree {
+  type Props = ();
+
+  fn create(ctx: &mut Ctx) -> Self {
+    let mut archived = page(6, None, "Old notes");
+    archived.archived = true;
+    Self {
+      pages: ctx.signal(vec![
+        page(1, None, "Roadmap"),
+        page(2, Some(1), "2027 plan"),
+        page(3, Some(1), "Ideas"),
+        page(4, None, "Team"),
+        page(5, Some(4), "Onboarding"),
+        archived,
+        page(7, None, "Reading list"),
+      ]),
+      open: ctx.signal(vec![1, 4]),
+      selected: ctx.signal(Some(2)),
+      naming: ctx.signal(None),
+      name: ctx.signal(String::new()),
+    }
+  }
+
+  fn render(&self, _: &mut Ctx) -> impl Into<Element> {
+    let pages = self.pages.get();
+    let items = self.items(&pages, None, self.naming.get());
+    let (moves, archived) = (self.pages.clone(), self.pages.clone());
+    let open = self.open.clone();
+    let menus = PagesTree {
+      pages: self.pages.clone(),
+      open: self.open.clone(),
+      selected: self.selected.clone(),
+      naming: self.naming.clone(),
+      name: self.name.clone(),
+    };
+    TreeView::new(self.selected.clone(), items)
+      .label("Pages")
+      .id("gallery-pages-tree")
+      .open(self.open.clone())
+      .context_menu(move |id| menus.menu(*id))
+      // Never into an archived page.
+      .can_move(move |_, target, position| {
+        position != DropPosition::Inside
+          || !archived
+            .get_untracked()
+            .iter()
+            .any(|page| page.id == *target && page.archived)
+      })
+      .on_move(move |dragged, target, position| {
+        moves.update(|pages| move_page(pages, *dragged, *target, position));
+        if position == DropPosition::Inside {
+          open.update(|open| {
+            if !open.contains(target) {
+              open.push(*target);
+            }
+          });
+        }
+      })
+      .style(TreeViewPart::Root, |s| s.width(260.0))
   }
 }
 

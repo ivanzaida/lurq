@@ -141,6 +141,8 @@ mod radio;
 mod rating;
 mod recipe;
 #[cfg(feature = "markdown")]
+mod link_trigger;
+#[cfg(feature = "markdown")]
 mod rich_text_editor;
 #[cfg(feature = "canvas")]
 mod scatter_chart;
@@ -506,6 +508,8 @@ pub use recipe::{
   Case, Interaction, Name, PartStyles, ROW_STEPS, Recipe, ResolvedPart, ResolvedRecipe, Rule, Selector,
 };
 #[cfg(feature = "markdown")]
+pub use link_trigger::{LINK_OFFERS_LIMIT, LinkOffer, LinkSource, LinkTrigger};
+#[cfg(feature = "markdown")]
 pub use rich_text_editor::{
   RICH_TEXT_MAX_ROWS, RICH_TEXT_MIN_ROWS, RichTextController, RichTextEditor, RichTextEditorPart,
   RichTextEditorRenderer, RichTextEditorState, RichTextEditorView, RichTextFormat, RichTextTool,
@@ -654,7 +658,8 @@ pub use tree_select::{
   TreeSelect, TreeSelectPart, TreeSelectRenderer, TreeSelectSize, TreeSelectState, TreeSelectView,
 };
 pub use tree_view::{
-  ManySelected, OneSelected, RowSelection, TreeItem, TreeRow, TreeView, TreeViewPart, TreeViewRenderer, TreeViewState,
+  DropPosition, ManySelected, OneSelected, RowSelection, TreeItem, TreeRow, TreeView, TreeViewPart, TreeViewRenderer,
+  TreeViewState,
   TreeViewView,
 };
 pub use video_player::{

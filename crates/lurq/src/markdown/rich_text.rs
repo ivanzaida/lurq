@@ -44,6 +44,16 @@ fn push_inline_spans(
         let style = theme.link.apply(base_style);
         push_inline_spans(spans, children, &style, theme);
       }
+      // A wiki link not resolved into a link: its words, else its target.
+      MarkdownInline::WikiLink { target, words } => {
+        let style = theme.link.apply(base_style);
+        if words.is_empty() {
+          push_span(spans, target, style);
+        } else {
+          push_inline_spans(spans, words, &style, theme);
+        }
+      }
+      MarkdownInline::Tag(text) => push_span(spans, text, theme.tag.apply(base_style)),
       MarkdownInline::Image { alt, .. } => push_inline_spans(spans, alt, base_style, theme),
       MarkdownInline::SoftBreak => push_span(spans, " ", base_style.clone()),
       MarkdownInline::HardBreak => push_span(spans, "\n", base_style.clone()),

@@ -9,6 +9,76 @@ them says so. Decisions about phones and tablets are in [mobile-decisions.md](mo
 Each entry: **the question**, **the decision**, **why**, and its **state** (decided, in work on a branch, built,
 dropped). When a decision is replaced, the old entry stays and says what replaced it.
 
+## 2026-11-26
+
+### Pages' gaps: link triggers and wiki links, a tree's menu, drag and element label, an editable's end, a tag after a range, a list item's end at the top
+
+- **Question.** Orchester v2's Pages (F2-05) and Settings › Environment (F2-08) met gaps (issue #258): typing `[[` or
+  a key's prefix in a rich text editor cannot open a list of links; `[[/slug]]` and `[[/slug|words]]` are read as
+  text; a tree's row has no context menu, cannot be dragged to move it, and takes only text as its label; an
+  editable has no end slot for an *Enter* key cap; Markdown has no tag after a marked range; a list item's end
+  centres on a row that grows under its title.
+- **Decision (Ivan).** Do them (the issue and its comment).
+- **Decided by Claude in the work, to be confirmed.**
+  - *`Editable::end(element)`* stands over the end of the field while it is edited, as a password's eye does; the
+    field's text keeps clear of the width of the part `end`, 40 unless a recipe says.
+  - *`ListItem::trailing_at_top(true)`* stands what is after the text at the top of the row, by the title, in place
+    of its middle, and what is before the text with it: a row's alignment across is the row's, not each child's (the
+    engine's flex rows have no `align_self`). A flag, not an alignment: the middle and the top are the two the board
+    draws.
+  - *`TreeItem::label_content(element)`* stands in the label's place and width; the label's text stays the row's
+    name to what reads the tree and to typeahead. What it holds is in no focus group of the tree's: the arrows and
+    letters typed in a field there are the field's, and Enter the field takes does not activate the row.
+  - *`TreeView::context_menu(|value| items)`*, as `DocumentTabs::context_menu`: the row's own `ContextMenu`, opened
+    by the secondary button, a long press, the Menu key and Shift+F10. The app gives the items, which may be the
+    ones its ⋯ button opens; the tree does not reach into that button. The secondary button does not select the
+    row. The items are asked for only while the row's menu is open.
+  - *`TreeView::on_move(|dragged, target, position|)` with `TreeView::can_move(..) -> bool`* and `DropPosition`
+    (`Before`, `Inside`, `After`): a row dragged past 4 px over another shows a line before or after it, or the row
+    marked as the one it goes into; letting go tells `on_move`. The tree refuses a row into itself or what it holds;
+    `can_move` refuses the rest (into an archived folder), and a refused *inside* falls to before or after by the
+    half of the row the pointer is in. The callback answers while the pointer moves, not only at the drop, so a
+    refused place is never drawn.
+  - *A tree keeps its menus and its drag by its id* (or its key) where it is built anew by what holds it, as a
+    context menu keeps its point: two trees with these in one window are given ids. What it keeps is of the thread
+    that builds the window (two apps in two tests never share it) and only of the rows it showed last.
+  - *A dragged row's line is laid over the row's content in a stack*, from its chevron to its end, at its top or its
+    bottom (part `drop_line`, 2 high in the ring's color); the row it goes into is ringed (state `drop_target`) and
+    the row dragged faded (state `dragged`). Nothing follows the pointer: the row stays where it is until the app
+    moves it.
+  - *Wiki links are read where asked for*: `MarkdownOptions::wiki_links` and `parse_markdown_with` beside
+    `parse_markdown`, which reads `[[x]]` as text as before; a new inline `MarkdownInline::WikiLink { target, words }`.
+    `MarkdownProps::wiki_links(|target| title)` reads them and turns each into a link to its target as it renders, its
+    words those after `|`, else the app's title, else the target: a page renamed shows its new title without a new
+    parse. A press is a link's (`on_link_select`, `on_link_activate`, else the router for `/slug`); no kind of its own
+    is told, the target is the link's destination.
+  - *A tag is `<tag>changed later</tag>`*, read as `<kbd>` is, a new inline `MarkdownInline::Tag`, drawn in a
+    secondary badge's box (`ThemeMarkdown::tag` for its type). The range before it is marked with `highlights`, as
+    a diff view marks it now. Its words are the document's, as a key's are: a highlight's fill is not drawn over
+    presentation spans, so a tag that is not words would draw no box.
+  - *`RichTextEditor::link_trigger(LinkTrigger::new("[[", offers))`*, any number of triggers of any length, each with
+    its `LinkOffer`s (a list narrowed by what is typed, contains and case-insensitive, or a function of it; 8 at most).
+    A trigger that starts with a letter or digit (`KON-`) starts a word; one that starts with a mark (`[[`) works
+    anywhere. What is typed after it has no space unless the trigger says `.spaces(true)`, is 64 characters at most
+    and is in the caret's paragraph. Where two overlap, the one that starts first wins. None opens in code, in a
+    link, in an editor read only or disabled, or without the focus. The list hangs from the trigger's start, as
+    `Mentions`' does, in parts of the editor's own (`offer_panel`, `offer`, …) copied from `Mentions`' recipe, 280
+    wide for a line of description. Its keys (arrows, Enter, Tab, Escape) go before the editor's only while it has
+    an offer to choose; Escape keeps that trigger closed. A choice puts the link with no space after it.
+  - *The editor remembers a wiki link in the span's style*, `SpanStyle::wiki: Option<WikiLink>` beside `link`:
+    `Titled(title)` where its words are the app's title, `Worded` where the source gave them. It goes with the style
+    through undo, splits and copies; changing or taking off the link clears it. `to_markdown` writes `[[target]]`
+    while the words are still the title and nothing else marks them, else `[[target|words]]`, and `[words](target)`
+    for a target the wiki form cannot hold. A new pub field: code that builds `SpanStyle { .. }` without
+    `..Default::default()` breaks (none in the repository does).
+  - *Wiki links in the editor are asked for*: `RichText::from_markdown_with_wiki_links(source, title)` loads them,
+    `RichTextEditor::wiki_links(title)` reads them in what is pasted; `RichText::from_markdown` reads `[[x]]` as text.
+    The editor does not title a loaded document again: the app loads it with the same resolver.
+  - *Not done*: `[[/slug]]` typed by hand stays text until a trigger or a paste makes it a link; the system clipboard
+    has the Markdown of a wiki link only where the selection has other marks too; the app is not told which offer
+    was chosen beside `on_change`.
+- **State.** Built on `feat/issue-258`.
+
 ## 2026-11-24
 
 ### Motion a recipe could not make

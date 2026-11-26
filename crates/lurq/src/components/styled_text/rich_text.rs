@@ -3,12 +3,12 @@
 use std::sync::Arc;
 
 use super::{
-  InlineObject, OBJECT_CHARACTER, ParagraphKind, SpanStyle, StyledSpan, StyledText, normalize, normalize_kinds,
-  normalize_objects, paragraph_ranges, slice_objects, text_with_labels,
+  InlineObject, OBJECT_CHARACTER, ParagraphKind, SpanStyle, StyledSpan, StyledText, WikiLink, normalize,
+  normalize_kinds, normalize_objects, paragraph_ranges, slice_objects, text_with_labels,
 };
 use crate::{
   app::component::{DevtoolsFormatter, DevtoolsInspectable},
-  markdown::{MarkdownBlock, MarkdownHeadingLevel, MarkdownInline, parse_markdown},
+  markdown::{MarkdownBlock, MarkdownHeadingLevel, MarkdownInline, MarkdownOptions, parse_markdown_with},
 };
 
 /// Formatted text: what a styled input with paragraphs holds in its
@@ -138,11 +138,42 @@ impl RichText {
   /// ([`InlineObject`]) where it stands, alone in its paragraph or among
   /// words; a table, a rule and other raw HTML are left out.
   pub fn from_markdown(source: &str) -> Self {
-    let mut reader = Reader::default();
-    for block in &parse_markdown(source).blocks {
+    Self::read(source, None)
+  }
+
+  /// The document a Markdown source says, as [`Self::from_markdown`] reads it, with wiki links: `[[target]]` and
+  /// `[[target|words]]` are links to `target` ([`WikiLink`]), which [`Self::to_markdown`] writes back as they were
+  /// written. One with no words shows the title `title` gives its target, else the target itself.
+  ///
+  /// ```
+  /// use lurq::components::RichText;
+  ///
+  /// let page = RichText::from_markdown_with_wiki_links("Read [[/onboarding]] first.", |target| {
+  ///   (target == "/onboarding").then(|| "Onboarding".to_string())
+  /// });
+  /// assert_eq!(page.text, "Read Onboarding first.");
+  /// assert_eq!(page.spans[0].style.link.as_deref(), Some("/onboarding"));
+  /// assert_eq!(page.to_markdown(), "Read [[/onboarding]] first.");
+  /// ```
+  pub fn from_markdown_with_wiki_links(source: &str, title: impl Fn(&str) -> Option<String>) -> Self {
+    Self::read(source, Some(&title))
+  }
+
+  fn read(source: &str, wiki_title: Option<&dyn Fn(&str) -> Option<String>>) -> Self {
+    let options = MarkdownOptions::new().wiki_links(wiki_title.is_some());
+    let mut reader = Reader {
+      wiki_title,
+      ..Reader::default()
+    };
+    for block in &parse_markdown_with(source, options).blocks {
       reader.block(block, ParagraphKind::Body);
     }
     reader.finish()
+  }
+
+  /// Whether a wiki link ([`WikiLink`]) is anywhere in the text.
+  pub fn has_wiki_links(&self) -> bool {
+    self.spans.iter().any(|span| span.style.wiki.is_some())
   }
 
   /// Whether a text reads as Markdown: one of its lines starts a heading (`# ` to `###### `), an item of a list
@@ -264,7 +295,9 @@ impl RichText {
 
 /// Builds a document from the blocks of a parsed Markdown source.
 #[derive(Default)]
-struct Reader {
+struct Reader<'a> {
+  /// The title of a wiki link's target, where wiki links are read.
+  wiki_title: Option<&'a dyn Fn(&str) -> Option<String>>,
   text: String,
   spans: Vec<StyledSpan>,
   kinds: Vec<ParagraphKind>,
@@ -273,7 +306,7 @@ struct Reader {
   open: bool,
 }
 
-impl Reader {
+impl Reader<'_> {
   /// Starts a paragraph of `kind`.
   fn start(&mut self, kind: ParagraphKind) {
     if !self.kinds.is_empty() {
@@ -432,6 +465,22 @@ impl Reader {
         MarkdownInline::Link {
           destination, children, ..
         } => self.inlines(children, &style.clone().link(destination.as_str())),
+        MarkdownInline::WikiLink { target, words } if words.is_empty() => {
+          // An empty title would leave the link with nothing to show.
+          let title = self
+            .wiki_title
+            .and_then(|title| title(target))
+            .map(|title| title.replace(['\n', '\r'], " "))
+            .filter(|title| !title.trim().is_empty())
+            .unwrap_or_else(|| target.clone());
+          let titled = style
+            .clone()
+            .wiki_link(target.as_str(), WikiLink::Titled(Arc::from(title.as_str())));
+          self.push(&title, &titled);
+        }
+        MarkdownInline::WikiLink { target, words } => {
+          self.inlines(words, &style.clone().wiki_link(target.as_str(), WikiLink::Worded));
+        }
         MarkdownInline::Image { destination, alt, .. } => {
           let image = Image {
             source: destination.clone(),
@@ -454,6 +503,8 @@ impl Reader {
         MarkdownInline::SoftBreak => self.push(" ", &style),
         MarkdownInline::HardBreak => self.push("\n", &style),
         MarkdownInline::TaskListMarker(checked) => self.push(if *checked { "[x] " } else { "[ ] " }, &style),
+        // A tag is shown beside a range, and is no word of the document.
+        MarkdownInline::Tag(_) => {}
       }
     }
   }
@@ -547,9 +598,14 @@ fn plain_inlines(inlines: &[MarkdownInline]) -> String {
         | MarkdownInline::Strong(children)
         | MarkdownInline::Strikethrough(children)
         | MarkdownInline::Link { children, .. } => walk(out, children),
+        MarkdownInline::WikiLink { target, words } if words.is_empty() => out.push_str(target),
+        MarkdownInline::WikiLink { words, .. } => walk(out, words),
         MarkdownInline::Image { alt, .. } => walk(out, alt),
         MarkdownInline::SoftBreak | MarkdownInline::HardBreak => out.push(' '),
-        MarkdownInline::Html(_) | MarkdownInline::FootnoteReference(_) | MarkdownInline::TaskListMarker(_) => {}
+        MarkdownInline::Html(_)
+        | MarkdownInline::FootnoteReference(_)
+        | MarkdownInline::TaskListMarker(_)
+        | MarkdownInline::Tag(_) => {}
       }
     }
   }
@@ -635,6 +691,8 @@ fn reads_as_entity(text: &str) -> bool {
 #[derive(Clone, PartialEq)]
 enum Mark {
   Link(Arc<str>),
+  /// A wiki link: its target, and how its words came to it.
+  Wiki(Arc<str>, WikiLink),
   Bold,
   Italic,
   Strikethrough,
@@ -645,8 +703,10 @@ enum Mark {
 impl Mark {
   fn of(style: &SpanStyle) -> Vec<Self> {
     let mut marks = Vec::new();
-    if let Some(target) = &style.link {
-      marks.push(Self::Link(target.clone()));
+    match (&style.link, &style.wiki) {
+      (Some(target), Some(wiki)) if wiki_target(target) => marks.push(Self::Wiki(target.clone(), wiki.clone())),
+      (Some(target), _) => marks.push(Self::Link(target.clone())),
+      _ => {}
     }
     for (on, mark) in [
       (style.bold, Self::Bold),
@@ -663,8 +723,14 @@ impl Mark {
   }
 
   fn open(&self, out: &mut String) {
+    if let Self::Wiki(target, _) = self {
+      out.push_str("[[");
+      out.push_str(target);
+      out.push('|');
+      return;
+    }
     out.push_str(match self {
-      Self::Link(_) => "[",
+      Self::Wiki(..) | Self::Link(_) => "[",
       Self::Bold => "**",
       Self::Italic => "*",
       Self::Strikethrough => "~~",
@@ -680,10 +746,17 @@ impl Mark {
         out.push_str(target);
         out.push(')');
       }
+      Self::Wiki(..) => out.push_str("]]"),
       Self::Underline => out.push_str("</u>"),
       mark => mark.open(out),
     }
   }
+}
+
+/// Whether a link to `target` can be written as a wiki link: Markdown reads its target as it is written, up to a
+/// `|`, on one line, between the brackets.
+fn wiki_target(target: &str) -> bool {
+  !target.trim().is_empty() && target.trim() == target && !target.contains(['|', '[', ']', '\n', '\r'])
 }
 
 /// Writes a paragraph's text with its marks. A mark opens after the white
@@ -720,6 +793,26 @@ fn write_inline(out: &mut String, text: &StyledText, objects: &[InlineObject], b
       out.push_str(run);
       continue;
     }
+    // A wiki link whose words are still the title it was read with is written as its target alone, the title the
+    // app's to give again.
+    if let [wiki @ Mark::Wiki(target, WikiLink::Titled(title))] = marks.as_slice()
+      && **title == *core
+      && !wiki_goes_on(&runs, index, wiki)
+    {
+      out.push_str(lead);
+      for mark in open.drain(..).rev() {
+        mark.close(out);
+      }
+      if out.ends_with('!') {
+        out.pop();
+        out.push_str("\\!");
+      }
+      out.push_str("[[");
+      out.push_str(target);
+      out.push_str("]]");
+      out.push_str(trail);
+      continue;
+    }
     out.push_str(lead);
     let shared = open.iter().zip(marks).take_while(|(a, b)| a == b).count();
     for mark in open.drain(shared..).rev() {
@@ -727,7 +820,7 @@ fn write_inline(out: &mut String, text: &StyledText, objects: &[InlineObject], b
     }
     for mark in &marks[shared..] {
       // A `!` right before a link would make an image of it.
-      if matches!(mark, Mark::Link(_)) && out.ends_with('!') {
+      if matches!(mark, Mark::Link(_) | Mark::Wiki(..)) && out.ends_with('!') {
         out.pop();
         out.push_str("\\!");
       }
@@ -751,6 +844,22 @@ fn write_inline(out: &mut String, text: &StyledText, objects: &[InlineObject], b
     }
     out.push_str(trail);
   }
+}
+
+/// Whether the wiki link `wiki` of the run at `index` goes on into the run with text before it or after it, with
+/// other marks in some of it.
+fn wiki_goes_on(runs: &[(usize, &str, Vec<Mark>)], index: usize, wiki: &Mark) -> bool {
+  let carries = |(_, run, marks): &&(usize, &str, Vec<Mark>)| !run.trim().is_empty() && marks.first() == Some(wiki);
+  let with_text = |(_, run, _): &&(usize, &str, Vec<Mark>)| !run.trim().is_empty();
+  runs[..index]
+    .iter()
+    .rev()
+    .find(with_text)
+    .is_some_and(|run| carries(&run))
+    || runs[index + 1..]
+      .iter()
+      .find(with_text)
+      .is_some_and(|run| carries(&run))
 }
 
 /// Writes `text` with what the source would read as markup escaped; at the
@@ -794,3 +903,7 @@ mod tests;
 #[cfg(test)]
 #[path = "../../../tests/input/text_input/rich_text_objects.rs"]
 mod object_tests;
+
+#[cfg(test)]
+#[path = "../../../tests/input/text_input/rich_text_wiki_links.rs"]
+mod wiki_link_tests;

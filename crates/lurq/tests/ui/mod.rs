@@ -146,6 +146,8 @@ mod reopened_layers;
 mod rows_and_forms;
 #[cfg(feature = "markdown")]
 mod rich_text_editor;
+#[cfg(feature = "markdown")]
+mod rich_text_editor_links;
 #[cfg(feature = "canvas")]
 mod scatter_chart;
 mod scroll_area;

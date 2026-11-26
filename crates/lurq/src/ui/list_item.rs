@@ -175,6 +175,7 @@ pub struct ListItem {
   value: Option<Arc<str>>,
   meta: Option<Arc<str>>,
   trailing: Option<Element>,
+  trailing_at_top: bool,
   shortcut: Option<Arc<str>>,
   chevron: bool,
   /// Whether what the row opens is open, where it is the header of something that opens under it.
@@ -211,6 +212,7 @@ impl ListItem {
       value: None,
       meta: None,
       trailing: None,
+      trailing_at_top: false,
       shortcut: None,
       chevron: false,
       expands: None,
@@ -338,6 +340,14 @@ impl ListItem {
   /// What stands at the end, after the value: a [`Switch`](super::Switch), a [`Badge`](super::Badge), a button.
   pub fn trailing(mut self, element: impl Into<Element>) -> Self {
     self.trailing = Some(element.into());
+    self
+  }
+
+  /// Whether what stands after the text stands at the top of the row, by the title, in place of the middle of the
+  /// whole row: a row that grows under its title (chips, a block it opens) keeps its controls by its title. What is
+  /// before the text, an icon, stands at the top with it.
+  pub fn trailing_at_top(mut self, at_top: bool) -> Self {
+    self.trailing_at_top = at_top;
     self
   }
 
@@ -549,6 +559,7 @@ impl ListItem {
       },
       lead: self.lead,
       trailing: self.trailing,
+      trailing_at_top: self.trailing_at_top,
       forced: self.forced,
       press,
       aside: self.on_open_aside,
@@ -633,6 +644,8 @@ pub struct ListItemView {
   toggle: Option<(&'static str, bool)>,
   lead: Option<Lead>,
   trailing: Option<Element>,
+  /// Whether what stands after the text stands at the top of the row, on the title's line.
+  pub trailing_at_top: bool,
   forced: Option<Interaction>,
   press: Option<Press>,
   /// What a press that asks for the row beside what is open calls, in place of `press`.
@@ -673,9 +686,15 @@ impl ListItemView {
   pub fn root(&self, children: Vec<Element>) -> Element {
     let part = self.part(ListItemPart::Root);
     let flag = |on: bool| if on { "true" } else { "false" };
+    // What is before and after the text stands at the top of a row told to, by the title, or in its middle.
+    let across = if self.trailing_at_top {
+      Alignment::Start
+    } else {
+      Alignment::Center
+    };
     let Some(press) = self.press.clone() else {
       let mut row = Row::new()
-        .align_items(Alignment::Center)
+        .align_items(across)
         .describe("a11y_role", "listitem")
         .describe("a11y_name", self.title.clone())
         .part(&part);
@@ -707,7 +726,7 @@ impl ListItemView {
     // Ahead of the press, which a press that asks for the row aside does not reach.
     let mut row = opens_aside(tab_stop(pressable(&part, self.disabled), self.tab_stop), &self.aside)
       .justify(Justify::Start)
-      .align_items(Alignment::Center)
+      .align_items(across)
       // What the app put at the row's end is a stop of Tab of its own, after the row.
       .stops_inside(true)
       .describe("a11y_role", role)

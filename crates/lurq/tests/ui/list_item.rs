@@ -605,7 +605,10 @@ fn a_row_shows_bones_where_its_title_and_description_are_still_read_and_moves_no
       )
       .item(ListItem::new("Sync").description_pending(!done).id("sync"))
   });
-  assert!(!stage.paints("Backups") && !stage.paints("Every night at 2:00"), "no words while they are read");
+  assert!(
+    !stage.paints("Backups") && !stage.paints("Every night at 2:00"),
+    "no words while they are read"
+  );
   let shapes = bones(&stage);
   assert_eq!(shapes.len(), 3, "a bone for each word still read");
   let ids = stage.ids();
@@ -624,7 +627,10 @@ fn a_row_shows_bones_where_its_title_and_description_are_still_read_and_moves_no
   let (_, _, width, height) = stage.bounds("backups-description_skeleton");
   assert_eq!((width, height), (220.0, 10.0), "the recipe's description bone");
   let pending = (stage.bounds("backups"), stage.bounds("sync"));
-  assert!(pending.1.3 >= 52.0, "a row whose description is read is drawn as two lines");
+  assert!(
+    pending.1.3 >= 52.0,
+    "a row whose description is read is drawn as two lines"
+  );
   #[cfg(feature = "mcp")]
   {
     let mut said = |id: &str, name: &str| {
@@ -634,12 +640,23 @@ fn a_row_shows_bones_where_its_title_and_description_are_still_read_and_moves_no
         .and_then(|element| element.description(name))
     };
     assert_eq!(said("backups", "a11y_busy").as_deref(), Some("true"));
-    assert_eq!(said("backups", "a11y_name").as_deref(), Some("Backups"), "still called by its title");
-    assert_eq!(said("backups", "a11y_description"), None, "no description told while it is read");
+    assert_eq!(
+      said("backups", "a11y_name").as_deref(),
+      Some("Backups"),
+      "still called by its title"
+    );
+    assert_eq!(
+      said("backups", "a11y_description"),
+      None,
+      "no description told while it is read"
+    );
   }
   read.set(true);
   stage.pass();
-  assert!(stage.paints("Backups") && stage.paints("Every night at 2:00"), "the words in their place");
+  assert!(
+    stage.paints("Backups") && stage.paints("Every night at 2:00"),
+    "the words in their place"
+  );
   assert!(bones(&stage).is_empty());
   assert_eq!(stage.bounds("backups"), pending.0, "the row did not move or grow");
 }
@@ -658,9 +675,15 @@ fn a_row_that_says_something_below_is_held_with_it_in_the_item_part() {
   });
   let ids = stage.ids();
   assert!(ids.contains(&"cert-item".to_owned()), "{ids:?}");
-  assert!(!ids.contains(&"plain-item".to_owned()), "a row with nothing below is the whole item: {ids:?}");
+  assert!(
+    !ids.contains(&"plain-item".to_owned()),
+    "a row with nothing below is the whole item: {ids:?}"
+  );
   let (item, row, problem) = (stage.bounds("cert-item"), stage.bounds("cert"), stage.bounds("problem"));
-  assert!(item.1 <= row.1 && item.1 + item.3 >= problem.1 + problem.3, "the item holds the row and what is below");
+  assert!(
+    item.1 <= row.1 && item.1 + item.3 >= problem.1 + problem.3,
+    "the item holds the row and what is below"
+  );
   stage.key("Tab");
   assert_eq!(
     stage
@@ -719,4 +742,30 @@ fn a_cut_title_is_said_whole_in_a_tooltip_while_it_is_cut() {
   stage.tick_timers(std::time::Duration::from_secs(4));
   stage.pass();
   assert!(whole(&stage, TITLE), "its tooltip says it whole");
+}
+
+#[test]
+fn what_is_at_the_end_stands_at_the_top_of_a_row_that_grows_under_its_title_where_told() {
+  let row = |at_top: bool, id: &'static str| {
+    ListItem::new("GITHUB_TOKEN")
+      .id(id)
+      .description("Set 3 days ago")
+      .detail(Column::new().height(80.0))
+      .trailing_at_top(at_top)
+      .trailing(Text::new("Replace").id(if at_top { "top-end" } else { "middle-end" }))
+  };
+  let mut stage = stage_of(move || List::new().item(row(true, "top")).item(row(false, "middle")));
+  let (_, top_y, _, top_height) = stage.bounds("top");
+  let (_, end_y, _, end_height) = stage.bounds("top-end");
+  let (_, middle_y, _, middle_height) = stage.bounds("middle");
+  let (_, centred_y, _, centred_height) = stage.bounds("middle-end");
+  // Centred on its row by default; at the top of the row where told, by the title.
+  assert!(
+    ((centred_y + centred_height / 2.0) - (middle_y + middle_height / 2.0)).abs() < 1.0,
+    "centred: {centred_y} in {middle_y} {middle_height}"
+  );
+  assert!(
+    end_y < top_y + top_height / 2.0 - end_height,
+    "at the top: {end_y} in {top_y} {top_height}"
+  );
 }

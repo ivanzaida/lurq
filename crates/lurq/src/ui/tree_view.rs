@@ -11,7 +11,10 @@ use std::{
 };
 
 use super::{
-  icons, names,
+  context_menu::ContextMenu,
+  icons,
+  menu::MenuItem,
+  names,
   opening_rows::{Moving, OpeningRows, RowMotion},
   part_style::Length,
   recipe::{Case, Interaction, Name, Recipe, ResolvedPart, ResolvedRecipe},
@@ -24,18 +27,21 @@ use crate::{
   app::{
     component::Component,
     ctx::Ctx,
-    events::{EditEvent, KeyboardEvent, MouseButton, MouseEvent},
+    events::{DragEvent, EditEvent, KeyboardEvent, MouseButton, MouseButtonMask, MouseEvent},
     runtime::{DOUBLE_CLICK_DISTANCE, DOUBLE_CLICK_INTERVAL},
     theme::{BorderSize, Density, IconSize, OpacityLevel, PaletteColor, RadiusSize, Theme, TypographyStyle},
   },
   components::{self, Column, Row, TextOverflow, VirtualizedList},
-  core::{Signal, SignalValue},
+  core::{ElementRef, Signal, SignalValue},
   layout::{
     Alignment,
     layout_kind::{Justify, ScrollState},
     text_style::FontWeight,
   },
-  node::{CursorIcon, Element, FocusGroup, FocusRows, FocusStep, SpacingValue, dimension::Dimension, outline::Outline},
+  node::{
+    CursorIcon, Element, FocusGroup, FocusRows, FocusStep, NodeUpdate, SpacingValue, dimension::Dimension,
+    outline::Outline,
+  },
   // The engine's clock: the standard one is not there in a browser.
   time::Instant,
 };
@@ -70,6 +76,8 @@ pub enum TreeViewPart {
   Panel,
   /// The rows in a row's panel: they fade in as it opens and out as it closes.
   Body,
+  /// The line before or after the row a dragged row would go before or after, from the row's chevron to its end.
+  DropLine,
 }
 
 names!(TreeViewPart {
@@ -85,6 +93,7 @@ names!(TreeViewPart {
   Reveal => "reveal",
   Panel => "panel",
   Body => "body",
+  DropLine => "drop_line",
 });
 
 /// The states of a row of a tree view a recipe styles, besides what the
@@ -97,13 +106,28 @@ pub enum TreeViewState {
   Open,
   /// The row takes no input.
   Disabled,
+  /// A dragged row would go into this one, let go now.
+  DropTarget,
+  /// The row is being dragged.
+  Dragged,
 }
 
 names!(TreeViewState {
   Selected => "selected",
   Open => "open",
   Disabled => "disabled",
+  DropTarget => "drop_target",
+  Dragged => "dragged",
 });
+
+/// Where a dragged row goes, by the row it is let go over: before it, into it (the last of what it holds), or after
+/// it, at its level.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum DropPosition {
+  Before,
+  Inside,
+  After,
+}
 
 /// What builds a tree view's nodes: a theme's in place of the default one.
 pub type TreeViewRenderer = Arc<dyn Fn(TreeViewView) -> Element + Send + Sync>;
@@ -125,6 +149,7 @@ pub struct TreeItem<T> {
   // Read by what else shows a hierarchy of these: a tree select's panel, a column view's columns.
   pub(crate) value: T,
   pub(crate) label: Arc<str>,
+  pub(crate) label_content: Option<Element>,
   pub(crate) icon: Option<Name>,
   pub(crate) open_icon: Option<Name>,
   pub(crate) trailing: Option<Element>,
@@ -142,6 +167,7 @@ impl<T> TreeItem<T> {
     Self {
       value,
       label: Arc::from(label),
+      label_content: None,
       icon: None,
       open_icon: None,
       trailing: None,
@@ -177,6 +203,15 @@ impl<T> TreeItem<T> {
   /// icon open and closed.
   pub fn open_icon(mut self, icon: impl Into<IconChoice>) -> Self {
     self.open_icon = icon.into().0;
+    self
+  }
+
+  /// An element in the label's place and width, in place of its text: a field that names the row in place, for a
+  /// new page or *Rename*. The label's text stays the row's name to what reads the tree and to typeahead. What it
+  /// holds is in no focus group of the tree's: the arrows and the letters typed in a field there are the field's, and
+  /// an Enter it takes does not activate the row.
+  pub fn label_content(mut self, element: impl Into<Element>) -> Self {
+    self.label_content = Some(element.into());
     self
   }
 
@@ -273,6 +308,9 @@ impl<T: 'static> RowSelection<T> for ManySelected {
 
 type Told<T> = Arc<dyn Fn(&T) + Send + Sync>;
 type ToldOpen<T> = Arc<dyn Fn(&T, bool) + Send + Sync>;
+type RowMenuItems<T> = Arc<dyn Fn(&T) -> Vec<MenuItem> + Send + Sync>;
+type ToldMove<T> = Arc<dyn Fn(&T, &T, DropPosition) + Send + Sync>;
+type AskMove<T> = Arc<dyn Fn(&T, &T, DropPosition) -> bool + Send + Sync>;
 
 /// Things inside things, one level under the other: the files of a
 /// project in their folders, the layers of a scene, the settings of an app
@@ -342,6 +380,9 @@ pub struct TreeView<T: 'static, M: RowSelection<T> = OneSelected> {
   on_change: Vec<Arc<dyn Fn(&M::Value) + Send + Sync>>,
   on_activate: Vec<Told<T>>,
   on_open_change: Vec<ToldOpen<T>>,
+  context_menu: Option<RowMenuItems<T>>,
+  on_move: Vec<ToldMove<T>>,
+  can_move: Vec<AskMove<T>>,
   states: Vec<Name>,
   rules: Recipe,
   forced: Option<Interaction>,
@@ -426,6 +467,9 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, M: RowSelection<T>> TreeView<
       on_change: Vec::new(),
       on_activate: Vec::new(),
       on_open_change: Vec::new(),
+      context_menu: None,
+      on_move: Vec::new(),
+      can_move: Vec::new(),
       states: Vec::new(),
       rules: Recipe::new(),
       forced: None,
@@ -518,6 +562,34 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, M: RowSelection<T>> TreeView<
     self
   }
 
+  /// The commands of a row's context menu, for its value, which a press of the row with the secondary button, a
+  /// long press, the Menu key and Shift+F10 open: the ones the row's ⋯ button opens, Rename, Move, Archive. A row
+  /// that is disabled has none. Two trees with menus in one window are told apart by their [`id`](Self::id).
+  pub fn context_menu(mut self, items: impl Fn(&T) -> Vec<MenuItem> + Send + Sync + 'static) -> Self {
+    self.context_menu = Some(Arc::new(items));
+    self
+  }
+
+  /// Called with a row dragged and let go over another, that one, and where it goes by it: before it, into it or
+  /// after it. Once this is given a row is dragged by a press that moves past 4 pixels; while it is, a line before or
+  /// after the row under the pointer, or that row marked, shows where it would go. The app moves it: the tree shows
+  /// what the app then gives. A row is never let go into itself or what it holds, nor where
+  /// [`can_move`](Self::can_move) says no. Two trees that are dragged in one window are told apart by their
+  /// [`id`](Self::id).
+  pub fn on_move(mut self, handler: impl Fn(&T, &T, DropPosition) + Send + Sync + 'static) -> Self {
+    self.on_move.push(Arc::new(handler));
+    self
+  }
+
+  /// Asked, while a row is dragged, whether it may go there: the row dragged, the row under the pointer, and where by
+  /// it. A place it may not go is not shown and nothing is moved there; where *inside* may not, the tree asks for
+  /// before or after, by the half of the row the pointer is in. Into an archived folder, a file into a file. Each
+  /// one given must say yes.
+  pub fn can_move(mut self, ask: impl Fn(&T, &T, DropPosition) -> bool + Send + Sync + 'static) -> Self {
+    self.can_move.push(Arc::new(ask));
+    self
+  }
+
   /// Puts every row in a state the theme's recipe names, or takes it out.
   pub fn state(mut self, state: impl Into<Name>, on: bool) -> Self {
     let state = state.into();
@@ -593,17 +665,19 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, M: RowSelection<T>> TreeView<
         Some(&self.rules),
       )
       .owned_by(self.id.as_ref());
-    // A row is in one of eight cases: each is resolved once, however many rows there are.
-    let mut recipes: HashMap<(bool, bool, bool), ResolvedRecipe> = HashMap::new();
-    let mut recipe = |selected: bool, open: bool, disabled: bool| {
+    // A row is in one of a few cases: each is resolved once, however many rows there are.
+    let mut recipes: HashMap<(bool, bool, bool, bool, bool), ResolvedRecipe> = HashMap::new();
+    let mut recipe = |selected: bool, open: bool, disabled: bool, target: bool, dragged: bool| {
       recipes
-        .entry((selected, open, disabled))
+        .entry((selected, open, disabled, target, dragged))
         .or_insert_with(|| {
           let case = base
             .clone()
             .state(TreeViewState::Selected, selected)
             .state(TreeViewState::Open, open)
-            .state(TreeViewState::Disabled, disabled);
+            .state(TreeViewState::Disabled, disabled)
+            .state(TreeViewState::DropTarget, target)
+            .state(TreeViewState::Dragged, dragged);
           theme.resolve::<TreeView<T>>(&case, Some(&self.rules)).owned_like(&root)
         })
         .clone()
@@ -655,6 +729,26 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, M: RowSelection<T>> TreeView<
     // the first row that is not disabled.
     let forced_at = entry.or_else(|| flat.iter().position(|row| !row.disabled && !row.kept));
 
+    // What a tree with menus or a drag keeps from one build to the next, and the drag drawn now.
+    let moves = !self.on_move.is_empty() && !self.disabled;
+    let kept = (moves || self.context_menu.is_some()).then(|| tree_kept(self.id.as_ref().or(self.key.as_ref())));
+    let paths: Vec<Arc<str>> = flat.iter().map(|row| Arc::from(row.key.as_str())).collect();
+    let drawn = kept.as_ref().and_then(|kept| kept.drawn(&paths));
+    let mover = (moves).then(|| kept.clone()).flatten().map(|kept| {
+      Arc::new(Mover {
+        values: flat.iter().map(|row| row.value.clone()).collect(),
+        paths: paths.clone(),
+        levels: flat.iter().map(|row| row.level).collect(),
+        reached: flat.iter().map(|row| !row.disabled && !row.kept).collect(),
+        can_move: self.can_move.clone(),
+        on_move: self.on_move.clone(),
+        kept,
+      })
+    });
+    if let Some(kept) = &kept {
+      kept.keep_only(&paths);
+    }
+
     let keys = flat.iter().map(|row| row.key.clone()).collect();
     let under = flat
       .iter_mut()
@@ -669,7 +763,25 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, M: RowSelection<T>> TreeView<
       .enumerate()
       .map(|(index, row)| {
         let selected = self.selected.contains(&row.value);
-        let path: Arc<str> = row.key.into();
+        let path = paths[index].clone();
+        let reached = !row.disabled && !row.kept;
+        let drop = drawn.as_ref().and_then(|drawn| drawn.over(index));
+        let dragged = drawn.as_ref().is_some_and(|drawn| drawn.from == index);
+        let menu = match (&kept, &self.context_menu) {
+          (Some(kept), Some(items)) if reached => {
+            let (items, value) = (items.clone(), row.value.clone());
+            Some(RowMenu {
+              open: kept.menu(&path),
+              items: Arc::new(move || items(&value)),
+            })
+          }
+          _ => None,
+        };
+        let drag = mover.as_ref().filter(|_| reached).map(|mover| RowDrag {
+          mover: mover.clone() as Arc<dyn Moves>,
+          index,
+        });
+        let place = kept.as_ref().map(|kept| kept.row(&path));
         let toggle = (row.opens && !row.disabled && !row.kept)
           .then(|| self.toggle.clone())
           .flatten()
@@ -715,6 +827,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, M: RowSelection<T>> TreeView<
         });
         TreeRow {
           label: row.label,
+          label_content: row.label_content,
           level: row.level,
           opens: row.opens,
           open: row.open,
@@ -733,10 +846,21 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, M: RowSelection<T>> TreeView<
           multiple,
           press_toggles: self.press_toggles,
           autofocus: self.autofocus && forced_at == Some(index),
-          recipe: recipe(selected, row.open, row.disabled),
+          recipe: recipe(
+            selected,
+            row.open,
+            row.disabled,
+            drop == Some(DropPosition::Inside),
+            dragged,
+          ),
           forced: self.forced.filter(|_| forced_at == Some(index)),
           toggle,
           actions,
+          menu,
+          drag,
+          drop,
+          dragged,
+          place,
           row: None,
           path,
           id: row.id,
@@ -774,6 +898,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static, M: RowSelection<T>> From<Tree
 struct Flat<T> {
   value: T,
   label: Arc<str>,
+  label_content: Option<Element>,
   icon: Option<Name>,
   open_icon: Option<Name>,
   trailing: Option<Element>,
@@ -825,6 +950,7 @@ fn flatten<T: Clone + PartialEq>(
       loading: is_open && item.lazy && item.items.is_empty(),
       value: item.value.clone(),
       label: item.label.clone(),
+      label_content: item.label_content.clone(),
       icon: item.icon,
       open_icon: item.open_icon,
       trailing: item.trailing.clone(),
@@ -915,6 +1041,258 @@ impl<T: Clone + PartialEq> Model<T> {
       handler(self.selection.id(index));
     }
   }
+}
+
+/// How far a press moves before it drags the row, in pixels: less is a press.
+const DRAG_START: f32 = 4.0;
+
+/// A drag of a row, from the press to the release, by the keys of the rows.
+#[derive(Clone)]
+struct TreeDrag {
+  from: Arc<str>,
+  begun: bool,
+  over: Option<(Arc<str>, DropPosition)>,
+}
+
+/// The drag drawn in one build, by the indexes of its rows.
+struct Drawn {
+  from: usize,
+  over: Option<(usize, DropPosition)>,
+}
+
+impl Drawn {
+  /// Where a row dragged would go by the row at `index`, if it is the one under the pointer.
+  fn over(&self, index: usize) -> Option<DropPosition> {
+    self.over.filter(|(at, _)| *at == index).map(|(_, position)| position)
+  }
+}
+
+/// What a tree with menus or a drag keeps from one build to the next, as it is built anew by what holds it: the
+/// signal of each row's menu and the ref of each row, by the row's key, and the drag under way.
+struct TreeKept {
+  rows: Mutex<KeptRows>,
+  /// Moved on as what a drag draws changes, which renders the tree again.
+  revision: Signal<u64>,
+}
+
+#[derive(Default)]
+struct KeptRows {
+  menus: HashMap<Arc<str>, Signal<bool>>,
+  refs: HashMap<Arc<str>, ElementRef>,
+  drag: Option<TreeDrag>,
+}
+
+thread_local! {
+  /// The trees that keep something, by their id or key: of the thread that builds the window's elements, so that two
+  /// apps on two threads (two tests) never share one. What each keeps is only of the rows it showed last.
+  static TREES: std::cell::RefCell<HashMap<Arc<str>, Arc<TreeKept>>> = std::cell::RefCell::default();
+}
+
+/// What the tree named `name` keeps: what it kept at its last build, or a new one.
+fn tree_kept(name: Option<&Arc<str>>) -> Arc<TreeKept> {
+  let name = name.cloned().unwrap_or_else(|| Arc::from(""));
+  TREES.with(|all| {
+    all
+      .borrow_mut()
+      .entry(name)
+      .or_insert_with(|| {
+        Arc::new(TreeKept {
+          rows: Mutex::default(),
+          revision: Signal::new(0),
+        })
+      })
+      .clone()
+  })
+}
+
+impl TreeKept {
+  /// The signal of the menu of the row `path`, the same from one build to the next.
+  fn menu(&self, path: &Arc<str>) -> Signal<bool> {
+    let mut rows = self.rows.lock().unwrap();
+    rows
+      .menus
+      .entry(path.clone())
+      .or_insert_with(|| Signal::new(false))
+      .clone()
+  }
+
+  /// The ref of the row `path`, the same from one build to the next.
+  fn row(&self, path: &Arc<str>) -> ElementRef {
+    let mut rows = self.rows.lock().unwrap();
+    rows.refs.entry(path.clone()).or_default().clone()
+  }
+
+  /// Lets go of what rows no longer shown kept.
+  fn keep_only(&self, paths: &[Arc<str>]) {
+    let shown: std::collections::HashSet<&Arc<str>> = paths.iter().collect();
+    let mut rows = self.rows.lock().unwrap();
+    rows.menus.retain(|path, _| shown.contains(path));
+    rows.refs.retain(|path, _| shown.contains(path));
+  }
+
+  /// The drag to draw over the rows `paths`, read so that the tree is drawn again as it moves.
+  fn drawn(&self, paths: &[Arc<str>]) -> Option<Drawn> {
+    let _ = self.revision.get();
+    let rows = self.rows.lock().unwrap();
+    let drag = rows.drag.as_ref().filter(|drag| drag.begun)?;
+    let at = |path: &Arc<str>| paths.iter().position(|shown| shown == path);
+    Some(Drawn {
+      from: at(&drag.from)?,
+      over: drag
+        .over
+        .as_ref()
+        .and_then(|(path, position)| Some((at(path)?, *position))),
+    })
+  }
+
+  fn moved_on(&self) {
+    self.revision.update(|revision| *revision = revision.wrapping_add(1));
+  }
+}
+
+/// What starts, follows and ends a drag of a row, with the type of the tree's values out of sight.
+trait Moves: Send + Sync {
+  fn start(&self, index: usize);
+  fn follow(&self, index: usize, event: &DragEvent);
+  fn end(&self);
+}
+
+/// The rows of one build as a drag reads them, and what it asks and tells.
+struct Mover<T> {
+  values: Vec<T>,
+  paths: Vec<Arc<str>>,
+  levels: Vec<u32>,
+  /// Whether each row takes input: one that does not is no place to go.
+  reached: Vec<bool>,
+  can_move: Vec<AskMove<T>>,
+  on_move: Vec<ToldMove<T>>,
+  kept: Arc<TreeKept>,
+}
+
+impl<T> Mover<T> {
+  /// Whether the row `inner` is the row `outer` or under it.
+  fn holds(&self, outer: usize, inner: usize) -> bool {
+    inner == outer
+      || (inner > outer
+        && self.levels[outer + 1..=inner]
+          .iter()
+          .all(|level| *level > self.levels[outer]))
+  }
+
+  /// Whether the row `from` may go by the row `to`, where `position` says.
+  fn allowed(&self, from: usize, to: usize, position: DropPosition) -> bool {
+    self
+      .can_move
+      .iter()
+      .all(|ask| ask(&self.values[from], &self.values[to], position))
+  }
+
+  /// Where the row `from` would go, let go at the point `(x, y)` of the window: the row under it and where by it,
+  /// by the quarter of the row the point is in; `None` over no row, and where it may not go.
+  fn place(
+    &self,
+    from: usize,
+    (x, y): (f32, f32),
+    refs: &HashMap<Arc<str>, ElementRef>,
+  ) -> Option<(usize, DropPosition)> {
+    let (to, share) = self.paths.iter().enumerate().find_map(|(index, path)| {
+      let shown = refs.get(path).filter(|shown| shown.is_attached())?;
+      let (left, top, width, height) = shown.rect();
+      (height > 0.0 && x >= left && x < left + width && y >= top && y < top + height)
+        .then(|| (index, (y - top) / height))
+    })?;
+    if !self.reached[to] || self.holds(from, to) {
+      return None;
+    }
+    let first = if share < 0.25 {
+      DropPosition::Before
+    } else if share > 0.75 {
+      DropPosition::After
+    } else {
+      DropPosition::Inside
+    };
+    if self.allowed(from, to, first) {
+      return Some((to, first));
+    }
+    let edge = if share < 0.5 {
+      DropPosition::Before
+    } else {
+      DropPosition::After
+    };
+    (first == DropPosition::Inside && self.allowed(from, to, edge)).then_some((to, edge))
+  }
+}
+
+impl<T: Send + Sync> Moves for Mover<T> {
+  fn start(&self, index: usize) {
+    self.kept.rows.lock().unwrap().drag = Some(TreeDrag {
+      from: self.paths[index].clone(),
+      begun: false,
+      over: None,
+    });
+  }
+
+  fn follow(&self, index: usize, event: &DragEvent) {
+    let changed = {
+      let mut rows = self.kept.rows.lock().unwrap();
+      let KeptRows { refs, drag, .. } = &mut *rows;
+      let Some(drag) = drag.as_mut() else {
+        return;
+      };
+      let begins = !drag.begun && event.total_delta_x.hypot(event.total_delta_y) > DRAG_START;
+      if !drag.begun && !begins {
+        return;
+      }
+      drag.begun = true;
+      let over = if event.outside_window {
+        None
+      } else {
+        self
+          .place(index, (event.x, event.y), refs)
+          .map(|(to, position)| (self.paths[to].clone(), position))
+      };
+      let moved = over != drag.over;
+      drag.over = over;
+      begins || moved
+    };
+    if changed {
+      self.kept.moved_on();
+    }
+  }
+
+  fn end(&self) {
+    let Some(drag) = self.kept.rows.lock().unwrap().drag.take() else {
+      return;
+    };
+    if !drag.begun {
+      return;
+    }
+    self.kept.moved_on();
+    let at = |path: &Arc<str>| self.paths.iter().position(|shown| shown == path);
+    let (Some(from), Some((to, position))) = (
+      at(&drag.from),
+      drag.over.and_then(|(path, position)| Some((at(&path)?, position))),
+    ) else {
+      return;
+    };
+    for handler in &self.on_move {
+      handler(&self.values[from], &self.values[to], position);
+    }
+  }
+}
+
+/// A row's context menu: whether it is open, and its items.
+#[derive(Clone)]
+struct RowMenu {
+  open: Signal<bool>,
+  items: Arc<dyn Fn() -> Vec<MenuItem> + Send + Sync>,
+}
+
+/// What drags a row: the rows of its build, and which it is.
+#[derive(Clone)]
+struct RowDrag {
+  mover: Arc<dyn Moves>,
+  index: usize,
 }
 
 thread_local! {
@@ -1060,6 +1438,8 @@ fn nest(rows: &mut std::iter::Peekable<std::vec::IntoIter<TreeRow>>, gap: &Spaci
 #[derive(Clone)]
 pub struct TreeRow {
   pub label: Arc<str>,
+  /// The element in the label's place, where the item gave one: the label's text is then its name alone.
+  pub label_content: Option<Element>,
   /// Its level: 1 at the top, 2 in a row at the top, and so on.
   pub level: u32,
   /// Whether it opens: it has children, or the app brings them.
@@ -1096,6 +1476,14 @@ pub struct TreeRow {
   forced: Option<Interaction>,
   toggle: Option<Arc<dyn Fn(bool) + Send + Sync>>,
   actions: Option<Arc<RowActions>>,
+  /// Where a dragged row would go by this one, while this is the row under the pointer.
+  pub drop: Option<DropPosition>,
+  /// Whether this row is being dragged.
+  pub dragged: bool,
+  menu: Option<RowMenu>,
+  drag: Option<RowDrag>,
+  /// The ref the tree finds the row under a dragged one by.
+  place: Option<ElementRef>,
   /// Which row of the group's rows it is, in a tree in a virtual list.
   row: Option<usize>,
   /// Where it is among the items, from the top, or the key the app gave it: what its panel is known by.
@@ -1189,7 +1577,8 @@ impl TreeRow {
         row = row.on_select_all(move |_: EditEvent| select_all());
       }
       row = row.on_key_down(move |event: KeyboardEvent| {
-        if !event.focus_within || event.composing || event.alt {
+        // A key a field in the label took is the field's.
+        if !event.focus_within || event.composing || event.alt || event.default_prevented() {
           return;
         }
         let command = event.ctrl || event.meta;
@@ -1210,6 +1599,19 @@ impl TreeRow {
         }
       });
     }
+    if let Some(place) = &self.place {
+      row = row.ref_element(place.clone());
+    }
+    if let Some(drag) = self.drag.clone() {
+      let RowDrag { mover, index } = drag;
+      let (start, follow, end) = (mover.clone(), mover.clone(), mover);
+      row.update_node(|node| {
+        NodeUpdate::start_drag_buttons(node, MouseButtonMask::LEFT);
+        NodeUpdate::on_drag_start(node, move |_: DragEvent| start.start(index));
+        NodeUpdate::on_drag_move(node, move |event: DragEvent| follow.follow(index, &event));
+        NodeUpdate::on_drag_end(node, move |_: DragEvent| end.end());
+      });
+    }
     if let Some(id) = &self.id {
       row = row.id(id.clone());
     }
@@ -1217,6 +1619,44 @@ impl TreeRow {
       row = row.key(key.clone());
     }
     row
+  }
+
+  /// The row, `row` as a renderer built it, with its context menu around it where the tree gives rows one: opened by
+  /// the secondary button, a long press, the Menu key and Shift+F10. `row` as it is where it has none.
+  pub fn with_menu(&self, row: Element) -> Element {
+    let Some(menu) = &self.menu else {
+      return row;
+    };
+    // The items are asked for while the menu is open alone.
+    let items = if menu.open.get() { (menu.items)() } else { Vec::new() };
+    ContextMenu::new(menu.open.clone(), row)
+      .label(&self.label)
+      .items(items)
+      .build(self.theme())
+  }
+
+  /// The line before or after the row where a dragged row would go, in the style of its part, to be laid in a stack
+  /// over the top or the bottom of the row's content: `None` where none would go by this row, or it would go into it.
+  pub fn drop_line(&self) -> Option<Element> {
+    let part = self.part(TreeViewPart::DropLine);
+    let theme = self.theme();
+    let px = |length: Option<Length>| match length.and_then(|length| length.resolve(theme)) {
+      Some(Dimension::Px(px)) => px,
+      _ => 0.0,
+    };
+    let thick = px(part.rest().height).max(1.0);
+    let top = match self.drop? {
+      DropPosition::Before => -thick / 2.0,
+      DropPosition::After => px(self.part(TreeViewPart::Row).rest().height) - thick / 2.0,
+      DropPosition::Inside => return None,
+    };
+    Some(
+      Row::new()
+        .pointer_events_none()
+        .part(&part)
+        .absolute(0.0, top, Dimension::Pct(100.0), thick)
+        .into(),
+    )
   }
 
   /// A step of the indent for each level the row is in, each with its guide where the tree draws them:
@@ -1303,6 +1743,16 @@ impl TreeRow {
   /// where the tree is told to.
   pub fn label(&self) -> Column {
     let part = self.part(TreeViewPart::Label);
+    if let Some(content) = &self.label_content {
+      // In no focus group of the tree's: the keys of a field there are the field's.
+      return Column::new()
+        .flex_full(1.0, 1.0, None)
+        .min_width(Dimension::Px(0.0))
+        .justify(Justify::Center)
+        .focus_group(FocusGroup::none())
+        .part(&part)
+        .child(content.clone());
+    }
     let text = part.text(&self.label).nowrap().text_overflow(TextOverflow::Elipsis);
     let text: Element = if self.label_tooltip_when_cut {
       let cut = crate::core::ElementRef::new();
@@ -1365,7 +1815,18 @@ impl TreeRow {
           .child(trailing),
       );
     }
-    row.child(content).into()
+    // The line where a dragged row would go is laid over the content, at its top or its bottom.
+    let content: Element = match self.drop_line() {
+      Some(line) => components::Stack::new()
+        .stack_align(crate::layout::stack_alignment::StackAlignment::TopStart)
+        .flex_full(1.0, 1.0, None)
+        .overflow_visible()
+        .child(content.width(Dimension::Pct(100.0)).height(Dimension::Pct(100.0)))
+        .child(line)
+        .into(),
+      None => content.into(),
+    };
+    self.with_menu(row.child(content).into())
   }
 }
 
@@ -1405,7 +1866,9 @@ impl<T: Send + Sync + 'static, M: RowSelection<T>> Themed for TreeView<T, M> {
   /// row and the room under it.
   fn recipe() -> Recipe {
     use PaletteColor::{Foreground, Highlight, MutedForeground, Ring, StateHover, StatePressed};
-    use TreeViewPart::{Body, Chevron, Content, Guide, Icon, Indent, Label, Panel, Reveal, Root, Row, Trailing};
+    use TreeViewPart::{
+      Body, Chevron, Content, DropLine, Guide, Icon, Indent, Label, Panel, Reveal, Root, Row, Trailing,
+    };
     let recipe = Recipe::new()
       .base(Root, |s| s.gap(2.0).foreground(Foreground))
       .base(Row, |s| {
@@ -1444,7 +1907,15 @@ impl<T: Send + Sync + 'static, M: RowSelection<T>> Themed for TreeView<T, M> {
       .state(TreeViewState::Selected, Label, |s| s.weight(FontWeight::Medium))
       .state(TreeViewState::Disabled, Row, |s| {
         s.opacity(OpacityLevel::Disabled).cursor(CursorIcon::Default)
-      });
+      })
+      // A drag: the row dragged faded, the row it would go into ringed, and the line where it would go between rows
+      // in the ring's color.
+      .state(TreeViewState::Dragged, Row, |s| s.opacity(OpacityLevel::Disabled))
+      .state(TreeViewState::DropTarget, Row, |s| {
+        s.background(Highlight)
+          .outline(Outline::new(BorderSize::Md, Ring).offset(-2.0))
+      })
+      .base(DropLine, |s| s.height(2.0).radius(RadiusSize::Full).background(Ring));
     // A row opens and closes as an accordion's item does: its panel's height over the theme's base duration, its
     // rows fading in and out.
     super::collapsible::opening(recipe, TreeViewState::Open.into(), Panel.into(), Body.into())

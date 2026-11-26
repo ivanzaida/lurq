@@ -484,3 +484,28 @@ fn tab_in_the_field_keeps_the_edit_and_goes_on_to_the_control_after_it() {
     "the buttons of the editing form are no stops of Tab"
   );
 }
+
+#[test]
+fn what_the_app_puts_at_the_fields_end_stands_over_it_and_the_text_keeps_clear_of_it() {
+  let (mut stage, ..) = scene(|editable| {
+    editable
+      .actions(false)
+      .end(lurq::components::Text::new("Enter").id("enter"))
+  });
+  assert!(!exists(&mut stage, "enter"), "only while it is edited");
+  stage.click(ID);
+  let (field_x, field_y, field_width, field_height) = stage.bounds(FIELD);
+  let (x, y, width, height) = stage.bounds("enter");
+  assert!(
+    x >= field_x + field_width - 40.0 - 12.0 && x + width <= field_x + field_width + 0.5,
+    "at the field's end: {x} {width} in {field_x} {field_width}"
+  );
+  assert!(
+    y >= field_y && y + height <= field_y + field_height,
+    "in the field's box"
+  );
+  // What is typed goes into the field, and Enter keeps it.
+  type_text(&mut stage, "Pages");
+  stage.key("Enter");
+  assert!(!exists(&mut stage, "enter"));
+}

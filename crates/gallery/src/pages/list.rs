@@ -546,6 +546,27 @@ impl Component for ListPage {
               .variant(ButtonVariant::Outline)
               .size(ButtonSize::Sm),
           ),
+      )
+      .item(
+        // A row that grows under its title keeps what is at its end by the title.
+        ListItem::new("GITHUB_TOKEN")
+          .description("Set 3 days ago")
+          .detail(
+            Row::new()
+              .width(FILL)
+              .min_width(0.0)
+              .spacing(6.0)
+              .wrap()
+              .child(Tag::new("Used by: deploy"))
+              .child(Tag::new("release"))
+              .child(Tag::new("nightly checks")),
+          )
+          .trailing_at_top(true)
+          .trailing(
+            Button::new("Replace…")
+              .variant(ButtonVariant::Outline)
+              .size(ButtonSize::Sm),
+          ),
       );
 
     // Settings rows whose words are still read.
@@ -580,6 +601,13 @@ impl Component for ListPage {
          and the description (a program's path), elements under the description, \
          and what the row says under itself, under its line, which a press of the row does not reach. A row with \
          something below is held with it in the part item (x-item); the row's id stays on the row.",
+      ),
+      (
+        "trailing_at_top",
+        "bool",
+        "false",
+        "What is after the text stands at the top of the row, by the title, in place of its middle: a row that \
+         grows under its title.",
       ),
       (
         "title_tooltip_when_cut",
@@ -743,7 +771,7 @@ impl Component for ListPage {
         Section::new(
           "Saying more",
           "Tags and an (i) after the title, a path between the title and the description, a link under the \
-           description, and what the row says under itself: a problem, a code to copy. It stands under the row's line, and a press of it is not the row's.",
+           description, and what the row says under itself: a problem, a code to copy. It stands under the row's line, and a press of it is not the row's. A row that grows under its title keeps what is at its end on the title's line with `trailing_at_top`.",
           self.frame.demo(
             5,
             said,
@@ -770,6 +798,13 @@ impl Component for ListPage {
               "            .subtitle(muted(\"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome\", ..).nowrap().text_overflow(TextOverflow::Elipsis))",
               "            .description(\"Leave it empty to find the browser on its own\")",
               "            .trailing(Button::new(\"Browse\").variant(ButtonVariant::Outline).size(ButtonSize::Sm)),",
+              "    )",
+              "    .item(",
+              "        ListItem::new(\"GITHUB_TOKEN\")",
+              "            .description(\"Set 3 days ago\")",
+              "            .detail(chips)",
+              "            .trailing_at_top(true)",
+              "            .trailing(Button::new(\"Replace…\").variant(ButtonVariant::Outline).size(ButtonSize::Sm)),",
               "    )",
             ],
           ),

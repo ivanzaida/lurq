@@ -13,5 +13,5 @@ pub(crate) use bidi::{
   line_break_offsets, paragraph_breaks_as_line_feeds, paragraph_breaks_as_spaces,
 };
 pub use bidi::{is_bidi_control, isolate_bidi, strip_bidi_controls};
-pub use parse::parse_markdown;
+pub use parse::{MarkdownOptions, parse_markdown, parse_markdown_with};
 pub(crate) use rich_text::{markdown_html_text, markdown_inline_rich_text};

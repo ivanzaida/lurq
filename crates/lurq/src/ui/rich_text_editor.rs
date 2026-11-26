@@ -10,8 +10,10 @@ use parking_lot::Mutex;
 use super::{
   button::{Button, ButtonPart, ButtonSize, ButtonVariant},
   field::{FieldControl, InField},
+  icon::Icon,
   icons,
   input::{Input, InputSize},
+  link_trigger::{LinkOffer, LinkTrigger, PendingTrigger, pending_trigger},
   names,
   part_style::{FontFamily, Length, PartStyle},
   picture::Picture,
@@ -28,12 +30,12 @@ use crate::{
     component::Component,
     ctx::{Ctx, Placement},
     events::{ClipboardImage, EditCommand, KeyboardEvent, MouseEvent, PasteEvent},
-    theme::{BorderSize, OpacityLevel, PaletteColor, RadiusSize, Theme, TypographyStyle},
+    theme::{BorderSize, IconSize, OpacityLevel, PaletteColor, RadiusSize, ShadowStyle, Theme, TypographyStyle},
   },
   components::{
     Column, HeaderLabel, InlineObject, LinkClick, MarkPresence, ParagraphHeader, ParagraphKind, ParagraphMarker,
-    ParagraphStyle, ParagraphStyles, RichText, Row, SelectionStyle, StyledChange, StyledSpan, StyledText, TextInput,
-    TextInputController, TextMark,
+    ParagraphStyle, ParagraphStyles, Popup, RichText, Row, SelectionStyle, StyledChange, StyledSpan, StyledText,
+    TextInput, TextInputController, TextMark,
   },
   core::{ElementRef, Signal},
   layout::{Alignment, layout_kind::Justify, text_style::FontWeight},
@@ -114,6 +116,16 @@ pub enum RichTextEditorPart {
   FooterText,
   /// What the editor says of the panel a link is given in: laid over a popover's panel.
   LinkPanel,
+  /// The list a link trigger opens under it ([`RichTextEditor::link_trigger`]): a mentions field's list.
+  OfferPanel,
+  /// One offer in that list: what is pressed, and what is highlighted while it is the one Enter chooses.
+  Offer,
+  /// The icon of an offer, where it has one.
+  OfferIcon,
+  /// The label of an offer.
+  OfferLabel,
+  /// The line under an offer's label, where it has one.
+  OfferDescription,
 }
 
 names!(RichTextEditorPart {
@@ -147,6 +159,11 @@ names!(RichTextEditorPart {
   Footer => "footer",
   FooterText => "footer_text",
   LinkPanel => "link_panel",
+  OfferPanel => "offer_panel",
+  Offer => "offer",
+  OfferIcon => "offer_icon",
+  OfferLabel => "offer_label",
+  OfferDescription => "offer_description",
 });
 
 /// The states of a rich text editor a recipe styles.
@@ -166,6 +183,10 @@ pub enum RichTextEditorState {
   Disabled,
   /// It is as wide as what holds it.
   FullWidth,
+  /// The offer of a link trigger's list is the one Enter chooses: its parts are resolved in it.
+  Highlighted,
+  /// The offer is shown and cannot be chosen: its parts are resolved in it.
+  Unavailable,
 }
 
 names!(RichTextEditorState {
@@ -176,6 +197,8 @@ names!(RichTextEditorState {
   ReadOnly => "read_only",
   Disabled => "disabled",
   FullWidth => "full_width",
+  Highlighted => "highlighted",
+  Unavailable => "unavailable",
 });
 
 /// A tool of a rich text editor's bar.
@@ -250,6 +273,7 @@ type PictureBuilder = Arc<dyn Fn(&InlineObject) -> Element + Send + Sync>;
 type ImageKeeper = Arc<dyn Fn(&ClipboardImage) -> Option<String> + Send + Sync>;
 type CountText = Arc<dyn Fn(usize) -> String + Send + Sync>;
 type HeadingText = Arc<dyn Fn(u8) -> String + Send + Sync>;
+type WikiTitle = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
 
 /// The value of an editor: the app's signal, or what the app holds itself.
 #[derive(Clone)]
@@ -569,6 +593,8 @@ pub struct RichTextEditor {
   boxed: BoxStates,
   full_width: bool,
   code_bar_label: Option<HeaderLabel>,
+  link_triggers: Vec<LinkTrigger>,
+  wiki_links: Option<WikiTitle>,
   words: Words,
   states: Vec<Name>,
   rules: Recipe,
@@ -637,6 +663,8 @@ impl RichTextEditor {
       boxed: BoxStates::default(),
       full_width: false,
       code_bar_label: None,
+      link_triggers: Vec::new(),
+      wiki_links: None,
       words: Words::default(),
       states: Vec::new(),
       rules: Recipe::new(),
@@ -839,6 +867,43 @@ impl RichTextEditor {
     self
   }
 
+  /// A string that opens a list of links as it is typed (`[[`, `KON-`), anchored under it and narrowed by what is
+  /// typed after it. Up and Down move the offer Enter (or Tab) chooses, a click chooses one, and Escape puts the
+  /// list away while the caret stays after that trigger. A choice puts a link in place of the trigger and what was
+  /// typed after it, as one step of the undo: a link of the document, which
+  /// [`on_link_click`](Self::on_link_click) is told of and Markdown writes, a wiki link where the trigger or the
+  /// offer says so. The list closes when the caret leaves what was typed. A trigger opens nothing in a block or a run
+  /// of code, in a link, or in an editor that takes no change. Any number of triggers; a second of the same string
+  /// takes the place of the first.
+  ///
+  /// ```
+  /// use lurq::{components::RichText, core::Signal, ui::{LinkOffer, LinkTrigger, RichTextEditor}};
+  ///
+  /// # fn build(page: Signal<RichText>) -> RichTextEditor {
+  /// let pages = vec![LinkOffer::new("Roadmap 2027", "/roadmap"), LinkOffer::new("Onboarding", "/onboarding")];
+  /// RichTextEditor::new(page)
+  ///   .link_trigger(LinkTrigger::new("[[", pages).wiki(true).spaces(true))
+  ///   .link_trigger(LinkTrigger::new("KON-", |typed: &str| {
+  ///     vec![LinkOffer::new(&format!("KON-{typed}"), &format!("https://tracker.example/KON-{typed}"))]
+  ///   }))
+  /// # }
+  /// ```
+  pub fn link_trigger(mut self, trigger: LinkTrigger) -> Self {
+    self.link_triggers.retain(|held| held.text() != trigger.text());
+    self.link_triggers.push(trigger);
+    self
+  }
+
+  /// Turns wiki links on: `title` gives the title of a link's target (a page's, by its slug), `None` where it has
+  /// none. A paste of Markdown that has `[[target]]` or `[[target|words]]` in it puts them in as wiki links, each
+  /// with its words or else its title. A document is read with them by
+  /// [`RichText::from_markdown_with_wiki_links`], given the same `title`, and [`RichText::to_markdown`] writes them
+  /// back as they were: a link whose words are still the title it was read with as `[[target]]`.
+  pub fn wiki_links(mut self, title: impl Fn(&str) -> Option<String> + Send + Sync + 'static) -> Self {
+    self.wiki_links = Some(Arc::new(title));
+    self
+  }
+
   /// Whether what it holds is wrong. Of invalid, warning and valid, the first that is set is the one shown.
   pub fn invalid(mut self, invalid: bool) -> Self {
     self.boxed.invalid = invalid;
@@ -1017,6 +1082,7 @@ impl RichTextEditor {
       link_anchor: ElementRef::new(),
       link_field: ElementRef::new(),
       refocus: Arc::default(),
+      offers: Arc::default(),
     };
     self.view(theme, kept, None)
   }
@@ -1038,6 +1104,12 @@ impl RichTextEditor {
       paragraphs: input.selected_paragraphs().ok().flatten().unwrap_or_default(),
       can_undo: editable && input.can_undo(),
       can_redo: editable && input.can_redo(),
+    };
+    let (pending, offers, active_offer) = if focused && editable {
+      offering(&kept, &self.link_triggers)
+    } else {
+      *kept.offers.lock() = Offering::default();
+      (None, Vec::new(), 0)
     };
     // A picture is no word, and stands between two.
     let words = kept.objects.with_untracked(|objects| {
@@ -1079,6 +1151,12 @@ impl RichTextEditor {
       boxed: self.boxed,
       words: self.words,
       code_bar_label: self.code_bar_label,
+      offers,
+      active_offer,
+      pending,
+      link_triggers: self.link_triggers,
+      wiki_links: self.wiki_links,
+      rules: self.rules,
       forced: self.forced,
       kept,
       name: self.name,
@@ -1097,6 +1175,70 @@ impl RichTextEditor {
       None => view.render(),
     }
   }
+}
+
+/// The trigger the caret is after, where it is not in code and Escape did not put its list away, the offers for
+/// what was typed after it, and the one Enter chooses. A new query starts at the first offer that can be chosen.
+fn offering(kept: &Kept, triggers: &[LinkTrigger]) -> (Option<PendingTrigger>, Vec<LinkOffer>, usize) {
+  let input = &kept.controller.input;
+  let caret = input
+    .selection()
+    .ok()
+    .filter(|selection| selection.range().is_empty())
+    .map(|selection| selection.caret);
+  let in_code = || {
+    input
+      .caret_paragraph()
+      .ok()
+      .flatten()
+      .is_some_and(|(kind, _)| kind.is_code())
+  };
+  let pending = caret.filter(|_| !triggers.is_empty() && !in_code()).and_then(|caret| {
+    kept.text.with_untracked(|text| {
+      kept
+        .spans
+        .with_untracked(|spans| pending_trigger(text, caret, spans, triggers))
+    })
+  });
+  let mut held = kept.offers.lock();
+  // Escape puts the list away while the caret is after that trigger; elsewhere it is forgotten.
+  if pending.as_ref().map(|pending| pending.start) != held.dismissed {
+    held.dismissed = None;
+  }
+  let pending = pending.filter(|pending| held.dismissed != Some(pending.start));
+  let Some(found) = &pending else {
+    held.query = None;
+    held.active = 0;
+    return (None, Vec::new(), 0);
+  };
+  let offers = triggers[found.trigger].source().offers(&found.query);
+  let query = Some((found.start, found.query.clone()));
+  if held.query != query {
+    held.query = query;
+    held.active = 0;
+  }
+  let at = held.active.min(offers.len().saturating_sub(1));
+  let active = (at..offers.len())
+    .chain((0..at).rev())
+    .find(|index| !offers[*index].is_disabled())
+    .unwrap_or(at);
+  held.active = active;
+  (pending, offers, active)
+}
+
+/// The next offer from `at` that can be chosen, one step forward or back, round the list.
+fn step_offer(choosable: &[bool], at: usize, forward: bool) -> usize {
+  let count = choosable.len();
+  (1..count + 1)
+    .map(|step| {
+      if forward {
+        (at + step) % count
+      } else {
+        (at + count * step - step) % count
+      }
+    })
+    .find(|index| choosable[*index])
+    .unwrap_or(at)
 }
 
 impl From<RichTextEditor> for Element {
@@ -1140,6 +1282,18 @@ struct Kept {
   /// Set by what takes the focus away from the text and gives it back: the style's control, the panel of a
   /// link, a tool run from the menu of those that did not fit.
   refocus: Arc<AtomicBool>,
+  /// The list of a link trigger: the offer Enter chooses, and whether Escape put it away.
+  offers: Arc<Mutex<Offering>>,
+}
+
+/// What the list of a link trigger keeps from one render to the next.
+#[derive(Default)]
+struct Offering {
+  active: usize,
+  /// Where the trigger is and what was typed after it, as the list was last drawn.
+  query: Option<(usize, String)>,
+  /// The trigger Escape put the list away from.
+  dismissed: Option<usize>,
 }
 
 #[derive(Clone)]
@@ -1179,6 +1333,7 @@ impl Component for RichTextEditorHost {
         link_anchor: ElementRef::new(),
         link_field: ElementRef::new(),
         refocus: Arc::default(),
+        offers: Arc::default(),
       },
       link_was_open: AtomicBool::new(false),
     }
@@ -1305,6 +1460,15 @@ pub struct RichTextEditorView {
   boxed: BoxStates,
   words: Words,
   code_bar_label: Option<HeaderLabel>,
+  /// What the list of a link trigger offers, in its order: none while it is closed.
+  pub offers: Vec<LinkOffer>,
+  /// The offer Enter chooses: never one that cannot be chosen where another can.
+  pub active_offer: usize,
+  pending: Option<PendingTrigger>,
+  link_triggers: Vec<LinkTrigger>,
+  wiki_links: Option<WikiTitle>,
+  /// The rules the editor was given over the theme's recipe, which an offer is resolved with.
+  rules: Recipe,
   forced: Option<Interaction>,
   kept: Kept,
   // Read only where the engine has forms.
@@ -1856,11 +2020,15 @@ impl RichTextEditorView {
     let kept = &self.kept;
     // The panel of a link hangs from where the selection starts: read before the controller is bound to the
     // input built here, which has no selection of its own yet.
-    let start = kept
-      .controller
-      .input
-      .selection()
-      .map_or(0, |selection| selection.range().start);
+    // The list of a link trigger hangs from the trigger.
+    let start = match &self.pending {
+      Some(pending) => pending.start,
+      None => kept
+        .controller
+        .input
+        .selection()
+        .map_or(0, |selection| selection.range().start),
+    };
     let picture = self.picture.clone();
     let input = TextInput::styled(kept.text.clone(), text)
       .placeholder_style(placeholder)
@@ -1932,7 +2100,41 @@ impl RichTextEditorView {
         }
       })
       .on_mouse_up(move |_: MouseEvent| pressed.redraw())
+      .on_paste(self.paste_wiki_links())
       .on_paste(self.paste_pictures())
+  }
+
+  /// What a paste of Markdown with wiki links in it does where the editor has them on: the document it says, read
+  /// with them, in place of the selection. Anything else is left to the text, and a line of code takes it as text.
+  fn paste_wiki_links(&self) -> impl Fn(PasteEvent) + Send + Sync + 'static {
+    let (title, input, editable) = (
+      self.wiki_links.clone(),
+      self.kept.controller.input.clone(),
+      self.editable(),
+    );
+    move |event: PasteEvent| {
+      let Some(title) = &title else {
+        return;
+      };
+      if !editable || event.default_prevented() {
+        return;
+      }
+      let Some(source) = event.markdown().or(event.text()).filter(|source| source.contains("[[")) else {
+        return;
+      };
+      let in_code = input
+        .selected_paragraphs()
+        .ok()
+        .flatten()
+        .is_some_and(|kinds| kinds.first().is_some_and(|kind| kind.is_code()));
+      if in_code {
+        return;
+      }
+      let document = RichText::from_markdown_with_wiki_links(source, |target| title(target));
+      if document.has_wiki_links() && input.replace_selection_rich(&document).unwrap_or(false) {
+        event.prevent_default();
+      }
+    }
   }
 
   /// What a paste that holds no words does: pixels are given to the app to keep and put in as the picture it
@@ -1981,8 +2183,15 @@ impl RichTextEditorView {
     let kept = self.kept.clone();
     let (editable, shortcuts) = (self.editable(), self.markdown_shortcuts);
     let open_link = self.open_link();
+    let choosers: Vec<Option<Run>> = self.offers.iter().map(|offer| self.chooser(offer)).collect();
+    let pending = self.pending.as_ref().map(|pending| pending.start);
     move |event: &KeyboardEvent| {
       if !event.focus_within || event.default_prevented() || event.composing || !editable {
+        return;
+      }
+      if offer_key(&kept, event, &choosers, pending) {
+        event.prevent_default();
+        kept.controller.redraw();
         return;
       }
       let editor = &kept.controller;
@@ -2009,6 +2218,145 @@ impl RichTextEditorView {
         editor.redraw();
       }
     }
+  }
+
+  /// What choosing `offer` does: its link in place of the trigger and what was typed after it, as one step of the
+  /// undo, the list closed and the focus left in the text. None for an offer that cannot be chosen.
+  fn chooser(&self, offer: &LinkOffer) -> Option<Run> {
+    if offer.is_disabled() {
+      return None;
+    }
+    let pending = self.pending.as_ref()?;
+    let wiki = self
+      .link_triggers
+      .get(pending.trigger)
+      .is_some_and(LinkTrigger::is_wiki);
+    let (start, link, kept) = (pending.start, offer.link(wiki), self.kept.clone());
+    Some(Arc::new(move || {
+      let input = &kept.controller.input;
+      let Ok(selection) = input.selection() else {
+        return;
+      };
+      let chosen = input.select(start, selection.caret.max(start)).is_ok()
+        && input.replace_selection_styled(&link).unwrap_or(false);
+      if chosen {
+        *kept.offers.lock() = Offering::default();
+      }
+      kept.refocus.store(true, Ordering::Relaxed);
+      kept.controller.redraw();
+    }))
+  }
+
+  /// One offer of a link trigger's list: its icon, its label and its description, in a row a click chooses by and
+  /// that keeps the focus in the text. One that cannot be chosen is dimmed, and neither a click nor the pointer
+  /// coming onto it does anything.
+  pub fn offer(&self, index: usize, offer: &LinkOffer) -> Element {
+    let disabled = offer.is_disabled();
+    let active = index == self.active_offer && !disabled;
+    let case = self
+      .boxed
+      .case(Vec::new())
+      .state(RichTextEditorState::Highlighted, active)
+      .state(RichTextEditorState::Unavailable, disabled);
+    // An offer the app gave an id names its parts after it, one it gave a key after the editor's id and the key.
+    let recipe = self
+      .theme()
+      .resolve::<RichTextEditor>(&case, Some(&self.rules))
+      .owned_like(&self.recipe);
+    let recipe = match (offer.row_id(), offer.row_key()) {
+      (None, Some(key)) => recipe.keyed_item(key, RichTextEditorPart::Offer),
+      (id, _) => recipe.item(id, RichTextEditorPart::Offer),
+    };
+    let part = recipe
+      .part(RichTextEditorPart::Offer)
+      .forced(self.forced.filter(|_| active));
+    let mut row = Row::new()
+      .align_items(Alignment::Center)
+      .focusable(false)
+      .describe("a11y_role", "option")
+      .describe("a11y_name", offer.label())
+      .describe("a11y_selected", if active { "true" } else { "false" })
+      .part(&part);
+    if disabled {
+      // The engine passes a disabled row by: no press reaches it, and the pointer does not light it.
+      row = row.disabled(true);
+    }
+    if let Some(id) = offer.row_id() {
+      row = row.id(id.clone());
+    }
+    if let Some(key) = offer.row_key() {
+      row = row.key(key.clone());
+    }
+    if let Some(name) = offer.icon_name() {
+      let icon = recipe.part(RichTextEditorPart::OfferIcon);
+      let side = icon.rest().width.unwrap_or(Length::Icon(IconSize::Md));
+      row = row.child(
+        Row::new()
+          .part(&icon)
+          .child(Icon::new(name.clone()).size(side).build(self.theme())),
+      );
+    }
+    let label = recipe.part(RichTextEditorPart::OfferLabel);
+    let mut words = Column::new()
+      .flex(1.0)
+      .min_width(0.0)
+      .align_items(Alignment::Stretch)
+      .child(
+        label
+          .text(offer.label())
+          .nowrap()
+          .text_overflow(crate::node::node_kind::TextOverflow::Elipsis)
+          .part(&label),
+      );
+    if let Some(description) = offer.description_text() {
+      let line = recipe.part(RichTextEditorPart::OfferDescription);
+      words = words.child(
+        line
+          .text(description)
+          .nowrap()
+          .text_overflow(crate::node::node_kind::TextOverflow::Elipsis)
+          .part(&line),
+      );
+    }
+    row = row.child(words);
+    if let Some(choose) = self.chooser(offer) {
+      row = row.on_click(move |_| choose());
+    }
+    if disabled {
+      return row.into();
+    }
+    let kept = self.kept.clone();
+    row
+      .on_mouse_enter(move || {
+        let mut held = kept.offers.lock();
+        if held.active != index {
+          held.active = index;
+          drop(held);
+          kept.controller.redraw();
+        }
+      })
+      .into()
+  }
+
+  /// The list of a link trigger, hung under the trigger: a panel in the style of its part, open while there are
+  /// offers. It takes no focus: the keys stay in the text.
+  pub fn offer_panel(&self) -> Element {
+    let mut panel = Column::new()
+      .align_items(Alignment::Stretch)
+      .part(&self.part(RichTextEditorPart::OfferPanel))
+      .describe("a11y_role", "listbox");
+    for (index, offer) in self.offers.iter().enumerate() {
+      panel = panel.child(self.offer(index, offer));
+    }
+    Popup::new(self.kept.link_anchor.clone(), panel)
+      .open_when(!self.offers.is_empty())
+      .placement(Placement::BottomStart)
+      .offset(0.0, 4.0)
+      .takes_focus(false)
+      .dismiss_on_outside_click(false)
+      .dismiss_on_escape(false)
+      .switch_on_anchor_press(false)
+      .into()
   }
 
   /// The panel a link's target is typed in, hung from the start of the selection: Enter and its button give
@@ -2171,8 +2519,33 @@ impl RichTextEditorView {
     if self.has_footer {
       root = root.child(self.footer());
     }
-    root.child(self.link_panel()).into()
+    root.child(self.link_panel()).child(self.offer_panel()).into()
   }
+}
+
+/// A key while the list of a link trigger is open: Up and Down move the offer Enter and Tab choose, and Escape puts
+/// the list away. Whether the key was the list's.
+fn offer_key(kept: &Kept, event: &KeyboardEvent, choosers: &[Option<Run>], pending: Option<usize>) -> bool {
+  let choosable: Vec<bool> = choosers.iter().map(Option::is_some).collect();
+  if event.ctrl || event.alt || event.meta || !choosable.contains(&true) {
+    return false;
+  }
+  let last = choosers.len() - 1;
+  let mut held = kept.offers.lock();
+  match event.key.as_str() {
+    "ArrowDown" if !event.shift => held.active = step_offer(&choosable, held.active.min(last), true),
+    "ArrowUp" if !event.shift => held.active = step_offer(&choosable, held.active.min(last), false),
+    "Enter" | "Tab" if !event.shift => {
+      let chosen = choosers[held.active.min(last)].clone();
+      drop(held);
+      if let Some(chosen) = chosen {
+        chosen();
+      }
+    }
+    "Escape" => held.dismissed = pending,
+    _ => return false,
+  }
+  true
 }
 
 /// A key with Ctrl (Cmd on a Mac): the marks, the link, the kinds of paragraphs.
@@ -2569,6 +2942,40 @@ impl Themed for RichTextEditor {
       })
       .base(LinkPanel, |s| {
         s.width(340.0).max_width(Length::Fill).padding_x(8.0).padding_y(8.0)
+      })
+      // The list of a link trigger is a mentions field's: 4 under the trigger, in the popover's color with the
+      // large radius, an edge of 1 and the medium shadow, padded 4; its offers at least 36 high, padded 8 with the
+      // small radius and 8 between the icon of 16 and the label, the active one filled with the highlight. It is
+      // 280 wide, where a mentions field's is 220, for a title and the line under it.
+      .base(OfferPanel, |s| {
+        s.width(280.0)
+          .max_width(Length::Fill)
+          .padding_x(4.0)
+          .padding_y(4.0)
+          .radius(RadiusSize::Lg)
+          .background(PaletteColor::Popover)
+          .foreground(PaletteColor::PopoverForeground)
+          .border(edge(PaletteColor::Border))
+          .shadow(ShadowStyle::Md)
+      })
+      .base(Offer, |s| {
+        s.min_height(36.0)
+          .padding_x(8.0)
+          .padding_y(4.0)
+          .gap(8.0)
+          .radius(RadiusSize::Sm)
+          .cursor(CursorIcon::Pointer)
+      })
+      .base(OfferIcon, |s| s.square(IconSize::Md).foreground(MutedForeground))
+      .base(OfferLabel, |s| s.typography(TypographyStyle::Body).foreground(Foreground))
+      .base(OfferDescription, |s| {
+        s.typography(TypographyStyle::Caption).foreground(MutedForeground)
+      })
+      .hovered(Offer, |s| s.background(PaletteColor::Highlight))
+      .state(RichTextEditorState::Highlighted, Offer, |s| s.background(PaletteColor::Highlight))
+      // An offer that cannot be chosen is dimmed and lit by nothing.
+      .state(RichTextEditorState::Unavailable, Offer, |s| {
+        s.opacity(OpacityLevel::Disabled).cursor(CursorIcon::Default)
       })
       .state(TextBoxState::ReadOnly, Content, |s| s.background(Muted))
       .state(TextBoxState::Disabled, Root, |s| s.opacity(OpacityLevel::Disabled))
