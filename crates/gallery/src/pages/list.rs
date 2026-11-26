@@ -553,6 +553,8 @@ impl Component for ListPage {
           .description("Set 3 days ago")
           .detail(
             Row::new()
+              .width(FILL)
+              .min_width(0.0)
               .spacing(6.0)
               .wrap()
               .child(Tag::new("Used by: deploy"))
