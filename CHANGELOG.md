@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.76.0 — 2026-11-26
+
+Breaking:
+
+- **`MarkdownInline` has two new kinds, and `SpanStyle` a new field** ([#258](https://github.com/ivanzaida/lurq/issues/258), decided 2026-11-26, `design/decisions.md`). `MarkdownInline::WikiLink { target, words }` and `MarkdownInline::Tag(words)`; `SpanStyle::wiki: Option<WikiLink>`. A `match` over the inlines with no `_` arm gains two arms, and a `SpanStyle { .. }` built field by field ends with `..Default::default()`.
+
+Added:
+
+- **Links while typing in a rich text editor** ([#258](https://github.com/ivanzaida/lurq/issues/258), decided 2026-11-26, `design/decisions.md`). `RichTextEditor::link_trigger(LinkTrigger::new("[[", offers))` opens a list at the trigger as it is typed (`[[`, `KON-`, any number of triggers), narrowed by what follows it; the arrows, Enter, Tab and a press choose, Escape closes it, and the choice puts a link in place of what was typed. Its offers are `LinkOffer`s, a list or a function of what is typed.
+- **Wiki links in a document and in the editor** ([#258](https://github.com/ivanzaida/lurq/issues/258), decided 2026-11-26, `design/decisions.md`). `MarkdownProps::wiki_links(|target| title)` reads `[[/slug]]` and `[[/slug|words]]` as links to the target, titled by the app where they have no words; a press is a link's. `RichText::from_markdown_with_wiki_links(source, title)` and `RichTextEditor::wiki_links(title)` read them in the editor, which keeps them as wiki links and writes them back as `[[…]]`. Under them: `MarkdownOptions::wiki_links` and `parse_markdown_with`; `parse_markdown` reads `[[x]]` as text, as before.
+- **A tag after a range in a document** ([#258](https://github.com/ivanzaida/lurq/issues/258)). `<tag>changed later</tag>` is a small tag in a secondary badge's box (`ThemeMarkdown::tag` for its type), after a range marked with `highlights`.
+- **A tree's row has a context menu, is dragged to move it, and takes an element as its label** ([#258](https://github.com/ivanzaida/lurq/issues/258), decided 2026-11-26, `design/decisions.md`). `TreeView::context_menu(|value| items)` opens the row's menu on the secondary button, a long press, the Menu key and Shift+F10. `TreeView::on_move(|dragged, target, position|)` with `can_move(..)` and `DropPosition` (`Before`, `Inside`, `After`): a row dragged shows a line where it would go, or the row it would go into ringed (part `drop_line`, states `drop_target` and `dragged`); never into itself or what it holds. `TreeItem::label_content(element)` puts an element in the label's place and width (an `Editable` naming a page), its keys its own. Two trees with menus or drags in one window are given ids.
+- **An editable's end** ([#258](https://github.com/ivanzaida/lurq/issues/258)). `Editable::end(element)` stands over the end of the field while it is edited, a key cap that says Enter keeps the name; the text keeps clear of the part `end`'s width, 40.
+- **A list item's end by its title** ([#258](https://github.com/ivanzaida/lurq/issues/258)). `ListItem::trailing_at_top(true)` stands what is after the text, and what is before it, at the top of a row that grows under its title, in place of its middle.
+
 ## 0.75.0 — 2026-11-25
 
 Added:
