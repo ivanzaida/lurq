@@ -1,6 +1,6 @@
 //! The page of the rich text editor: its playground, the board's document bound to a signal with the Markdown
-//! it writes, a comment box with a few tools, a document with pictures in it, a checklist and a divider, its
-//! states, and a controller that works it from outside.
+//! it writes, a comment box with a few tools, a document with pictures in it, a checklist and a divider, link
+//! triggers and wiki links, its states, and a controller that works it from outside.
 
 use std::sync::{Arc, Mutex};
 
@@ -12,8 +12,8 @@ use lurq::{
   layout::Alignment,
   node::Element,
   ui::{
-    Button, ButtonSize, ButtonVariant, FontFamily, Picture, RICH_TEXT_MAX_ROWS, RICH_TEXT_MIN_ROWS, RichTextController,
-    RichTextEditor, RichTextEditorPart, RichTextTool, icons,
+    Button, ButtonSize, ButtonVariant, FontFamily, LinkOffer, LinkTrigger, Picture, RICH_TEXT_MAX_ROWS,
+    RICH_TEXT_MIN_ROWS, RichTextController, RichTextEditor, RichTextEditorPart, RichTextTool, icons,
   },
 };
 
@@ -36,6 +36,48 @@ const FIELD_NOTES: &str = "## Field notes\n\nThe lake at dusk, from the north sh
 const TASKS: &str = "### Acceptance\n\n- [x] The brief reads as it is edited\n- [ ] A divider between sections\n- [ ] \
                      Items closer than the blocks round them\n\n---\n\n### Steps\n\n1. Write the brief\n2. Check \
                      the items\n\n```rust\nfn main() {\n    brief::check();\n}\n```";
+
+/// A page of a wiki that links others by wiki links: one shows its page's title, one words of its own.
+const WIKI_PAGE: &str = "## Sprint 14\n\nStart at [[/onboarding]], then read [[/roadmap|the plan for the year]].\n\nType \
+                         `[[` for a page, or `KON-` for a task.";
+
+/// The pages of the wiki: their titles, slugs and where they are.
+const PAGES: [(&str, &str, &str); 5] = [
+  ("Onboarding", "/onboarding", "Team"),
+  ("Roadmap 2027", "/roadmap", "Product"),
+  ("Release notes", "/releases", "Product"),
+  ("Design review", "/design-review", "Design"),
+  ("On-call handbook", "/on-call", "Team"),
+];
+
+/// The title of a page of the wiki, by its slug.
+fn page_title(target: &str) -> Option<String> {
+  PAGES
+    .iter()
+    .find(|(_, slug, _)| *slug == target)
+    .map(|(title, ..)| (*title).to_owned())
+}
+
+/// The tasks of the tracker whose number starts with what was typed after `KON-`.
+fn tracker_tasks(typed: &str) -> Vec<LinkOffer> {
+  [
+    (12, "Fix the login form"),
+    (14, "Wiki links in pages"),
+    (127, "Faster search"),
+    (131, "Dark mode icons"),
+  ]
+  .into_iter()
+  .filter(|(number, _)| number.to_string().starts_with(typed))
+  .map(|(number, title)| {
+    LinkOffer::new(
+      &format!("KON-{number} {title}"),
+      &format!("https://tracker.example/KON-{number}"),
+    )
+    .text(&format!("KON-{number}"))
+    .icon(icons::CHECK)
+  })
+  .collect()
+}
 
 /// The pictures pasted into the page's editors as pixels: a document names one `pasted-0`, `pasted-1`, by its
 /// place here. An app would write them to its files; the gallery has none, and keeps them while it runs.
@@ -130,6 +172,9 @@ pub struct RichTextEditorPage {
   playing: RichTextController,
   /// The checklist, with its divider, and the spacing a recipe gives its paragraphs.
   tasks: Signal<RichText>,
+  /// The page of the wiki, and the target of the link last opened in it.
+  wiki: Signal<RichText>,
+  opened: Signal<String>,
   /// The page's picture, drawn once: the same pixels each render.
   lake: ImageData,
   pasted: Pasted,
@@ -327,6 +372,8 @@ impl Component for RichTextEditorPage {
       )),
       pictured: ctx.signal(RichText::from_markdown(FIELD_NOTES)),
       tasks: ctx.signal(RichText::from_markdown(TASKS)),
+      wiki: ctx.signal(RichText::from_markdown_with_wiki_links(WIKI_PAGE, page_title)),
+      opened: ctx.signal(String::new()),
       picturing: RichTextController::new(),
       playing: RichTextController::new(),
       lake: super::picture::lake(640, 480),
@@ -440,6 +487,41 @@ impl Component for RichTextEditorPage {
           .spacing(8.0)
           .child(quiet("document.to_markdown()", 12.0))
           .child(plain_block(&tasks)),
+      );
+
+    // A page of a wiki: `[[` links another page as a wiki link, `KON-` a task of the tracker by its number.
+    let wiki: Vec<String> = self.wiki.get().to_markdown().lines().map(str::to_owned).collect();
+    let opened = self.opened.clone();
+    let pages: Vec<LinkOffer> = PAGES
+      .iter()
+      .map(|(title, slug, space)| LinkOffer::new(title, slug).icon(icons::FILE).description(space))
+      .collect();
+    let linking = stack()
+      .child(
+        RichTextEditor::new(self.wiki.clone())
+          .label("Sprint 14")
+          .wiki_links(page_title)
+          .link_trigger(LinkTrigger::new("[[", pages).wiki(true).spaces(true))
+          .link_trigger(LinkTrigger::new("KON-", tracker_tasks))
+          .on_link_click(move |target| opened.set(target.to_owned()))
+          .rows(5, 12)
+          .key("wiki")
+          .mount(ctx),
+      )
+      .child(quiet(
+        &match self.opened.get() {
+          opened if opened.is_empty() => "Ctrl+click a link: the app is told its target".to_owned(),
+          opened => format!("on_link_click(\"{opened}\")"),
+        },
+        12.0,
+      ))
+      .child(
+        Column::new()
+          .width(560.0)
+          .max_width(FILL)
+          .spacing(8.0)
+          .child(quiet("document.to_markdown()", 12.0))
+          .child(plain_block(&wiki)),
       );
 
     let fixed = || self.terms.clone();
@@ -604,6 +686,20 @@ impl Component for RichTextEditorPage {
         "impl Fn(&str) -> String",
         "the fence's word",
         "What the bar over a block of code says for its language: Bash for `bash`. The document keeps the word.",
+      ),
+      (
+        "link_trigger",
+        "LinkTrigger",
+        "",
+        "A string that opens a list of links as it is typed (`[[`, `KON-`): a list narrowed by what follows it, or \
+         a function of it. Its choice is a link, a wiki link where the trigger or the offer says so.",
+      ),
+      (
+        "wiki_links",
+        "impl Fn(&str) -> Option<String>",
+        "",
+        "Turns wiki links on, with the title of a target: pasted Markdown's `[[target]]` is a link. A document is \
+         read with them by `RichText::from_markdown_with_wiki_links`.",
       ),
       (
         "on_link_click",
@@ -809,6 +905,38 @@ impl Component for RichTextEditorPage {
               "// A `/` menu of the app.",
               "controller.set_paragraphs(ParagraphKind::Checklist { checked: false });",
               "controller.insert_divider();",
+            ],
+          ),
+        ),
+        Section::new(
+          "Link triggers and wiki links",
+          "A trigger typed opens a list of links under it, narrowed by what is typed after it: `[[` the pages of a \
+           wiki, `KON-` the tasks of a tracker the app finds by their number. Up and Down move the offer, Enter or \
+           Tab or a click chooses it, Escape puts the list away. The choice is a link in place of what was typed, \
+           one step of the undo. The page's links are wiki links: read from `[[/onboarding]]` with the title the \
+           app gives the page, or with words of their own, and written back as they were read. Words a person \
+           changes are written with the link, `[[/onboarding|their words]]`.",
+          self.frame.demo(
+            7,
+            linking,
+            ".link_trigger(LinkTrigger::new(\"[[\", pages).wiki(true))",
+            &[
+              "// The page, read with the titles of the pages its wiki links go to.",
+              "let page = ctx.signal(RichText::from_markdown_with_wiki_links(&source, page_title));",
+              "",
+              "let pages: Vec<LinkOffer> = wiki_pages",
+              "    .iter()",
+              "    .map(|page| LinkOffer::new(&page.title, &page.slug).icon(icons::FILE).description(&page.space))",
+              "    .collect();",
+              "RichTextEditor::new(page.clone())",
+              "    .wiki_links(page_title)",
+              "    .link_trigger(LinkTrigger::new(\"[[\", pages).wiki(true).spaces(true))",
+              "    .link_trigger(LinkTrigger::new(\"KON-\", |typed: &str| tracker.find(typed)))",
+              "    .on_link_click(|target| open(target))",
+              "    .mount(ctx)",
+              "",
+              "// What the app stores: `[[/onboarding]]` stays a wiki link.",
+              "page.get().to_markdown()",
             ],
           ),
         ),
