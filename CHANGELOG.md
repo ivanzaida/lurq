@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.77.0 — 2026-11-27
+
+Added:
+
+- **A select's list plays its panel's enter and exit** ([#261](https://github.com/ivanzaida/lurq/issues/261), decided 2026-11-27, `design/decisions.md`). `SelectPart::Panel`'s `enter` plays as the list opens and its `exit` as it closes, the list kept until the exit ends, as a menu's and a popover's panel play theirs; `reduced_enter` and `reduced_exit` under reduced motion. The side of the trigger it opened on is a state of the panel, `bottom` or `top` (`TooltipSide`'s names), for an enter that moves away from it. A combobox's and a multi-select's lists play their panel's the same way. The design's list has none, as before.
+
 ## 0.76.0 — 2026-11-26
 
 Breaking:
