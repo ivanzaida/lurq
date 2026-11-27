@@ -40,7 +40,9 @@ pub enum SelectPart {
   /// The glyph at the end of the trigger: its side and its color.
   Chevron,
   /// The panel of the open list: its fill, edge, corners, shadow and padding. Its gap is the room between the trigger
-  /// and it; its height is the most it is, past which it scrolls.
+  /// and it; its height is the most it is, past which it scrolls. Its `enter` plays as the list opens and its `exit`
+  /// as it closes, the list kept until the exit ends; the side of the trigger it opened on is a state by the names
+  /// of [`TooltipSide`](super::TooltipSide), `bottom` or `top`, as a menu's panel has it.
   Panel,
   /// An option of the open list: its height, padding, corners, type and color. Under the pointer or the keys it is
   /// `hovered`. Its gap is the room between its label and the check.
@@ -660,6 +662,12 @@ pub(crate) fn engine_style(
     theme,
   );
   style.menu_gap = spacing(menu.gap, theme).unwrap_or(4.0);
+  // What it plays as it opens and closes, by the side of the trigger it opened on, as a menu picks it: the runtime
+  // places the list, and plays the one of its side.
+  style.menu_motion = [super::TooltipSide::Bottom, super::TooltipSide::Top].map(|side| {
+    let (enter, exit) = in_state(side.into()).part(Panel).rest().motion(theme);
+    crate::node::select_style::SelectMenuMotion { enter, exit }
+  });
   if let Some(height) = px(menu.height, theme) {
     style.max_menu_height = height;
   }

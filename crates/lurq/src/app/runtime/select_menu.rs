@@ -116,6 +116,18 @@ pub(super) fn build_select_menu(
   );
   let (x, y) = overlay_position(bounds, overlay_size, placement, 0.0, style.menu_gap);
   let (x, y) = clamp_overlay_position(x, y, overlay_size, viewport);
+  // What it plays as it opens and as it closes, by the side it opened on: under the trigger, or flipped over it.
+  let side = match crate::ui::tip::side_of(placement) {
+    crate::ui::TooltipSide::Top => 1,
+    _ => 0,
+  };
+  let motion = &style.menu_motion[side];
+  if let Some(enter) = &motion.enter {
+    NodeUpdate::animation(&mut menu, enter.clone());
+  }
+  if let Some(exit) = &motion.exit {
+    NodeUpdate::exit_animation(&mut menu, exit.clone());
+  }
   menu.absolute_positioned(x, y, Some(Dimension::Px(width)), None)
 }
 

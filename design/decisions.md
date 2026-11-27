@@ -9,6 +9,27 @@ them says so. Decisions about phones and tablets are in [mobile-decisions.md](mo
 Each entry: **the question**, **the decision**, **why**, and its **state** (decided, in work on a branch, built,
 dropped). When a decision is replaced, the old entry stays and says what replaced it.
 
+## 2026-11-27
+
+### A select's list plays its panel's enter and exit
+
+- **Question.** A select's open list is built by the runtime from `SelectStyle`, which keeps `SelectPart::Panel`'s
+  fill, edge, padding, shadow and size but not its `enter` and `exit` (issue #261): a theme that makes menus and
+  popovers fade and move in from their trigger gets a select that opens and closes at once beside them.
+- **Decision (Ivan).** Do it (the issue): the list plays the panel's `enter` as it opens and its `exit` as it closes,
+  kept until the exit ends, by the side it opened on, as a `Menu` picks its side state.
+- **Decided by Claude in the work, to be confirmed.**
+  - *The side is a state of the panel, by `TooltipSide`'s names*, as a menu's and a popover's: `bottom` where the
+    list opened under its trigger, `top` where it flipped over it. The select resolves the panel with each on, and
+    the runtime, which places the list, plays the one of the side it placed it on. Under reduced motion it plays its
+    `reduced_enter` and `reduced_exit` where it says them, as any part does (`PartStyle::motion`, shared with the
+    nodes of a recipe).
+  - *A list closed and opened again while it leaves is the one open*, as any layer is: there is one of it.
+  - *The design's list stays still*: the board gives the select's list, as a menu's, no motion, so the default recipe
+    gives the panel none. A combobox's and a multi-select's lists are drawn by the same code, and play their
+    panel's the same way.
+- **State.** Built on `feat/issue-261`.
+
 ## 2026-11-26
 
 ### Pages' gaps: link triggers and wiki links, a tree's menu, drag and element label, an editable's end, a tag after a range, a list item's end at the top

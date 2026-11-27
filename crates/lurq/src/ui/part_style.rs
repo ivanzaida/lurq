@@ -861,22 +861,31 @@ impl PartStyle {
     for transition in self.transitions.iter().flatten() {
       NodeUpdate::transition(node, transition.resolve(theme));
     }
-    // Under reduced motion a part plays what it says it plays then, where it says it.
+    let (enter, exit) = self.motion(theme);
+    if let Some(animation) = enter {
+      NodeUpdate::animation(node, animation);
+    }
+    if let Some(animation) = exit {
+      NodeUpdate::exit_animation(node, animation);
+    }
+    if let Some(cursor) = self.cursor {
+      NodeUpdate::cursor(node, cursor);
+    }
+  }
+
+  /// What the part plays as it appears and as it leaves, in `theme`: under reduced motion what it says it plays
+  /// then, where it says it. What a node of the engine's own, a select's list, plays as a part's node does.
+  pub(crate) fn motion(&self, theme: &Theme) -> (Option<Animation>, Option<Animation>) {
     let reduced = (self.reduced_enter.is_some() || self.reduced_exit.is_some()) && theme.reduced_motion();
     let pick = |usual: &Option<PartAnimation>, instead: &Option<Option<PartAnimation>>| match instead {
       Some(instead) if reduced => instead.clone(),
       _ => usual.clone(),
     };
-    if let Some(animation) = pick(&self.enter, &self.reduced_enter) {
-      let plays = self.enter_with_parent.unwrap_or(true);
-      NodeUpdate::animation(node, animation.resolve(theme).plays_with_parent(plays));
-    }
-    if let Some(animation) = pick(&self.exit, &self.reduced_exit) {
-      NodeUpdate::exit_animation(node, animation.resolve(theme));
-    }
-    if let Some(cursor) = self.cursor {
-      NodeUpdate::cursor(node, cursor);
-    }
+    let plays = self.enter_with_parent.unwrap_or(true);
+    let enter =
+      pick(&self.enter, &self.reduced_enter).map(|animation| animation.resolve(theme).plays_with_parent(plays));
+    let exit = pick(&self.exit, &self.reduced_exit).map(|animation| animation.resolve(theme));
+    (enter, exit)
   }
 
   /// The shadows of the part with its veil: a veil is an inset shadow that
