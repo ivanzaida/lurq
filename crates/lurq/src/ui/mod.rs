@@ -189,7 +189,7 @@ pub(crate) mod theme;
 mod time_field;
 mod time_picker;
 mod timeline;
-mod tip;
+pub(crate) mod tip;
 mod toast;
 mod toggle;
 mod toggle_group;

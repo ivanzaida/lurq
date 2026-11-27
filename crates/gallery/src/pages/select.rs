@@ -1,6 +1,6 @@
 //! The page of the select: its playground, a select bound to a signal, its
 //! states and sizes, options that are disabled or have a detail, and a select
-//! beside an input in a form.
+//! beside an input in a form, and a list that fades in and out.
 
 use std::sync::Arc;
 
@@ -8,13 +8,16 @@ use lurq::{
   app::{
     component::Component,
     ctx::Ctx,
-    theme::{IconSize, PaletteColor},
+    theme::{IconSize, MotionDuration, MotionEasing, PaletteColor},
   },
   components::{Column, Row, SelectOption},
   core::Signal,
   layout::Alignment,
   node::Element,
-  ui::{Field, Icon, Input, Interaction, Orientation, Select, SelectPart, SelectSize, SelectState, icons},
+  ui::{
+    FADE_IN, FADE_OUT, Field, Icon, Input, Interaction, Orientation, PartAnimation, Select, SelectPart, SelectSize,
+    SelectState, icons,
+  },
 };
 
 use crate::{
@@ -264,6 +267,13 @@ impl Component for SelectPage {
     for (size, name, _, height) in SIZES {
       sizes = sizes.child(item(showing("light").size(size), &format!("{name} · {height}")));
     }
+    let fading = items().child(item(
+      Select::new(self.theme.clone(), themes()).style(SelectPart::Panel, |s| {
+        s.enter(PartAnimation::new(FADE_IN, MotionDuration::Fast, MotionEasing::Enter))
+          .exit(PartAnimation::new(FADE_OUT, MotionDuration::Fast, MotionEasing::Exit))
+      }),
+      &says(&self.theme),
+    ));
     let zones = items().child(item(
       Select::new(
         self.zone.clone(),
@@ -607,6 +617,26 @@ impl Component for SelectPage {
               "        )",
               "        .orientation(Orientation::Horizontal),",
               "    )",
+            ],
+          ),
+        ),
+        Section::new(
+          "A list that fades in",
+          "The design's list is there at once. A theme or a select gives its panel an enter and an exit, as a \
+           menu's: it plays the enter as it opens and the exit as it closes, and stays until the exit ends. The \
+           side of the trigger it opened on is a state, bottom or top, for an enter that moves away from it.",
+          self.frame.demo(
+            7,
+            fading,
+            ".style(SelectPart::Panel, |s| s.enter(..).exit(..))",
+            &[
+              "// theme: Signal<String>",
+              "Select::new(theme.clone(), themes).style(SelectPart::Panel, |s| {",
+              "    s.enter(PartAnimation::new(FADE_IN, MotionDuration::Fast, MotionEasing::Enter))",
+              "        .exit(PartAnimation::new(FADE_OUT, MotionDuration::Fast, MotionEasing::Exit))",
+              "})",
+              "// Away from the trigger, by the side it opened on:",
+              "// Recipe::new().state(TooltipSide::Bottom, SelectPart::Panel, |s| s.enter(..))",
             ],
           ),
         ),

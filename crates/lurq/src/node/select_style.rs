@@ -264,6 +264,16 @@ pub struct SelectStyleParts {
   pub(crate) menu_fits_options: bool,
   pub(crate) max_menu_height: f32,
   pub(crate) menu_gap: f32,
+  /// What the list plays as it opens and as it closes where it opened under its trigger, and where it opened over
+  /// it: the panel's `enter` and `exit` with the side state on (`ui::SelectPart::Panel`).
+  pub(crate) menu_motion: [SelectMenuMotion; 2],
+}
+
+/// What a select's list plays as it opens and as it closes, on one side of its trigger.
+#[derive(Clone, Default)]
+pub(crate) struct SelectMenuMotion {
+  pub(crate) enter: Option<crate::animation::Animation>,
+  pub(crate) exit: Option<crate::animation::Animation>,
 }
 
 /// Width of the checkmark slot when no `checkmark_size` is set.
@@ -479,6 +489,7 @@ impl SelectStyle {
       menu_fits_options: false,
       max_menu_height: 240.0,
       menu_gap: 4.0,
+      menu_motion: Default::default(),
     }))
   }
 
