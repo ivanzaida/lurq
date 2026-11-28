@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.78.0 — 2026-11-28
+
+Changed:
+
+- **Back and forward go on to the window's handlers where nothing around the focus takes them** ([#264](https://github.com/ivanzaida/lurq/issues/264), decided 2026-11-28, `design/decisions.md`). Where nothing on the way out from the focused element takes a `NavigationCommand`, it goes on from the last element in the tree with a handler for it, as with nothing focused, before the routers elsewhere: a focus on the window chrome's caption buttons or the title bar reaches the content's `on_history_back` / `on_history_forward`. What is on the way out from the focus still comes first, and the origin the event names is still the focus.
+
+Added:
+
+- **Where a list item's leading element stands** ([#265](https://github.com/ivanzaida/lurq/issues/265), decided 2026-11-28, `design/decisions.md`). `ListItem::leading_align(LeadingAlign::Center | Top | FirstLine)`: in the middle of the text (the default), its top the text's, or in the middle of the title's line however many lines the description takes. Under `trailing_at_top` it is `Top` unless told.
+- **An element before the title on its line** ([#266](https://github.com/ivanzaida/lurq/issues/266), decided 2026-11-28, `design/decisions.md`). `ListItem::title_leading(element)`, part `title_leading` (8 from the title): a status dot on the title's line in the text's column, with what is under the title starting under it.
+
 ## 0.77.0 — 2026-11-27
 
 Added:
