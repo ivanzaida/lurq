@@ -41,6 +41,9 @@ pub enum ListItemPart {
   Content,
   /// What the row says.
   Title,
+  /// An element of the app's on the title's line, before the title, in the text's column: a status dot. What is under
+  /// the title starts under it, at the text's start. Its end padding is the room between it and the title.
+  TitleLeading,
   /// An element of the app's on a line of its own under the title's line and over the description: a path.
   Subtitle,
   /// The second line under the title, where the row has one.
@@ -75,6 +78,7 @@ names!(ListItemPart {
   Icon => "icon",
   Content => "content",
   Title => "title",
+  TitleLeading => "title_leading",
   Subtitle => "subtitle",
   Description => "description",
   Tags => "tags",
@@ -119,6 +123,20 @@ names!(ListItemState {
   Contained => "contained",
   Setting => "setting",
 });
+
+/// Where what stands before the text stands across a row whose text is taller than it: in the middle of the text, at
+/// its top, or in the middle of its first line, by the title ([`ListItem::leading_align`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum LeadingAlign {
+  /// In the middle of the title and what is under it.
+  #[default]
+  Center,
+  /// At the top of the text, its top the title's.
+  Top,
+  /// In the middle of the title's line: a dot or an icon that belongs to the title stays by it however many lines
+  /// the description takes. What is taller than the line stands at the top of the text.
+  FirstLine,
+}
 
 /// What builds a list item's nodes: a theme's in place of the default one.
 pub type ListItemRenderer = Arc<dyn Fn(ListItemView) -> Element + Send + Sync>;
@@ -176,6 +194,8 @@ pub struct ListItem {
   meta: Option<Arc<str>>,
   trailing: Option<Element>,
   trailing_at_top: bool,
+  leading_align: Option<LeadingAlign>,
+  title_leading: Option<Element>,
   shortcut: Option<Arc<str>>,
   chevron: bool,
   /// Whether what the row opens is open, where it is the header of something that opens under it.
@@ -213,6 +233,8 @@ impl ListItem {
       meta: None,
       trailing: None,
       trailing_at_top: false,
+      leading_align: None,
+      title_leading: None,
       shortcut: None,
       chevron: false,
       expands: None,
@@ -348,6 +370,22 @@ impl ListItem {
   /// before the text, an icon, stands at the top with it.
   pub fn trailing_at_top(mut self, at_top: bool) -> Self {
     self.trailing_at_top = at_top;
+    self
+  }
+
+  /// Where what stands before the text stands across the row: in the middle of the text (the default), at its top, or
+  /// in the middle of the title's line, where a description that wraps makes the text taller than it. With
+  /// [`trailing_at_top`](Self::trailing_at_top) it is at the top unless told.
+  pub fn leading_align(mut self, align: LeadingAlign) -> Self {
+    self.leading_align = Some(align);
+    self
+  }
+
+  /// An element on the title's line, before the title, in the text's column (part `title_leading`): a status dot.
+  /// What is under the title (a subtitle, the description, a detail) starts under it, at the text's start, where
+  /// under [`leading`](Self::leading) it would start under the title.
+  pub fn title_leading(mut self, element: impl Into<Element>) -> Self {
+    self.title_leading = Some(element.into());
     self
   }
 
@@ -560,6 +598,12 @@ impl ListItem {
       lead: self.lead,
       trailing: self.trailing,
       trailing_at_top: self.trailing_at_top,
+      leading_align: self.leading_align.unwrap_or(if self.trailing_at_top {
+        LeadingAlign::Top
+      } else {
+        LeadingAlign::Center
+      }),
+      title_leading: self.title_leading,
       forced: self.forced,
       press,
       aside: self.on_open_aside,
@@ -646,6 +690,10 @@ pub struct ListItemView {
   trailing: Option<Element>,
   /// Whether what stands after the text stands at the top of the row, on the title's line.
   pub trailing_at_top: bool,
+  /// Where what stands before the text stands across the row: the default renderer's.
+  pub leading_align: LeadingAlign,
+  /// The app's element on the title's line, before the title.
+  pub title_leading: Option<Element>,
   forced: Option<Interaction>,
   press: Option<Press>,
   /// What a press that asks for the row beside what is open calls, in place of `press`.
@@ -658,6 +706,23 @@ pub struct ListItemView {
   setting: bool,
   /// Whether the root wraps what it holds onto a second line: a setting with something at its end.
   wraps: bool,
+}
+
+/// What a setting's text is: its column, or the row of it and what is before it.
+trait SettingText {
+  fn least(self, least: f32) -> Self;
+}
+
+impl SettingText for Column {
+  fn least(self, least: f32) -> Self {
+    self.flex_full(1.0, 0.0, Some(least)).min_width(Dimension::Px(least))
+  }
+}
+
+impl SettingText for Row {
+  fn least(self, least: f32) -> Self {
+    self.flex_full(1.0, 0.0, Some(least)).min_width(Dimension::Px(least))
+  }
 }
 
 /// The least a setting's title and description are given beside what is at the row's end. In a narrower room
@@ -827,7 +892,7 @@ impl ListItemView {
         text.into()
       }
     };
-    let line: Element = if self.tags.is_empty() && self.info.is_none() {
+    let line: Element = if self.tags.is_empty() && self.info.is_none() && self.title_leading.is_none() {
       Column::new()
         .width(fill)
         .min_width(Dimension::Px(0.0))
@@ -905,8 +970,15 @@ impl ListItemView {
       .width(Dimension::Pct(100.0))
       .min_width(Dimension::Px(0.0))
       .align_items(Alignment::Center)
-      .overflow_visible()
-      .child(Row::new().flex_shrink(1.0).min_width(Dimension::Px(0.0)).child(title));
+      .overflow_visible();
+    if let Some(element) = &self.title_leading {
+      line = line.child(
+        self
+          .held(Row::new().flex_shrink(0.0).part(&self.part(ListItemPart::TitleLeading)))
+          .child(element.clone()),
+      );
+    }
+    let mut line = line.child(Row::new().flex_shrink(1.0).min_width(Dimension::Px(0.0)).child(title));
     if !self.tags.is_empty() {
       line = line.child(
         Row::new()
@@ -998,22 +1070,74 @@ impl ListItemView {
     )
   }
 
+  /// How what is before the text stands beside it, where the row stands its children otherwise: `None` where it
+  /// stands as they do.
+  fn leading_across(&self) -> Option<Alignment> {
+    match (self.leading_align, self.trailing_at_top) {
+      (LeadingAlign::FirstLine, _) => Some(Alignment::Start),
+      (LeadingAlign::Top, false) => Some(Alignment::Start),
+      (LeadingAlign::Center, true) => Some(Alignment::Center),
+      _ => None,
+    }
+  }
+
+  /// `leading` in the middle of a line as high as the title's: an empty line of the title's type beside it.
+  fn on_first_line(&self, leading: Row) -> Row {
+    let title = self.part(ListItemPart::Title);
+    Row::new()
+      .align_items(Alignment::Center)
+      .overflow_visible()
+      .child(
+        Row::new()
+          .part(&title)
+          .child(title.text("\u{a0}").nowrap().width(Dimension::Px(0.0))),
+      )
+      .child(leading)
+  }
+
+  /// A setting's text with something at its end is as wide as the room the end leaves it, down to its least; under
+  /// that the end wraps. In a wrapping row a growing child is its basis long when the lines are broken, so the least
+  /// is the basis.
+  fn setting_text<T: SettingText>(&mut self, text: T, ends: bool) -> T {
+    if !(self.setting && ends) {
+      return text;
+    }
+    self.wraps = true;
+    text.least(SETTING_TEXT_LEAST)
+  }
+
   /// How the default renderer builds a row: what is before the text, the text, and what is after it, side by side.
   pub fn render(mut self) -> Element {
     let leading = self.leading();
-    let mut content = self.content();
+    let content = self.content();
     let trailing = self.trailing();
-    if self.setting && trailing.is_some() {
-      // The text is as wide as the room the end leaves it, down to its least; under that the end wraps. In a
-      // wrapping row a growing child is its basis long when the lines are broken, so the least is the basis.
-      content = content
-        .flex_full(1.0, 0.0, Some(SETTING_TEXT_LEAST))
-        .min_width(Dimension::Px(SETTING_TEXT_LEAST));
-      self.wraps = true;
-    }
     let mut children: Vec<Element> = Vec::new();
-    children.extend(leading.map(Into::into));
-    children.push(content.into());
+    // Where what is before the text stands apart from where the row stands its children, it stands with the text in a
+    // row of their own, which the row stands where it stands the text.
+    let text: Element = match (leading, self.leading_across()) {
+      (Some(leading), Some(across)) => {
+        let leading = if self.leading_align == LeadingAlign::FirstLine {
+          self.on_first_line(leading)
+        } else {
+          leading
+        };
+        let mut joined = Row::new()
+          .flex(1.0)
+          .min_width(Dimension::Px(0.0))
+          .align_items(across)
+          .child(leading)
+          .child(content);
+        if let Some(gap) = self.part(ListItemPart::Root).rest().gap {
+          joined = joined.spacing(gap);
+        }
+        self.setting_text(joined, trailing.is_some()).into()
+      }
+      (leading, _) => {
+        children.extend(leading.map(Into::into));
+        self.setting_text(content, trailing.is_some()).into()
+      }
+    };
+    children.push(text);
     children.extend(trailing.map(Into::into));
     let Some(below) = self.below() else {
       return self.root(children);
@@ -1076,7 +1200,7 @@ impl Themed for ListItem {
   fn recipe() -> Recipe {
     use ListItemPart::{
       Below, Chevron, Content, Description, DescriptionSkeleton, Detail, Icon, Info, Leading, Meta, Root, Tags, Title,
-      TitleSkeleton, Trailing, Value,
+      TitleLeading, TitleSkeleton, Trailing, Value,
     };
     use ListItemState::{Contained, Disabled, Pressable, Selected, Setting};
     let (two_lines, with_icon) = (ListItemState::Description, ListItemState::Icon);
@@ -1133,6 +1257,8 @@ impl Themed for ListItem {
       // bottom, 8 apart.
       .base(Tags, |s| s.padding_start(6.0).gap(6.0))
       .base(Info, |s| s.padding_start(6.0))
+      // lurq's: what is before the title on its line is 8 from it.
+      .base(TitleLeading, |s| s.padding_end(8.0))
       .base(Detail, |s| s.padding_top(2.0))
       // lurq's: a title's bone 140 by 12, a description's 220 by 10, each giving way in a narrower row.
       .base(TitleSkeleton, |s| s.width(140.0).height(12.0))

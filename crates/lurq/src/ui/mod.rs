@@ -403,7 +403,7 @@ pub use link_preview::{
   LinkPreviewVariant, LinkPreviewView,
 };
 pub use list_item::{
-  List, ListItem, ListItemPart, ListItemRenderer, ListItemState, ListItemView, ListPart, ListRenderer, ListState,
+  LeadingAlign, List, ListItem, ListItemPart, ListItemRenderer, ListItemState, ListItemView, ListPart, ListRenderer, ListState,
   ListView,
 };
 pub use listbox::{Listbox, ListboxOption, ListboxPart, ListboxRenderer, ListboxState, ListboxView};

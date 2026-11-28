@@ -1,6 +1,6 @@
 //! The page of the list and its items: its playground, the board's list of people, the contained list, settings
-//! rows with their values and switches, rows with tags, an (i), details and what they say under themselves, the rows
-//! under a finger, and the states of a row.
+//! rows with their values and switches, rows with tags, an (i), details and what they say under themselves, a dot by
+//! the title, the rows under a finger, and the states of a row.
 
 use std::sync::Arc;
 
@@ -8,15 +8,15 @@ use lurq::{
   app::{
     component::Component,
     ctx::Ctx,
-    theme::{Density, TypographyStyle},
+    theme::{Density, PaletteColor, TypographyStyle},
   },
   components::{Column, Row, TextOverflow},
   core::Signal,
   layout::Alignment,
   node::Element,
   ui::{
-    Avatar, Badge, Button, ButtonSize, ButtonVariant, Interaction, Length, Link, List, ListItem, ListPart, Switch, Tag,
-    icons,
+    Avatar, Badge, Button, ButtonSize, ButtonVariant, Interaction, LeadingAlign, Length, Link, List, ListItem,
+    ListPart, Switch, Tag, icons,
   },
 };
 
@@ -569,6 +569,31 @@ impl Component for ListPage {
           ),
       );
 
+    // A status dot by the title: before the row's text on the title's line, and on the title's line in the text.
+    let dot = |color: PaletteColor| Row::new().size(8.0, 8.0).rounded(4.0).background(color);
+    let dotted = List::new()
+      .contained(true)
+      .item(
+        ListItem::new("Use the address from your folder")
+          .leading(dot(PaletteColor::Success))
+          .leading_align(LeadingAlign::FirstLine)
+          .description(
+            "Read from the folder's own remote when the window opens, and kept until the folder is moved or its \
+             remote is changed",
+          ),
+      )
+      .item(
+        ListItem::new("Use the address from your folder")
+          .title_leading(dot(PaletteColor::Success))
+          .subtitle(
+            muted("git@github.com:team/kontur.git", TypographyStyle::Description)
+              .nowrap()
+              .text_overflow(TextOverflow::Elipsis)
+              .flex_shrink(1.0)
+              .min_width(0.0),
+          ),
+      );
+
     // Settings rows whose words are still read.
     let reading = List::new()
       .contained(true)
@@ -608,6 +633,20 @@ impl Component for ListPage {
         "false",
         "What is after the text stands at the top of the row, by the title, in place of its middle: a row that \
          grows under its title.",
+      ),
+      (
+        "leading_align",
+        "LeadingAlign",
+        "Center",
+        "Where what is before the text stands across a row whose text is taller than it: `Center`, `Top` (its top \
+         the title's) or `FirstLine` (in the middle of the title's line). With `trailing_at_top`, `Top` unless told.",
+      ),
+      (
+        "title_leading",
+        "impl Into<Element>",
+        "",
+        "An element on the title's line before the title, in the text's column (part title_leading, 8 from the \
+         title): what is under the title starts under it.",
       ),
       (
         "title_tooltip_when_cut",
@@ -805,6 +844,34 @@ impl Component for ListPage {
               "            .detail(chips)",
               "            .trailing_at_top(true)",
               "            .trailing(Button::new(\"Replace…\").variant(ButtonVariant::Outline).size(ButtonSize::Sm)),",
+              "    )",
+            ],
+          ),
+        ),
+        Section::new(
+          "A dot by the title",
+          "What stands before the text is in the middle of the row unless told: `leading_align(LeadingAlign::FirstLine)` \
+           keeps it on the title's line however many lines the description takes, and `Top` at the text's top. An \
+           element that belongs to the title alone goes on its line with `title_leading`, and what is under the title \
+           then starts under it.",
+          self.frame.demo(
+            7,
+            dotted,
+            ".leading_align(LeadingAlign::FirstLine) / .title_leading(dot)",
+            &[
+              "let dot = |color| Row::new().size(8.0, 8.0).rounded(4.0).background(color);",
+              "List::new()",
+              "    .contained(true)",
+              "    .item(",
+              "        ListItem::new(\"Use the address from your folder\")",
+              "            .leading(dot(PaletteColor::Success))",
+              "            .leading_align(LeadingAlign::FirstLine)",
+              "            .description(\"Read from the folder's own remote when the window opens, and kept until ..\"),",
+              "    )",
+              "    .item(",
+              "        ListItem::new(\"Use the address from your folder\")",
+              "            .title_leading(dot(PaletteColor::Success))",
+              "            .subtitle(muted(\"git@github.com:team/kontur.git\", ..).nowrap().text_overflow(TextOverflow::Elipsis)),",
               "    )",
             ],
           ),
