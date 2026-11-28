@@ -21,8 +21,8 @@ use lurq::{
   },
   node::color::Color,
   ui::{
-    Avatar, Case, List, ListItem, ListItemPart, ListItemRenderer, ListItemState, ListItemView, ListPart, Switch,
-    Themed, icons,
+    Avatar, Case, LeadingAlign, List, ListItem, ListItemPart, ListItemRenderer, ListItemState, ListItemView, ListPart,
+    Switch, Themed, icons,
   },
 };
 
@@ -767,5 +767,118 @@ fn what_is_at_the_end_stands_at_the_top_of_a_row_that_grows_under_its_title_wher
   assert!(
     end_y < top_y + top_height / 2.0 - end_height,
     "at the top: {end_y} in {top_y} {top_height}"
+  );
+}
+
+/// A row whose description wraps onto lines under its title, with a dot of 8 before its text aligned as `align` says.
+fn dotted(id: &'static str, dot: &'static str, align: Option<LeadingAlign>) -> ListItem {
+  let row = ListItem::new("Use the address from your folder")
+    .id(id)
+    .description(
+      "The remote of the folder's repository, read from its configuration when the window opens, and kept until the \
+       folder is moved or its remote is changed, long enough to wrap onto three lines",
+    )
+    .leading(Column::new().size(8.0, 8.0).id(dot));
+  match align {
+    Some(align) => row.leading_align(align),
+    None => row,
+  }
+}
+
+#[test]
+fn what_is_before_the_text_stands_in_the_middle_at_the_top_or_on_the_title_line_as_told() {
+  let mut stage = stage_of(|| {
+    List::new()
+      .item(dotted("middle", "middle-dot", None))
+      .item(dotted("top", "top-dot", Some(LeadingAlign::Top)))
+      .item(dotted("line", "line-dot", Some(LeadingAlign::FirstLine)))
+  });
+  let title = |stage: &mut Stage, id: &str| {
+    let row = stage.bounds(id);
+    let quads: Vec<Quad> = stage
+      .quads()
+      .into_iter()
+      .filter(|quad| {
+        matches!(&quad.content, QuadContent::Text { text, .. } if text == "Use the address from your folder")
+          && quad.y >= row.1
+          && quad.y < row.1 + row.3
+      })
+      .collect();
+    let quad = quads.first().expect("the title is painted").clone();
+    (quad.y, quad.height)
+  };
+
+  let (_, middle_y, _, middle_height) = stage.bounds("middle");
+  let (_, dot_y, ..) = stage.bounds("middle-dot");
+  assert!(middle_height > 70.0, "the description wraps: {middle_height}");
+  assert!(
+    ((dot_y + 4.0) - (middle_y + middle_height / 2.0)).abs() < 1.5,
+    "in the middle by default: {dot_y} in {middle_y} {middle_height}"
+  );
+
+  let (title_y, _) = title(&mut stage, "top");
+  let (_, dot_y, ..) = stage.bounds("top-dot");
+  assert!(
+    (dot_y - title_y).abs() < 1.5,
+    "at the title's top: {dot_y} by {title_y}"
+  );
+
+  let (title_y, title_height) = title(&mut stage, "line");
+  let (_, dot_y, ..) = stage.bounds("line-dot");
+  assert!(
+    ((dot_y + 4.0) - (title_y + title_height / 2.0)).abs() < 1.5,
+    "in the middle of the title's line: {dot_y} by {title_y} {title_height}"
+  );
+}
+
+#[test]
+fn what_is_before_the_title_on_its_line_has_what_is_under_it_start_under_it() {
+  let mut stage = stage_of(|| {
+    List::new()
+      .item(
+        ListItem::new("Use the address from your folder")
+          .id("title-dot")
+          .title_leading(Column::new().size(8.0, 8.0).id("dot"))
+          .subtitle(Text::new("git@github.com:team/kontur.git").id("path")),
+      )
+      .item(
+        ListItem::new("Use the address from your folder")
+          .id("leading-dot")
+          .leading(Column::new().size(8.0, 8.0).id("lead"))
+          .subtitle(Text::new("git@github.com:team/kontur.git").id("under-title")),
+      )
+  });
+  let (dot_x, dot_y, dot_width, _) = stage.bounds("dot");
+  let (path_x, path_y, ..) = stage.bounds("path");
+  assert!(
+    (path_x - dot_x).abs() < 0.5,
+    "the subtitle starts under the dot: {path_x} {dot_x}"
+  );
+  assert!(path_y > dot_y, "under it");
+  // The title is 8 after the dot, on its line.
+  let title = stage
+    .quads()
+    .into_iter()
+    .filter(
+      |quad| matches!(&quad.content, QuadContent::Text { text, .. } if text == "Use the address from your folder"),
+    )
+    .map(|quad| (quad.x, quad.y, quad.height))
+    .next()
+    .expect("the title");
+  assert!(
+    (title.0 - (dot_x + dot_width + 8.0)).abs() < 0.5,
+    "8 after the dot: {title:?}"
+  );
+  assert!(
+    dot_y > title.1 && dot_y + 8.0 < title.1 + title.2 + 0.5,
+    "on its line: {dot_y} {title:?}"
+  );
+
+  // Where the dot leads the row, what is under the title starts under the title.
+  let (lead_x, _, lead_width, _) = stage.bounds("lead");
+  let (under_x, ..) = stage.bounds("under-title");
+  assert!(
+    under_x >= lead_x + lead_width + 8.0,
+    "under the title: {under_x} {lead_x}"
   );
 }

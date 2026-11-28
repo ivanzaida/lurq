@@ -9,6 +9,34 @@ them says so. Decisions about phones and tablets are in [mobile-decisions.md](mo
 Each entry: **the question**, **the decision**, **why**, and its **state** (decided, in work on a branch, built,
 dropped). When a decision is replaced, the old entry stays and says what replaced it.
 
+## 2026-11-28
+
+### Back and forward with the focus outside the content; a list item's leading by its title, and a slot on the title's line
+
+- **Question.** Orchester met three gaps. A `NavigationCommand` with the focus on the window chrome's caption buttons,
+  or anywhere nothing on the way out from the focus has a handler, is taken by nothing, though the content has
+  `on_history_back` (issue #264). A `ListItem`'s leading element is always in the middle of the row, away from the
+  title of a row whose description wraps (#265). Nothing goes before the title inside the text's column, so what is
+  under the title cannot start under a status dot (#266).
+- **Decision (Ivan).** Do them in one PR.
+- **Decided by Claude in the work, to be confirmed.**
+  - *Where nothing on the way out from the focus takes the command, it goes on from the last element with a handler
+    for it*, as with nothing focused, before the routers elsewhere. It does so wherever the focus is, not only on the
+    chrome's buttons: those buttons are a layer of the window, outside the content, as a title bar's own buttons
+    are, and no rule tells them apart from any focus whose way out hears nothing. A handler on the way out from the
+    focus still comes first, and the origin the event names is still the focus.
+  - *`ListItem::leading_align(LeadingAlign)`*: `Center` (the default), `Top` (the leading's top is the text's) and
+    `FirstLine` (the leading is in the middle of the title's line, against an empty line in the title's type beside
+    it; what is taller than that line stands at the text's top). It is an enum, not a style: the engine's flex rows
+    have no `align_self`. Where the leading stands apart from the row's other children, the default renderer lays it
+    with the text in a row of their own, which the row aligns where it aligns the text: what is at the end stays in
+    the row's middle, or at its top under `trailing_at_top`. Under `trailing_at_top` the leading is `Top` unless told,
+    as before.
+  - *`ListItem::title_leading(element)`*, part `title_leading`, on the title's line before the title in the text's
+    column, 8 from the title (its end padding). What is under the title (a subtitle, the description, a detail)
+    starts under it. `leading` stays as it is.
+- **State.** Built on `feat/issues-264-266`.
+
 ## 2026-11-27
 
 ### A select's list plays its panel's enter and exit

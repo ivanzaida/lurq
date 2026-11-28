@@ -9,7 +9,8 @@
 //!    each element's `on_history_back` or `on_history_forward` handlers, where one whose handlers all pass it on
 //!    ([`HistoryEvent::pass_on`]) has done nothing; then the router mounted in that element, if any, where it can move.
 //!    The first that does something takes it. A pointer's command goes out from what is under the pointer first, then
-//!    from the focus.
+//!    from the focus; where nothing on the way out from the focus takes it, from the last element in the tree's order
+//!    with a handler for it, as with nothing focused (a focus on the window's caption buttons is outside the content).
 //! 2. With nothing on the way taking it, the routers mounted elsewhere in the window, the last in the tree's order
 //!    first (an inner one is after the one it is in), until one moves.
 
@@ -90,9 +91,12 @@ struct Step {
 }
 
 impl Tree {
-  /// Where the command starts in the part of the tree at `scope`: the focused element where it is in it, otherwise
-  /// the last element in it that has a handler for `command`, or the part itself.
-  fn start_in(&self, root: &Node, scope: Vec<usize>, command: NavigationCommand) -> Vec<usize> {
+  /// Where the command starts in the part of the tree at `scope`, in order: the focused element where it is in it,
+  /// then the last element in it that has a handler for `command`, or else the part itself. What is on the way out
+  /// from the focus is asked first; where nothing there takes it, the window's own handlers are, as with nothing
+  /// focused: a focus outside the content, on the window's caption buttons or its title bar, finds them too.
+  fn start_in(&self, root: &Node, scope: Vec<usize>, command: NavigationCommand) -> Vec<Vec<usize>> {
+    let mut starts = Vec::new();
     let focused = self
       .focused_path
       .clone()
@@ -101,15 +105,23 @@ impl Tree {
       && focused.starts_with(&scope)
       && find_node_by_path(root, &focused).is_some()
     {
-      return focused;
+      starts.push(focused);
     }
     let Some(part) = find_node_by_path(root, &scope) else {
-      return Vec::new();
+      if starts.is_empty() {
+        starts.push(Vec::new());
+      }
+      return starts;
     };
     let mut found = None;
     let mut path = scope.clone();
     last_hearing(part, command, &mut path, &mut found);
-    found.unwrap_or(scope)
+    match found {
+      Some(found) => starts.push(found),
+      None if starts.is_empty() => starts.push(scope),
+      None => {}
+    }
+    starts
   }
 
   /// The path of the innermost element under `(x, y)`, logical.
@@ -133,10 +145,10 @@ impl Tree {
     };
     let mut paths = Vec::new();
     match origin {
-      NavigationOrigin::Focus => paths.push(self.start_in(root, Vec::new(), command)),
+      NavigationOrigin::Focus => paths.extend(self.start_in(root, Vec::new(), command)),
       NavigationOrigin::Point(x, y) => {
         paths.extend(self.path_under(root, *x, *y));
-        paths.push(self.start_in(root, Vec::new(), command));
+        paths.extend(self.start_in(root, Vec::new(), command));
       }
       NavigationOrigin::Part(part) => {
         let mut path = Vec::new();
@@ -145,7 +157,7 @@ impl Tree {
         } else {
           Vec::new()
         };
-        paths.push(self.start_in(root, scope, command));
+        paths.extend(self.start_in(root, scope, command));
       }
     }
     // What is on the way is taken from the tree first: a handler that changes the app's state runs with nothing
